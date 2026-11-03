@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'jar_bridge.dart';
 
-enum TvboxSiteKind { jar, api, py }
+enum TvboxSiteKind { jar, api, py, xbpq }
 
 class TvboxSiteSpec {
   const TvboxSiteSpec({
@@ -101,7 +101,14 @@ TvboxConfigParse parseTvboxConfig(dynamic decoded) {
     }
     final ext = _extString(entry['ext']);
     if (api == 'csp_XBPQ') {
-      skipped.add('$display：XBPQ 规则站暂不支持，已跳过');
+      sites.add(
+        TvboxSiteSpec(
+          key: _slug(key.isEmpty ? name : key, i),
+          name: display,
+          kind: TvboxSiteKind.xbpq,
+          ext: ext,
+        ),
+      );
       continue;
     }
     if (api.startsWith('csp_')) {

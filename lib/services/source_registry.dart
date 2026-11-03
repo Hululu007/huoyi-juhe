@@ -13,6 +13,7 @@ import 'jar_bridge.dart';
 import 'js_bridge.dart';
 import 'py_bridge.dart';
 import 'tvbox_config.dart';
+import 'xbpq_content.dart';
 
 enum SourceKind {
   builtinDrama,
@@ -21,6 +22,7 @@ enum SourceKind {
   pyImport,
   jsImport,
   jarImport,
+  xbpqImport,
 }
 
 extension SourceKindLabel on SourceKind {
@@ -31,6 +33,7 @@ extension SourceKindLabel on SourceKind {
     SourceKind.pyImport => 'Python 导入',
     SourceKind.jsImport => 'JS 导入',
     SourceKind.jarImport => 'Jar 导入',
+    SourceKind.xbpqImport => 'XBPQ 规则',
   };
 }
 
@@ -198,7 +201,8 @@ class SourceRegistry {
         if (entry.kind == SourceKind.customMaccms ||
             entry.kind == SourceKind.pyImport ||
             entry.kind == SourceKind.jarImport ||
-            entry.kind == SourceKind.jsImport)
+            entry.kind == SourceKind.jsImport ||
+            entry.kind == SourceKind.xbpqImport)
           DramaSite(entry.id, entry.name, [
             const DramaSiteCategory('all', '全部'),
           ]),
@@ -242,7 +246,8 @@ class SourceRegistry {
       if (entry.kind != SourceKind.customMaccms &&
           entry.kind != SourceKind.pyImport &&
           entry.kind != SourceKind.jarImport &&
-          entry.kind != SourceKind.jsImport) {
+          entry.kind != SourceKind.jsImport &&
+          entry.kind != SourceKind.xbpqImport) {
         continue;
       }
       sites.add(
@@ -349,6 +354,52 @@ class SourceRegistry {
     final children = <SourceEntry>[];
     for (final site in parsed.sites) {
       switch (site.kind) {
+        case TvboxSiteKind.xbpq:
+          try {
+            var ruleText = site.ext.trim();
+            if (ruleText.toLowerCase().startsWith('http')) {
+              final ruleResponse = await http
+                  .get(Uri.parse(ruleText))
+                  .timeout(const Duration(seconds: 20));
+              if (ruleResponse.statusCode != 200) {
+                throw StateError('HTTP ${ruleResponse.statusCode}');
+              }
+              ruleText = utf8.decode(
+                ruleResponse.bodyBytes,
+                allowMalformed: true,
+              );
+            }
+            final decoded = jsonDecode(ruleText);
+            if (decoded is! Map<String, dynamic>) {
+              throw StateError('规则不是 JSON 对象');
+            }
+            final rule = XbpqRule(decoded);
+            if (rule.base.isEmpty && rule.cateUrl.isEmpty) {
+              throw StateError('规则缺少主页地址与分类地址');
+            }
+            final id = childId(site.key);
+            final directory = await getApplicationSupportDirectory();
+            final dir = Directory('${directory.path}/imported_xbpq');
+            if (!await dir.exists()) await dir.create(recursive: true);
+            final file = File('${dir.path}/$id.json');
+            await file.writeAsString(ruleText);
+            children.add(
+              SourceEntry(
+                id: id,
+                name: site.name,
+                kind: SourceKind.xbpqImport,
+                address: '$id.json',
+                detail: '来自远程配置',
+                extra: {
+                  'path': file.path,
+                  'remoteConfigId': configId,
+                  'contentType': 'video',
+                },
+              ),
+            );
+          } catch (error) {
+            skipped.add('${site.name}：XBPQ 规则无效（$error），已跳过');
+          }
         case TvboxSiteKind.jar:
           children.add(
             SourceEntry(
@@ -564,6 +615,44 @@ class SourceRegistry {
     return entry;
   }
 
+  Future<SourceEntry> addXbpqImport(
+    String name,
+    String ruleJson, {
+    ContentType contentType = ContentType.mixed,
+  }) async {
+    await load();
+    final text = ruleJson.trim();
+    if (text.isEmpty) {
+      throw StateError('XBPQ 规则 JSON 不能为空');
+    }
+    final decoded = jsonDecode(text);
+    if (decoded is! Map<String, dynamic>) {
+      throw StateError('XBPQ 规则必须是单个 JSON 对象');
+    }
+    final rule = XbpqRule(decoded);
+    if (rule.base.isEmpty && rule.cateUrl.isEmpty) {
+      throw StateError('XBPQ 规则缺少主页地址与分类地址，无法使用');
+    }
+    final id = 'import_${DateTime.now().millisecondsSinceEpoch}';
+    final directory = await getApplicationSupportDirectory();
+    final dir = Directory('${directory.path}/imported_xbpq');
+    if (!await dir.exists()) await dir.create(recursive: true);
+    final file = File('${dir.path}/$id.json');
+    await file.writeAsString(text);
+    final entry = SourceEntry(
+      id: id,
+      name: name.trim().isEmpty ? '$id.json' : name.trim(),
+      kind: SourceKind.xbpqImport,
+      address: '$id.json',
+      detail: 'XBPQ 规则 · 已导入',
+      extra: {'path': file.path, 'contentType': contentType.key},
+    );
+    _custom = [..._custom, entry];
+    _registerCustomSites();
+    await _persist();
+    return entry;
+  }
+
   Future<void> removeCustom(String id) async {
     await load();
     final removed = customById(id);
@@ -630,6 +719,15 @@ class SourceRegistry {
         final file = File(path);
         if (!await file.exists()) return null;
         return JsSiteContentClient(await file.readAsString());
+      }
+      if (custom.kind == SourceKind.xbpqImport) {
+        final path = custom.extra['path'] as String? ?? '';
+        if (path.isEmpty) return null;
+        final file = File(path);
+        if (!await file.exists()) return null;
+        final decoded = jsonDecode(await file.readAsString());
+        if (decoded is! Map<String, dynamic>) return null;
+        return XbpqContentClient(siteId, decoded);
       }
       if (custom.kind == SourceKind.jarImport) {
         final className = custom.extra['className'] as String? ?? '';

@@ -168,6 +168,10 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
                       value: SourceKind.jsImport,
                       child: Text('JS（粘贴源码，引擎直跑）'),
                     ),
+                    DropdownMenuItem(
+                      value: SourceKind.xbpqImport,
+                      child: Text('XBPQ（粘贴规则 JSON，声明式解析）'),
+                    ),
                   ],
                   onChanged: (value) {
                     if (value != null) setDialogState(() => kind = value);
@@ -244,6 +248,15 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
                       hintText: '粘贴 .js 文件全文，含 homeContent 等方法',
                     ),
                   ),
+                if (kind == SourceKind.xbpqImport)
+                  TextField(
+                    controller: sourceController,
+                    maxLines: 8,
+                    decoration: const InputDecoration(
+                      labelText: 'XBPQ 规则',
+                      hintText: '粘贴规则 JSON 全文，含主页地址、分类、数组等字段',
+                    ),
+                  ),
                 const Text(
                   '引擎仅支持 Android；其他平台导入后暂不可播放。',
                   style: TextStyle(fontSize: 12, color: Colors.grey),
@@ -279,6 +292,12 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
           classController.text,
           md5Controller.text,
           extController.text,
+          contentType: contentType,
+        );
+      } else if (kind == SourceKind.xbpqImport) {
+        await SourceRegistry.instance.addXbpqImport(
+          nameController.text,
+          sourceController.text,
           contentType: contentType,
         );
       } else {
@@ -338,7 +357,7 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                   child: OutlinedButton(
                     onPressed: _addImportDialog,
-                    child: const Text('导入 Python / Jar / JS 蜘蛛'),
+                    child: const Text('导入 Python / Jar / JS / XBPQ'),
                   ),
                 ),
               ],

@@ -79,6 +79,7 @@ List<SourceEntry> engineSwitchCandidates(
           (entry.kind == SourceKind.pyImport ||
               entry.kind == SourceKind.jarImport ||
               entry.kind == SourceKind.jsImport ||
+              entry.kind == SourceKind.xbpqImport ||
               entry.extra['remoteConfigId'] != null))
         entry,
   ];

@@ -38,7 +38,8 @@ class _VideoPageState extends State<VideoPage> {
         if ((entry.kind == SourceKind.customMaccms ||
                 entry.kind == SourceKind.pyImport ||
                 entry.kind == SourceKind.jarImport ||
-                entry.kind == SourceKind.jsImport) &&
+                entry.kind == SourceKind.jsImport ||
+                entry.kind == SourceKind.xbpqImport) &&
             entry.enabled &&
             (entry.contentType == ContentType.video ||
                 entry.contentType == ContentType.mixed))
