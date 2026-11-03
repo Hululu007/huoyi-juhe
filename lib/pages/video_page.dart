@@ -35,7 +35,12 @@ class _VideoPageState extends State<VideoPage> {
     final registry = SourceRegistry.instance;
     return [
       for (final entry in registry.custom)
-        if (entry.kind == SourceKind.customMaccms && entry.enabled) entry,
+        if ((entry.kind == SourceKind.customMaccms ||
+                entry.kind == SourceKind.pyImport ||
+                entry.kind == SourceKind.jarImport ||
+                entry.kind == SourceKind.jsImport) &&
+            entry.enabled)
+          entry,
     ];
   }
 
@@ -51,13 +56,7 @@ class _VideoPageState extends State<VideoPage> {
       for (final entry in SourceRegistry.instance.custom)
         if (entry.kind == SourceKind.remoteJson && entry.enabled) entry,
     ];
-    final imports = [
-      for (final entry in SourceRegistry.instance.custom)
-        if ((entry.kind == SourceKind.pyImport ||
-                entry.kind == SourceKind.jsImport) &&
-            entry.enabled)
-          entry,
-    ];
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('影视'),
@@ -105,8 +104,7 @@ class _VideoPageState extends State<VideoPage> {
                     padding: EdgeInsets.all(16),
                     child: Text(
                       '暂无可播放的影视站源。去站源管理添加 MacCMS 站点，'
-                      '或导入远程 JSON 配置与 Python 站点（导入的执行引擎'
-                      '尚未接入，见站源管理页说明）。',
+                      '或导入 Python / Jar / JS 蜘蛛（引擎仅支持 Android）。',
                     ),
                   ),
                 )
@@ -128,17 +126,7 @@ class _VideoPageState extends State<VideoPage> {
                     ),
                   ),
                 ),
-              if (imports.isNotEmpty)
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                    child: Text(
-                      '导入记录（执行引擎尚未接入，暂不可播放）：'
-                      '${imports.map((e) => e.name).join('、')}',
-                      style: const TextStyle(fontSize: 13),
-                    ),
-                  ),
-                ),
+
             ],
           );
         },
