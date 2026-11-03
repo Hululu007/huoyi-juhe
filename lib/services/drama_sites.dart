@@ -48,7 +48,7 @@ const dramaSites = [
   DramaSite('huangju', '剧果'),
   DramaSite('yeguo', '野果'),
   DramaSite('yaguo', '芽果'),
-  DramaSite('maoguo', '猫果'),
+  DramaSite('maoguo', '猫果', [DramaSiteCategory('0', '推荐')]),
   DramaSite('fanguo', '饭果', [
     DramaSiteCategory('都市', '都市'),
     DramaSiteCategory('甜宠', '甜宠'),
@@ -71,7 +71,13 @@ const dramaSites = [
     DramaSiteCategory('1147', '总裁'),
     DramaSiteCategory('943', '职场商战'),
   ]),
-  DramaSite('xingguo', '星果'),
+  DramaSite('xingguo', '星果', [
+    DramaSiteCategory('1287', '推荐一'),
+    DramaSiteCategory('1288', '推荐二'),
+    DramaSiteCategory('1289', '推荐三'),
+    DramaSiteCategory('1290', '推荐四'),
+    DramaSiteCategory('1291', '推荐五'),
+  ]),
   DramaSite('huaguo', '花果'),
   DramaSite('niuguo', '牛果'),
   DramaSite('wangguo', '网果'),

@@ -136,6 +136,62 @@ void main() {
     );
   });
 
+  test('星果列表与详情解析：资源编号取卡片，章节嵌套直链成选集', () {
+    final items = XingguoContentClient.parseCatalog({
+      'data': {
+        'datalist': [
+          {
+            'id': '555',
+            'name': '星果测试剧',
+            'icon': 'https://example.test/xingguo.jpg',
+            'chapterCount': 40,
+            'introduction': '简介',
+          },
+        ],
+      },
+    });
+    expect(items.first.id, '555@简介');
+    expect(items.first.remark, '共40集');
+    final detail = XingguoContentClient.parseDetail({
+      'data': [
+        {
+          'chapterNum': 1,
+          'shortPlayList': [
+            {'playUrl': 'https://example.test/x1.mp4'},
+          ],
+        },
+      ],
+    }, '555@简介');
+    expect(detail.episodes.first.videoId, 'https://example.test/x1.mp4');
+  });
+
+  test('猫果列表与详情解析：data.list 成卡片，play_list 直链成选集', () {
+    final items = MaoguoContentClient.parseCatalog({
+      'data': {
+        'list': [
+          {
+            'playlet_id': '888',
+            'title': '猫果测试剧',
+            'image_link': 'https://example.test/maoguo.jpg',
+            'total_episode_num': 70,
+          },
+        ],
+      },
+    });
+    expect(items.first.id, '888');
+    expect(items.first.remark, '共70集');
+    final detail = MaoguoContentClient.parseDetail({
+      'data': {
+        'title': '猫果测试剧',
+        'image_link': 'https://example.test/maoguo.jpg',
+        'play_list': [
+          {'sort': 1, 'video_url': 'https://example.test/m1.mp4'},
+        ],
+      },
+    }, '888');
+    expect(detail.episodes.first.videoId, 'https://example.test/m1.mp4');
+  });
+
   test('红果镜像详情解析：router 数据里的 vid_list 成选集', () {
     final detail = HgtvMirrorContentClient.parseDetail(
       '<html><script>window._ROUTER_DATA = {"loaderData":{"detail_page":{"seriesDetail":{"series_id":"123","series_title":"测试剧","series_cover":"https://example.test/cover.jpg","vid_list":["111","222","111"]}}}};</script></html>',

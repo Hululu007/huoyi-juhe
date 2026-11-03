@@ -1136,11 +1136,436 @@ class HeguoContentClient implements DramaSiteContentClient {
   }
 }
 
+/// 星果：多多接口站，分类是资源编号，详情直接给每集播放直链。
+class XingguoContentClient implements DramaSiteContentClient {
+  static const baseUrl = 'https://read.api.duodutek.com';
+  static const _productId = '2a8c14d1-72e7-498b-af23-381028eb47c0';
+  static const _vestId = '2be070e0-c824-4d0e-a67a-8f688890cadb';
+  static const _token = '202509271001001446030204698626';
+
+  final http.Client _client;
+
+  XingguoContentClient([http.Client? client])
+    : _client = client ?? http.Client();
+
+  static Map<String, String> _query(Map<String, String> extra) {
+    return {
+      'productId': _productId,
+      'vestId': _vestId,
+      'channel': 'oppo19',
+      'osType': 'android',
+      'version': '20',
+      'token': _token,
+      ...extra,
+    };
+  }
+
+  static String _episodeUrl(Map<String, dynamic> node) {
+    final direct = _firstString(node, ['shortPlayUrl', 'playUrl', 'url']);
+    if (direct.isNotEmpty) return direct;
+    for (final key in ['shortPlayList', 'chapterShortPlayVoList']) {
+      final list = node[key];
+      if (list is! List) continue;
+      for (final entry in list) {
+        final url = _episodeUrl(_asMap(entry));
+        if (url.isNotEmpty) return url;
+      }
+    }
+    return '';
+  }
+
+  static List<DramaSiteItem> parseCatalog(Map<String, dynamic> response) {
+    final data = _asMap(response['data']);
+    final rows = data['datalist'];
+    if (rows is! List) return const [];
+    final items = <DramaSiteItem>[];
+    for (final entry in rows) {
+      final node = _asMap(entry);
+      final id = _firstString(node, ['id', 'bookId']);
+      if (id.isEmpty) continue;
+      final title = _firstString(node, ['name', 'title']);
+      if (title.isEmpty) continue;
+      var sourceKey = id;
+      final intro = _firstString(node, ['introduction']);
+      if (intro.isNotEmpty) sourceKey = '$id@$intro';
+      final count = _firstInt(node, ['chapterCount', 'total']);
+      items.add(
+        DramaSiteItem(
+          id: sourceKey,
+          title: title,
+          cover: _firstString(node, ['icon', 'cover']),
+          remark: count > 0 ? '共$count集' : '',
+        ),
+      );
+    }
+    return items;
+  }
+
+  static DramaSiteDetail parseDetail(
+    Map<String, dynamic> response,
+    String seriesId,
+  ) {
+    final rows = response['data'];
+    if (rows is! List) {
+      throw StateError('星果未返回可播放分集');
+    }
+    final indexed = <({int number, DramaSiteEpisode episode})>[];
+    for (var i = 0; i < rows.length; i++) {
+      final node = _asMap(rows[i]);
+      final url = _episodeUrl(node);
+      if (url.isEmpty) continue;
+      var number = _firstInt(node, ['chapterNum', 'sort', 'index']);
+      if (number <= 0) number = i + 1;
+      indexed.add((
+        number: number,
+        episode: DramaSiteEpisode(
+          videoId: url,
+          title: '第$number集',
+          seriesId: seriesId,
+        ),
+      ));
+    }
+    if (indexed.isEmpty) {
+      throw StateError('星果未返回可播放分集');
+    }
+    indexed.sort((a, b) => a.number.compareTo(b.number));
+    return DramaSiteDetail(
+      id: seriesId,
+      title: '',
+      cover: '',
+      episodes: [for (final entry in indexed) entry.episode],
+    );
+  }
+
+  @override
+  Future<List<DramaSiteCategory>> categories() async => const [
+    DramaSiteCategory('1287', '推荐一'),
+    DramaSiteCategory('1288', '推荐二'),
+    DramaSiteCategory('1289', '推荐三'),
+    DramaSiteCategory('1290', '推荐四'),
+    DramaSiteCategory('1291', '推荐五'),
+  ];
+
+  @override
+  Future<DramaSiteCatalogPage> catalog(String categoryId, int page) async {
+    final resourceId = categoryId.isEmpty ? '1287' : categoryId;
+    final uri = Uri.parse(
+      '$baseUrl/novel-api/app/pageModel/getResourceById',
+    ).replace(
+      queryParameters: _query({
+        'resourceId': resourceId,
+        'pageNum': '${page < 1 ? 1 : page}',
+        'pageSize': '10',
+      }),
+    );
+    final response = await _client.get(
+      uri,
+      headers: {'Referer': '$baseUrl/'},
+    );
+    if (response.statusCode != 200) {
+      throw StateError('星果列表 HTTP ${response.statusCode}');
+    }
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw StateError('星果列表数据格式无法识别');
+    }
+    final items = parseCatalog(decoded);
+    return DramaSiteCatalogPage(items: items, hasMore: items.length >= 10);
+  }
+
+  @override
+  Future<DramaSiteDetail> detail(String seriesId) async {
+    final bookId = seriesId.contains('@')
+        ? seriesId.substring(0, seriesId.indexOf('@'))
+        : seriesId;
+    final uri = Uri.parse(
+      '$baseUrl/novel-api/basedata/book/getChapterList',
+    ).replace(queryParameters: _query({'bookId': bookId}));
+    final response = await _client.get(
+      uri,
+      headers: {'Referer': '$baseUrl/'},
+    );
+    if (response.statusCode != 200) {
+      throw StateError('星果详情 HTTP ${response.statusCode}');
+    }
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw StateError('星果详情数据格式无法识别');
+    }
+    return parseDetail(decoded, seriesId);
+  }
+
+  @override
+  Future<DramaPlaySource> playSource(DramaSiteEpisode episode) async {
+    if (episode.videoId.startsWith('http')) {
+      return DramaPlaySource(url: episode.videoId);
+    }
+    throw StateError('星果该集没有播放地址');
+  }
+}
+
+/// 猫果：七猫接口站，请求头要带 qm-params（JSON 经字符映射的
+/// Base64）与签名字段，分类从标签接口取、取不到时只留推荐。
+class MaoguoContentClient implements DramaSiteContentClient {
+  static const baseUrl = 'https://api-store.qmplaylet.com';
+  static const readUrl = 'https://api-read.qmplaylet.com';
+  static const _key = 'd3dGiJc651gSQ8w1';
+
+  static const _charMap = {
+    '+': 'P', '/': 'X', '0': 'M', '1': 'U', '2': 'l', '3': 'E', '4': 'r',
+    '5': 'Y', '6': 'W', '7': 'b', '8': 'd', '9': 'J', 'A': '9', 'B': 's',
+    'C': 'a', 'D': 'I', 'E': '0', 'F': 'o', 'G': 'y', 'H': '_', 'I': 'H',
+    'J': 'G', 'K': 'i', 'L': 't', 'M': 'g', 'N': 'N', 'O': 'A', 'P': '8',
+    'Q': 'F', 'R': 'k', 'S': '3', 'T': 'h', 'U': 'f', 'V': 'R', 'W': 'q',
+    'X': 'C', 'Y': '4', 'Z': 'p', 'a': 'm', 'b': 'B', 'c': 'O', 'd': 'u',
+    'e': 'c', 'f': '6', 'g': 'K', 'h': 'x', 'i': '5', 'j': 'T', 'k': '-',
+    'l': '2', 'm': 'z', 'n': 'S', 'o': 'Z', 'p': '1', 'q': 'V', 'r': 'v',
+    's': 'j', 't': 'Q', 'u': '7', 'v': 'D', 'w': 'w', 'x': 'n', 'y': 'L',
+    'z': 'e',
+  };
+
+  final http.Client _client;
+
+  MaoguoContentClient([http.Client? client])
+    : _client = client ?? http.Client();
+
+  static Map<String, String> _headers() {
+    final session = DateTime.now().millisecondsSinceEpoch.toString();
+    final payload = jsonEncode({
+      'static_score': '0.8',
+      'uuid': '00000000-7fc7-08dc-0000-000000000000',
+      'device-id': '20250220125449b9b8cac84c2dd3d035c9052a2572f7dd0122edde3cc42a70',
+      'mac': '',
+      'sourceuid': 'aa7de295aad621a6',
+      'refresh-type': '0',
+      'model': '22021211RC',
+      'wlb-imei': '',
+      'client-id': 'aa7de295aad621a6',
+      'brand': 'Redmi',
+      'oaid': '',
+      'oaid-no-cache': '',
+      'sys-ver': '12',
+      'trusted-id': '',
+      'phone-level': 'H',
+      'imei': '',
+      'wlb-uid': 'aa7de295aad621a6',
+      'session-id': session,
+    });
+    final base = base64Encode(utf8.encode(payload));
+    final mapped = StringBuffer();
+    for (var i = 0; i < base.length; i++) {
+      mapped.write(_charMap[base[i]] ?? base[i]);
+    }
+    final qmParams = mapped.toString();
+    final sign = md5
+        .convert(
+          utf8.encode(
+            'AUTHORIZATION=app-version=10001application-id=com.duoduo.readchannel=unknownis-white=net-env=5platform=androidqm-params=${qmParams}reg=$_key',
+          ),
+        )
+        .toString();
+    return {
+      'net-env': '5',
+      'reg': '',
+      'channel': 'unknown',
+      'is-white': '',
+      'platform': 'android',
+      'application-id': 'com.duoduo.read',
+      'authorization': '',
+      'app-version': '10001',
+      'user-agent': 'webviewversion/0',
+      'qm-params': qmParams,
+      'sign': sign,
+      'Accept': 'application/json',
+      'X-Requested-With': 'com.duoduo.read',
+    };
+  }
+
+  static String _sign(String raw) =>
+      md5.convert(utf8.encode(raw)).toString();
+
+  static List<DramaSiteItem> parseCatalog(Map<String, dynamic> response) {
+    final data = _asMap(response['data']);
+    final rows = data['list'];
+    if (rows is! List) return const [];
+    final items = <DramaSiteItem>[];
+    for (final entry in rows) {
+      final node = _asMap(entry);
+      final id = _firstString(node, ['playlet_id', 'playletId', 'id']);
+      if (id.isEmpty) continue;
+      final title = _firstString(node, ['title', 'playlet_name', 'name']);
+      if (title.isEmpty) continue;
+      final count = _firstInt(node, [
+        'total_episode_num',
+        'totalEpisodeNum',
+        'total',
+      ]);
+      items.add(
+        DramaSiteItem(
+          id: id,
+          title: title,
+          cover: _firstString(node, [
+            'image_link',
+            'imageLink',
+            'cover',
+            'cover_url',
+          ]),
+          remark: count > 0 ? '共$count集' : '',
+        ),
+      );
+    }
+    return items;
+  }
+
+  static DramaSiteDetail parseDetail(
+    Map<String, dynamic> response,
+    String seriesId,
+  ) {
+    final data = _asMap(response['data']);
+    if (data.isEmpty) {
+      throw StateError('猫果未返回剧集资料');
+    }
+    final title = _firstString(data, ['title', 'playlet_name', 'name']);
+    final cover = _firstString(data, [
+      'image_link',
+      'imageLink',
+      'cover',
+      'cover_url',
+    ]);
+    final rawList = data['play_list'];
+    if (rawList is! List) {
+      throw StateError('猫果未返回可播放分集');
+    }
+    final indexed = <({int number, DramaSiteEpisode episode})>[];
+    for (var i = 0; i < rawList.length; i++) {
+      final node = _asMap(rawList[i]);
+      final url = _firstString(node, ['video_url', 'videoUrl', 'url']);
+      if (url.isEmpty) continue;
+      var number = _firstInt(node, ['sort', 'episode', 'index']);
+      if (number <= 0) number = i + 1;
+      final nodeTitle = _firstString(node, ['title', 'name']);
+      indexed.add((
+        number: number,
+        episode: DramaSiteEpisode(
+          videoId: url,
+          title: nodeTitle.isNotEmpty ? nodeTitle : '第$number集',
+          seriesId: seriesId,
+        ),
+      ));
+    }
+    if (indexed.isEmpty) {
+      throw StateError('猫果未返回可播放分集');
+    }
+    indexed.sort((a, b) => a.number.compareTo(b.number));
+    return DramaSiteDetail(
+      id: seriesId,
+      title: title,
+      cover: cover,
+      episodes: [for (final entry in indexed) entry.episode],
+    );
+  }
+
+  @override
+  Future<List<DramaSiteCategory>> categories() async {
+    try {
+      final sign = _sign('operation=1$_key');
+      final uri = Uri.parse('$baseUrl/api/v1/playlet/tag/list').replace(
+        queryParameters: {'operation': '1', 'sign': sign},
+      );
+      final response = await _client.get(uri, headers: _headers());
+      if (response.statusCode != 200) {
+        return const [DramaSiteCategory('0', '推荐')];
+      }
+      final decoded = jsonDecode(response.body);
+      if (decoded is! Map<String, dynamic>) {
+        return const [DramaSiteCategory('0', '推荐')];
+      }
+      final data = _asMap(decoded['data']);
+      final rows = data['list'];
+      if (rows is! List) return const [DramaSiteCategory('0', '推荐')];
+      final categories = <DramaSiteCategory>[];
+      for (final entry in rows) {
+        final node = _asMap(entry);
+        final id = _firstString(node, ['tag_id', 'id']);
+        final name = _firstString(node, ['tag_name', 'name', 'title']);
+        if (id.isEmpty || name.isEmpty || name.runes.length > 24) continue;
+        categories.add(DramaSiteCategory(id, name));
+      }
+      if (categories.isEmpty) return const [DramaSiteCategory('0', '推荐')];
+      return categories;
+    } catch (_) {
+      return const [DramaSiteCategory('0', '推荐')];
+    }
+  }
+
+  @override
+  Future<DramaSiteCatalogPage> catalog(String categoryId, int page) async {
+    var tagId = categoryId;
+    if (tagId.isEmpty || int.tryParse(tagId) == null) tagId = '0';
+    final query = <String, String>{
+      'tag_id': tagId,
+      'playlet_privacy': '1',
+      'operation': '1',
+    };
+    String signRaw;
+    if (page > 1) {
+      query['next_id'] = '$page';
+      signRaw = 'next_id=${page}operation=1playlet_privacy=1tag_id=$tagId$_key';
+    } else {
+      signRaw = 'operation=1playlet_privacy=1tag_id=$tagId$_key';
+    }
+    query['sign'] = _sign(signRaw);
+    final uri = Uri.parse('$baseUrl/api/v1/playlet/index').replace(
+      queryParameters: query,
+    );
+    final response = await _client.get(uri, headers: _headers());
+    if (response.statusCode != 200) {
+      throw StateError('猫果列表 HTTP ${response.statusCode}');
+    }
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw StateError('猫果列表数据格式无法识别');
+    }
+    final items = parseCatalog(decoded);
+    return DramaSiteCatalogPage(
+      items: items,
+      hasMore: page > 1 ? items.isNotEmpty : false,
+    );
+  }
+
+  @override
+  Future<DramaSiteDetail> detail(String seriesId) async {
+    final sign = _sign('playlet_id=$seriesId$_key');
+    final uri = Uri.parse('$readUrl/player/api/v1/playlet/info').replace(
+      queryParameters: {'playlet_id': seriesId, 'sign': sign},
+    );
+    final response = await _client.get(uri, headers: _headers());
+    if (response.statusCode != 200) {
+      throw StateError('猫果详情 HTTP ${response.statusCode}');
+    }
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw StateError('猫果详情数据格式无法识别');
+    }
+    return parseDetail(decoded, seriesId);
+  }
+
+  @override
+  Future<DramaPlaySource> playSource(DramaSiteEpisode episode) async {
+    if (episode.videoId.startsWith('http')) {
+      return DramaPlaySource(url: episode.videoId);
+    }
+    throw StateError('猫果该集没有播放地址');
+  }
+}
+
 DramaSiteContentClient? dramaSiteContentClient(String siteId) {
   if (siteId == 'hgtvmirror') return HgtvMirrorContentClient();
   if (siteId == 'hongguo') return HongguoContentClient();
   if (siteId == 'fanguo') return FanguoContentClient();
   if (siteId == 'guanguo') return GuanguoContentClient();
   if (siteId == 'heguo') return HeguoContentClient();
+  if (siteId == 'xingguo') return XingguoContentClient();
+  if (siteId == 'maoguo') return MaoguoContentClient();
   return null;
 }
