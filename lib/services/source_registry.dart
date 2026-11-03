@@ -12,6 +12,7 @@ import 'engine_site_content.dart';
 import 'jar_bridge.dart';
 import 'js_bridge.dart';
 import 'py_bridge.dart';
+import 'tvbox_config.dart';
 
 enum SourceKind {
   builtinDrama,
@@ -282,23 +283,107 @@ class SourceRegistry {
       throw StateError('远程 JSON 拉取失败：HTTP ${response.statusCode}');
     }
     final decoded = jsonDecode(response.body);
-    final names = parseRemoteJsonSiteNames(decoded);
-    if (names.isEmpty) {
-      throw StateError('远程 JSON 里没有可识别的站点列表');
+    final parsed = parseTvboxConfig(decoded);
+    if (parsed.sites.isEmpty) {
+      throw StateError('远程配置里没有可展开的站点');
+    }
+    final configId = customIdForUrl(trimmed);
+    final skipped = [...parsed.skipped];
+    _custom = [
+      for (final existing in _custom)
+        if (existing.extra['remoteConfigId'] != configId &&
+            existing.id != configId)
+          existing,
+    ];
+    final usedIds = <String>{};
+    String childId(String slug) {
+      var id = '${configId}_$slug';
+      var suffix = 2;
+      while (usedIds.contains(id)) {
+        id = '${configId}_${slug}_$suffix';
+        suffix++;
+      }
+      usedIds.add(id);
+      return id;
+    }
+
+    final children = <SourceEntry>[];
+    for (final site in parsed.sites) {
+      switch (site.kind) {
+        case TvboxSiteKind.jar:
+          children.add(
+            SourceEntry(
+              id: childId(site.key),
+              name: site.name,
+              kind: SourceKind.jarImport,
+              address: site.jarUrl,
+              detail: '来自远程配置',
+              extra: {
+                'configId': configId,
+                'className': site.className,
+                'jarUrl': site.jarUrl,
+                'md5': site.md5,
+                'ext': site.ext,
+                'remoteConfigId': configId,
+              },
+            ),
+          );
+        case TvboxSiteKind.api:
+          children.add(
+            SourceEntry(
+              id: childId(site.key),
+              name: site.name,
+              kind: SourceKind.customMaccms,
+              address: site.apiUrl,
+              detail: '来自远程配置 · 接口地址已转站首页抓取',
+              extra: {'remoteConfigId': configId},
+            ),
+          );
+        case TvboxSiteKind.py:
+          try {
+            final pyResponse = await http
+                .get(Uri.parse(site.apiUrl))
+                .timeout(const Duration(seconds: 20));
+            if (pyResponse.statusCode != 200) {
+              throw StateError('HTTP ${pyResponse.statusCode}');
+            }
+            final id = childId(site.key);
+            final directory = await getApplicationSupportDirectory();
+            final dir = Directory('${directory.path}/imported_py');
+            if (!await dir.exists()) await dir.create(recursive: true);
+            final file = File('${dir.path}/$id.py');
+            await file.writeAsString(pyResponse.body);
+            children.add(
+              SourceEntry(
+                id: id,
+                name: site.name,
+                kind: SourceKind.pyImport,
+                address: site.apiUrl,
+                detail: '来自远程配置',
+                extra: {
+                  'path': file.path,
+                  'ext': site.ext,
+                  'remoteConfigId': configId,
+                },
+              ),
+            );
+          } catch (error) {
+            skipped.add('${site.name}：py 下载失败（$error），已跳过');
+          }
+      }
+    }
+    if (children.isEmpty) {
+      throw StateError('远程配置的站点全部展开失败');
     }
     final entry = SourceEntry(
-      id: customIdForUrl(trimmed),
+      id: configId,
       name: name.trim().isEmpty ? trimmed : name.trim(),
       kind: SourceKind.remoteJson,
       address: trimmed,
-      detail: '${names.length} 个站点：${names.take(3).join('、')}'
-          '${names.length > 3 ? '…' : ''}',
+      detail: '已展开 ${children.length} 个站'
+          '${skipped.isEmpty ? '' : '，跳过 ${skipped.length} 个'}',
     );
-    _custom = [
-      for (final existing in _custom)
-        if (existing.id != entry.id) existing,
-      entry,
-    ];
+    _custom = [..._custom, entry, ...children];
     await _persist();
     return entry;
   }
@@ -427,7 +512,10 @@ class SourceRegistry {
   Future<void> removeCustom(String id) async {
     await load();
     final removed = customById(id);
-    _custom = [for (final entry in _custom) if (entry.id != id) entry];
+    _custom = [
+      for (final entry in _custom)
+        if (entry.id != id && entry.extra['remoteConfigId'] != id) entry,
+    ];
     _registerCustomSites();
     await _persist();
     if (removed?.kind == SourceKind.pyImport) {

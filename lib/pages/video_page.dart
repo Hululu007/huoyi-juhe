@@ -120,7 +120,7 @@ class _VideoPageState extends State<VideoPage> {
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
                     child: Text(
-                      '远程 JSON 配置（已登记，内容接入待补）：'
+                      '远程配置（已展开为上方选站）：'
                       '${remoteJson.map((e) => e.name).join('、')}',
                       style: const TextStyle(fontSize: 13),
                     ),
