@@ -108,7 +108,8 @@ class _HomePageState extends ConsumerState<HomePage> {
     final custom = SourceRegistry.instance.customById(siteId);
     if (custom == null ||
         (custom.kind != SourceKind.pyImport &&
-            custom.kind != SourceKind.jarImport)) {
+            custom.kind != SourceKind.jarImport &&
+            custom.kind != SourceKind.jsImport)) {
       if (mounted && _engineCategories != null) {
         setState(() {
           _engineCategories = null;

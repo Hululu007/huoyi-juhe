@@ -55,6 +55,22 @@ if(ANDROID)
         "-Wl,-z,now"
     )
 
+    # JS 蜘蛛引擎：QuickJS + 宿主接口（request/pdfa/pdfh/pd 经 JNI 回调 Kotlin）。
+    add_library(huoyi_quickjs SHARED
+        quickjs/quickjs.c
+        quickjs/libregexp.c
+        quickjs/libunicode.c
+        quickjs/cutils.c
+        quickjs/libbf.c
+        quickjs/huoyi_quickjs.c
+        quickjs/quickjs_jni.c)
+    target_compile_definitions(huoyi_quickjs PRIVATE CONFIG_VERSION="2024-01-13" CONFIG_BIGNUM)
+    target_link_libraries(huoyi_quickjs PRIVATE m)
+    target_link_options(huoyi_quickjs PRIVATE
+        "-Wl,-z,max-page-size=16384"
+        "-Wl,-z,common-page-size=16384"
+    )
+
     add_library(shortplay_crypto SHARED android/jni_bridge.c)
     target_link_libraries(shortplay_crypto PRIVATE sp_crypto_core)
     target_compile_options(shortplay_crypto PRIVATE -Wall -Wextra -Wpedantic)

@@ -132,7 +132,6 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
 
   Future<void> _addImportDialog() async {
     final nameController = TextEditingController();
-    final fileController = TextEditingController();
     final sourceController = TextEditingController();
     final jarUrlController = TextEditingController();
     final classController = TextEditingController();
@@ -166,7 +165,7 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
                     ),
                     DropdownMenuItem(
                       value: SourceKind.jsImport,
-                      child: Text('JS（只登记，引擎未接）'),
+                      child: Text('JS（粘贴源码，引擎直跑）'),
                     ),
                   ],
                   onChanged: (value) {
@@ -204,22 +203,19 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
                     decoration: const InputDecoration(labelText: 'ext（可空）'),
                   ),
                 ],
-                if (kind == SourceKind.jsImport) ...[
+                if (kind == SourceKind.jsImport)
                   TextField(
-                    controller: fileController,
-                    decoration: const InputDecoration(labelText: '文件名'),
+                    controller: sourceController,
+                    maxLines: 8,
+                    decoration: const InputDecoration(
+                      labelText: '蜘蛛源码',
+                      hintText: '粘贴 .js 文件全文，含 homeContent 等方法',
+                    ),
                   ),
-                  const Text(
-                    '只登记导入记录；JS 执行引擎尚未接入，'
-                    '登记的站暂不可播放。',
-                    style: TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
-                ],
-                if (kind != SourceKind.jsImport)
-                  const Text(
-                    '引擎仅支持 Android；其他平台导入后暂不可播放。',
-                    style: TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
+                const Text(
+                  '引擎仅支持 Android；其他平台导入后暂不可播放。',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
               ],
             ),
           ),
@@ -252,10 +248,9 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
           extController.text,
         );
       } else {
-        await SourceRegistry.instance.addImportRecord(
+        await SourceRegistry.instance.addJsImport(
           nameController.text,
-          fileController.text,
-          kind,
+          sourceController.text,
         );
       }
       await _refresh();

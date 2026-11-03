@@ -41,9 +41,10 @@ class MainActivity : FlutterActivity() {
         flutterEngine.plugins.add(EinkRefreshPlugin())
         // 小米澎湃 OS 公平运行内存：收 TRIM/KILL 广播，转发 Dart 处理后回系统。
         flutterEngine.plugins.add(FairMemoryPlugin())
-        // 蜘蛛引擎：Python 蜘蛛走 Chaquopy，jar 蜘蛛走 Dex 加载。
+        // 蜘蛛引擎：Python 蜘蛛走 Chaquopy，jar 蜘蛛走 Dex 加载，JS 蜘蛛走 QuickJS。
         JarBridge.register(flutterEngine.dartExecutor.binaryMessenger, this)
         PyBridge(this).register(flutterEngine.dartExecutor.binaryMessenger)
+        QuickJSBridge().register(flutterEngine.dartExecutor.binaryMessenger)
 
         // 音量键翻页通道：Dart -> 原生 setEnabled 控制是否拦截；原生 -> Dart
         // volumeKey 回调翻页方向（+1 下一页 / -1 上一页）。

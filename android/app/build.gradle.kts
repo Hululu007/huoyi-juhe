@@ -171,6 +171,9 @@ dependencies {
     // core calls back into for streaming CENC decrypt.
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
+    // Jsoup powers the JS spider host selectors (pdfa/pdfh/pd).
+    implementation("org.jsoup:jsoup:1.18.1")
+
     // Media3 ExoPlayer — NativePlayerPlugin host for short-drama playback.
     val media3Version = "1.4.1"
     implementation("androidx.media3:media3-exoplayer:$media3Version")

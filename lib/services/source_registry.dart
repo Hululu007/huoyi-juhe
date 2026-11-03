@@ -10,6 +10,7 @@ import 'drama_site_content.dart';
 import 'drama_sites.dart';
 import 'engine_site_content.dart';
 import 'jar_bridge.dart';
+import 'js_bridge.dart';
 import 'py_bridge.dart';
 
 enum SourceKind {
@@ -162,7 +163,8 @@ class SourceRegistry {
       for (final entry in _custom)
         if (entry.kind == SourceKind.customMaccms ||
             entry.kind == SourceKind.pyImport ||
-            entry.kind == SourceKind.jarImport)
+            entry.kind == SourceKind.jarImport ||
+            entry.kind == SourceKind.jsImport)
           DramaSite(entry.id, entry.name, [
             const DramaSiteCategory('all', '全部'),
           ]),
@@ -204,7 +206,8 @@ class SourceRegistry {
       if (!entry.enabled) continue;
       if (entry.kind != SourceKind.customMaccms &&
           entry.kind != SourceKind.pyImport &&
-          entry.kind != SourceKind.jarImport) {
+          entry.kind != SourceKind.jarImport &&
+          entry.kind != SourceKind.jsImport) {
         continue;
       }
       sites.add(
@@ -300,23 +303,33 @@ class SourceRegistry {
     return entry;
   }
 
-  Future<SourceEntry> addImportRecord(
-    String name,
-    String fileName,
-    SourceKind kind,
-  ) async {
+  Future<SourceEntry> addJsImport(String name, String source) async {
     await load();
-    if (kind != SourceKind.jsImport) {
-      throw StateError('登记导入只支持 JS 类型，Python 与 Jar 走引擎导入');
+    final text = source.trim();
+    if (text.isEmpty) {
+      throw StateError('蜘蛛源码不能为空');
+    }
+    final id = 'import_${DateTime.now().millisecondsSinceEpoch}';
+    final directory = await getApplicationSupportDirectory();
+    final dir = Directory('${directory.path}/imported_js');
+    if (!await dir.exists()) await dir.create(recursive: true);
+    final file = File('${dir.path}/$id.js');
+    await file.writeAsString(text);
+    var detail = 'JS 蜘蛛 · 已导入';
+    final status = await JsBridge.status();
+    if (!status.available) {
+      detail = 'JS 蜘蛛 · 已导入，当前安装包无 JS 桥，暂不可播放';
     }
     final entry = SourceEntry(
-      id: 'import_${DateTime.now().millisecondsSinceEpoch}',
-      name: name.trim().isEmpty ? fileName : name.trim(),
-      kind: kind,
-      address: fileName,
-      detail: '已登记，JS 执行引擎尚未接入，暂不可播放',
+      id: id,
+      name: name.trim().isEmpty ? '$id.js' : name.trim(),
+      kind: SourceKind.jsImport,
+      address: '$id.js',
+      detail: detail,
+      extra: {'path': file.path},
     );
     _custom = [..._custom, entry];
+    _registerCustomSites();
     await _persist();
     return entry;
   }
@@ -447,6 +460,13 @@ class SourceRegistry {
         final path = custom.extra['path'] as String? ?? '';
         if (path.isEmpty) return null;
         return PySiteContentClient(path, ext: custom.extra['ext'] as String? ?? '');
+      }
+      if (custom.kind == SourceKind.jsImport) {
+        final path = custom.extra['path'] as String? ?? '';
+        if (path.isEmpty) return null;
+        final file = File(path);
+        if (!await file.exists()) return null;
+        return JsSiteContentClient(await file.readAsString());
       }
       if (custom.kind == SourceKind.jarImport) {
         final className = custom.extra['className'] as String? ?? '';

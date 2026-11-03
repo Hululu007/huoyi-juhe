@@ -2,6 +2,7 @@ import 'drama_playback.dart';
 import 'drama_site_content.dart';
 import 'drama_sites.dart';
 import 'jar_bridge.dart';
+import 'js_bridge.dart';
 import 'py_bridge.dart';
 
 String _text(Object? value) => '${value ?? ''}'.trim();
@@ -155,6 +156,65 @@ class PySiteContentClient extends DramaSiteContentClient {
       'flag': parts[0],
       'playId': parts.sublist(1).join('\u0001'),
     });
+    return parseTvboxPlay(json);
+  }
+}
+
+class JsSiteContentClient extends DramaSiteContentClient {
+  JsSiteContentClient(this.script);
+
+  final String script;
+
+  @override
+  Future<List<DramaSiteCategory>> categories() async {
+    final home = await JsBridge.run(script: script, operation: 'home');
+    return parseTvboxCategories(home);
+  }
+
+  @override
+  Future<DramaSiteCatalogPage> catalog(String categoryId, int page) async {
+    final json = await JsBridge.run(
+      script: script,
+      operation: 'category',
+      tid: categoryId == 'all' ? '' : categoryId,
+      page: page,
+    );
+    return parseTvboxCatalog(json);
+  }
+
+  @override
+  Future<DramaSiteDetail> detail(String seriesId) async {
+    final json = await JsBridge.run(
+      script: script,
+      operation: 'detail',
+      vodId: seriesId,
+    );
+    return parseTvboxDetail(json);
+  }
+
+  @override
+  Future<List<DramaSiteItem>> search(String query) async {
+    final json = await JsBridge.run(
+      script: script,
+      operation: 'search',
+      query: query,
+      page: 1,
+    );
+    return parseTvboxItems(json);
+  }
+
+  @override
+  Future<DramaPlaySource> playSource(DramaSiteEpisode episode) async {
+    final parts = episode.videoId.split('\u0001');
+    if (parts.length < 2) {
+      throw StateError('选集缺少播放线路信息');
+    }
+    final json = await JsBridge.run(
+      script: script,
+      operation: 'player',
+      flag: parts[0],
+      playId: parts.sublist(1).join('\u0001'),
+    );
     return parseTvboxPlay(json);
   }
 }
