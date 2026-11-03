@@ -6,7 +6,7 @@ import 'package:fqapp/services/app_theme.dart';
 import 'package:fqapp/widgets/settings/settings_widgets.dart';
 
 /// 关于页改版后的结构与交互：全部信息行齐备、版本行点按复制、开源许可
-/// 打开框架许可页、微信赞赏打开赞赏码弹窗。
+/// 打开框架许可页；赞助入口已删除。
 void main() {
   Future<void> pumpAbout(WidgetTester tester) async {
     // 页面内容高于默认 800x600 视口，ListView 外的行不会被构建；
@@ -45,9 +45,9 @@ void main() {
     expect(find.byType(SettingsRow), findsNWidgets(5));
     expect(find.byType(ListTile), findsNothing);
 
-    expect(find.text('支持作者'), findsOneWidget);
-    expect(find.text('前往爱发电'), findsOneWidget);
-    expect(find.text('微信赞赏'), findsOneWidget);
+    expect(find.text('支持作者'), findsNothing);
+    expect(find.text('前往爱发电'), findsNothing);
+    expect(find.text('微信赞赏'), findsNothing);
     expect(find.textContaining('仅限个人学习研究使用'), findsOneWidget);
   });
 
@@ -91,20 +91,6 @@ void main() {
     );
     await tester.pump();
     expect(find.text('什锦铺'), findsWidgets);
-  });
-
-  testWidgets('点微信赞赏打开赞赏码弹窗', (tester) async {
-    await pumpAbout(tester);
-    await tester.tap(find.text('微信赞赏'));
-    await tester.pumpAndSettle();
-
-    expect(find.byType(Dialog), findsOneWidget);
-    expect(find.text('微信扫一扫，赞赏作者'), findsOneWidget);
-    final image = tester.widget<Image>(find.byType(Image).last);
-    expect(
-      (image.image as AssetImage).assetName,
-      'assets/images/wechat_reward.png',
-    );
   });
 
   testWidgets('墨水屏下 logo 不投彩色阴影，浅色仍保留', (tester) async {

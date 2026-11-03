@@ -20,11 +20,6 @@ class AboutPage extends StatelessWidget {
   /// build check when the two drift apart after a version bump.
   static const versionText = '1.0.200 (205)';
 
-  /// Bundled WeChat reward code (赞赏码), shown large in a dialog from the
-  /// support card. Copied from .github/wechat.png, the same image the repo's
-  /// FUNDING.yml points at.
-  static const _wechatRewardAsset = 'assets/images/wechat_reward.png';
-
   /// Pixel width of the bundled logo (assets/images/app_logo.webp). The logo
   /// is displayed at 80dp, so it only needs re-decoding above 4× DPI; clamping
   /// to the asset's real width keeps a high-DPI device from asking the decoder
@@ -56,8 +51,6 @@ class AboutPage extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           const _AboutInfoCard(),
-          const SizedBox(height: 12),
-          const _SupportCard(),
           const SizedBox(height: 24),
           Center(
             child: Text(
@@ -78,46 +71,6 @@ class AboutPage extends StatelessWidget {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text('已复制版本号')));
-  }
-
-  /// 微信赞赏码弹窗：大图 + 一句扫码提示，点遮罩或「关闭」退出。
-  static Future<void> _showWechatReward(BuildContext context) {
-    final palette = HomePalette.of(context);
-    return showDialog<void>(
-      context: context,
-      builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Image.asset(
-                  _wechatRewardAsset,
-                  width: 240,
-                  height: 240,
-                  fit: BoxFit.contain,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                '微信扫一扫，赞赏作者',
-                style: TextStyle(fontSize: 14, color: palette.muted),
-              ),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('关闭'),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
   }
 }
 
@@ -286,124 +239,3 @@ Future<void> _launchExternalUrl(BuildContext context, String url) async {
   }
 }
 
-/// 支持作者区块：单独一张卡，用爱发电品牌紫着色并配实心按钮，比普通信息行
-/// 更醒目（对齐 Aether 仓库赞助区的呈现方式）。点击只用系统浏览器打开链接，
-/// 不引入账号、支付、捐赠校验或统计上报；墨水屏模式下退化为黑白。
-/// 爱发电是主入口（实心按钮），微信赞赏是次级入口（描边按钮，点开弹窗看码）。
-class _SupportCard extends StatelessWidget {
-  const _SupportCard();
-
-  static const _sponsorUrl = 'https://afdian.com/a/ch6vip';
-
-  /// 爱发电品牌紫，与 README 里 shields.io 徽章同色。
-  static const _brandColor = Color(0xFF946CE6);
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = HomePalette.of(context);
-    final brand = palette.eink ? palette.ink : _brandColor;
-    final onBrand = palette.eink ? palette.canvas : Colors.white;
-    final tint = brand.withValues(
-      alpha: palette.eink ? 0.06 : (palette.dark ? 0.20 : 0.10),
-    );
-
-    return Material(
-      color: tint,
-      clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(SettingsGroupCard.radius),
-        side: BorderSide(color: brand.withValues(alpha: 0.35), width: 0.6),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _SupportHeader(brand: brand, onBrand: onBrand),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: () => _launchExternalUrl(context, _sponsorUrl),
-                icon: const Icon(LucideIcons.heart, size: 18),
-                label: const Text('前往爱发电'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: brand,
-                  foregroundColor: onBrand,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () => AboutPage._showWechatReward(context),
-                icon: const Icon(LucideIcons.qr_code, size: 18),
-                label: const Text('微信赞赏'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: brand,
-                  side: BorderSide(color: brand.withValues(alpha: 0.55)),
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// 支持卡头部：品牌色图标块 + 标题与一句说明。
-class _SupportHeader extends StatelessWidget {
-  final Color brand;
-  final Color onBrand;
-
-  const _SupportHeader({required this.brand, required this.onBrand});
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = HomePalette.of(context);
-    return Row(
-      children: [
-        Container(
-          width: 38,
-          height: 38,
-          decoration: BoxDecoration(
-            color: brand,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Icon(LucideIcons.hand_heart, size: 20, color: onBrand),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '支持作者',
-                style: TextStyle(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 15,
-                  color: palette.ink,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                '如果这个项目对你有帮助，欢迎在爱发电支持我',
-                style: TextStyle(fontSize: 12.5, color: palette.muted),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
