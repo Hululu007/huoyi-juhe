@@ -68,6 +68,118 @@ class _PlaySourcePreload {
   }
 }
 
+List<SourceEntry> engineSwitchCandidates(List<SourceEntry> entries) {
+  return [
+    for (final entry in entries)
+      if (entry.enabled &&
+          (entry.kind == SourceKind.pyImport ||
+              entry.kind == SourceKind.jarImport ||
+              entry.kind == SourceKind.jsImport ||
+              entry.extra['remoteConfigId'] != null))
+        entry,
+  ];
+}
+
+class _SwitchHit {
+  const _SwitchHit({
+    required this.siteId,
+    required this.siteName,
+    required this.item,
+  });
+
+  final String siteId;
+  final String siteName;
+  final DramaSiteItem item;
+}
+
+Future<void> showEngineSourceSwitch(
+  BuildContext context, {
+  required String title,
+  required int currentIndex,
+  required String currentSiteId,
+}) async {
+  final candidates = engineSwitchCandidates(SourceRegistry.instance.custom)
+      .where((entry) => entry.id != currentSiteId)
+      .toList();
+  if (candidates.isEmpty) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('没有其他可换源的导入站')));
+    }
+    return;
+  }
+  final hits = await showDialog<List<_SwitchHit>>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('换源'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: FutureBuilder<List<_SwitchHit>>(
+          future: Future.wait(
+            candidates.map((entry) async {
+              try {
+                final client = await SourceRegistry.instance.clientFor(
+                  entry.id,
+                );
+                if (client == null) return null;
+                final results = await client
+                    .search(title)
+                    .timeout(const Duration(seconds: 15));
+                if (results.isEmpty) return null;
+                return _SwitchHit(
+                  siteId: entry.id,
+                  siteName: entry.name,
+                  item: results.first,
+                );
+              } catch (_) {
+                return null;
+              }
+            }),
+          ).then(
+            (rows) => rows.whereType<_SwitchHit>().toList(),
+          ),
+          builder: (context, snapshot) {
+            if (!snapshot.hasData) {
+              return const SizedBox(
+                height: 120,
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+            final rows = snapshot.data!;
+            if (rows.isEmpty) {
+              return const Text('其他站没有搜到同名内容');
+            }
+            return ListView.builder(
+              shrinkWrap: true,
+              itemCount: rows.length,
+              itemBuilder: (_, i) {
+                final hit = rows[i];
+                return ListTile(
+                  title: Text(hit.item.title),
+                  subtitle: Text(hit.siteName),
+                  onTap: () => Navigator.pop(dialogContext, [hit]),
+                );
+              },
+            );
+          },
+        ),
+      ),
+    ),
+  );
+  if (hits == null || hits.isEmpty) return;
+  final picked = hits.first;
+  if (!context.mounted) return;
+  await openDramaSitePlayback(
+    context,
+    siteId: picked.siteId,
+    seriesId: picked.item.id,
+    title: picked.item.title,
+    cover: picked.item.cover,
+    startIndex: currentIndex,
+  );
+}
+
 Future<void> openDramaSitePlayback(
   BuildContext context, {
   required String siteId,
@@ -190,6 +302,12 @@ Future<void> openDramaSitePlayback(
                 parseNovelPayload((await resolveSource(chapter)).url),
             onIndexChanged: saveIndex,
             onAddToShelf: addToShelf,
+            onSwitchSource: (index) => showEngineSourceSwitch(
+              context,
+              title: title,
+              currentIndex: index,
+              currentSiteId: siteId,
+            ),
           ),
         ),
       );
@@ -205,6 +323,12 @@ Future<void> openDramaSitePlayback(
                 parsePicsUrls((await resolveSource(chapter)).url),
             onIndexChanged: saveIndex,
             onAddToShelf: addToShelf,
+            onSwitchSource: (index) => showEngineSourceSwitch(
+              context,
+              title: title,
+              currentIndex: index,
+              currentSiteId: siteId,
+            ),
           ),
         ),
       );

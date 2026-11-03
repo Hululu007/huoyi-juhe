@@ -12,6 +12,7 @@ class NovelTextPage extends StatefulWidget {
     required this.resolve,
     this.onIndexChanged,
     this.onAddToShelf,
+    this.onSwitchSource,
   });
 
   final String seriesTitle;
@@ -20,6 +21,7 @@ class NovelTextPage extends StatefulWidget {
   final Future<NovelPayload> Function(Chapter episode) resolve;
   final void Function(int index)? onIndexChanged;
   final VoidCallback? onAddToShelf;
+  final void Function(int index)? onSwitchSource;
 
   @override
   State<NovelTextPage> createState() => _NovelTextPageState();
@@ -79,6 +81,12 @@ class _NovelTextPageState extends State<NovelTextPage> {
               icon: const Icon(Icons.bookmark_add_outlined),
               tooltip: '加入书架',
               onPressed: widget.onAddToShelf,
+            ),
+          if (widget.onSwitchSource != null)
+            IconButton(
+              icon: const Icon(Icons.swap_horiz),
+              tooltip: '换源',
+              onPressed: () => widget.onSwitchSource!(_index),
             ),
         ],
       ),

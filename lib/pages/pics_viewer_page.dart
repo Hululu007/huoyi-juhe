@@ -11,6 +11,7 @@ class PicsViewerPage extends StatefulWidget {
     required this.resolve,
     this.onIndexChanged,
     this.onAddToShelf,
+    this.onSwitchSource,
   });
 
   final String seriesTitle;
@@ -19,6 +20,7 @@ class PicsViewerPage extends StatefulWidget {
   final Future<List<String>> Function(Chapter episode) resolve;
   final void Function(int index)? onIndexChanged;
   final VoidCallback? onAddToShelf;
+  final void Function(int index)? onSwitchSource;
 
   @override
   State<PicsViewerPage> createState() => _PicsViewerPageState();
@@ -88,6 +90,12 @@ class _PicsViewerPageState extends State<PicsViewerPage> {
               icon: const Icon(Icons.bookmark_add_outlined),
               tooltip: '加入书架',
               onPressed: widget.onAddToShelf,
+            ),
+          if (widget.onSwitchSource != null)
+            IconButton(
+              icon: const Icon(Icons.swap_horiz),
+              tooltip: '换源',
+              onPressed: () => widget.onSwitchSource!(_index),
             ),
           if (_urls.isNotEmpty)
             Center(
