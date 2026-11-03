@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../../models/media_item.dart';
+import '../../pages/midnight_page.dart';
 import '../../services/drama_site_content.dart';
 import '../../services/drama_site_play.dart';
+import '../../services/drama_sites.dart';
+import '../../services/midnight_gate.dart';
 import '../../services/xbpq_content.dart';
 import '../../services/source_registry.dart';
 import 'home_feed_states.dart';
@@ -35,8 +38,14 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
   bool _loading = false;
   bool _loadingMore = false;
   String? _error;
+  bool _gateBlocked = false;
   List<XbpqFilterGroup> _filterGroups = [];
   Map<String, String> _filters = {};
+
+  void _onGateChanged() {
+    if (!mounted) return;
+    _loadFirst();
+  }
 
   Future<DramaSiteCatalogPage> _catalog(
     DramaSiteContentClient client,
@@ -106,7 +115,14 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
   @override
   void initState() {
     super.initState();
+    MidnightGate.activated.addListener(_onGateChanged);
     _loadFirst();
+  }
+
+  @override
+  void dispose() {
+    MidnightGate.activated.removeListener(_onGateChanged);
+    super.dispose();
   }
 
   @override
@@ -124,6 +140,21 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
   }
 
   Future<void> _loadFirst({bool keepItems = false}) async {
+    await MidnightGate.ensureLoaded();
+    if (!mounted) return;
+    final siteName =
+        SourceRegistry.instance.customById(widget.siteId)?.name ??
+            dramaSiteById(widget.siteId).name;
+    if (!MidnightGate.activated.value &&
+        MidnightGate.isAdultName(siteName)) {
+      setState(() {
+        _loading = false;
+        _error = null;
+        _items = [];
+        _gateBlocked = true;
+      });
+      return;
+    }
     final client =
         await SourceRegistry.instance.clientFor(widget.siteId);
     if (!mounted) return;
@@ -138,6 +169,7 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
     setState(() {
       _loading = !keepItems;
       _error = null;
+      _gateBlocked = false;
       _prefetchedPage = null;
       _prefetchedForPage = 0;
       _filterGroups = client is XbpqContentClient
@@ -199,6 +231,26 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
   Widget build(BuildContext context) {
     if (_loading) {
       return const SliverToBoxAdapter(child: HomeFeedLoading());
+    }
+    if (_gateBlocked) {
+      return SliverToBoxAdapter(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            children: [
+              const Text('该站属于午夜区，午夜区未开启时不显示'),
+              const SizedBox(height: 12),
+              FilledButton(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const MidnightPage()),
+                ),
+                child: const Text('打开午夜区'),
+              ),
+            ],
+          ),
+        ),
+      );
     }
     if (_error != null && _items.isEmpty) {
       return SliverToBoxAdapter(

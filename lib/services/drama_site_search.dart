@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'drama_site_content.dart';
+import 'midnight_gate.dart';
 import 'source_registry.dart';
 
 class DramaSiteSearchResult {
@@ -21,9 +22,12 @@ Future<List<DramaSiteSearchResult>> searchAllDramaSites(
   final trimmed = query.trim();
   if (trimmed.isEmpty) return const [];
   await SourceRegistry.instance.load();
+  await MidnightGate.ensureLoaded();
+  final gateOpen = MidnightGate.activated.value;
   final futures = <Future<DramaSiteSearchResult>>[];
   for (final site in SourceRegistry.instance.visibleDramaSites()) {
     if (site.id == 'original') continue;
+    if (!gateOpen && MidnightGate.isAdultName(site.name)) continue;
     final client = await SourceRegistry.instance.clientFor(site.id);
     if (client == null) continue;
     futures.add(

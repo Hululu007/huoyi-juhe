@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../services/midnight_gate.dart';
 import '../services/source_registry.dart';
 import '../widgets/home/drama_site_grid.dart';
 import 'source_management_page.dart';
@@ -23,6 +24,7 @@ class _VideoPageState extends State<VideoPage> {
 
   Future<void> _load() async {
     await SourceRegistry.instance.load();
+    await MidnightGate.ensureLoaded();
     if (!mounted) return;
     final sites = _playableSites();
     setState(() {
@@ -33,16 +35,20 @@ class _VideoPageState extends State<VideoPage> {
 
   List<SourceEntry> _playableSites() {
     final registry = SourceRegistry.instance;
+    final gateOpen = MidnightGate.activated.value;
     return [
       for (final entry in registry.custom)
         if ((entry.kind == SourceKind.customMaccms ||
                 entry.kind == SourceKind.pyImport ||
                 entry.kind == SourceKind.jarImport ||
                 entry.kind == SourceKind.jsImport ||
-                entry.kind == SourceKind.xbpqImport) &&
+                entry.kind == SourceKind.xbpqImport ||
+                (entry.kind == SourceKind.legadoImport &&
+                    entry.extra['hasExplore'] == true)) &&
             entry.enabled &&
             (entry.contentType == ContentType.video ||
-                entry.contentType == ContentType.mixed))
+                entry.contentType == ContentType.mixed) &&
+            (gateOpen || !MidnightGate.isAdultName(entry.name)))
           entry,
     ];
   }

@@ -15,6 +15,7 @@ import 'drama_playback.dart';
 import 'drama_site_content.dart';
 import 'engine_reading_store.dart';
 import 'library_store.dart';
+import 'midnight_gate.dart';
 import 'reader_history.dart';
 import 'episode_source_cache.dart';
 import 'nonvideo_play.dart';
@@ -108,10 +109,18 @@ Future<void> showEngineSourceSwitch(
   required String currentSiteId,
   Set<ContentType> types = const {ContentType.mixed},
 }) async {
+  await MidnightGate.ensureLoaded();
+  if (!context.mounted) return;
+  final gateOpen = MidnightGate.activated.value;
   final candidates = engineSwitchCandidates(
     SourceRegistry.instance.custom,
     types: types,
-  ).where((entry) => entry.id != currentSiteId).toList();
+  )
+      .where((entry) => entry.id != currentSiteId)
+      .where(
+        (entry) => gateOpen || !MidnightGate.isAdultName(entry.name),
+      )
+      .toList();
   final hits = await showDialog<List<_SwitchHit>>(
     context: context,
     builder: (dialogContext) => AlertDialog(

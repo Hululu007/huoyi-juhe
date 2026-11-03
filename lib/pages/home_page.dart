@@ -18,6 +18,7 @@ import '../services/source_registry.dart';
 import '../services/home_continue_preferences.dart';
 import '../services/home_page_affinity.dart';
 import '../services/library_store.dart';
+import '../services/midnight_gate.dart';
 import '../widgets/home/drama_site_grid.dart';
 import '../widgets/home/home_cell_blocks.dart';
 import '../widgets/home/home_cell_renderers.dart';
@@ -424,12 +425,17 @@ class _HomePageState extends ConsumerState<HomePage> {
   /// 短剧站点列表：点药丸从底部弹出，点一项即切换药丸并持久化。
   Future<void> _openSiteList() async {
     await SourceRegistry.instance.load();
+    await MidnightGate.ensureLoaded();
     if (!mounted) return;
+    final gateOpen = MidnightGate.activated.value;
     final sites = SourceRegistry.instance
         .visibleDramaSites(
           types: {ContentType.video, ContentType.mixed},
         )
         .where((site) {
+          if (!gateOpen && MidnightGate.isAdultName(site.name)) {
+            return false;
+          }
           final entry = SourceRegistry.instance.customById(site.id);
           if (entry?.kind != SourceKind.legadoImport) return true;
           return entry!.extra['hasExplore'] == true;
