@@ -80,6 +80,7 @@ List<SourceEntry> engineSwitchCandidates(
               entry.kind == SourceKind.jarImport ||
               entry.kind == SourceKind.jsImport ||
               entry.kind == SourceKind.xbpqImport ||
+              entry.kind == SourceKind.legadoImport ||
               entry.extra['remoteConfigId'] != null))
         entry,
   ];

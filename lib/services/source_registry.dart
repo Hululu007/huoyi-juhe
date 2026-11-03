@@ -12,6 +12,7 @@ import 'engine_site_content.dart';
 import 'jar_bridge.dart';
 import 'js_bridge.dart';
 import 'py_bridge.dart';
+import 'legado_content.dart';
 import 'tvbox_config.dart';
 import 'xbpq_content.dart';
 
@@ -23,6 +24,7 @@ enum SourceKind {
   jsImport,
   jarImport,
   xbpqImport,
+  legadoImport,
 }
 
 extension SourceKindLabel on SourceKind {
@@ -34,6 +36,7 @@ extension SourceKindLabel on SourceKind {
     SourceKind.jsImport => 'JS 导入',
     SourceKind.jarImport => 'Jar 导入',
     SourceKind.xbpqImport => 'XBPQ 规则',
+    SourceKind.legadoImport => '阅读书源',
   };
 }
 
@@ -202,7 +205,8 @@ class SourceRegistry {
             entry.kind == SourceKind.pyImport ||
             entry.kind == SourceKind.jarImport ||
             entry.kind == SourceKind.jsImport ||
-            entry.kind == SourceKind.xbpqImport)
+            entry.kind == SourceKind.xbpqImport ||
+            entry.kind == SourceKind.legadoImport)
           DramaSite(entry.id, entry.name, [
             const DramaSiteCategory('all', '全部'),
           ]),
@@ -247,7 +251,8 @@ class SourceRegistry {
           entry.kind != SourceKind.pyImport &&
           entry.kind != SourceKind.jarImport &&
           entry.kind != SourceKind.jsImport &&
-          entry.kind != SourceKind.xbpqImport) {
+          entry.kind != SourceKind.xbpqImport &&
+          entry.kind != SourceKind.legadoImport) {
         continue;
       }
       sites.add(
@@ -653,6 +658,66 @@ class SourceRegistry {
     return entry;
   }
 
+  Future<List<SourceEntry>> addLegadoImport(
+    String jsonText, {
+    ContentType contentType = ContentType.novel,
+  }) async {
+    await load();
+    final decoded = jsonDecode(jsonText.trim());
+    final raws = <Map<String, dynamic>>[];
+    if (decoded is Map<String, dynamic>) {
+      raws.add(decoded);
+    } else if (decoded is List) {
+      for (final item in decoded) {
+        if (item is Map<String, dynamic>) raws.add(item);
+      }
+    } else {
+      throw StateError('阅读书源 JSON 必须是对象或对象数组');
+    }
+    final entries = <SourceEntry>[];
+    final directory = await getApplicationSupportDirectory();
+    final dir = Directory('${directory.path}/imported_legado');
+    if (!await dir.exists()) await dir.create(recursive: true);
+    for (final raw in raws) {
+      final source = LegadoSource(raw);
+      if (source.name.isEmpty || source.url.isEmpty) continue;
+      final id = 'import_${DateTime.now().millisecondsSinceEpoch}_${entries.length}';
+      final file = File('${dir.path}/$id.json');
+      await file.writeAsString(jsonEncode(raw));
+      entries.add(
+        SourceEntry(
+          id: id,
+          name: source.name,
+          kind: SourceKind.legadoImport,
+          address: source.url,
+          detail: '阅读书源 · 已导入',
+          extra: {'path': file.path, 'contentType': contentType.key},
+        ),
+      );
+    }
+    if (entries.isEmpty) {
+      throw StateError('没有可用的书源：每条须含书源名与书源地址');
+    }
+    _custom = [..._custom, ...entries];
+    _registerCustomSites();
+    await _persist();
+    return entries;
+  }
+
+  Future<List<SourceEntry>> addLegadoRemote(String url) async {
+    final trimmed = url.trim();
+    if (!trimmed.toLowerCase().startsWith('http')) {
+      throw StateError('远程书源地址需要以 http 开头');
+    }
+    final response = await http
+        .get(Uri.parse(trimmed))
+        .timeout(const Duration(seconds: 20));
+    if (response.statusCode != 200) {
+      throw StateError('HTTP ${response.statusCode}');
+    }
+    return addLegadoImport(utf8.decode(response.bodyBytes, allowMalformed: true));
+  }
+
   Future<void> removeCustom(String id) async {
     await load();
     final removed = customById(id);
@@ -719,6 +784,15 @@ class SourceRegistry {
         final file = File(path);
         if (!await file.exists()) return null;
         return JsSiteContentClient(await file.readAsString());
+      }
+      if (custom.kind == SourceKind.legadoImport) {
+        final path = custom.extra['path'] as String? ?? '';
+        if (path.isEmpty) return null;
+        final file = File(path);
+        if (!await file.exists()) return null;
+        final decoded = jsonDecode(await file.readAsString());
+        if (decoded is! Map<String, dynamic>) return null;
+        return LegadoContentClient(siteId, LegadoSource(decoded));
       }
       if (custom.kind == SourceKind.xbpqImport) {
         final path = custom.extra['path'] as String? ?? '';

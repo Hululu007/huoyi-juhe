@@ -81,6 +81,10 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
                       value: SourceKind.remoteJson,
                       child: Text('远程 JSON 配置'),
                     ),
+                    DropdownMenuItem(
+                      value: SourceKind.legadoImport,
+                      child: Text('远程阅读书源 JSON'),
+                    ),
                   ],
                   onChanged: (value) {
                     if (value != null) setDialogState(() => kind = value);
@@ -88,7 +92,7 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
                 ),
                 const Text(
                   'MacCMS 站点按通用模板解析，个别模板可能不全；'
-                  '远程 JSON 配置只登记站点清单，内容接入随影视页签补。',
+                  '远程 JSON 配置展开为影视站；远程阅读书源 JSON 展开为小说源。',
                   style: TextStyle(fontSize: 12, color: Colors.grey),
                 ),
               ],
@@ -112,6 +116,10 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
       if (kind == SourceKind.customMaccms) {
         await SourceRegistry.instance.addCustomMaccms(
           nameController.text,
+          addressController.text,
+        );
+      } else if (kind == SourceKind.legadoImport) {
+        await SourceRegistry.instance.addLegadoRemote(
           addressController.text,
         );
       } else {
@@ -171,6 +179,10 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
                     DropdownMenuItem(
                       value: SourceKind.xbpqImport,
                       child: Text('XBPQ（粘贴规则 JSON，声明式解析）'),
+                    ),
+                    DropdownMenuItem(
+                      value: SourceKind.legadoImport,
+                      child: Text('阅读书源（粘贴 JSON，可含多个源）'),
                     ),
                   ],
                   onChanged: (value) {
@@ -257,6 +269,15 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
                       hintText: '粘贴规则 JSON 全文，含主页地址、分类、数组等字段',
                     ),
                   ),
+                if (kind == SourceKind.legadoImport)
+                  TextField(
+                    controller: sourceController,
+                    maxLines: 8,
+                    decoration: const InputDecoration(
+                      labelText: '阅读书源 JSON',
+                      hintText: '粘贴单个书源或书源数组，站名取源里自带的名字',
+                    ),
+                  ),
                 const Text(
                   '引擎仅支持 Android；其他平台导入后暂不可播放。',
                   style: TextStyle(fontSize: 12, color: Colors.grey),
@@ -297,6 +318,11 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
       } else if (kind == SourceKind.xbpqImport) {
         await SourceRegistry.instance.addXbpqImport(
           nameController.text,
+          sourceController.text,
+          contentType: contentType,
+        );
+      } else if (kind == SourceKind.legadoImport) {
+        await SourceRegistry.instance.addLegadoImport(
           sourceController.text,
           contentType: contentType,
         );

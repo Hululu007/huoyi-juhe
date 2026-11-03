@@ -155,6 +155,26 @@ class JsBridge {
     }
   }
 
+  static Future<dynamic> evalRaw(String script, {int timeoutMs = 30000}) async {
+    await ensureReady();
+    try {
+      final raw = await _channel.invokeMethod<String>('eval', {
+        'script': script,
+        'timeoutMs': timeoutMs,
+      }).timeout(Duration(seconds: timeoutMs ~/ 1000 + 10));
+      final decoded = jsonDecode(raw ?? '{}');
+      if (decoded is! Map<String, dynamic>) {
+        throw StateError('JS 引擎返回格式错误');
+      }
+      if (decoded['ok'] != true) {
+        throw StateError('JS 执行失败：${decoded['error'] ?? '未知错误'}');
+      }
+      return decoded['result'];
+    } on PlatformException catch (error) {
+      throw StateError('JS 执行失败：${error.message ?? error.code}');
+    }
+  }
+
   static Future<Map<String, dynamic>> run({
     required String script,
     required String operation,
