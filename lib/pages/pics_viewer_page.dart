@@ -9,12 +9,16 @@ class PicsViewerPage extends StatefulWidget {
     required this.episodes,
     required this.startIndex,
     required this.resolve,
+    this.onIndexChanged,
+    this.onAddToShelf,
   });
 
   final String seriesTitle;
   final List<Chapter> episodes;
   final int startIndex;
   final Future<List<String>> Function(Chapter episode) resolve;
+  final void Function(int index)? onIndexChanged;
+  final VoidCallback? onAddToShelf;
 
   @override
   State<PicsViewerPage> createState() => _PicsViewerPageState();
@@ -68,6 +72,7 @@ class _PicsViewerPageState extends State<PicsViewerPage> {
     final next = _index + delta;
     if (next < 0 || next >= widget.episodes.length) return;
     setState(() => _index = next);
+    widget.onIndexChanged?.call(next);
     _load();
   }
 
@@ -78,6 +83,12 @@ class _PicsViewerPageState extends State<PicsViewerPage> {
       appBar: AppBar(
         title: Text(episode?.title ?? widget.seriesTitle),
         actions: [
+          if (widget.onAddToShelf != null)
+            IconButton(
+              icon: const Icon(Icons.bookmark_add_outlined),
+              tooltip: '加入书架',
+              onPressed: widget.onAddToShelf,
+            ),
           if (_urls.isNotEmpty)
             Center(
               child: Padding(

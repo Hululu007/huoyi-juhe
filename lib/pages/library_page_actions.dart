@@ -91,6 +91,24 @@ mixin _LibraryPageActions on _LibraryPageStateBase {
 
   /// 优先用缓存续读；未命中时保留离线阅读与详情页加载入口。
   Future<void> _open(MediaItem item, {bool importedResume = false}) async {
+    if (item.source.startsWith('engine:')) {
+      final siteId = item.source.substring('engine:'.length);
+      final seriesId = item.seriesId ?? item.id;
+      final startIndex = await EngineReadingStore.instance.lastIndex(
+        siteId,
+        seriesId,
+      );
+      if (!mounted) return;
+      await openDramaSitePlayback(
+        context,
+        siteId: siteId,
+        seriesId: seriesId,
+        title: item.title,
+        cover: item.cover,
+        startIndex: startIndex,
+      );
+      return;
+    }
     if (ImportedBookStore.isLocalBookId(item.id)) {
       await _openLocalBook(item);
       return;
