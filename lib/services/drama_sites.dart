@@ -47,7 +47,10 @@ const dramaSites = [
   DramaSite('huangdou', '黄豆'),
   DramaSite('huangju', '剧果'),
   DramaSite('yeguo', '野果'),
-  DramaSite('yaguo', '芽果'),
+  DramaSite('yaguo', '芽果', [
+    DramaSiteCategory('1', '剧场'),
+    DramaSiteCategory('9', '榜单'),
+  ]),
   DramaSite('maoguo', '猫果', [DramaSiteCategory('0', '推荐')]),
   DramaSite('fanguo', '饭果', [
     DramaSiteCategory('都市', '都市'),

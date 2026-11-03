@@ -1559,6 +1559,222 @@ class MaoguoContentClient implements DramaSiteContentClient {
   }
 }
 
+/// 芽果：先以固定设备号登录拿令牌（6 小时内复用），再带令牌调接口；
+/// 分类从分类接口取、取不到时用剧场与榜单兜底。
+class YaguoContentClient implements DramaSiteContentClient {
+  static const baseUrl = 'https://app.whjzjx.cn';
+  static const loginUrl = 'https://u.shytkjgs.com/user/v1/account/login';
+  static const _device = '24250683a3bdb3f118dff25ba4b1cba1a';
+
+  final http.Client _client;
+  String? _token;
+  DateTime? _tokenExpiresAt;
+
+  YaguoContentClient([http.Client? client]) : _client = client ?? http.Client();
+
+  Future<String> _tokenValue() async {
+    if (_token != null &&
+        _tokenExpiresAt != null &&
+        DateTime.now().isBefore(_tokenExpiresAt!)) {
+      return _token!;
+    }
+    final response = await _client.post(
+      Uri.parse(loginUrl),
+      headers: {'platform': '1', 'Content-Type': 'application/json'},
+      body: jsonEncode({'device': _device}),
+    );
+    if (response.statusCode != 200) {
+      throw StateError('芽果登录 HTTP ${response.statusCode}');
+    }
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw StateError('芽果登录数据格式无法识别');
+    }
+    final token = _firstString(decoded, ['token', 'access_token', 'accessToken']);
+    if (token.isEmpty) {
+      throw StateError('芽果未返回有效的访问令牌');
+    }
+    _token = token;
+    _tokenExpiresAt = DateTime.now().add(const Duration(hours: 6));
+    return token;
+  }
+
+  Future<Map<String, dynamic>> _request(
+    String path,
+    Map<String, String> query,
+  ) async {
+    final token = await _tokenValue();
+    final uri = Uri.parse('$baseUrl$path').replace(queryParameters: query);
+    final response = await _client.get(
+      uri,
+      headers: {
+        'Referer': '$baseUrl/',
+        'authorization': token,
+        'platform': '1',
+        'version_name': '3.8.3.1',
+      },
+    );
+    if (response.statusCode != 200) {
+      throw StateError('芽果请求 HTTP ${response.statusCode}');
+    }
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw StateError('芽果数据格式无法识别');
+    }
+    return decoded;
+  }
+
+  static List<DramaSiteItem> parseCatalog(Map<String, dynamic> response) {
+    final data = _asMap(response['data']);
+    final rows = data['list'];
+    if (rows is! List) return const [];
+    final items = <DramaSiteItem>[];
+    for (final entry in rows) {
+      final node = _asMap(entry);
+      final theater = _asMap(node['theater']);
+      final target = theater.isNotEmpty ? theater : node;
+      final id = _firstString(target, ['id', 'theater_id', 'theater_parent_id']);
+      if (id.isEmpty) continue;
+      final title = _firstString(target, ['title', 'name']);
+      if (title.isEmpty) continue;
+      final count = _firstInt(target, ['total', 'total_num', 'current_num']);
+      items.add(
+        DramaSiteItem(
+          id: id,
+          title: title,
+          cover: _firstString(target, ['cover_url', 'son_cover_url', 'cover']),
+          remark: count > 0 ? '共$count集' : '',
+        ),
+      );
+    }
+    return items;
+  }
+
+  static DramaSiteDetail parseDetail(
+    Map<String, dynamic> response,
+    String seriesId,
+  ) {
+    final data = _asMap(response['data']);
+    if (data.isEmpty) {
+      throw StateError('芽果未返回剧集资料');
+    }
+    final title = _firstString(data, ['title', 'share_title']);
+    final cover = _firstString(data, ['cover_url', 'share_cover']);
+    final rawList = data['theaters'];
+    if (rawList is! List) {
+      throw StateError('芽果未返回可播放分集');
+    }
+    final indexed = <({int number, DramaSiteEpisode episode})>[];
+    for (var i = 0; i < rawList.length; i++) {
+      final node = _asMap(rawList[i]);
+      final url = _firstString(node, ['son_video_url', 'video_url']);
+      if (url.isEmpty) continue;
+      var number = _firstInt(node, ['num', 'sort']);
+      if (number <= 0) number = i + 1;
+      final nodeTitle = _firstString(node, ['son_title', 'title']);
+      indexed.add((
+        number: number,
+        episode: DramaSiteEpisode(
+          videoId: url,
+          title: nodeTitle.isNotEmpty ? nodeTitle : '第$number集',
+          seriesId: seriesId,
+        ),
+      ));
+    }
+    if (indexed.isEmpty) {
+      throw StateError('芽果未返回可播放分集');
+    }
+    indexed.sort((a, b) => a.number.compareTo(b.number));
+    return DramaSiteDetail(
+      id: seriesId,
+      title: title,
+      cover: cover,
+      episodes: [for (final entry in indexed) entry.episode],
+    );
+  }
+
+  @override
+  Future<List<DramaSiteCategory>> categories() async {
+    try {
+      final response = await _request('/cloud/v2/theater/classes', {});
+      final groups = response['data'];
+      if (groups is! List) throw StateError('empty');
+      final seen = <String>{};
+      final categories = <DramaSiteCategory>[];
+      for (final group in groups) {
+        final classes = _asMap(group)['alg_class'];
+        if (classes is! List) continue;
+        for (final entry in classes) {
+          final node = _asMap(entry);
+          final id = _firstString(node, ['id']);
+          final name = _firstString(node, ['class_name', 'name']);
+          if (id.isEmpty || name.isEmpty || name.runes.length > 24) continue;
+          if (!seen.add(id)) continue;
+          categories.add(DramaSiteCategory(id, name));
+        }
+      }
+      if (categories.isEmpty) throw StateError('empty');
+      return categories;
+    } catch (_) {
+      return const [
+        DramaSiteCategory('1', '剧场'),
+        DramaSiteCategory('9', '榜单'),
+      ];
+    }
+  }
+
+  @override
+  Future<DramaSiteCatalogPage> catalog(String categoryId, int page) async {
+    if (categoryId == '9') {
+      final response = await _request(
+        '/cloud/v1/first_level_ranking/detail',
+        {'id': '1'},
+      );
+      final data = _asMap(response['data']);
+      final rows = data['list'];
+      if (rows is! List) {
+        return const DramaSiteCatalogPage(items: [], hasMore: false);
+      }
+      return DramaSiteCatalogPage(
+        items: parseCatalog({'data': {'list': rows}}),
+        hasMore: false,
+      );
+    }
+    final classId = int.tryParse(categoryId) == null ? '' : categoryId;
+    final response = await _request('/cloud/v2/theater/home_page', {
+      'theater_class_id': classId,
+      'type': '1',
+      'class2_ids': '0',
+      'page_num': '${page < 1 ? 1 : page}',
+      'page_size': '24',
+    });
+    final data = _asMap(response['data']);
+    final items = parseCatalog(response);
+    final total = _firstInt(data, ['total']);
+    final isEnd = data['is_end'] == true || data['is_end'] == 'true';
+    return DramaSiteCatalogPage(
+      items: items,
+      hasMore: !isEnd && items.isNotEmpty && total > page * items.length,
+    );
+  }
+
+  @override
+  Future<DramaSiteDetail> detail(String seriesId) async {
+    final response = await _request('/v2/theater_parent/detail', {
+      'theater_parent_id': seriesId,
+    });
+    return parseDetail(response, seriesId);
+  }
+
+  @override
+  Future<DramaPlaySource> playSource(DramaSiteEpisode episode) async {
+    if (episode.videoId.startsWith('http')) {
+      return DramaPlaySource(url: episode.videoId);
+    }
+    throw StateError('芽果该集没有播放地址');
+  }
+}
+
 DramaSiteContentClient? dramaSiteContentClient(String siteId) {
   if (siteId == 'hgtvmirror') return HgtvMirrorContentClient();
   if (siteId == 'hongguo') return HongguoContentClient();
@@ -1567,5 +1783,6 @@ DramaSiteContentClient? dramaSiteContentClient(String siteId) {
   if (siteId == 'heguo') return HeguoContentClient();
   if (siteId == 'xingguo') return XingguoContentClient();
   if (siteId == 'maoguo') return MaoguoContentClient();
+  if (siteId == 'yaguo') return YaguoContentClient();
   return null;
 }

@@ -192,6 +192,35 @@ void main() {
     expect(detail.episodes.first.videoId, 'https://example.test/m1.mp4');
   });
 
+  test('芽果列表与详情解析：theater 成卡片，theaters 直链成选集', () {
+    final items = YaguoContentClient.parseCatalog({
+      'data': {
+        'list': [
+          {
+            'theater': {
+              'id': '666',
+              'title': '芽果测试剧',
+              'cover_url': 'https://example.test/yaguo.jpg',
+              'total': 30,
+            },
+          },
+        ],
+      },
+    });
+    expect(items.first.id, '666');
+    expect(items.first.remark, '共30集');
+    final detail = YaguoContentClient.parseDetail({
+      'data': {
+        'title': '芽果测试剧',
+        'cover_url': 'https://example.test/yaguo.jpg',
+        'theaters': [
+          {'num': 1, 'son_video_url': 'https://example.test/y1.mp4'},
+        ],
+      },
+    }, '666');
+    expect(detail.episodes.first.videoId, 'https://example.test/y1.mp4');
+  });
+
   test('红果镜像详情解析：router 数据里的 vid_list 成选集', () {
     final detail = HgtvMirrorContentClient.parseDetail(
       '<html><script>window._ROUTER_DATA = {"loaderData":{"detail_page":{"seriesDetail":{"series_id":"123","series_title":"测试剧","series_cover":"https://example.test/cover.jpg","vid_list":["111","222","111"]}}}};</script></html>',
