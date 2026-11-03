@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
 import 'package:html/dom.dart' as dom;
+
+import 'aes_cipher.dart';
 import 'package:html/parser.dart' as html_parser;
 import 'package:http/http.dart' as http;
 
@@ -2340,6 +2342,219 @@ class MaccmsContentClient implements DramaSiteContentClient {
   }
 }
 
+/// 牛果：响应是 Base64 + AES-ECB，密钥取请求地址前 16 字节；
+/// 分集播放走解析服务，详情里的链接只是待解析地址。
+class NiuguoContentClient implements DramaSiteContentClient {
+  static const baseUrl = 'https://ccc.chaojichaojichanga.com:35620';
+  static const _parseBases = [
+    'http://ccs.jshh.gzbaoxian.com',
+    'http://101.42.92.211:5560',
+  ];
+
+  final http.Client _client;
+
+  NiuguoContentClient([http.Client? client])
+    : _client = client ?? http.Client();
+
+  static List<int> _keyFor(String requestUri) {
+    final key = List<int>.filled(16, 0);
+    final bytes = utf8.encode(requestUri);
+    key.setRange(0, bytes.length > 16 ? 16 : bytes.length, bytes);
+    return key;
+  }
+
+  static Map<String, dynamic> decryptResponse(String body, String requestUri) {
+    final encoded = body.trim();
+    if (encoded.isEmpty) {
+      throw StateError('牛果返回了空响应');
+    }
+    List<int> raw;
+    try {
+      raw = base64Decode(encoded);
+    } catch (_) {
+      final padded = encoded + '=' * ((4 - encoded.length % 4) % 4);
+      raw = base64Decode(padded);
+    }
+    final plain = aesEcbDecrypt(raw, _keyFor(requestUri));
+    final decoded = jsonDecode(utf8.decode(plain));
+    if (decoded is! Map<String, dynamic>) {
+      throw StateError('牛果响应格式无法识别');
+    }
+    return decoded;
+  }
+
+  Future<Map<String, dynamic>> _fetch(String path, Map<String, String> query) async {
+    final uri = Uri.parse('$baseUrl$path').replace(queryParameters: query);
+    final requestUri = uri.path + (uri.query.isNotEmpty ? '?${uri.query}' : '');
+    final response = await _client.get(
+      uri,
+      headers: {'Referer': '$baseUrl/'},
+    );
+    if (response.statusCode != 200) {
+      throw StateError('牛果请求 HTTP ${response.statusCode}');
+    }
+    return decryptResponse(response.body, requestUri);
+  }
+
+  static List<DramaSiteItem> parseCatalog(Map<String, dynamic> response) {
+    dynamic rows = response['list'] ?? response['data'];
+    if (rows is Map<String, dynamic>) rows = rows['list'];
+    if (rows is! List) return const [];
+    final items = <DramaSiteItem>[];
+    for (final entry in rows) {
+      final node = _asMap(entry);
+      final id = _firstString(node, ['vod_id', 'vodId', 'id']);
+      if (id.isEmpty) continue;
+      final title = _firstString(node, ['vod_name', 'vodName', 'title']);
+      if (title.isEmpty) continue;
+      final count = _firstInt(node, ['vod_total', 'total', 'episodes']);
+      items.add(
+        DramaSiteItem(
+          id: id,
+          title: title,
+          cover: _firstString(node, ['vod_pic', 'vodPic', 'cover']),
+          remark: _firstString(node, ['vod_remarks', 'vodRemarks']).isNotEmpty
+              ? _firstString(node, ['vod_remarks', 'vodRemarks'])
+              : (count > 0 ? '共$count集' : ''),
+        ),
+      );
+    }
+    return items;
+  }
+
+  static DramaSiteDetail parseDetail(
+    Map<String, dynamic> response,
+    String seriesId,
+  ) {
+    var node = response;
+    final nested = _asMap(response['data']);
+    if (nested.isNotEmpty) node = nested;
+    final listed = node['list'];
+    if (listed is List && listed.isNotEmpty) {
+      node = _asMap(listed.first);
+    }
+    final title = _firstString(node, ['vod_name', 'vodName', 'title']);
+    final cover = _firstString(node, ['vod_pic', 'vodPic', 'cover']);
+    final indexed = <({int number, DramaSiteEpisode episode})>[];
+    final seenNumbers = <int>{};
+    void addEpisode(String episodeTitle, String link) {
+      if (link.isEmpty) return;
+      var number = indexed.length + 1;
+      final digitMatch = RegExp(r'(\d+)').firstMatch(episodeTitle);
+      if (digitMatch != null) {
+        number = int.tryParse(digitMatch.group(1)!) ?? number;
+      }
+      if (!seenNumbers.add(number)) return;
+      indexed.add((
+        number: number,
+        episode: DramaSiteEpisode(
+          videoId: link,
+          title: episodeTitle.isNotEmpty ? episodeTitle : '第$number集',
+          seriesId: seriesId,
+        ),
+      ));
+    }
+
+    final sources = node['sources'];
+    if (sources is List) {
+      for (final source in sources) {
+        final episodes = _asMap(source)['episodes'];
+        if (episodes is! List) continue;
+        for (final entry in episodes) {
+          final episode = _asMap(entry);
+          addEpisode(
+            _firstString(episode, ['name', 'title']),
+            _firstString(episode, ['url', 'playUrl']),
+          );
+        }
+      }
+    }
+    if (indexed.isEmpty) {
+      final playUrls = node['vod_play_url'];
+      if (playUrls is List) {
+        for (final entry in playUrls) {
+          for (final line in entry.toString().split('#')) {
+            final cut = line.indexOf('\$');
+            if (cut < 0) continue;
+            addEpisode(
+              line.substring(0, cut).trim(),
+              line.substring(cut + 1).trim(),
+            );
+          }
+        }
+      }
+    }
+    if (indexed.isEmpty) {
+      throw StateError('牛果未返回可播放分集');
+    }
+    indexed.sort((a, b) => a.number.compareTo(b.number));
+    return DramaSiteDetail(
+      id: seriesId,
+      title: title,
+      cover: cover,
+      episodes: [for (final entry in indexed) entry.episode],
+    );
+  }
+
+  @override
+  Future<List<DramaSiteCategory>> categories() async => const [
+    DramaSiteCategory('1', '短剧'),
+    DramaSiteCategory('2', '电影'),
+    DramaSiteCategory('3', '电视剧'),
+    DramaSiteCategory('4', '动漫'),
+    DramaSiteCategory('5', '综艺'),
+  ];
+
+  @override
+  Future<DramaSiteCatalogPage> catalog(String categoryId, int page) async {
+    final response = await _fetch('/list', {
+      'class': categoryId.isEmpty ? '' : categoryId,
+      'order': '最新',
+      'type_id': '5',
+      'area': '',
+      'year': '',
+      'state': '',
+      'wd': '',
+      'page': '${page < 1 ? 1 : page}',
+    });
+    final items = parseCatalog(response);
+    return DramaSiteCatalogPage(items: items, hasMore: items.isNotEmpty);
+  }
+
+  @override
+  Future<DramaSiteDetail> detail(String seriesId) async {
+    final response = await _fetch('/detail', {'vod_id': seriesId});
+    return parseDetail(response, seriesId);
+  }
+
+  @override
+  Future<DramaPlaySource> playSource(DramaSiteEpisode episode) async {
+    StateError? lastError;
+    for (final base in _parseBases) {
+      for (final script in ['qy.php', 'dj.php']) {
+        final uri = Uri.parse('$base/jx/$script').replace(
+          queryParameters: {'url': episode.videoId},
+        );
+        try {
+          final response = await _client.get(
+            uri,
+            headers: {'Referer': '$base/'},
+          );
+          if (response.statusCode != 200) continue;
+          final decoded = jsonDecode(response.body);
+          if (decoded is! Map<String, dynamic>) continue;
+          final url = _firstString(decoded, ['url']);
+          if (url.isNotEmpty) return DramaPlaySource(url: url);
+          lastError = StateError('牛果解析服务未返回播放地址');
+        } catch (e) {
+          lastError = StateError(e.toString());
+        }
+      }
+    }
+    throw lastError ?? StateError('牛果未返回有效播放地址');
+  }
+}
+
 DramaSiteContentClient? dramaSiteContentClient(String siteId) {
   if (siteId == 'hgtvmirror') return HgtvMirrorContentClient();
   if (siteId == 'hongguo') return HongguoContentClient();
@@ -2349,6 +2564,7 @@ DramaSiteContentClient? dramaSiteContentClient(String siteId) {
   if (siteId == 'xingguo') return XingguoContentClient();
   if (siteId == 'maoguo') return MaoguoContentClient();
   if (siteId == 'yaguo') return YaguoContentClient();
+  if (siteId == 'niuguo') return NiuguoContentClient();
   if (siteId == 'huaguo') {
     return MaccmsContentClient('huaguo', 'https://www.zywest263.com');
   }

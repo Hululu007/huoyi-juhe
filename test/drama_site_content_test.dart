@@ -241,6 +241,38 @@ void main() {
     expect(play, 'https://example.test/v1.m3u8');
   });
 
+  test('牛果列表与详情解析：解密后 JSON 的卡片与分集链接', () {
+    final items = NiuguoContentClient.parseCatalog({
+      'data': [
+        {
+          'vod_id': 575258,
+          'vod_name': '牛果样本',
+          'vod_pic': 'https://pic.example.cn/a.jpg',
+          'vod_remarks': '已完结',
+        },
+      ],
+    });
+    expect(items.first.id, '575258');
+    expect(items.first.title, '牛果样本');
+    final detail = NiuguoContentClient.parseDetail({
+      'vod_name': '牛果样本',
+      'vod_pic': 'https://pic.example.cn/a.jpg',
+      'sources': [
+        {
+          'episodes': [
+            {'name': '第1集', 'url': 'https://example.test/n1'},
+          ],
+        },
+      ],
+    }, '575258');
+    expect(detail.episodes.first.videoId, 'https://example.test/n1');
+    final decrypted = NiuguoContentClient.decryptResponse(
+      'd/I5TwIMGn7d1tvbqM7QrLYiBgMkVJQl3Uj3tUEF9dkHfgvV/ZfFVuE/NLhAd/b1XsugnbdQT62TYZ1g2mFMxuXPF1lzAJpoY95A/6hdqSeGpHDrqLnWElFVu7L6e5whh5MKc7AGE7zcLb2WbQS9aXRaTXhzKkNU9JN7lBcmMqmnmeht+inJDlIATllbfw7BY65kYjTkgADlFRZPiRMFBT5h6Zs3DwxyACR2a+KtU8w=',
+      '/list?class=&ord',
+    );
+    expect(decrypted['status'], 0);
+  });
+
   test('红果镜像详情解析：router 数据里的 vid_list 成选集', () {
     final detail = HgtvMirrorContentClient.parseDetail(
       '<html><script>window._ROUTER_DATA = {"loaderData":{"detail_page":{"seriesDetail":{"series_id":"123","series_title":"测试剧","series_cover":"https://example.test/cover.jpg","vid_list":["111","222","111"]}}}};</script></html>',
