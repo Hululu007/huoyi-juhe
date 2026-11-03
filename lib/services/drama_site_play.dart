@@ -6,14 +6,16 @@ import '../models/media_item.dart';
 import '../models/playlet_comment.dart';
 import '../models/series_detail.dart';
 import '../pages/listen_mode_page.dart';
-import '../pages/novel_text_page.dart';
 import '../pages/pics_viewer_page.dart';
 import '../pages/player_page.dart';
+import '../pages/reader_page.dart';
 import '../pages/search_page.dart';
 import '../pages/series_detail_page.dart';
 import 'drama_playback.dart';
 import 'drama_site_content.dart';
 import 'engine_reading_store.dart';
+import 'library_store.dart';
+import 'reader_history.dart';
 import 'episode_source_cache.dart';
 import 'nonvideo_play.dart';
 import 'shelf_store.dart';
@@ -319,17 +321,46 @@ Future<void> openDramaSitePlayback(
   if (!context.mounted) return;
   switch (classifyPlayUrl(first.url)) {
     case PlayUrlKind.novel:
+      final engineBookId = 'engine:$siteId:$seriesId';
+      var readerStart = safeIndex;
+      try {
+        final saved =
+            await ReaderHistory(LibraryStore.instance).load(engineBookId);
+        final chapterId = saved?['chapterId']?.toString();
+        final episode = num.tryParse(saved?['episode']?.toString() ?? '');
+        var historyIndex = chapterId == null
+            ? -1
+            : chapters.indexWhere((c) => c.itemId == chapterId);
+        if (historyIndex < 0 && episode != null && episode.isFinite) {
+          historyIndex =
+              episode.toInt().clamp(0, chapters.length - 1).toInt();
+        }
+        if (historyIndex > readerStart) readerStart = historyIndex;
+      } catch (_) {}
+      if (!context.mounted) return;
       await Navigator.push(
         context,
         MaterialPageRoute<void>(
-          builder: (_) => NovelTextPage(
-            seriesTitle: title,
-            episodes: chapters,
-            startIndex: safeIndex,
-            resolve: (chapter) async =>
-                parseNovelPayload((await resolveSource(chapter)).url),
-            onIndexChanged: saveIndex,
-            onAddToShelf: addToShelf,
+          builder: (_) => ReaderPage(
+            bookId: engineBookId,
+            title: title,
+            cover: cover,
+            chapters: chapters,
+            startIndex: readerStart,
+            localOnly: true,
+            chapterLoader: (chapter) async =>
+                parseNovelPayload((await resolveSource(chapter)).url).content,
+            shelfItem: MediaItem(
+              id: engineBookId,
+              title: title,
+              cover: cover,
+              author: '',
+              badge: '',
+              ep: '',
+              kind: 'book',
+              source: 'engine:$siteId',
+              seriesId: seriesId,
+            ),
             onSwitchSource: (index) => showEngineSourceSwitch(
               context,
               title: title,
@@ -340,6 +371,20 @@ Future<void> openDramaSitePlayback(
           ),
         ),
       );
+      try {
+        final saved =
+            await ReaderHistory(LibraryStore.instance).load(engineBookId);
+        final chapterId = saved?['chapterId']?.toString();
+        final episode = num.tryParse(saved?['episode']?.toString() ?? '');
+        var historyIndex = chapterId == null
+            ? -1
+            : chapters.indexWhere((c) => c.itemId == chapterId);
+        if (historyIndex < 0 && episode != null && episode.isFinite) {
+          historyIndex =
+              episode.toInt().clamp(0, chapters.length - 1).toInt();
+        }
+        if (historyIndex >= 0) saveIndex(historyIndex);
+      } catch (_) {}
     case PlayUrlKind.pics:
       await Navigator.push(
         context,

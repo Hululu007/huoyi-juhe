@@ -135,6 +135,9 @@ class ReaderPage extends StatefulWidget {
   /// 保留作者/徽标等字段；其他入口省略，按 [bookId]/[title]/[cover] 兜底成小说。
   final MediaItem? shelfItem;
 
+  /// 引擎书换源：工具栏出现换源按钮，点后回调当前章节下标。
+  final void Function(int index)? onSwitchSource;
+
   const ReaderPage({
     super.key,
     required this.bookId,
@@ -150,6 +153,7 @@ class ReaderPage extends StatefulWidget {
     this.imageProviderFactory,
     this.ideasLoader,
     this.commentResolver,
+    this.onSwitchSource,
     this.shelfItem,
     this.underlineStore,
     this.replacementStore,

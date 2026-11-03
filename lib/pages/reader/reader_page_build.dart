@@ -319,6 +319,16 @@ extension _ReaderPageBuild on _ReaderPageState {
                 );
               },
             ),
+            if (widget.onSwitchSource != null)
+              IconButton(
+                key: const ValueKey('reader-switch-source-button'),
+                tooltip: '换源',
+                onPressed: () => widget.onSwitchSource!(_index),
+                icon: Icon(
+                  LucideIcons.arrow_left_right,
+                  color: preset.textColor,
+                ),
+              ),
             IconButton(
               tooltip: '收起阅读菜单',
               onPressed: _toggleControls,
