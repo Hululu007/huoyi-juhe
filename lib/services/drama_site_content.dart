@@ -22,8 +22,13 @@ class DramaSiteItem {
 class DramaSiteEpisode {
   final String videoId;
   final String title;
+  final String seriesId;
 
-  const DramaSiteEpisode({required this.videoId, required this.title});
+  const DramaSiteEpisode({
+    required this.videoId,
+    required this.title,
+    this.seriesId = '',
+  });
 }
 
 class DramaSiteDetail {
@@ -252,7 +257,7 @@ class HgtvMirrorContentClient implements DramaSiteContentClient {
   Future<List<DramaSiteCategory>> categories() async {
     final response = await _client.get(
       Uri.parse('$baseUrl/category'),
-      headers: {'Referer': '$baseUrl/', 'User-Agent': _userAgent},
+      headers: {'Referer': '$baseUrl/', 'User-Agent': userAgent},
     );
     if (response.statusCode != 200) {
       throw StateError('红果镜像分类 HTTP ${response.statusCode}');
@@ -267,7 +272,7 @@ class HgtvMirrorContentClient implements DramaSiteContentClient {
         : '$baseUrl/category/$categoryId?page=${page < 1 ? 1 : page}';
     final response = await _client.get(
       Uri.parse(url),
-      headers: {'Referer': '$baseUrl/', 'User-Agent': _userAgent},
+      headers: {'Referer': '$baseUrl/', 'User-Agent': userAgent},
     );
     if (response.statusCode != 200) {
       throw StateError('红果镜像列表 HTTP ${response.statusCode}');
@@ -283,7 +288,7 @@ class HgtvMirrorContentClient implements DramaSiteContentClient {
   Future<DramaSiteDetail> detail(String seriesId) async {
     final response = await _client.get(
       Uri.parse('$baseUrl/detail?series_id=${Uri.encodeComponent(seriesId)}'),
-      headers: {'Referer': '$baseUrl/', 'User-Agent': _userAgent},
+      headers: {'Referer': '$baseUrl/', 'User-Agent': userAgent},
     );
     if (response.statusCode != 200) {
       throw StateError('红果镜像详情 HTTP ${response.statusCode}');
@@ -300,7 +305,7 @@ class HgtvMirrorContentClient implements DramaSiteContentClient {
         headers: {
           'Referer': '$baseUrl/player',
           'Content-Type': 'application/json; charset=utf-8',
-          'User-Agent': _userAgent,
+          'User-Agent': userAgent,
         },
         body: jsonEncode({'item_id': episode.videoId}),
       );
@@ -320,11 +325,217 @@ class HgtvMirrorContentClient implements DramaSiteContentClient {
     return DramaPlaySource(url: direct360);
   }
 
-  static const _userAgent =
+  static const userAgent =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
+}
+
+/// 红果网页端：与红果镜像同域名同详情页，但分类页取 router 数据的
+/// recommendList，不取卡片 HTML；播放取播放页 video_player_info 的
+/// 地址列表，取不到才退 360p 直链。App 签名线不在此，网页线能播就进。
+class HongguoContentClient implements DramaSiteContentClient {
+  static const baseUrl = HgtvMirrorContentClient.baseUrl;
+
+  final http.Client _client;
+
+  HongguoContentClient([http.Client? client])
+    : _client = client ?? http.Client();
+
+  static String routeForCategory(String categoryId) {
+    switch (categoryId) {
+      case 'real-drama':
+      case 'comic-drama':
+      case 'ai-drama':
+      case 'comic':
+        return categoryId;
+      default:
+        return 'real-drama';
+    }
+  }
+
+  static List<DramaSiteItem> parseCatalog(String body) {
+    final data = _extractRouterData(body);
+    if (data == null) return const [];
+    final loader = _asMap(data['loaderData']);
+    var page = _asMap(loader['category_page']);
+    if (page.isEmpty) {
+      for (final entry in loader.entries) {
+        if (entry.key.startsWith('category_')) {
+          page = _asMap(entry.value);
+          if (page.isNotEmpty) break;
+        }
+      }
+    }
+    final rawList = page['recommendList'];
+    if (rawList is! List) return const [];
+    final seen = <String>{};
+    final items = <DramaSiteItem>[];
+    for (final raw in rawList) {
+      var node = _asMap(raw);
+      final video = _asMap(node['video_data']);
+      if (video.isNotEmpty) node = video;
+      final id = _stringOf(
+        node['series_id_str'] ?? node['series_id'] ?? node['keyword'],
+      );
+      if (!RegExp(r'^\d+$').hasMatch(id) || seen.contains(id)) continue;
+      final title = _stringOf(
+        node['series_title'] ?? node['series_name'] ?? node['title'] ?? node['name'],
+      );
+      if (title.isEmpty) continue;
+      var remark = _stringOf(node['episode_right_text']);
+      if (remark.isEmpty) {
+        final count = _stringOf(node['episode_cnt']);
+        if (count.isNotEmpty) remark = '共$count集';
+      }
+      seen.add(id);
+      items.add(
+        DramaSiteItem(
+          id: id,
+          title: title,
+          cover: _stringOf(node['series_cover'] ?? node['cover']),
+          remark: remark,
+        ),
+      );
+    }
+    return items;
+  }
+
+  static List<String> parsePlayerAddresses(String body) {
+    final data = _extractRouterData(body);
+    if (data == null) return const [];
+    final loader = _asMap(data['loaderData']);
+    var page = _asMap(loader['player_page']);
+    if (page.isEmpty) {
+      for (final entry in loader.entries) {
+        if (entry.key.startsWith('player_')) {
+          page = _asMap(entry.value);
+          if (page.isNotEmpty) break;
+        }
+      }
+    }
+    final info = _asMap(page['video_player_info']);
+    final addresses = <String>[];
+    final seen = <String>{};
+    void add(dynamic value) {
+      if (value is String) {
+        var address = value.trim();
+        if (address.isEmpty || address.length > 8192) return;
+        if (!_isHttpMedia(address)) {
+          try {
+            address = utf8.decode(base64Decode(address)).trim();
+          } catch (_) {
+            return;
+          }
+        }
+        if (_isHttpMedia(address) && seen.add(address)) {
+          addresses.add(address);
+        }
+      } else if (value is List) {
+        for (final entry in value) {
+          add(entry);
+        }
+      }
+    }
+
+    for (final key in [
+      'main_url',
+      'backup_url',
+      'backup_url_1',
+      'backup_url_2',
+      'backup_urls',
+      'url_list',
+    ]) {
+      add(info[key]);
+    }
+    return addresses;
+  }
+
+  static bool _isHttpMedia(String address) {
+    final uri = Uri.tryParse(address);
+    return uri != null &&
+        (uri.scheme == 'http' || uri.scheme == 'https') &&
+        uri.host.isNotEmpty;
+  }
+
+  @override
+  Future<List<DramaSiteCategory>> categories() async => const [
+    DramaSiteCategory('all', '全部'),
+    DramaSiteCategory('real-drama', '真人剧'),
+    DramaSiteCategory('comic-drama', '漫剧'),
+    DramaSiteCategory('ai-drama', 'AI剧'),
+    DramaSiteCategory('comic', '动漫'),
+  ];
+
+  @override
+  Future<DramaSiteCatalogPage> catalog(String categoryId, int page) async {
+    final route = routeForCategory(categoryId);
+    final response = await _client.get(
+      Uri.parse(
+        '$baseUrl/category/$route?page=${page < 1 ? 1 : page}',
+      ),
+      headers: {
+        'Referer': '$baseUrl/',
+        'User-Agent': HgtvMirrorContentClient.userAgent,
+      },
+    );
+    if (response.statusCode != 200) {
+      throw StateError('红果列表 HTTP ${response.statusCode}');
+    }
+    final items = parseCatalog(response.body);
+    return DramaSiteCatalogPage(
+      items: items,
+      hasMore: items.length >= 24,
+    );
+  }
+
+  @override
+  Future<DramaSiteDetail> detail(String seriesId) async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/detail?series_id=${Uri.encodeComponent(seriesId)}'),
+      headers: {
+        'Referer': '$baseUrl/',
+        'User-Agent': HgtvMirrorContentClient.userAgent,
+      },
+    );
+    if (response.statusCode != 200) {
+      throw StateError('红果详情 HTTP ${response.statusCode}');
+    }
+    return HgtvMirrorContentClient.parseDetail(response.body, seriesId);
+  }
+
+  @override
+  Future<DramaPlaySource> playSource(DramaSiteEpisode episode) async {
+    final direct360 = '$baseUrl/video/public/${episode.videoId}/360p.mp4';
+    if (episode.seriesId.isNotEmpty) {
+      try {
+        final response = await _client.get(
+          Uri.parse(
+            '$baseUrl/player/${Uri.encodeComponent(episode.seriesId)}/${Uri.encodeComponent(episode.videoId)}',
+          ),
+          headers: {
+            'Referer': '$baseUrl/',
+            'User-Agent': HgtvMirrorContentClient.userAgent,
+          },
+        );
+        if (response.statusCode == 200) {
+          final addresses = parsePlayerAddresses(response.body);
+          if (addresses.isNotEmpty) {
+            return DramaPlaySource(
+              url: addresses.first,
+              variants: [
+                for (var i = 1; i < addresses.length; i++)
+                  DramaPlayVariant(name: '线路${i + 1}', url: addresses[i]),
+              ],
+            );
+          }
+        }
+      } catch (_) {}
+    }
+    return DramaPlaySource(url: direct360);
+  }
 }
 
 DramaSiteContentClient? dramaSiteContentClient(String siteId) {
   if (siteId == 'hgtvmirror') return HgtvMirrorContentClient();
+  if (siteId == 'hongguo') return HongguoContentClient();
   return null;
 }

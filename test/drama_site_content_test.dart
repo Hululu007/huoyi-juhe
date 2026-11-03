@@ -32,6 +32,27 @@ void main() {
     expect(items.first.remark, '102集');
   });
 
+  test('红果分类解析：router 数据的 recommendList 成卡片', () {
+    final items = HongguoContentClient.parseCatalog(
+      '<html><script>window._ROUTER_DATA = {"loaderData":{"category_page":{"recommendList":[{"video_data":{"series_id_str":"123","series_title":"测试剧","series_cover":"https://example.test/cover.jpg","episode_right_text":"全102集"}}],"pagination":{"totalPages":"5"}}}};</script></html>',
+    );
+    expect(items.length, 1);
+    expect(items.first.id, '123');
+    expect(items.first.title, '测试剧');
+    expect(items.first.remark, '全102集');
+    expect(HongguoContentClient.routeForCategory('all'), 'real-drama');
+  });
+
+  test('红果播放页解析：video_player_info 的地址列表成线路', () {
+    final addresses = HongguoContentClient.parsePlayerAddresses(
+      '<html><script>window._ROUTER_DATA = {"loaderData":{"player_page":{"vid":"111","series_id":"123","video_player_info":{"main_url":"https://example.test/v1080.mp4","backup_url":"https://example.test/v720.mp4"}}}};</script></html>',
+    );
+    expect(addresses, [
+      'https://example.test/v1080.mp4',
+      'https://example.test/v720.mp4',
+    ]);
+  });
+
   test('红果镜像详情解析：router 数据里的 vid_list 成选集', () {
     final detail = HgtvMirrorContentClient.parseDetail(
       '<html><script>window._ROUTER_DATA = {"loaderData":{"detail_page":{"seriesDetail":{"series_id":"123","series_title":"测试剧","series_cover":"https://example.test/cover.jpg","vid_list":["111","222","111"]}}}};</script></html>',

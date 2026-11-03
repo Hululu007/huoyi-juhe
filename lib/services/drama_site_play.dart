@@ -71,6 +71,7 @@ Future<void> openDramaSiteItem(
                     DramaSiteEpisode(
                       videoId: chapter.itemId,
                       title: chapter.title,
+                      seriesId: item.id,
                     ),
                   );
                   return source.toResponse();
