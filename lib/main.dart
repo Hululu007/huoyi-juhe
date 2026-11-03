@@ -21,7 +21,9 @@ import 'pages/audio_page.dart';
 import 'pages/cached_books_page.dart';
 import 'pages/drama_page.dart';
 import 'pages/library_page.dart';
+import 'pages/live_page.dart';
 import 'pages/mine_page.dart';
+import 'pages/video_page.dart';
 import 'services/app_log.dart';
 import 'services/app_theme.dart';
 import 'services/audio_download_store.dart';
@@ -558,6 +560,8 @@ class _RootShellState extends State<RootShell> {
             children: [
               HomePage(cueLoader: () => ApiClient.instance.searchCue()),
               const DramaPage(),
+              const VideoPage(),
+              const LivePage(),
               LibraryPage(
                 onBrowse: () => desktopTab.value = 0,
                 onFindDrama: () => desktopTab.value = 1,
@@ -641,6 +645,16 @@ class _RootShellState extends State<RootShell> {
             label: '短剧',
           ),
           NavigationDestination(
+            icon: Icon(LucideIcons.film),
+            selectedIcon: Icon(LucideIcons.film),
+            label: '影视',
+          ),
+          NavigationDestination(
+            icon: Icon(LucideIcons.tv),
+            selectedIcon: Icon(LucideIcons.tv),
+            label: '直播',
+          ),
+          NavigationDestination(
             icon: Icon(LucideIcons.library_big),
             selectedIcon: Icon(LucideIcons.library_big),
             label: '书架',
@@ -711,6 +725,8 @@ class _RootShellState extends State<RootShell> {
               cueLoader: () => ApiClient.instance.searchCue(),
             ),
             const DramaPage(),
+            const VideoPage(),
+            const LivePage(),
             // 空书架上的「去书城找书」切回首页 tab；收藏空态的「找短剧」
             // 切到短剧 tab。
             LibraryPage(
