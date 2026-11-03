@@ -41,6 +41,12 @@ class HomeHero extends StatefulWidget {
 
   final VoidCallback onSearch;
 
+  /// 短剧区站点药丸上显示的站点名。null 时不显示药丸。
+  final String? siteName;
+
+  /// 站点药丸的点击回调。null 时药丸不可点。
+  final VoidCallback? onSiteTap;
+
   /// 右上角「分类」入口。null 时不占位（与官方 `i_y` gone 一致）。
   final VoidCallback? onCategory;
 
@@ -51,6 +57,8 @@ class HomeHero extends StatefulWidget {
   const HomeHero({
     super.key,
     required this.onSearch,
+    this.siteName,
+    this.onSiteTap,
     this.onCategory,
     this.cueLoader,
   });
@@ -126,6 +134,10 @@ class _HomeHeroState extends State<HomeHero> {
           ),
           child: Row(
             children: [
+              if (widget.siteName != null) ...[
+                _sitePill(palette),
+                const SizedBox(width: 8),
+              ],
               Expanded(
                 child: HomePressable(
                   key: const Key('home_search_button'),
@@ -182,6 +194,39 @@ class _HomeHeroState extends State<HomeHero> {
         children: [...previousChildren, ?currentChild],
       ),
       child: word,
+    );
+  }
+
+  /// 搜索行左端的站点药丸：与搜索框同高同圆角，显示当前短剧站点名。
+  /// 搜索框仍是 Expanded，占剩余宽度，所以药丸一出现搜索框就往中间缩。
+  Widget _sitePill(HomePalette palette) {
+    return GestureDetector(
+      key: const Key('home_site_button'),
+      behavior: HitTestBehavior.opaque,
+      onTap: widget.onSiteTap,
+      child: Container(
+        height: HomeHero.searchBarHeight,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          color: palette.searchBar,
+          borderRadius: BorderRadius.circular(HomeHero.searchBarRadius),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: Text(
+                widget.siteName!,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 13, color: palette.ink),
+              ),
+            ),
+            const SizedBox(width: 4),
+            Icon(LucideIcons.chevron_down, size: 14, color: palette.ink),
+          ],
+        ),
+      ),
     );
   }
 

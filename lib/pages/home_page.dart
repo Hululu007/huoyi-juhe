@@ -12,6 +12,7 @@ import '../services/app_log.dart';
 import '../services/book_open_preferences.dart';
 import '../services/chapter_cache_store.dart';
 import '../services/desktop_platform.dart';
+import '../services/drama_sites.dart';
 import '../services/home_continue_preferences.dart';
 import '../services/home_page_affinity.dart';
 import '../services/library_store.dart';
@@ -88,6 +89,10 @@ class _HomePageState extends ConsumerState<HomePage> {
   final GlobalKey _heroKey = GlobalKey();
   late final _homeTabs = HomeTabSwitch(_scroll, ref, _heroKey);
 
+  /// 当前短剧站点：只在短剧分类下显示为搜索行左侧的药丸。
+  /// 选站目前只切换药丸显示与持久化，站内容适配是下一步。
+  String _dramaSiteId = DramaSitePreferences.selectedId;
+
   /// 进过一次内容之后就是「切分类」，不再是冷启动：前者不能铺整页骨架。
   bool _hadContent = false;
 
@@ -152,6 +157,11 @@ class _HomePageState extends ConsumerState<HomePage> {
       _onLocalDataChanged,
     );
     unawaited(HomeContinuePreferences.instance.load());
+    unawaited(
+      DramaSitePreferences.load().then((_) {
+        if (mounted) setState(() => _dramaSiteId = DramaSitePreferences.selectedId);
+      }),
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) ref.read(homeProvider.notifier).load();
     });
@@ -325,7 +335,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                         parent: AlwaysScrollableScrollPhysics(),
                       ),
                       slivers: [
-                        _heroSliver(),
+                        _heroSliver(state.tabIndex),
                         SliverPersistentHeader(
                           pinned: true,
                           delegate: HomeTabBarDelegate(
@@ -352,16 +362,46 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   /// 搜索行。横滑切分类时它不跟着走：它属于「页面」，不属于「内容」。
-  SliverToBoxAdapter _heroSliver() => SliverToBoxAdapter(
+  /// 只有短剧分类下，搜索行左侧才出现站点药丸；其余分类保持原版式。
+  SliverToBoxAdapter _heroSliver(int tabIndex) => SliverToBoxAdapter(
     child: SwipeStationary(
       child: HomeHero(
         key: _heroKey,
         onSearch: _openSearch,
+        siteName: tabIndex >= 0 && tabIndex < homeCategories.length && homeCategories[tabIndex].label == '短剧'
+            ? dramaSiteById(_dramaSiteId).name
+            : null,
+        onSiteTap: _openSiteList,
         onCategory: _openCategory,
         cueLoader: widget.cueLoader,
       ),
     ),
   );
+
+  /// 短剧站点列表：点药丸从底部弹出，点一项即切换药丸并持久化。
+  Future<void> _openSiteList() async {
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            for (final site in dramaSites)
+              ListTile(
+                title: Text(site.name),
+                trailing: site.id == _dramaSiteId
+                    ? const Icon(Icons.check)
+                    : null,
+                onTap: () => Navigator.pop(sheetContext, site.id),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (picked == null || !mounted) return;
+    await DramaSitePreferences.save(picked);
+    if (mounted) setState(() => _dramaSiteId = picked);
+  }
 
   /// 记下当前分类这一帧的内容 slivers，供横滑时预渲染邻页。
   void _rememberPreviewBody(
