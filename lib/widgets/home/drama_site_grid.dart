@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/media_item.dart';
 import '../../services/drama_site_content.dart';
 import '../../services/drama_site_play.dart';
+import '../../services/source_registry.dart';
 import 'home_feed_states.dart';
 import 'home_media_card.dart';
 import 'home_shelf.dart';
@@ -56,7 +57,6 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
   @override
   void initState() {
     super.initState();
-    _client = dramaSiteContentClient(widget.siteId);
     _loadFirst();
   }
 
@@ -65,7 +65,7 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.siteId != widget.siteId ||
         oldWidget.categoryId != widget.categoryId) {
-      _client = dramaSiteContentClient(widget.siteId);
+      _client = null;
       _prefetchedPage = null;
       _prefetchedForPage = 0;
       _loadFirst();
@@ -73,8 +73,17 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
   }
 
   Future<void> _loadFirst() async {
-    final client = _client;
-    if (client == null) return;
+    final client =
+        await SourceRegistry.instance.clientFor(widget.siteId);
+    if (!mounted) return;
+    _client = client;
+    if (client == null) {
+      setState(() {
+        _loading = false;
+        _error = '该站源当前不可用';
+      });
+      return;
+    }
     setState(() {
       _loading = true;
       _error = null;

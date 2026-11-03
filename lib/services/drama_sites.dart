@@ -95,8 +95,16 @@ const dramaSites = [
   DramaSite('huangdou_yh', '黄豆短剧'),
 ];
 
+List<DramaSite> _extraDramaSites = const [];
+
+List<DramaSite> get allDramaSites => [...dramaSites, ..._extraDramaSites];
+
+void registerExtraDramaSites(List<DramaSite> sites) {
+  _extraDramaSites = List.unmodifiable(sites);
+}
+
 DramaSite dramaSiteById(String id) {
-  for (final site in dramaSites) {
+  for (final site in allDramaSites) {
     if (site.id == id) return site;
   }
   return dramaSites.first;

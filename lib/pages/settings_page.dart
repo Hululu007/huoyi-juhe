@@ -22,6 +22,7 @@ import 'cached_books_page.dart';
 import 'cached_dramas_page.dart';
 import 'library_backup_page.dart';
 import 'settings_category_page.dart';
+import 'source_management_page.dart';
 import 'system_tts_settings_page.dart';
 import 'text_replacement_page.dart';
 
@@ -95,6 +96,24 @@ class SettingsPage extends StatelessWidget {
           _muteWhenColdStartItem(),
           if (!isWindowsDesktop) _floatingWindowItem(),
           if (!isWindowsDesktop) _videoDecoderItem(),
+        ],
+      ),
+      SettingsCategory(
+        icon: LucideIcons.list,
+        title: '站源',
+        subtitle: '内置短剧、自定义与导入站源的开关与检测',
+        items: [
+          SettingsItem(
+            icon: LucideIcons.list,
+            title: '站源管理',
+            subtitle: '开关站源、检测可用性、添加 MacCMS 与远程 JSON 站源',
+            onTap: (context, _) => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const SourceManagementPage(),
+              ),
+            ),
+          ),
         ],
       ),
       SettingsCategory(

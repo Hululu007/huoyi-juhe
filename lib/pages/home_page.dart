@@ -14,6 +14,7 @@ import '../services/chapter_cache_store.dart';
 import '../services/desktop_platform.dart';
 import '../services/drama_site_content.dart';
 import '../services/drama_sites.dart';
+import '../services/source_registry.dart';
 import '../services/home_continue_preferences.dart';
 import '../services/home_page_affinity.dart';
 import '../services/library_store.dart';
@@ -389,13 +390,16 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   /// 短剧站点列表：点药丸从底部弹出，点一项即切换药丸并持久化。
   Future<void> _openSiteList() async {
+    await SourceRegistry.instance.load();
+    if (!mounted) return;
+    final sites = SourceRegistry.instance.visibleDramaSites();
     final picked = await showModalBottomSheet<String>(
       context: context,
       builder: (sheetContext) => SafeArea(
         child: ListView(
           shrinkWrap: true,
           children: [
-            for (final site in dramaSites)
+            for (final site in sites)
               ListTile(
                 title: Text(site.name),
                 trailing: site.id == _dramaSiteId
@@ -528,7 +532,8 @@ class _HomePageState extends ConsumerState<HomePage> {
     if (state.tabIndex >= 0 &&
         state.tabIndex < homeCategories.length &&
         homeCategories[state.tabIndex].label == '短剧' &&
-        dramaSiteContentClient(_dramaSiteId) != null) {
+        (dramaSiteContentClient(_dramaSiteId) != null ||
+            SourceRegistry.instance.customById(_dramaSiteId) != null)) {
       return [
         DramaSiteGrid(
           key: ValueKey('drama-site-$_dramaSiteId-$_dramaCategoryId'),

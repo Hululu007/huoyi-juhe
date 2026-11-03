@@ -2515,7 +2515,7 @@ class MaccmsContentClient implements DramaSiteContentClient {
         }
         return '$baseUrl${category.split('---.html').first}$pageSafe---.html';
       default:
-        throw StateError('未知的苹果 CMS 站点');
+        return '$baseUrl/';
     }
   }
 
@@ -2546,7 +2546,11 @@ class MaccmsContentClient implements DramaSiteContentClient {
           '$baseUrl/detail/$seriesId.html',
         ];
       default:
-        return [];
+        return [
+          '$baseUrl/detail/$seriesId.html',
+          '$baseUrl/voddetail/$seriesId.html',
+          '$baseUrl/index.php/vod/detail/id/$seriesId.html',
+        ];
     }
   }
 

@@ -9,6 +9,7 @@ import '../pages/player_page.dart';
 import '../pages/series_detail_page.dart';
 import 'drama_playback.dart';
 import 'drama_site_content.dart';
+import 'source_registry.dart';
 
 /// 外站剧集的详情与播放入口：只用原始站点的详情页与播放页。
 /// 详情页拿目录与标题封面，播放页拿选集与取流；评论与底部信息
@@ -61,7 +62,8 @@ Future<void> openDramaSiteItem(
   String siteId,
   DramaSiteItem item,
 ) async {
-  final client = dramaSiteContentClient(siteId);
+  final client = await SourceRegistry.instance.clientFor(siteId);
+  if (!context.mounted) return;
   if (client == null) return;
   final preload = _PlaySourcePreload();
   DramaSiteDetail? cachedDetail;

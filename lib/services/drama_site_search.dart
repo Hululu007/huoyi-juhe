@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'drama_site_content.dart';
-import 'drama_sites.dart';
+import 'source_registry.dart';
 
 class DramaSiteSearchResult {
   const DramaSiteSearchResult({
@@ -20,10 +20,11 @@ Future<List<DramaSiteSearchResult>> searchAllDramaSites(
 ) async {
   final trimmed = query.trim();
   if (trimmed.isEmpty) return const [];
+  await SourceRegistry.instance.load();
   final futures = <Future<DramaSiteSearchResult>>[];
-  for (final site in dramaSites) {
+  for (final site in SourceRegistry.instance.visibleDramaSites()) {
     if (site.id == 'original') continue;
-    final client = dramaSiteContentClient(site.id);
+    final client = await SourceRegistry.instance.clientFor(site.id);
     if (client == null) continue;
     futures.add(
       client
