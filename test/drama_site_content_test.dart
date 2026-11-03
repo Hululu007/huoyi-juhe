@@ -273,6 +273,34 @@ void main() {
     expect(decrypted['status'], 0);
   });
 
+  test('黄豆列表与详情解析：rp_ 前缀去后成剧集与按序号分集', () {
+    final items = HuangdouContentClient.parseCatalog({
+      'data': [
+        {
+          'id': 'rp_12345',
+          'name': '黄豆样本',
+          'img_y': 'https://pic.example.cn/y.jpg',
+          'episode_count': '30',
+        },
+      ],
+    });
+    expect(items.first.id, '12345');
+    expect(items.first.remark, '全30集');
+    final detail = HuangdouContentClient.parseDetail({
+      'data': {
+        'name': '黄豆样本',
+        'img_y': 'https://pic.example.cn/y.jpg',
+        'episodes': [
+          {'seq': 2, 'name': '第2集'},
+          {'seq': 1, 'name': '第1集'},
+        ],
+      },
+    }, '12345');
+    expect(detail.episodes.length, 2);
+    expect(detail.episodes.first.videoId, '1');
+    expect(detail.episodes.first.seriesId, '12345');
+  });
+
   test('红果搜索解析：search 页的 searchList 成卡片', () {
     const body = '''
 <script>window.__ROUTER_DATA__ = {"loaderData":{"search_abc/page":{"isSuccess":true,"query":"样本","searchList":[{"video_data":{"series_id_str":"12345","series_title":"搜索样本剧","series_cover":"https://pic.example.cn/s.jpg","episode_cnt":"20"}}]}}}</script>

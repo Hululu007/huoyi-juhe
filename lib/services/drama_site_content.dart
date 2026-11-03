@@ -1,5 +1,7 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
+import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
 import 'package:html/dom.dart' as dom;
 
@@ -2887,6 +2889,346 @@ class NiuguoContentClient implements DramaSiteContentClient {
   }
 }
 
+class _HuangdouApiError implements Exception {
+  const _HuangdouApiError(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+class HuangdouContentClient implements DramaSiteContentClient {
+  static const baseUrl = 'https://tideember.cc';
+  static const fallbackUrl = 'https://xqjurgek.top';
+  static const _platformKey = '7961beb44246e3012ce228d6b5ced05a';
+
+  final http.Client _client;
+  final String _sessionId;
+  String _lastHost = baseUrl;
+
+  HuangdouContentClient([http.Client? client])
+    : _client = client ?? http.Client(),
+      _sessionId = _randomHex(16);
+
+  static String _randomHex(int bytes) {
+    final random = math.Random.secure();
+    final raw = List<int>.generate(bytes, (_) => random.nextInt(256));
+    return raw.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+  }
+
+  static String _uuidLike() {
+    final raw = _randomHex(16);
+    return '${raw.substring(0, 8)}-${raw.substring(8, 12)}-'
+        '${raw.substring(12, 16)}-${raw.substring(16, 20)}-${raw.substring(20)}';
+  }
+
+  static List<int> _keyFor(String rid) {
+    final clean = rid.replaceAll('-', '');
+    final message = <int>[];
+    for (var i = 0; i + 1 < clean.length; i += 2) {
+      message.add(int.parse(clean.substring(i, i + 2), radix: 16));
+    }
+    final hmac = Hmac(sha256, utf8.encode(_platformKey));
+    return hmac.convert(message).bytes;
+  }
+
+  static Map<String, dynamic> _dataMap(dynamic decoded) {
+    if (decoded is Map<String, dynamic>) {
+      final data = decoded['data'];
+      if (data is Map<String, dynamic>) return data;
+      return decoded;
+    }
+    return const {};
+  }
+
+  Future<dynamic> _callOnce(
+    String host,
+    String path,
+    Map<String, dynamic> data,
+  ) async {
+    final rid = _uuidLike();
+    final key = _keyFor(rid);
+    final random = math.Random.secure();
+    final iv = List<int>.generate(16, (_) => random.nextInt(256));
+    final plain = jsonEncode({
+      'token': '',
+      'deviceId': _sessionId,
+      'data': data,
+    });
+    final gzipped = GZipEncoder().encode(utf8.encode(plain));
+    final cipher = aesCbcEncrypt(gzipped, key, iv);
+    final body = [...iv, ...cipher];
+    final timestamp = (DateTime.now().millisecondsSinceEpoch ~/ 1000)
+        .toString();
+    final signRaw = 'Dart|$_sessionId|$rid|$timestamp|$path';
+    final sign =
+        '${sha256.convert(utf8.encode(signRaw))}-$timestamp';
+    final response = await _client.post(
+      Uri.parse('$host/api$path'),
+      headers: {
+        'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36',
+        'Accept': '*/*',
+        'Origin': host,
+        'Referer': '$host/home',
+        'Content-Type': 'application/octet-stream',
+        'version': '2.0.0',
+        'deviceType': 'web',
+        'requestId': rid,
+        'sessionId': _sessionId,
+        'time': timestamp,
+        'sign': sign,
+      },
+      body: body,
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw StateError('黄豆请求 HTTP ${response.statusCode}');
+    }
+    final blob = response.bodyBytes;
+    dynamic decoded;
+    var direct = false;
+    try {
+      decoded = jsonDecode(utf8.decode(blob));
+      direct = true;
+    } catch (_) {}
+    if (!direct) {
+      if (blob.length < 32) {
+        throw StateError('黄豆响应过短');
+      }
+      final plainBytes = aesCbcDecrypt(
+        blob.sublist(16),
+        key,
+        blob.sublist(0, 16),
+      );
+      var plainText = plainBytes;
+      if (plainText.length >= 2 &&
+          plainText[0] == 0x1f &&
+          plainText[1] == 0x8b) {
+        plainText = GZipDecoder().decodeBytes(plainText);
+      }
+      decoded = jsonDecode(utf8.decode(plainText));
+    }
+    if (decoded is Map<String, dynamic>) {
+      final status = _stringOf(decoded['status']);
+      if (status.isNotEmpty && status != 'y') {
+        final code = _stringOf(
+          decoded['errorCode'] ?? decoded['error_code'] ?? decoded['code'],
+        );
+        final message = _firstString(decoded, ['msg', 'message', 'error']);
+        throw _HuangdouApiError(
+          '黄豆接口拒绝请求${code.isNotEmpty ? '($code)' : ''}: '
+          '${message.isNotEmpty ? message : status}',
+        );
+      }
+    }
+    _lastHost = host;
+    return decoded;
+  }
+
+  Future<dynamic> _call(String path, Map<String, dynamic> data) async {
+    try {
+      return await _callOnce(baseUrl, path, data);
+    } on _HuangdouApiError {
+      rethrow;
+    } catch (_) {
+      return _callOnce(fallbackUrl, path, data);
+    }
+  }
+
+  static List<DramaSiteItem> parseCatalog(dynamic decoded) {
+    List<dynamic>? rows;
+    if (decoded is List) {
+      rows = decoded;
+    } else if (decoded is Map<String, dynamic>) {
+      for (final key in ['list', 'items', 'data']) {
+        final value = decoded[key];
+        if (value is List) {
+          rows = value;
+          break;
+        }
+        if (value is Map<String, dynamic>) {
+          for (final inner in ['list', 'items', 'data']) {
+            if (value[inner] is List) {
+              rows = value[inner] as List<dynamic>;
+              break;
+            }
+          }
+        }
+        if (rows != null) break;
+      }
+    }
+    if (rows == null) return const [];
+    final items = <DramaSiteItem>[];
+    final seen = <String>{};
+    for (final entry in rows) {
+      final node = _asMap(entry);
+      var id = _firstString(node, ['id', 'drama_id']);
+      if (id.startsWith('rp_')) id = id.substring(3);
+      if (id.isEmpty || !seen.add(id)) continue;
+      final title = _firstString(node, ['name', 'title', 't']);
+      if (title.isEmpty) continue;
+      var remark = _firstString(node, ['update_label', 'corner']);
+      if (remark.isEmpty) {
+        final count = _firstString(node, ['episode_count']);
+        if (count.isNotEmpty) remark = '全$count集';
+      }
+      items.add(
+        DramaSiteItem(
+          id: id,
+          title: title,
+          cover: _firstString(node, ['img_y', 'img_x', 'img', 'cover', 'pic']),
+          remark: remark,
+        ),
+      );
+    }
+    return items;
+  }
+
+  static DramaSiteDetail parseDetail(dynamic decoded, String seriesId) {
+    final node = _dataMap(decoded);
+    final title = _firstString(node, ['name', 'title', 't']);
+    final cover = _firstString(node, ['img_y', 'img_x', 'img', 'cover', 'pic']);
+    final rawList = node['episodes'];
+    final indexed = <({int number, DramaSiteEpisode episode})>[];
+    if (rawList is List) {
+      for (var i = 0; i < rawList.length; i++) {
+        final episode = _asMap(rawList[i]);
+        var number = _firstInt(episode, ['seq', 'episode', 'ep']);
+        if (number <= 0) number = i + 1;
+        final episodeTitle = _firstString(episode, ['name', 'title']);
+        indexed.add((
+          number: number,
+          episode: DramaSiteEpisode(
+            videoId: '$number',
+            title: episodeTitle.isNotEmpty
+                ? episodeTitle
+                : '第$number集',
+            seriesId: seriesId,
+          ),
+        ));
+      }
+    }
+    if (indexed.isEmpty) {
+      final count = _firstInt(node, ['episode_count', 'free_episodes']);
+      for (var i = 1; i <= count; i++) {
+        indexed.add((
+          number: i,
+          episode: DramaSiteEpisode(
+            videoId: '$i',
+            title: '第$i集',
+            seriesId: seriesId,
+          ),
+        ));
+      }
+    }
+    if (indexed.isEmpty) {
+      throw StateError('黄豆未返回可播放分集');
+    }
+    indexed.sort((a, b) => a.number.compareTo(b.number));
+    return DramaSiteDetail(
+      id: seriesId,
+      title: title,
+      cover: cover,
+      episodes: [for (final entry in indexed) entry.episode],
+    );
+  }
+
+  static bool _isPreview(Map<String, dynamic> data, String media) {
+    final flag = _stringOf(
+      data['is_preview'] ?? data['isPreview'],
+    ).toLowerCase();
+    if (flag == 'true' || flag == '1' || flag == 'y') return true;
+    final preview = _firstString(data, ['preview_m3u8', 'preview_url']);
+    if (preview.isNotEmpty && media.isNotEmpty && preview == media) {
+      return true;
+    }
+    final lower = media.toLowerCase();
+    return lower.endsWith('/preview.mp4') ||
+        lower.endsWith('/preview.m3u8') ||
+        lower == 'preview.mp4' ||
+        lower == 'preview.m3u8';
+  }
+
+  @override
+  Future<List<DramaSiteCategory>> categories() async => const [
+    DramaSiteCategory('all', '全部'),
+  ];
+
+  @override
+  Future<DramaSiteCatalogPage> catalog(String categoryId, int page) async {
+    final decoded = await _call('/drama/list', {
+      'page': '${page < 1 ? 1 : page}',
+      'page_size': '30',
+    });
+    final items = parseCatalog(decoded);
+    return DramaSiteCatalogPage(items: items, hasMore: items.length >= 30);
+  }
+
+  @override
+  Future<DramaSiteDetail> detail(String seriesId) async {
+    final id = seriesId.startsWith('rp_')
+        ? seriesId.substring(3)
+        : seriesId;
+    final decoded = await _call('/drama/detail', {'id': id});
+    return parseDetail(decoded, seriesId);
+  }
+
+  @override
+  Future<List<DramaSiteItem>> search(String query) async {
+    final decoded = await _call('/drama/list', {
+      'keywords': query,
+      'page': '1',
+      'page_size': '50',
+    });
+    return parseCatalog(decoded);
+  }
+
+  @override
+  Future<DramaPlaySource> playSource(DramaSiteEpisode episode) async {
+    final seq = int.tryParse(episode.videoId) ?? 1;
+    final id = episode.seriesId.startsWith('rp_')
+        ? episode.seriesId.substring(3)
+        : episode.seriesId;
+    final decoded = await _call('/drama/play', {'id': id, 'seq': '$seq'});
+    final data = _dataMap(decoded);
+    var media = _firstString(data, ['m3u8', 'url', 'play_url', 'playUrl']);
+    if (_isPreview(data, media)) {
+      throw StateError('黄豆仅提供试看，未取得该集正片；不会把试看内容当作完整分集');
+    }
+    if (media.isEmpty) {
+      final fallbackUrl =
+          '$_lastHost/api/drama/hls/${Uri.encodeComponent(id)}/$seq/play.m3u8?line=free';
+      final response = await _client.get(
+        Uri.parse(fallbackUrl),
+        headers: {'Referer': '$_lastHost/home'},
+      );
+      if (response.statusCode == 200 &&
+          response.body.trimLeft().startsWith('#EXTM3U')) {
+        media = fallbackUrl;
+      } else {
+        throw StateError('黄豆未提供有效的播放地址，备用播放列表也不可用');
+      }
+    }
+    if (!media.toLowerCase().startsWith('http')) {
+      final base = '$_lastHost/';
+      try {
+        media = Uri.parse(base).resolve(media).toString();
+      } catch (_) {}
+    }
+    var keyHex = '';
+    final rawKey = _stringOf(data['hls_key']);
+    if (rawKey.isNotEmpty) {
+      if (rawKey.length != 32 ||
+          int.tryParse(rawKey, radix: 16) == null) {
+        throw StateError('黄豆返回了无效的 HLS 密钥');
+      }
+      keyHex = rawKey;
+    }
+    return DramaPlaySource(url: media, keyHex: keyHex);
+  }
+}
+
 DramaSiteContentClient? dramaSiteContentClient(String siteId) {
   if (siteId == 'hgtvmirror') return HgtvMirrorContentClient();
   if (siteId == 'hongguo') return HongguoContentClient();
@@ -2897,6 +3239,9 @@ DramaSiteContentClient? dramaSiteContentClient(String siteId) {
   if (siteId == 'maoguo') return MaoguoContentClient();
   if (siteId == 'yaguo') return YaguoContentClient();
   if (siteId == 'niuguo') return NiuguoContentClient();
+  if (siteId == 'huangdou' || siteId == 'huangdou_yh') {
+    return HuangdouContentClient();
+  }
   if (siteId == 'huaguo') {
     return MaccmsContentClient('huaguo', 'https://www.zywest263.com');
   }
