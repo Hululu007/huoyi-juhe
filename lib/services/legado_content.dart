@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 
 import 'drama_playback.dart';
 import 'drama_site_content.dart';
+import 'gbk_codec.dart';
 import 'drama_sites.dart';
 import 'js_bridge.dart';
 import 'xbpq_content.dart';
@@ -425,7 +426,10 @@ class LegadoContentClient implements DramaSiteContentClient {
     if (response.statusCode != 200) {
       throw StateError('HTTP ${response.statusCode}');
     }
-    return utf8.decode(response.bodyBytes, allowMalformed: true);
+    return decodeHttpBody(
+      response.bodyBytes,
+      contentType: response.headers['content-type'],
+    );
   }
 
   String _resolve(String pageUrl, String ref) {
