@@ -429,11 +429,11 @@ class _HomePageState extends ConsumerState<HomePage> {
         .visibleDramaSites(
           types: {ContentType.video, ContentType.mixed},
         )
-        .where(
-          (site) =>
-              SourceRegistry.instance.customById(site.id)?.kind !=
-              SourceKind.legadoImport,
-        )
+        .where((site) {
+          final entry = SourceRegistry.instance.customById(site.id);
+          if (entry?.kind != SourceKind.legadoImport) return true;
+          return entry!.extra['hasExplore'] == true;
+        })
         .toList();
     final picked = await showModalBottomSheet<String>(
       context: context,

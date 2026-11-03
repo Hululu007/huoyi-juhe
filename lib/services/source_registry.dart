@@ -707,7 +707,11 @@ class SourceRegistry {
           kind: SourceKind.legadoImport,
           address: source.url,
           detail: '阅读书源 · 已导入',
-          extra: {'path': file.path, 'contentType': type.key},
+          extra: {
+            'path': file.path,
+            'contentType': type.key,
+            'hasExplore': source.exploreUrl.trim().isNotEmpty,
+          },
         ),
       );
     }

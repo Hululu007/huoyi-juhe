@@ -37,7 +37,8 @@ class LegadoSource {
         ruleSearch = _stringRuleMap(json['ruleSearch']),
         ruleBookInfo = _stringRuleMap(json['ruleBookInfo']),
         ruleToc = _stringRuleMap(json['ruleToc']),
-        ruleContent = _stringRuleMap(json['ruleContent']);
+        ruleContent = _stringRuleMap(json['ruleContent']),
+        ruleExplore = _stringRuleMap(json['ruleExplore']);
 
   final String name;
   final String url;
@@ -51,6 +52,27 @@ class LegadoSource {
   final Map<String, String> ruleBookInfo;
   final Map<String, String> ruleToc;
   final Map<String, String> ruleContent;
+  final Map<String, String> ruleExplore;
+
+  List<({String id, String title, String url})> get exploreEntries {
+    final raw = exploreUrl.trim();
+    if (raw.isEmpty) return const [];
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is List) {
+        return [
+          for (final entry in decoded)
+            if (entry is Map)
+              (
+                id: '${entry['title'] ?? entry['url'] ?? ''}',
+                title: '${entry['title'] ?? ''}',
+                url: '${entry['url'] ?? ''}',
+              ),
+        ].where((e) => e.url.isNotEmpty).toList();
+      }
+    } catch (_) {}
+    return [(id: 'all', title: '全部', url: raw)];
+  }
 }
 
 String legadoFillUrl(
@@ -563,12 +585,74 @@ class LegadoContentClient implements DramaSiteContentClient {
   }
 
   @override
-  Future<List<DramaSiteCategory>> categories() async =>
-      [const DramaSiteCategory('all', '全部')];
+  Future<List<DramaSiteCategory>> categories() async {
+    final entries = source.exploreEntries;
+    if (entries.isEmpty) return [const DramaSiteCategory('all', '全部')];
+    return [
+      for (final entry in entries)
+        DramaSiteCategory(entry.id, entry.title),
+    ];
+  }
 
   @override
   Future<DramaSiteCatalogPage> catalog(String categoryId, int page) async {
-    return const DramaSiteCatalogPage(items: [], hasMore: false);
+    final entries = source.exploreEntries;
+    if (entries.isEmpty) {
+      return const DramaSiteCatalogPage(items: [], hasMore: false);
+    }
+    final entry = entries.firstWhere(
+      (e) => e.id == categoryId,
+      orElse: () => entries.first,
+    );
+    final listRule = source.ruleExplore['bookList'] ?? '';
+    if (listRule.isEmpty) {
+      throw StateError('该书源未给发现列表规则');
+    }
+    var exploreUrl = entry.url;
+    if (_isJsRule(exploreUrl)) {
+      exploreUrl = await legadoEvalJs(
+        exploreUrl,
+        result: '',
+        baseUrl: source.url,
+        page: page,
+        jsLib: source.jsLib,
+      );
+    } else {
+      exploreUrl = legadoFillUrl(exploreUrl, page: page);
+    }
+    final url = _resolve(source.url, exploreUrl);
+    final body = await _fetch(url);
+    final doc = _docOf(body);
+    final nodes = await _evalListField(listRule, doc, url);
+    final items = <DramaSiteItem>[];
+    for (final node in nodes) {
+      final name = await _fieldOnNode(source.ruleExplore['name'] ?? '', node, url);
+      final bookUrl = await _fieldOnNode(
+        source.ruleExplore['bookUrl'] ?? '',
+        node,
+        url,
+      );
+      if (bookUrl.isEmpty) continue;
+      final author = await _fieldOnNode(
+        source.ruleExplore['author'] ?? '',
+        node,
+        url,
+      );
+      final cover = await _fieldOnNode(
+        source.ruleExplore['coverUrl'] ?? '',
+        node,
+        url,
+      );
+      items.add(
+        DramaSiteItem(
+          id: _resolve(url, bookUrl),
+          title: name,
+          cover: _resolve(url, cover),
+          remark: author,
+        ),
+      );
+    }
+    return DramaSiteCatalogPage(items: items, hasMore: items.isNotEmpty);
   }
 
   @override

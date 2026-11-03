@@ -146,6 +146,50 @@ void main() {
     );
   });
 
+  test('发现页：分类解析与目录取数', () async {
+    final arraySource = LegadoSource(
+      _sourceJson()
+        ..['exploreUrl'] = jsonEncode([
+          {'title': '玄幻', 'url': 'https://demo.example.com/xh'},
+          {'title': '都市', 'url': 'https://demo.example.com/ds'},
+        ]),
+    );
+    expect(arraySource.exploreEntries.map((e) => e.title), ['玄幻', '都市']);
+    final singleSource = LegadoSource(
+      _sourceJson()..['exploreUrl'] = 'https://demo.example.com/all',
+    );
+    expect(singleSource.exploreEntries.single.title, '全部');
+    expect(LegadoSource(_sourceJson()).exploreEntries, isEmpty);
+
+    final json = _sourceJson()
+      ..['exploreUrl'] = 'https://demo.example.com/explore?page={{page}}'
+      ..['ruleExplore'] = {
+        'bookList': 'div.book',
+        'name': 'h3@text',
+        'bookUrl': 'a@href',
+        'coverUrl': 'img@src',
+      };
+    final client = MockClient((request) async {
+      expect(request.url.queryParameters['page'], '2');
+      return http.Response.bytes(
+        utf8.encode(
+          '<div class="book"><h3>发现书</h3><a href="/book/9"></a>'
+          '<img src="/c/9.jpg"></div>',
+        ),
+        200,
+      );
+    });
+    final content = LegadoContentClient(
+      'legado-explore',
+      LegadoSource(json),
+      client: client,
+    );
+    final page = await content.catalog('all', 2);
+    expect(page.items.single.title, '发现书');
+    expect(page.items.single.id, 'https://demo.example.com/book/9');
+    expect(page.hasMore, isTrue);
+  });
+
   test('客户端全链：搜索、详情目录、正文进小说载荷', () async {
     final client = MockClient((request) async {
       final url = request.url.toString();
