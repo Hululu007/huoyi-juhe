@@ -53,6 +53,44 @@ void main() {
     ]);
   });
 
+  test('饭果列表与详情解析：搜索结果成卡片，详情分集直链成播放地址', () {
+    final items = FanguoContentClient.parseCatalog({
+      'result': {
+        'elements': [
+          {
+            'contents': [
+              {
+                'duanjuVo': {
+                  'duanjuId': '999',
+                  'title': '饭果测试剧',
+                  'coverImageUrl': 'https://example.test/fanguo.jpg',
+                  'total': 50,
+                },
+              },
+            ],
+          },
+        ],
+      },
+    });
+    expect(items.length, 1);
+    expect(items.first.id, '999');
+    expect(items.first.remark, '共50集');
+    final detail = FanguoContentClient.parseDetail({
+      'result': {
+        'title': '饭果测试剧',
+        'coverImageUrl': 'https://example.test/fanguo.jpg',
+        'episodeList': [
+          {'index': 2, 'playUrl': 'https://example.test/e2.mp4'},
+          {'index': 1, 'playUrl': 'https://example.test/e1.mp4'},
+        ],
+      },
+    }, '999');
+    expect(detail.episodes.map((e) => e.videoId).toList(), [
+      'https://example.test/e1.mp4',
+      'https://example.test/e2.mp4',
+    ]);
+  });
+
   test('红果镜像详情解析：router 数据里的 vid_list 成选集', () {
     final detail = HgtvMirrorContentClient.parseDetail(
       '<html><script>window._ROUTER_DATA = {"loaderData":{"detail_page":{"seriesDetail":{"series_id":"123","series_title":"测试剧","series_cover":"https://example.test/cover.jpg","vid_list":["111","222","111"]}}}};</script></html>',

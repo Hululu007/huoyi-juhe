@@ -534,8 +534,201 @@ class HongguoContentClient implements DramaSiteContentClient {
   }
 }
 
+String _firstString(Map<String, dynamic> node, List<String> keys) {
+  for (final key in keys) {
+    final value = _stringOf(node[key]);
+    if (value.isNotEmpty) return value;
+  }
+  return '';
+}
+
+int _firstInt(Map<String, dynamic> node, List<String> keys) {
+  for (final key in keys) {
+    final value = node[key];
+    if (value is num) return value.toInt();
+    final parsed = int.tryParse(_stringOf(value));
+    if (parsed != null) return parsed;
+  }
+  return 0;
+}
+
+/// 饭果：西饭接口站，分类即搜索关键词，详情直接给每集播放直链，
+/// 取流就是详情里那条直链，不另调播放接口。
+class FanguoContentClient implements DramaSiteContentClient {
+  static const baseUrl = 'https://xifan-api-cn.youlishipin.com';
+
+  final http.Client _client;
+
+  FanguoContentClient([http.Client? client])
+    : _client = client ?? http.Client();
+
+  static List<DramaSiteItem> parseCatalog(Map<String, dynamic> response) {
+    final result = _asMap(response['result']);
+    final elements = result['elements'];
+    if (elements is! List) return const [];
+    final seen = <String>{};
+    final items = <DramaSiteItem>[];
+    for (final block in elements) {
+      final mapped = _asMap(block);
+      final contents = mapped['contents'];
+      if (contents is! List) continue;
+      for (final entry in contents) {
+        final node = _asMap(_asMap(entry)['duanjuVo']);
+        var id = _firstString(node, ['duanjuId', 'duanju_id', 'id']);
+        if (id.isEmpty) continue;
+        final source = _firstString(node, ['source']);
+        if (source.isNotEmpty) id = '$id#$source';
+        if (seen.contains(id)) continue;
+        final title = _firstString(node, ['title', 'name']);
+        if (title.isEmpty) continue;
+        seen.add(id);
+        items.add(
+          DramaSiteItem(
+            id: id,
+            title: title,
+            cover: _firstString(node, [
+              'coverImageUrl',
+              'cover_image_url',
+              'cover',
+            ]),
+            remark: _firstInt(node, ['total', 'totalEpisodeNum']) > 0
+                ? '共${_firstInt(node, ['total', 'totalEpisodeNum'])}集'
+                : '',
+          ),
+        );
+      }
+    }
+    return items;
+  }
+
+  static DramaSiteDetail parseDetail(
+    Map<String, dynamic> response,
+    String seriesId,
+  ) {
+    final data = _asMap(response['result']);
+    if (data.isEmpty) {
+      throw StateError('饭果未返回剧集资料');
+    }
+    final title = _firstString(data, ['title', 'name']);
+    final cover = _firstString(data, [
+      'coverImageUrl',
+      'cover_image_url',
+      'cover',
+    ]);
+    final rawList = data['episodeList'];
+    if (rawList is! List) {
+      throw StateError('饭果未返回可播放分集');
+    }
+    final indexed = <({int number, DramaSiteEpisode episode})>[];
+    for (var i = 0; i < rawList.length; i++) {
+      final node = _asMap(rawList[i]);
+      final url = _firstString(node, ['playUrl', 'play_url', 'videoUrl']);
+      if (url.isEmpty) continue;
+      var number = _firstInt(node, ['index', 'episode', 'sort']);
+      if (number <= 0) number = i + 1;
+      final nodeTitle = _firstString(node, ['title', 'name']);
+      indexed.add((
+        number: number,
+        episode: DramaSiteEpisode(
+          videoId: url,
+          title: nodeTitle.isNotEmpty ? nodeTitle : '第$number集',
+          seriesId: seriesId,
+        ),
+      ));
+    }
+    if (indexed.isEmpty) {
+      throw StateError('饭果未返回可播放分集');
+    }
+    indexed.sort((a, b) => a.number.compareTo(b.number));
+    return DramaSiteDetail(
+      id: seriesId,
+      title: title,
+      cover: cover,
+      episodes: [for (final entry in indexed) entry.episode],
+    );
+  }
+
+  @override
+  Future<List<DramaSiteCategory>> categories() async => const [
+    DramaSiteCategory('都市', '都市'),
+    DramaSiteCategory('甜宠', '甜宠'),
+    DramaSiteCategory('逆袭', '逆袭'),
+    DramaSiteCategory('战神', '战神'),
+    DramaSiteCategory('古装', '古装'),
+    DramaSiteCategory('穿越', '穿越'),
+    DramaSiteCategory('萌宝', '萌宝'),
+  ];
+
+  @override
+  Future<DramaSiteCatalogPage> catalog(String categoryId, int page) async {
+    if (page > 1) {
+      return const DramaSiteCatalogPage(items: [], hasMore: false);
+    }
+    final keyword = categoryId.isEmpty ? '都市' : categoryId;
+    final uri = Uri.parse('$baseUrl/xifan/search/getSearchList').replace(
+      queryParameters: {
+        'reqType': 'search',
+        'offset': '0',
+        'keyword': keyword,
+        'quickEngineVersion': '-1',
+        'scene': '',
+      },
+    );
+    final response = await _client.get(
+      uri,
+      headers: {'Referer': '$baseUrl/'},
+    );
+    if (response.statusCode != 200) {
+      throw StateError('饭果列表 HTTP ${response.statusCode}');
+    }
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw StateError('饭果列表数据格式无法识别');
+    }
+    return DramaSiteCatalogPage(
+      items: parseCatalog(decoded),
+      hasMore: false,
+    );
+  }
+
+  @override
+  Future<DramaSiteDetail> detail(String seriesId) async {
+    var duanjuId = seriesId;
+    var source = '';
+    final cut = seriesId.indexOf('#');
+    if (cut >= 0) {
+      duanjuId = seriesId.substring(0, cut);
+      source = seriesId.substring(cut + 1);
+    }
+    final uri = Uri.parse('$baseUrl/xifan/drama/getDuanjuInfo').replace(
+      queryParameters: {'duanjuId': duanjuId, 'source': source},
+    );
+    final response = await _client.get(
+      uri,
+      headers: {'Referer': '$baseUrl/'},
+    );
+    if (response.statusCode != 200) {
+      throw StateError('饭果详情 HTTP ${response.statusCode}');
+    }
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw StateError('饭果详情数据格式无法识别');
+    }
+    return parseDetail(decoded, seriesId);
+  }
+
+  @override
+  Future<DramaPlaySource> playSource(DramaSiteEpisode episode) async {
+    if (episode.videoId.startsWith('http')) {
+      return DramaPlaySource(url: episode.videoId);
+    }
+    throw StateError('饭果该集没有播放地址');
+  }
+}
+
 DramaSiteContentClient? dramaSiteContentClient(String siteId) {
   if (siteId == 'hgtvmirror') return HgtvMirrorContentClient();
   if (siteId == 'hongguo') return HongguoContentClient();
+  if (siteId == 'fanguo') return FanguoContentClient();
   return null;
 }
