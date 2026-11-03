@@ -99,6 +99,38 @@ class _HomePageState extends ConsumerState<HomePage> {
   /// 当前短剧站点的分类：随站点变化，换站时回到该站第一个分类。
   String _dramaCategoryId = dramaSiteById(DramaSitePreferences.selectedId).categories.first.id;
 
+  /// 引擎导入站的真实分类：从蜘蛛 homeContent 的 class 列表取，
+  /// 取到后分类条用它，不再只显示全部；取不到时退回站点登记的分类。
+  List<DramaSiteCategory>? _engineCategories;
+  String _engineCategoriesSiteId = '';
+
+  Future<void> _refreshEngineCategories(String siteId) async {
+    final custom = SourceRegistry.instance.customById(siteId);
+    if (custom == null ||
+        (custom.kind != SourceKind.pyImport &&
+            custom.kind != SourceKind.jarImport)) {
+      if (mounted && _engineCategories != null) {
+        setState(() {
+          _engineCategories = null;
+          _engineCategoriesSiteId = '';
+        });
+      }
+      return;
+    }
+    if (_engineCategoriesSiteId == siteId) return;
+    _engineCategoriesSiteId = siteId;
+    try {
+      final client = await SourceRegistry.instance.clientFor(siteId);
+      if (!mounted || _dramaSiteId != siteId || client == null) return;
+      final categories = await client.categories();
+      if (!mounted || _dramaSiteId != siteId) return;
+      setState(() {
+        _engineCategories = categories;
+        _dramaCategoryId = categories.first.id;
+      });
+    } catch (_) {}
+  }
+
   /// 进过一次内容之后就是「切分类」，不再是冷启动：前者不能铺整页骨架。
   bool _hadContent = false;
 
@@ -417,6 +449,8 @@ class _HomePageState extends ConsumerState<HomePage> {
       setState(() {
         _dramaSiteId = picked;
         _dramaCategoryId = dramaSiteById(picked).categories.first.id;
+        _engineCategories = null;
+        _engineCategoriesSiteId = '';
       });
     }
   }
@@ -424,10 +458,18 @@ class _HomePageState extends ConsumerState<HomePage> {
   /// 短剧站点的分类条：放在分类条下方、内容上方，只在短剧分类下出现。
   /// 分类随站点变化：原站是番茄频道，红果、HGTV、红果镜像用各自的实测分类，
   /// 其余站的分类尚未实测映射前只显示全部，不编造。
-  /// 分类点选目前只切换高亮，站内容按分类取数是下一步。
+  /// 引擎导入站的分类从蜘蛛 class 列表动态取，取到后替换全部。
   Widget _dramaCategoryStrip() {
     final site = dramaSiteById(_dramaSiteId);
     final palette = HomePalette.of(context);
+    if (_engineCategoriesSiteId != _dramaSiteId) {
+      _refreshEngineCategories(_dramaSiteId);
+    }
+    final categories =
+        (_engineCategories != null &&
+            _engineCategoriesSiteId == _dramaSiteId)
+        ? _engineCategories!
+        : site.categories;
     return SliverToBoxAdapter(
       child: SizedBox(
         height: 40,
@@ -435,7 +477,7 @@ class _HomePageState extends ConsumerState<HomePage> {
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 16),
           children: [
-            for (final category in site.categories)
+            for (final category in categories)
               Padding(
                 padding: const EdgeInsets.only(right: 8),
                 child: GestureDetector(

@@ -6,6 +6,23 @@ plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+    id("com.chaquo.python")
+}
+
+chaquopy {
+    defaultConfig {
+        version = "3.11"
+        pip {
+            install("requests")
+            install("pycryptodome")
+            install("beautifulsoup4")
+            install("lxml")
+            install("pyquery")
+            install("cloudscraper")
+            install("websocket-client")
+            install("httpx")
+        }
+    }
 }
 
 // Release signing material is deliberately optional: without it the release

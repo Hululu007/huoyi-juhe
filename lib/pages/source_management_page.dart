@@ -133,12 +133,17 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
   Future<void> _addImportDialog() async {
     final nameController = TextEditingController();
     final fileController = TextEditingController();
+    final sourceController = TextEditingController();
+    final jarUrlController = TextEditingController();
+    final classController = TextEditingController();
+    final md5Controller = TextEditingController();
+    final extController = TextEditingController();
     var kind = SourceKind.pyImport;
     final result = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) => AlertDialog(
-          title: const Text('导入记录'),
+          title: const Text('导入蜘蛛'),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -147,32 +152,74 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
                   controller: nameController,
                   decoration: const InputDecoration(labelText: '名称'),
                 ),
-                TextField(
-                  controller: fileController,
-                  decoration: const InputDecoration(labelText: '文件名'),
-                ),
                 DropdownButton<SourceKind>(
                   value: kind,
                   isExpanded: true,
                   items: const [
                     DropdownMenuItem(
                       value: SourceKind.pyImport,
-                      child: Text('Python'),
+                      child: Text('Python（粘贴源码，引擎直跑）'),
+                    ),
+                    DropdownMenuItem(
+                      value: SourceKind.jarImport,
+                      child: Text('Jar（填 jar 地址与类名）'),
                     ),
                     DropdownMenuItem(
                       value: SourceKind.jsImport,
-                      child: Text('JS'),
+                      child: Text('JS（只登记，引擎未接）'),
                     ),
                   ],
                   onChanged: (value) {
                     if (value != null) setDialogState(() => kind = value);
                   },
                 ),
-                const Text(
-                  '只登记导入记录；Python 与 JS 执行引擎尚未接入，'
-                  '登记的站暂不可播放。',
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
-                ),
+                if (kind == SourceKind.pyImport)
+                  TextField(
+                    controller: sourceController,
+                    maxLines: 8,
+                    decoration: const InputDecoration(
+                      labelText: '蜘蛛源码',
+                      hintText: '粘贴 .py 文件全文，含 class Spider',
+                    ),
+                  ),
+                if (kind == SourceKind.jarImport) ...[
+                  TextField(
+                    controller: jarUrlController,
+                    decoration: const InputDecoration(labelText: 'jar 地址'),
+                  ),
+                  TextField(
+                    controller: classController,
+                    decoration: const InputDecoration(
+                      labelText: '类名（可空，自动枚举首个可实例化类）',
+                    ),
+                  ),
+                  TextField(
+                    controller: md5Controller,
+                    decoration: const InputDecoration(
+                      labelText: 'jar md5（可空）',
+                    ),
+                  ),
+                  TextField(
+                    controller: extController,
+                    decoration: const InputDecoration(labelText: 'ext（可空）'),
+                  ),
+                ],
+                if (kind == SourceKind.jsImport) ...[
+                  TextField(
+                    controller: fileController,
+                    decoration: const InputDecoration(labelText: '文件名'),
+                  ),
+                  const Text(
+                    '只登记导入记录；JS 执行引擎尚未接入，'
+                    '登记的站暂不可播放。',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ],
+                if (kind != SourceKind.jsImport)
+                  const Text(
+                    '引擎仅支持 Android；其他平台导入后暂不可播放。',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
               ],
             ),
           ),
@@ -191,11 +238,26 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
     );
     if (result != true || !mounted) return;
     try {
-      await SourceRegistry.instance.addImportRecord(
-        nameController.text,
-        fileController.text,
-        kind,
-      );
+      if (kind == SourceKind.pyImport) {
+        await SourceRegistry.instance.addPyImport(
+          nameController.text,
+          sourceController.text,
+        );
+      } else if (kind == SourceKind.jarImport) {
+        await SourceRegistry.instance.addJarImport(
+          nameController.text,
+          jarUrlController.text,
+          classController.text,
+          md5Controller.text,
+          extController.text,
+        );
+      } else {
+        await SourceRegistry.instance.addImportRecord(
+          nameController.text,
+          fileController.text,
+          kind,
+        );
+      }
       await _refresh();
     } catch (e) {
       if (mounted) {
@@ -246,7 +308,7 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                   child: OutlinedButton(
                     onPressed: _addImportDialog,
-                    child: const Text('登记 Python / JS 导入'),
+                    child: const Text('导入 Python / Jar / JS 蜘蛛'),
                   ),
                 ),
               ],
