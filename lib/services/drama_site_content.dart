@@ -929,10 +929,218 @@ class GuanguoContentClient implements DramaSiteContentClient {
   }
 }
 
+/// 河果：Next.js 网页站，无登录，列表与详情都取 __NEXT_DATA__ 的
+/// pageProps，分集播放取分集页里出现的 mp4/m3u8 直链。
+class HeguoContentClient implements DramaSiteContentClient {
+  static const baseUrl = 'https://www.kuaikaw.cn';
+
+  final http.Client _client;
+
+  HeguoContentClient([http.Client? client])
+    : _client = client ?? http.Client();
+
+  static Map<String, dynamic>? parsePageProps(String body) {
+    final match = RegExp(
+      r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
+      dotAll: true,
+    ).firstMatch(body);
+    if (match == null) return null;
+    try {
+      final decoded = jsonDecode(match.group(1) ?? '');
+      if (decoded is! Map<String, dynamic>) return null;
+      final props = _asMap(decoded['props']);
+      return _asMap(props['pageProps']);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static List<DramaSiteItem> parseCatalog(
+    Map<String, dynamic> pageProps,
+  ) {
+    final items = <DramaSiteItem>[];
+    final seen = <String>{};
+    void addBooks(dynamic rows) {
+      if (rows is! List) return;
+      for (final entry in rows) {
+        final book = _asMap(entry);
+        final id = _firstString(book, ['bookId', 'book_id', 'id']);
+        if (id.isEmpty || seen.contains(id)) continue;
+        final title = _firstString(book, ['bookName', 'title', 'name']);
+        if (title.isEmpty) continue;
+        seen.add(id);
+        final total = _firstInt(book, ['totalChapterNum']);
+        var remark = _firstString(book, ['statusDesc']);
+        if (total > 0) {
+          remark = remark.isEmpty ? '共$total集' : '$remark 共$total集';
+        }
+        items.add(
+          DramaSiteItem(
+            id: id,
+            title: title,
+            cover: _firstString(book, ['coverWap', 'cover', 'coverUrl']),
+            remark: remark.trim(),
+          ),
+        );
+      }
+    }
+
+    for (final key in ['bannerList', 'bookList', 'recommendList']) {
+      addBooks(pageProps[key]);
+    }
+    final columns = pageProps['seoColumnVos'];
+    if (columns is List) {
+      for (final column in columns) {
+        addBooks(_asMap(column)['bookInfos']);
+      }
+    }
+    return items;
+  }
+
+  static DramaSiteDetail parseDetail(
+    Map<String, dynamic> pageProps,
+    String seriesId,
+  ) {
+    final book = _asMap(pageProps['bookInfoVo']);
+    if (book.isEmpty) {
+      throw StateError('河果未返回剧集资料');
+    }
+    final title = _firstString(book, ['bookName', 'title', 'name']);
+    final cover = _firstString(book, ['coverWap', 'cover', 'coverUrl']);
+    final rawList = pageProps['chapterList'];
+    if (rawList is! List) {
+      throw StateError('河果未返回可播放分集');
+    }
+    final indexed = <({int number, DramaSiteEpisode episode})>[];
+    for (var i = 0; i < rawList.length; i++) {
+      final node = _asMap(rawList[i]);
+      final chapterId = _firstString(node, ['chapterId', 'chapter_id', 'id']);
+      if (chapterId.isEmpty) continue;
+      var number = _firstInt(node, ['chapterNum', 'sort', 'index']);
+      if (number <= 0) number = i + 1;
+      final nodeTitle = _firstString(node, ['chapterName', 'title']);
+      indexed.add((
+        number: number,
+        episode: DramaSiteEpisode(
+          videoId: chapterId,
+          title: nodeTitle.isNotEmpty ? nodeTitle : '第$number集',
+          seriesId: seriesId,
+        ),
+      ));
+    }
+    if (indexed.isEmpty) {
+      throw StateError('河果未返回可播放分集');
+    }
+    indexed.sort((a, b) => a.number.compareTo(b.number));
+    return DramaSiteDetail(
+      id: seriesId,
+      title: title,
+      cover: cover,
+      episodes: [for (final entry in indexed) entry.episode],
+    );
+  }
+
+  static List<String> parseEpisodeUrls(String body) {
+    final pattern = RegExp(
+      r'''https?://[^"' \s<>\\]+\.(?:mp4|m3u8)[^"' \s<>\\]*''',
+    );
+    final seen = <String>{};
+    final urls = <String>[];
+    for (final match in pattern.allMatches(body)) {
+      final url = match.group(0) ?? '';
+      if (url.isNotEmpty && seen.add(url)) urls.add(url);
+    }
+    return urls;
+  }
+
+  @override
+  Future<List<DramaSiteCategory>> categories() async => const [
+    DramaSiteCategory('462', '甜宠'),
+    DramaSiteCategory('1102', '古装仙侠'),
+    DramaSiteCategory('1145', '现代言情'),
+    DramaSiteCategory('1170', '青春'),
+    DramaSiteCategory('585', '豪门恩怨'),
+    DramaSiteCategory('417-464', '逆袭'),
+    DramaSiteCategory('439-465', '重生'),
+    DramaSiteCategory('1159', '系统'),
+    DramaSiteCategory('1147', '总裁'),
+    DramaSiteCategory('943', '职场商战'),
+  ];
+
+  @override
+  Future<DramaSiteCatalogPage> catalog(String categoryId, int page) async {
+    final url = categoryId.isEmpty
+        ? '$baseUrl/'
+        : '$baseUrl/browse/${Uri.encodeComponent(categoryId)}/${page < 1 ? 1 : page}';
+    final response = await _client.get(
+      Uri.parse(url),
+      headers: {'Referer': '$baseUrl/'},
+    );
+    if (response.statusCode != 200) {
+      throw StateError('河果列表 HTTP ${response.statusCode}');
+    }
+    final pageProps = parsePageProps(response.body);
+    if (pageProps == null) {
+      throw StateError('河果页面结构无法识别');
+    }
+    final items = parseCatalog(pageProps);
+    final totalPages = _firstInt(pageProps, ['pages']);
+    final current = _firstInt(pageProps, ['page']);
+    return DramaSiteCatalogPage(
+      items: items,
+      hasMore: totalPages > (current > 0 ? current : page),
+    );
+  }
+
+  @override
+  Future<DramaSiteDetail> detail(String seriesId) async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/drama/${Uri.encodeComponent(seriesId)}'),
+      headers: {'Referer': '$baseUrl/'},
+    );
+    if (response.statusCode != 200) {
+      throw StateError('河果详情 HTTP ${response.statusCode}');
+    }
+    final pageProps = parsePageProps(response.body);
+    if (pageProps == null) {
+      throw StateError('河果详情页结构无法识别');
+    }
+    return parseDetail(pageProps, seriesId);
+  }
+
+  @override
+  Future<DramaPlaySource> playSource(DramaSiteEpisode episode) async {
+    if (episode.seriesId.isEmpty) {
+      throw StateError('河果分集缺少剧集 ID');
+    }
+    final response = await _client.get(
+      Uri.parse(
+        '$baseUrl/episode/${Uri.encodeComponent(episode.seriesId)}/${Uri.encodeComponent(episode.videoId)}',
+      ),
+      headers: {'Referer': '$baseUrl/'},
+    );
+    if (response.statusCode != 200) {
+      throw StateError('河果分集页 HTTP ${response.statusCode}');
+    }
+    final urls = parseEpisodeUrls(response.body);
+    if (urls.isEmpty) {
+      throw StateError('河果分集页未找到播放地址');
+    }
+    return DramaPlaySource(
+      url: urls.first,
+      variants: [
+        for (var i = 1; i < urls.length; i++)
+          DramaPlayVariant(name: '线路${i + 1}', url: urls[i]),
+      ],
+    );
+  }
+}
+
 DramaSiteContentClient? dramaSiteContentClient(String siteId) {
   if (siteId == 'hgtvmirror') return HgtvMirrorContentClient();
   if (siteId == 'hongguo') return HongguoContentClient();
   if (siteId == 'fanguo') return FanguoContentClient();
   if (siteId == 'guanguo') return GuanguoContentClient();
+  if (siteId == 'heguo') return HeguoContentClient();
   return null;
 }

@@ -121,6 +121,21 @@ void main() {
     expect(detail.episodes.first.videoId, 'https://example.test/g1080.mp4');
   });
 
+  test('河果列表与详情解析：NEXT_DATA 的书单与章节成卡片选集', () {
+    const body =
+        '<script id="__NEXT_DATA__" type="application/json">{"props":{"pageProps":{"bookList":[{"bookId":"111","bookName":"河果测试剧","coverWap":"https://example.test/heguo.jpg","totalChapterNum":60}],"bookInfoVo":{"bookId":"111","bookName":"河果测试剧","coverWap":"https://example.test/heguo.jpg"},"chapterList":[{"chapterId":"c1","chapterName":"第1集","chapterNum":1},{"chapterId":"c2","chapterName":"第2集","chapterNum":2}]}}}</script>';
+    final props = HeguoContentClient.parsePageProps(body)!;
+    expect(HeguoContentClient.parseCatalog(props).first.title, '河果测试剧');
+    final detail = HeguoContentClient.parseDetail(props, '111');
+    expect(detail.episodes.map((e) => e.videoId).toList(), ['c1', 'c2']);
+    expect(
+      HeguoContentClient.parseEpisodeUrls(
+        '<video src="https://example.test/h1.mp4"></video>',
+      ),
+      ['https://example.test/h1.mp4'],
+    );
+  });
+
   test('红果镜像详情解析：router 数据里的 vid_list 成选集', () {
     final detail = HgtvMirrorContentClient.parseDetail(
       '<html><script>window._ROUTER_DATA = {"loaderData":{"detail_page":{"seriesDetail":{"series_id":"123","series_title":"测试剧","series_cover":"https://example.test/cover.jpg","vid_list":["111","222","111"]}}}};</script></html>',
