@@ -91,6 +91,36 @@ void main() {
     ]);
   });
 
+  test('观果列表与详情解析：data 成卡片，清晰度最高那条成播放地址', () {
+    final items = GuanguoContentClient.parseCatalog({
+      'data': [
+        {
+          'oneId': '777',
+          'title': '观果测试剧',
+          'horzPoster': 'https://example.test/guanguo.jpg',
+          'episodeCount': 80,
+        },
+      ],
+    });
+    expect(items.length, 1);
+    expect(items.first.id, '777');
+    expect(items.first.remark, '共80集');
+    final detail = GuanguoContentClient.parseDetail({
+      'title': '观果测试剧',
+      'vertPoster': 'https://example.test/guanguo.jpg',
+      'data': [
+        {
+          'playOrder': 1,
+          'videoClarityList': [
+            {'clarity': 720, 'playUrl': 'https://example.test/g720.mp4'},
+            {'clarity': 1080, 'playUrl': 'https://example.test/g1080.mp4'},
+          ],
+        },
+      ],
+    }, '777');
+    expect(detail.episodes.first.videoId, 'https://example.test/g1080.mp4');
+  });
+
   test('红果镜像详情解析：router 数据里的 vid_list 成选集', () {
     final detail = HgtvMirrorContentClient.parseDetail(
       '<html><script>window._ROUTER_DATA = {"loaderData":{"detail_page":{"seriesDetail":{"series_id":"123","series_title":"测试剧","series_cover":"https://example.test/cover.jpg","vid_list":["111","222","111"]}}}};</script></html>',

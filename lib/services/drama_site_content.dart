@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 
 import 'drama_playback.dart';
@@ -726,9 +727,212 @@ class FanguoContentClient implements DramaSiteContentClient {
   }
 }
 
+/// 观果：围观接口站，分类只有全部，列表用 POST 搜索接口，
+/// 详情给每集直链或清晰度列表里最高清晰度那条。
+class GuanguoContentClient implements DramaSiteContentClient {
+  static const baseUrl = 'https://api.drama.9ddm.com';
+
+  final http.Client _client;
+
+  GuanguoContentClient([http.Client? client])
+    : _client = client ?? http.Client();
+
+  static String _clientInfo() {
+    var stamp = DateTime.now().millisecondsSinceEpoch.toString();
+    if (stamp.length > 10) stamp = stamp.substring(stamp.length - 10);
+    return md5.convert(utf8.encode(stamp)).toString();
+  }
+
+  static Map<String, String> _query(Map<String, String> extra) {
+    return {
+      'version_code': '1500',
+      'version_name': '1.5.0',
+      'device_name': 'Pixel 8 Pro',
+      'device_type': 'phone',
+      'is_first_day': 'true',
+      'is_first_24h': 'true',
+      'app_launch_way': 'icon',
+      'default_homepage': 'homepage_interaction',
+      'device_owning_firm': 'Google',
+      'font_scale': 'default',
+      'os_type': '1',
+      'clientInfo': _clientInfo(),
+      ...extra,
+    };
+  }
+
+  static List<DramaSiteItem> parseCatalog(Map<String, dynamic> response) {
+    final data = response['data'];
+    if (data is! List) return const [];
+    final items = <DramaSiteItem>[];
+    for (final entry in data) {
+      final node = _asMap(entry);
+      final id = _firstString(node, ['oneId', 'one_id', 'id']);
+      if (id.isEmpty) continue;
+      final title = _firstString(node, ['title', 'name']);
+      if (title.isEmpty) continue;
+      var remark = '';
+      final count = _firstInt(node, ['episodeCount', 'totalEpisodeCount']);
+      if (count > 0) remark = '共$count集';
+      items.add(
+        DramaSiteItem(
+          id: id,
+          title: title,
+          cover: _firstString(node, ['horzPoster', 'vertPoster', 'cover']),
+          remark: remark,
+        ),
+      );
+    }
+    return items;
+  }
+
+  static String _episodeUrl(Map<String, dynamic> node) {
+    final direct = _firstString(node, ['playUrl', 'videoUrl', 'play_url']);
+    if (direct.isNotEmpty) return direct;
+    final clarities = node['videoClarityList'];
+    if (clarities is! List) return '';
+    var best = '';
+    var bestQuality = -1;
+    for (final entry in clarities) {
+      final clarity = _asMap(entry);
+      final address = _firstString(clarity, ['playUrl', 'videoUrl', 'url']);
+      if (address.isEmpty) continue;
+      final quality = _firstInt(clarity, ['clarity', 'quality', 'definition']);
+      if (quality > bestQuality) {
+        best = address;
+        bestQuality = quality;
+      }
+    }
+    return best;
+  }
+
+  static DramaSiteDetail parseDetail(
+    Map<String, dynamic> response,
+    String seriesId,
+  ) {
+    final title = _firstString(response, ['title']);
+    final data = response['data'];
+    if (title.isEmpty && data is! List) {
+      throw StateError('观果详情接口当前返回空数据');
+    }
+    final indexed = <({int number, DramaSiteEpisode episode})>[];
+    if (data is List) {
+      for (var i = 0; i < data.length; i++) {
+        final node = _asMap(data[i]);
+        final url = _episodeUrl(node);
+        if (url.isEmpty) continue;
+        var number = _firstInt(node, [
+          'playOrder',
+          'episodeOrder',
+          'index',
+          'episode',
+        ]);
+        if (number <= 0) number = i + 1;
+        final nodeTitle = _firstString(node, ['title', 'name']);
+        indexed.add((
+          number: number,
+          episode: DramaSiteEpisode(
+            videoId: url,
+            title: nodeTitle.isNotEmpty ? nodeTitle : '第$number集',
+            seriesId: seriesId,
+          ),
+        ));
+      }
+    }
+    if (indexed.isEmpty) {
+      throw StateError('观果未返回可播放分集');
+    }
+    indexed.sort((a, b) => a.number.compareTo(b.number));
+    return DramaSiteDetail(
+      id: seriesId,
+      title: title,
+      cover: _firstString(response, ['vertPoster', 'horzPoster']),
+      episodes: [for (final entry in indexed) entry.episode],
+    );
+  }
+
+  @override
+  Future<List<DramaSiteCategory>> categories() async => const [
+    DramaSiteCategory('all', '全部'),
+  ];
+
+  @override
+  Future<DramaSiteCatalogPage> catalog(String categoryId, int page) async {
+    if (page > 500) {
+      return const DramaSiteCatalogPage(items: [], hasMore: false);
+    }
+    final uri = Uri.parse('$baseUrl/drama/home/search').replace(
+      queryParameters: _query({}),
+    );
+    final response = await _client.post(
+      uri,
+      headers: {
+        'Referer': '$baseUrl/',
+        'User-Agent': 'okhttp/5.1.0',
+        'Content-Type': 'application/json; charset=utf-8',
+      },
+      body: jsonEncode({
+        'audience': '全部',
+        'order': '最新',
+        'page': page < 1 ? 1 : page,
+        'pageSize': 30,
+        'searchWord': '',
+        'subject': '',
+      }),
+    );
+    if (response.statusCode != 200) {
+      throw StateError('观果列表 HTTP ${response.statusCode}');
+    }
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw StateError('观果列表数据格式无法识别');
+    }
+    final items = parseCatalog(decoded);
+    return DramaSiteCatalogPage(items: items, hasMore: items.length >= 30);
+  }
+
+  @override
+  Future<DramaSiteDetail> detail(String seriesId) async {
+    final uri = Uri.parse('$baseUrl/drama/home/shortVideoDetail').replace(
+      queryParameters: _query({
+        'oneId': seriesId,
+        'page': '1',
+        'pageSize': '1000',
+        'userId': '0',
+        'queryAll': 'true',
+      }),
+    );
+    final response = await _client.get(
+      uri,
+      headers: {
+        'Referer': '$baseUrl/',
+        'User-Agent': 'okhttp/5.1.0',
+        'Content-Type': 'application/json; charset=utf-8',
+      },
+    );
+    if (response.statusCode != 200) {
+      throw StateError('观果详情 HTTP ${response.statusCode}');
+    }
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw StateError('观果详情数据格式无法识别');
+    }
+    return parseDetail(decoded, seriesId);
+  }
+
+  @override
+  Future<DramaPlaySource> playSource(DramaSiteEpisode episode) async {
+    if (episode.videoId.startsWith('http')) {
+      return DramaPlaySource(url: episode.videoId);
+    }
+    throw StateError('观果该集没有播放地址');
+  }
+}
+
 DramaSiteContentClient? dramaSiteContentClient(String siteId) {
   if (siteId == 'hgtvmirror') return HgtvMirrorContentClient();
   if (siteId == 'hongguo') return HongguoContentClient();
   if (siteId == 'fanguo') return FanguoContentClient();
+  if (siteId == 'guanguo') return GuanguoContentClient();
   return null;
 }
