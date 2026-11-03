@@ -54,10 +54,18 @@ class SeriesDetailPage extends StatefulWidget {
     this.directoryLoader,
     this.onPlayEpisode,
     this.onOpenRelatedSeries,
+    this.engineSiteId = '',
+    this.shelfKind = 'video',
   });
 
   final String seriesId;
   final String kind;
+
+  /// 引擎站（导入站）详情页：收藏写引擎书架条目，否则沿用原短剧收藏。
+  final String engineSiteId;
+
+  /// 引擎站收藏进书架分区用的 kind（video 进影视架，其余进书架）。
+  final String shelfKind;
   final ValueChanged<RelatedSeries>? onOpenRelatedSeries;
 
   /// 详情接口回来前的兜底标题/封面（宿主播放页已拉过一次 seriesDetail）。
@@ -499,7 +507,12 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
       playLabel: _playLabel,
       playEnabled: _playable,
       onPlay: () => _play(_currentIndex),
-      saved: ShelfStore.instance.contains('video', widget.seriesId),
+      saved: ShelfStore.instance.contains(
+        widget.shelfKind,
+        widget.engineSiteId.isEmpty
+            ? widget.seriesId
+            : 'engine:${widget.engineSiteId}:${widget.seriesId}',
+      ),
       shelfEnabled: widget.seriesId.isNotEmpty,
       shelfBusy: _shelfBusy,
       onToggleShelf: _toggleShelf,
@@ -551,16 +564,20 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
     }
     setState(() => _shelfBusy = true);
     try {
+      final isEngine = widget.engineSiteId.isNotEmpty;
       final added = await shelf.toggle(
         MediaItem(
-          id: widget.seriesId,
+          id: isEngine
+              ? 'engine:${widget.engineSiteId}:${widget.seriesId}'
+              : widget.seriesId,
           seriesId: widget.seriesId,
           title: _titleText,
           cover: _coverText,
           author: '',
-          badge: '短剧',
+          badge: isEngine ? '' : '短剧',
           ep: _detail.episodeLabel,
-          kind: 'video',
+          kind: widget.shelfKind,
+          source: isEngine ? 'engine:${widget.engineSiteId}' : '',
         ),
       );
       if (!mounted) return;

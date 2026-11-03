@@ -282,7 +282,7 @@ Future<void> openDramaSitePlayback(
     unawaited(EngineReadingStore.instance.saveIndex(siteId, seriesId, index));
   }
 
-  void addToShelf() {
+  void addToShelf({String kind = 'book'}) {
     final item = MediaItem(
       id: 'engine:$siteId:$seriesId',
       title: title,
@@ -290,7 +290,7 @@ Future<void> openDramaSitePlayback(
       author: '',
       badge: '',
       ep: '',
-      kind: 'book',
+      kind: kind,
       source: 'engine:$siteId',
       seriesId: seriesId,
     );
@@ -351,7 +351,7 @@ Future<void> openDramaSitePlayback(
             resolve: (chapter) async =>
                 parsePicsUrls((await resolveSource(chapter)).url),
             onIndexChanged: saveIndex,
-            onAddToShelf: addToShelf,
+            onAddToShelf: () => addToShelf(kind: 'manga'),
             onSwitchSource: (index) => showEngineSourceSwitch(
               context,
               title: title,
@@ -404,6 +404,19 @@ Future<void> openDramaSitePlayback(
   }
 }
 
+String engineShelfKindFor(ContentType type) {
+  switch (type) {
+    case ContentType.video:
+      return 'video';
+    case ContentType.comic:
+      return 'manga';
+    case ContentType.audio:
+      return 'audio';
+    default:
+      return 'book';
+  }
+}
+
 Future<void> openDramaSiteItem(
   BuildContext context,
   String siteId,
@@ -412,6 +425,10 @@ Future<void> openDramaSiteItem(
   final client = await SourceRegistry.instance.clientFor(siteId);
   if (!context.mounted) return;
   if (client == null) return;
+  final entry = SourceRegistry.instance.customById(siteId);
+  final isEngineSite = entry != null &&
+      entry.kind != SourceKind.customMaccms &&
+      entry.kind != SourceKind.builtinDrama;
   DramaSiteDetail? cachedDetail;
   Future<DramaSiteDetail> loadSiteDetail() async {
     cachedDetail ??= await client.detail(item.id);
@@ -432,6 +449,10 @@ Future<void> openDramaSiteItem(
         kind: 'video',
         title: item.title,
         cover: item.cover,
+        engineSiteId: isEngineSite ? siteId : '',
+        shelfKind: entry == null
+            ? 'video'
+            : engineShelfKindFor(entry.contentType),
         initialDetail: initialDetail,
         directoryLoader: (id) async {
           final loaded = await loadSiteDetail();

@@ -73,6 +73,19 @@ extension SourceEntryContentType on SourceEntry {
       ContentTypeLabel.fromKey(extra['contentType'] as String?);
 }
 
+ContentType contentTypeForLegadoSource(LegadoSource source) {
+  switch (source.sourceType) {
+    case 4:
+      return ContentType.video;
+    case 1:
+      return ContentType.audio;
+    case 2:
+      return ContentType.comic;
+    default:
+      return ContentType.novel;
+  }
+}
+
 class SourceEntry {
   const SourceEntry({
     required this.id,
@@ -660,7 +673,7 @@ class SourceRegistry {
 
   Future<List<SourceEntry>> addLegadoImport(
     String jsonText, {
-    ContentType contentType = ContentType.novel,
+    ContentType contentType = ContentType.mixed,
   }) async {
     await load();
     final decoded = jsonDecode(jsonText.trim());
@@ -681,6 +694,9 @@ class SourceRegistry {
     for (final raw in raws) {
       final source = LegadoSource(raw);
       if (source.name.isEmpty || source.url.isEmpty) continue;
+      final type = contentType == ContentType.mixed
+          ? contentTypeForLegadoSource(source)
+          : contentType;
       final id = 'import_${DateTime.now().millisecondsSinceEpoch}_${entries.length}';
       final file = File('${dir.path}/$id.json');
       await file.writeAsString(jsonEncode(raw));
@@ -691,7 +707,7 @@ class SourceRegistry {
           kind: SourceKind.legadoImport,
           address: source.url,
           detail: '阅读书源 · 已导入',
-          extra: {'path': file.path, 'contentType': contentType.key},
+          extra: {'path': file.path, 'contentType': type.key},
         ),
       );
     }

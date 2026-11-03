@@ -425,9 +425,16 @@ class _HomePageState extends ConsumerState<HomePage> {
   Future<void> _openSiteList() async {
     await SourceRegistry.instance.load();
     if (!mounted) return;
-    final sites = SourceRegistry.instance.visibleDramaSites(
-      types: {ContentType.video, ContentType.mixed},
-    );
+    final sites = SourceRegistry.instance
+        .visibleDramaSites(
+          types: {ContentType.video, ContentType.mixed},
+        )
+        .where(
+          (site) =>
+              SourceRegistry.instance.customById(site.id)?.kind !=
+              SourceKind.legadoImport,
+        )
+        .toList();
     final picked = await showModalBottomSheet<String>(
       context: context,
       builder: (sheetContext) => SafeArea(
