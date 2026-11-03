@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:http/http.dart' as http;
 
 import 'drama_playback.dart';
@@ -149,18 +147,63 @@ String xbpqFillTemplate(
   String cateId = '',
   int page = 1,
   String keyword = '',
+  Map<String, String> filters = const {},
 }) {
-  return template
+  var out = template
       .replaceAll('{cateId}', cateId)
       .replaceAll('{catePg}', '$page')
       .replaceAll('{pg}', '$page')
-      .replaceAll('{wd}', Uri.encodeComponent(keyword))
+      .replaceAll('{wd}', Uri.encodeComponent(keyword));
+  for (final entry in filters.entries) {
+    out = out.replaceAll('{${entry.key}}', entry.value);
+  }
+  return out
       .replaceAll('{area}', '')
       .replaceAll('{by}', '')
       .replaceAll('{class}', '')
       .replaceAll('{lang}', '')
       .replaceAll('{letter}', '')
       .replaceAll('{year}', '');
+}
+
+class XbpqFilterOption {
+  const XbpqFilterOption(this.name, this.value);
+
+  final String name;
+  final String value;
+}
+
+class XbpqFilterGroup {
+  const XbpqFilterGroup(this.key, this.options);
+
+  final String key;
+  final List<XbpqFilterOption> options;
+}
+
+List<XbpqFilterGroup> xbpqParseFilters(
+  Map<String, dynamic> rule,
+  String categoryId,
+) {
+  final raw = rule['筛选'];
+  if (raw is! Map) return const [];
+  final groupsRaw = raw[categoryId];
+  if (groupsRaw is! List) return const [];
+  final groups = <XbpqFilterGroup>[];
+  for (final group in groupsRaw) {
+    if (group is! Map) continue;
+    final key = '${group['key'] ?? ''}';
+    final values = group['value'];
+    if (key.isEmpty || values is! List) continue;
+    final options = <XbpqFilterOption>[const XbpqFilterOption('全部', '')];
+    for (final option in values) {
+      if (option is! Map) continue;
+      options.add(
+        XbpqFilterOption('${option['n'] ?? ''}', '${option['v'] ?? ''}'),
+      );
+    }
+    if (options.length > 1) groups.add(XbpqFilterGroup(key, options));
+  }
+  return groups;
 }
 
 class XbpqListFields {
@@ -243,7 +286,8 @@ List<DramaSiteEpisode> xbpqParseEpisodes(
 
 class XbpqRule {
   XbpqRule(Map<String, dynamic> raw)
-      : host = _field(raw, ['主页url', 'host', 'homeUrl']) ?? '',
+      : raw = raw,
+        host = _field(raw, ['主页url', 'host', 'homeUrl']) ?? '',
         homeUrl = _field(raw, ['homeUrl', '主页url']) ?? '',
         categories = xbpqParseCategories(raw),
         cateUrl = _field(raw, ['分类url', 'cateUrl', 'classUrl']) ?? '',
@@ -286,6 +330,7 @@ class XbpqRule {
         playTitle = _field(raw, ['播放标题', 'playTitle']) ?? '',
         playLink = _field(raw, ['播放链接', 'playLink', 'playUrl']) ?? '';
 
+  final Map<String, dynamic> raw;
   final String host;
   final String homeUrl;
   final List<DramaSiteCategory> categories;
@@ -343,8 +388,18 @@ class XbpqContentClient implements DramaSiteContentClient {
   @override
   Future<List<DramaSiteCategory>> categories() async => _rule.categories;
 
+  List<XbpqFilterGroup> filterGroups(String categoryId) =>
+      xbpqParseFilters(_rule.raw, categoryId);
+
   @override
-  Future<DramaSiteCatalogPage> catalog(String categoryId, int page) async {
+  Future<DramaSiteCatalogPage> catalog(String categoryId, int page) =>
+      catalogFiltered(categoryId, page, const {});
+
+  Future<DramaSiteCatalogPage> catalogFiltered(
+    String categoryId,
+    int page,
+    Map<String, String> filters,
+  ) async {
     String url;
     if (categoryId == 'all') {
       if (_rule.homeUrl.isNotEmpty) {
@@ -358,6 +413,7 @@ class XbpqContentClient implements DramaSiteContentClient {
           _rule.cateUrl,
           cateId: _rule.categories.first.id,
           page: page,
+          filters: filters,
         );
       } else {
         throw StateError('该规则没有分类与首页地址，无法拉列表');
@@ -366,7 +422,12 @@ class XbpqContentClient implements DramaSiteContentClient {
       if (_rule.cateUrl.isEmpty) {
         throw StateError('该规则未给分类url模板，无法拉分类');
       }
-      url = xbpqFillTemplate(_rule.cateUrl, cateId: categoryId, page: page);
+      url = xbpqFillTemplate(
+        _rule.cateUrl,
+        cateId: categoryId,
+        page: page,
+        filters: filters,
+      );
     }
     final body = await _fetch(xbpqResolve(_rule.base, url));
     final items = xbpqParseList(body, _rule.listFields, _rule.base);

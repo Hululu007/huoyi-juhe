@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/media_item.dart';
 import '../../services/drama_site_content.dart';
 import '../../services/drama_site_play.dart';
+import '../../services/xbpq_content.dart';
 import '../../services/source_registry.dart';
 import 'home_feed_states.dart';
 import 'home_media_card.dart';
@@ -34,6 +35,55 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
   bool _loading = false;
   bool _loadingMore = false;
   String? _error;
+  List<XbpqFilterGroup> _filterGroups = [];
+  Map<String, String> _filters = {};
+
+  Future<DramaSiteCatalogPage> _catalog(
+    DramaSiteContentClient client,
+    String categoryId,
+    int page,
+  ) {
+    if (client is XbpqContentClient && _filters.isNotEmpty) {
+      return client.catalogFiltered(categoryId, page, _filters);
+    }
+    return client.catalog(categoryId, page);
+  }
+
+  Widget _filterBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(homeGutter, 0, homeGutter, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final group in _filterGroups)
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  for (final option in group.options)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: ChoiceChip(
+                        label: Text(option.name),
+                        selected: (_filters[group.key] ?? '') == option.value,
+                        onSelected: (_) {
+                          setState(() {
+                            _filters = {
+                              ..._filters,
+                              group.key: option.value,
+                            };
+                          });
+                          _loadFirst(keepItems: true);
+                        },
+                      ),
+                    ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 
   /// 下一页预加载：首页加载完就后台取下一页，点「加载更多」时
   /// 直接拼上，不再等一次接口；预取失败不报错，下次点按钮再取。
@@ -44,8 +94,7 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
     final client = _client;
     if (client == null || !_hasMore || _prefetchedForPage == nextPage) return;
     _prefetchedForPage = nextPage;
-    client
-        .catalog(widget.categoryId, nextPage)
+    _catalog(client, widget.categoryId, nextPage)
         .then((page) {
           if (mounted && _page + 1 == nextPage) {
             _prefetchedPage = page;
@@ -68,11 +117,13 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
       _client = null;
       _prefetchedPage = null;
       _prefetchedForPage = 0;
+      _filterGroups = [];
+      _filters = {};
       _loadFirst();
     }
   }
 
-  Future<void> _loadFirst() async {
+  Future<void> _loadFirst({bool keepItems = false}) async {
     final client =
         await SourceRegistry.instance.clientFor(widget.siteId);
     if (!mounted) return;
@@ -85,13 +136,16 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
       return;
     }
     setState(() {
-      _loading = true;
+      _loading = !keepItems;
       _error = null;
       _prefetchedPage = null;
       _prefetchedForPage = 0;
+      _filterGroups = client is XbpqContentClient
+          ? client.filterGroups(widget.categoryId)
+          : <XbpqFilterGroup>[];
     });
     try {
-      final page = await client.catalog(widget.categoryId, 1);
+      final page = await _catalog(client, widget.categoryId, 1);
       if (!mounted) return;
       setState(() {
         _items = page.items;
@@ -126,7 +180,7 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
     }
     setState(() => _loadingMore = true);
     try {
-      final page = await client.catalog(widget.categoryId, _page + 1);
+      final page = await _catalog(client, widget.categoryId, _page + 1);
       if (!mounted) return;
       setState(() {
         _items = [..._items, ...page.items];
@@ -157,18 +211,26 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
       );
     }
     if (_items.isEmpty) {
-      return SliverToBoxAdapter(
-        child: HomeFeedEmpty(
-          title: '暂无内容',
-          message: '换个分类，或刷新发现新故事',
-          actionLabel: '刷新推荐',
-          onRefresh: _loadFirst,
-        ),
+      return SliverMainAxisGroup(
+        slivers: [
+          if (_filterGroups.isNotEmpty)
+            SliverToBoxAdapter(child: _filterBar()),
+          SliverToBoxAdapter(
+            child: HomeFeedEmpty(
+              title: '暂无内容',
+              message: '换个分类，或刷新发现新故事',
+              actionLabel: '刷新推荐',
+              onRefresh: _loadFirst,
+            ),
+          ),
+        ],
       );
     }
     final cardWidth = homeShelfCardWidth(context, widget.gridWidth);
     return SliverMainAxisGroup(
       slivers: [
+        if (_filterGroups.isNotEmpty)
+          SliverToBoxAdapter(child: _filterBar()),
         SliverPadding(
           padding: const EdgeInsets.symmetric(horizontal: homeGutter),
           sliver: SliverGrid(

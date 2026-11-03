@@ -85,6 +85,44 @@ void main() {
     expect(categories.map((c) => c.name), ['电影', '连续剧', '动漫']);
   });
 
+  test('筛选解析与模板填充：分类值取组、选中值进占位符', () {
+    final rule = {
+      '分类': '电影\$1#电视剧\$2',
+      '分类url': '/show{area}{by}/id/{cateId}/page/{catePg}.html',
+      '筛选': {
+        '1': [
+          {
+            'key': 'area',
+            'value': [
+              {'n': '大陆', 'v': '/area/大陆'},
+              {'n': '香港', 'v': '/area/香港'},
+            ],
+          },
+          {
+            'key': 'by',
+            'value': [
+              {'n': '最新', 'v': '/by/time'},
+            ],
+          },
+        ],
+      },
+    };
+    final groups = xbpqParseFilters(rule, '1');
+    expect(groups.map((g) => g.key), ['area', 'by']);
+    expect(groups.first.options.first.name, '全部');
+    expect(groups.first.options[1].value, '/area/大陆');
+    expect(xbpqParseFilters(rule, '2'), isEmpty);
+    expect(
+      xbpqFillTemplate(
+        '/show{area}{by}/id/{cateId}/page/{catePg}.html',
+        cateId: '1',
+        page: 3,
+        filters: {'area': '/area/大陆'},
+      ),
+      '/show/area/大陆/id/1/page/3.html',
+    );
+  });
+
   test('模板占位符填充', () {
     expect(
       xbpqFillTemplate(
