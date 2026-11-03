@@ -27,19 +27,20 @@ void main() {
         {'key': 'siteF', 'name': 'F站', 'api': ''},
       ],
     });
-    expect(parsed.sites.length, 4);
+    expect(parsed.sites.length, 5);
     final jar = parsed.sites[0];
     expect(jar.kind, TvboxSiteKind.jar);
     expect(jar.className, 'com.github.catvod.spider.AppYs');
     expect(jar.jarUrl, 'https://example.com/spider.jar');
     expect(jar.md5, '0123456789abcdef0123456789abcdef');
-    final api = parsed.sites[1];
+    expect(parsed.sites[1].kind, TvboxSiteKind.xbpq);
+    final api = parsed.sites[2];
     expect(api.kind, TvboxSiteKind.api);
     expect(api.apiUrl, 'https://c.example.com/');
-    expect(parsed.sites[2].kind, TvboxSiteKind.py);
-    expect(parsed.sites[3].kind, TvboxSiteKind.jar);
-    expect(parsed.skipped.length, 2);
-    expect(parsed.skipped.any((s) => s.contains('XBPQ')), isTrue);
+    expect(parsed.sites[3].kind, TvboxSiteKind.py);
+    expect(parsed.sites[4].kind, TvboxSiteKind.jar);
+    expect(parsed.skipped.length, 1);
+    expect(parsed.skipped.any((s) => s.contains('XBPQ')), isFalse);
     expect(parsed.skipped.any((s) => s.contains('F站')), isTrue);
     final noSpider = parseTvboxConfig({
       'sites': [
