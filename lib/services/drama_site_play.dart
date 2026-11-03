@@ -5,10 +5,15 @@ import 'package:flutter/material.dart';
 import '../models/media_item.dart';
 import '../models/playlet_comment.dart';
 import '../models/series_detail.dart';
+import '../pages/listen_mode_page.dart';
+import '../pages/novel_text_page.dart';
+import '../pages/pics_viewer_page.dart';
 import '../pages/player_page.dart';
 import '../pages/series_detail_page.dart';
 import 'drama_playback.dart';
 import 'drama_site_content.dart';
+import 'episode_source_cache.dart';
+import 'nonvideo_play.dart';
 import 'source_registry.dart';
 
 /// 外站剧集的详情与播放入口：只用原始站点的详情页与播放页。
@@ -27,6 +32,10 @@ class _PlaySourcePreload {
       '${episode.seriesId}|${episode.videoId}';
 
   DramaPlaySource? take(DramaSiteEpisode episode) => _cache[_key(episode)];
+
+  void put(DramaSiteEpisode episode, DramaPlaySource source) {
+    _cache[_key(episode)] = source;
+  }
 
   Future<void> _fetchAndCache(
     DramaSiteContentClient client,
@@ -101,41 +110,104 @@ Future<void> openDramaSiteItem(
           ];
         },
         commentLoader: (_) async => const PlayletCommentPage(),
-        onPlaySelection: (index, episodes, detail) {
-          Navigator.push(
-            context,
-            MaterialPageRoute<void>(
-              builder: (_) => PlayerPage(
-                bookId: item.id,
-                kind: 'video',
-                title: item.title,
-                cover: item.cover,
-                eps: episodes,
-                startIndex: index,
-                shortSeries: true,
-                initialSeriesDetail: detail,
-                seriesLoader: (_) async => detail,
-                contentLoader: (chapter) async {
-                  final episode = DramaSiteEpisode(
-                    videoId: chapter.itemId,
-                    title: chapter.title,
-                    seriesId: item.id,
-                  );
-                  final cached = preload.take(episode);
-                  final source =
-                      cached ?? await client.playSource(episode);
-                  final loaded = await loadSiteDetail();
-                  final index = loaded.episodes.indexWhere(
-                    (e) => e.videoId == episode.videoId,
-                  );
-                  if (index >= 0) {
-                    preload.prefetch(client, loaded.episodes, index);
-                  }
-                  return source.toResponse();
-                },
-              ),
-            ),
-          );
+        onPlaySelection: (index, episodes, detail) async {
+          Future<DramaPlaySource> resolveSource(Chapter chapter) async {
+            final episode = DramaSiteEpisode(
+              videoId: chapter.itemId,
+              title: chapter.title,
+              seriesId: item.id,
+            );
+            final cached = preload.take(episode);
+            if (cached != null) return cached;
+            final source = await client.playSource(episode);
+            preload.put(episode, source);
+            final loaded = await loadSiteDetail();
+            final found = loaded.episodes.indexWhere(
+              (e) => e.videoId == episode.videoId,
+            );
+            if (found >= 0) {
+              preload.prefetch(client, loaded.episodes, found);
+            }
+            return source;
+          }
+
+          DramaPlaySource first;
+          try {
+            first = await resolveSource(episodes[index]);
+          } catch (error) {
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('取流失败：$error')),
+              );
+            }
+            return;
+          }
+          if (!context.mounted) return;
+          switch (classifyPlayUrl(first.url)) {
+            case PlayUrlKind.novel:
+              await Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => NovelTextPage(
+                    seriesTitle: item.title,
+                    episodes: episodes,
+                    startIndex: index,
+                    resolve: (chapter) async =>
+                        parseNovelPayload((await resolveSource(chapter)).url),
+                  ),
+                ),
+              );
+            case PlayUrlKind.pics:
+              await Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => PicsViewerPage(
+                    seriesTitle: item.title,
+                    episodes: episodes,
+                    startIndex: index,
+                    resolve: (chapter) async =>
+                        parsePicsUrls((await resolveSource(chapter)).url),
+                  ),
+                ),
+              );
+            case PlayUrlKind.audio:
+              await Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => ListenModePage(
+                    seriesTitle: item.title,
+                    coverUrl: item.cover,
+                    episodes: episodes,
+                    initialIndex: index,
+                    resolveSource: (chapter) async {
+                      final source = await resolveSource(chapter);
+                      return EpisodeSource(source.url, source.keyHex);
+                    },
+                  ),
+                ),
+              );
+            case PlayUrlKind.video:
+              await Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => PlayerPage(
+                    bookId: item.id,
+                    kind: 'video',
+                    title: item.title,
+                    cover: item.cover,
+                    eps: episodes,
+                    startIndex: index,
+                    shortSeries: true,
+                    initialSeriesDetail: detail,
+                    seriesLoader: (_) async => detail,
+                    contentLoader: (chapter) async {
+                      final source = await resolveSource(chapter);
+                      return source.toResponse();
+                    },
+                  ),
+                ),
+              );
+          }
         },
       ),
     ),
