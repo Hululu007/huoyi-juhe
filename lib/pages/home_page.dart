@@ -12,10 +12,12 @@ import '../services/app_log.dart';
 import '../services/book_open_preferences.dart';
 import '../services/chapter_cache_store.dart';
 import '../services/desktop_platform.dart';
+import '../services/drama_site_content.dart';
 import '../services/drama_sites.dart';
 import '../services/home_continue_preferences.dart';
 import '../services/home_page_affinity.dart';
 import '../services/library_store.dart';
+import '../widgets/home/drama_site_grid.dart';
 import '../widgets/home/home_cell_blocks.dart';
 import '../widgets/home/home_cell_renderers.dart';
 import '../widgets/home/home_design.dart';
@@ -90,7 +92,7 @@ class _HomePageState extends ConsumerState<HomePage> {
   late final _homeTabs = HomeTabSwitch(_scroll, ref, _heroKey);
 
   /// 当前短剧站点：只在短剧分类下显示为搜索行左侧的药丸。
-  /// 选站目前只切换药丸显示与持久化，站内容适配是下一步。
+  /// 有取数客户端的站切站即换内容，未接通的站照旧走原站流。
   String _dramaSiteId = DramaSitePreferences.selectedId;
 
   /// 当前短剧站点的分类：随站点变化，换站时回到该站第一个分类。
@@ -521,6 +523,22 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   List<Widget> _contentSlivers(HomeState state, double gridWidth) {
+    // 选了有取数客户端的外站时，短剧页不再画原站首页流，改画该站列表；
+    // 原站与未接通的站照旧走下面的原站流。
+    if (state.tabIndex >= 0 &&
+        state.tabIndex < homeCategories.length &&
+        homeCategories[state.tabIndex].label == '短剧' &&
+        dramaSiteContentClient(_dramaSiteId) != null) {
+      return [
+        DramaSiteGrid(
+          key: ValueKey('drama-site-$_dramaSiteId-$_dramaCategoryId'),
+          siteId: _dramaSiteId,
+          categoryId: _dramaCategoryId,
+          gridWidth: gridWidth,
+        ),
+        _bottomSpacer(context),
+      ];
+    }
     if (state.error != null &&
         state.items.isEmpty &&
         _cellsOfCurrentTab(state).isEmpty) {
