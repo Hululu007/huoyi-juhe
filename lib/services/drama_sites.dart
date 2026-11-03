@@ -81,7 +81,7 @@ const dramaSites = [
     DramaSiteCategory('1290', '推荐四'),
     DramaSiteCategory('1291', '推荐五'),
   ]),
-  DramaSite('huaguo', '花果'),
+  DramaSite('huaguo', '花果', [DramaSiteCategory('27', '短剧')]),
   DramaSite('niuguo', '牛果'),
   DramaSite('wangguo', '网果'),
   DramaSite('faguo', '发果'),

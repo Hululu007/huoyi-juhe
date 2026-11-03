@@ -221,6 +221,26 @@ void main() {
     expect(detail.episodes.first.videoId, 'https://example.test/y1.mp4');
   });
 
+  test('苹果 CMS 列表与详情与播放解析：卡片、选集、player_aaaa 直链', () {
+    final items = MaccmsContentClient.parseCatalog(
+      '<div class="module-item"><a href="/voddetail/123.html" title="花果测试剧"><img src="/pic.jpg" alt="花果测试剧"></a><span>共40集</span></div>',
+      'https://example.test',
+    );
+    expect(items.length, 1);
+    expect(items.first.id, '123');
+    expect(items.first.cover, 'https://example.test/pic.jpg');
+    final detail = MaccmsContentClient.parseDetail(
+      '<h1 class="detail-title">花果测试剧</h1><div class="content__playlist"><a href="/vodplay/123-1-1.html">第1集</a><a href="/vodplay/123-1-2.html">第2集</a></div>',
+      '123',
+    );
+    expect(detail.title, '花果测试剧');
+    expect(detail.episodes.length, 2);
+    final play = MaccmsContentClient.parsePlayerUrl(
+      '<script>var player_aaaa={"url":"aHR0cHM6Ly9leGFtcGxlLnRlc3QvdjEubTN1OA==","from":"x","encrypt":"2"}</script>',
+    );
+    expect(play, 'https://example.test/v1.m3u8');
+  });
+
   test('红果镜像详情解析：router 数据里的 vid_list 成选集', () {
     final detail = HgtvMirrorContentClient.parseDetail(
       '<html><script>window._ROUTER_DATA = {"loaderData":{"detail_page":{"seriesDetail":{"series_id":"123","series_title":"测试剧","series_cover":"https://example.test/cover.jpg","vid_list":["111","222","111"]}}}};</script></html>',

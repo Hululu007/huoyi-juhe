@@ -1,6 +1,8 @@
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
+import 'package:html/dom.dart' as dom;
+import 'package:html/parser.dart' as html_parser;
 import 'package:http/http.dart' as http;
 
 import 'drama_playback.dart';
@@ -1775,6 +1777,569 @@ class YaguoContentClient implements DramaSiteContentClient {
   }
 }
 
+/// 苹果 CMS 网页站：花果、发果、伍果、网果共用一套解析，
+/// 每站只差基址、目录地址与详情候选地址；播放取播放页的
+/// player_aaaa / player_data，按 encrypt 0/1/2 还原直链。
+class MaccmsContentClient implements DramaSiteContentClient {
+  final String siteId;
+  final String baseUrl;
+
+  MaccmsContentClient(this.siteId, this.baseUrl);
+
+  final http.Client _client = http.Client();
+
+  static const _cardClasses = [
+    'col-lg-2',
+    'col-xl-2',
+    'module-item',
+    'module-poster-item',
+    'public-list-box',
+    'videoBox',
+    'detail-list-item',
+    'col-md-6',
+    'col-6',
+    'listItem',
+    'vodlist__item',
+    'v_list',
+    'myui-vodlist__box',
+    'macplus-vodlist__bag',
+    'myui-vodlist__thumb',
+    'macplus-vodlist__thumb',
+  ];
+
+  static final _detailLink = RegExp(
+    r'/(?:index\.php/vod/)?(?:detail|vod|show|view|movie|drama|zywview|xzyxvd)/|[a-z0-9_]*detail/|(?:voddetail|detail|show|vod|drama|movie|tv|xs|vs)[0-9]{2,}',
+    caseSensitive: false,
+  );
+  static final _detailPath = RegExp(
+    r'/(?:voddetail|detail|show|vod|drama|movie|tv)/([0-9]+)(?:[-./]|$)',
+    caseSensitive: false,
+  );
+  static final _detailGlued = RegExp(
+    r'/(?:voddetail|detail|show|vod|drama|movie|tv|xs|vs)([1-9][0-9]{0,17})(?:[-./]|$)',
+    caseSensitive: false,
+  );
+  static final _playLink = RegExp(
+    r'/(?:vod/)?play/|/[a-z0-9_]*play/|/drama-play|episode_id=|/nr/|/bofang/|/vplay/|/zplay/|/mplay/',
+    caseSensitive: false,
+  );
+
+  static String _resolve(String base, String ref) {
+    if (ref.isEmpty) return '';
+    if (ref.startsWith('//')) return 'https:$ref';
+    try {
+      return Uri.parse(base).resolve(ref).toString();
+    } catch (_) {
+      return ref;
+    }
+  }
+
+  static String? _sourceIdFromUrl(String link) {
+    String path;
+    try {
+      path = Uri.parse(link).path;
+    } catch (_) {
+      path = link;
+    }
+    final trimmed = path.endsWith('.html')
+        ? path.substring(0, path.length - 5)
+        : path;
+    var match = _detailPath.firstMatch('$trimmed/');
+    if (match != null) return match.group(1);
+    match = _detailGlued.firstMatch('$trimmed/');
+    if (match != null) return match.group(1);
+    final parts = trimmed.split('/').where((p) => p.isNotEmpty).toList();
+    for (var i = parts.length - 1; i >= 0; i--) {
+      final part = parts[i];
+      if (int.tryParse(part) != null) return part;
+      final dash = part.indexOf('-');
+      if (dash >= 0 && int.tryParse(part.substring(dash + 1)) != null) {
+        return part.substring(dash + 1);
+      }
+    }
+    try {
+      final id = Uri.parse(link).queryParameters['id'];
+      if (id != null && int.tryParse(id) != null) return id;
+    } catch (_) {}
+    return null;
+  }
+
+  static bool _isNavLink(String link) {
+    String path;
+    try {
+      path = Uri.parse(link).path.toLowerCase();
+    } catch (_) {
+      return false;
+    }
+    if (path.contains('---')) return true;
+    final segments = path.split('/').where((s) => s.isNotEmpty).toList();
+    for (var i = 0; i < segments.length; i++) {
+      final seg = segments[i];
+      if (seg == 'type' || seg.endsWith('type')) return true;
+      if (seg == 'page') return true;
+      if (seg == 'show' && i + 1 < segments.length) {
+        if (segments[i + 1] == 'id' || segments[i + 1] == 'page') return true;
+      }
+    }
+    return false;
+  }
+
+  static String _elementText(dom.Element element) =>
+      element.text.replaceAll(RegExp(r'\s+'), ' ').trim();
+
+  static String? _cardCover(dom.Element card, String base) {
+    for (final img in card.querySelectorAll('img')) {
+      for (final attr in ['data-original', 'data-src', 'src']) {
+        final value = (img.attributes[attr] ?? '').trim();
+        if (value.isNotEmpty) return _resolve(base, value);
+      }
+    }
+    return null;
+  }
+
+  static List<DramaSiteItem> parseCatalog(String body, String base) {
+    final document = html_parser.parse(body);
+    final cards = <dom.Element>[];
+    final seenElements = <dom.Element>{};
+    for (final name in _cardClasses) {
+      for (final node in document.querySelectorAll('.$name')) {
+        if (seenElements.add(node)) cards.add(node);
+      }
+    }
+    final items = <DramaSiteItem>[];
+    final seenIds = <String>{};
+    void addCard(dom.Element card) {
+      dom.Element? linkNode;
+      for (final anchor in card.querySelectorAll('a')) {
+        final href = (anchor.attributes['href'] ?? '').trim();
+        if (href.isNotEmpty && _detailLink.hasMatch(href)) {
+          linkNode = anchor;
+          break;
+        }
+      }
+      if (linkNode == null) return;
+      final href = (linkNode.attributes['href'] ?? '').trim();
+      if (_isNavLink(href)) return;
+      final absolute = _resolve(base, href);
+      final sourceId = _sourceIdFromUrl(absolute);
+      if (sourceId == null || !seenIds.add(sourceId)) return;
+      var title = '';
+      for (final img in card.querySelectorAll('img')) {
+        title = (img.attributes['alt'] ?? img.attributes['title'] ?? '').trim();
+        if (title.isNotEmpty) break;
+      }
+      if (title.isEmpty) {
+        title = (linkNode.attributes['title'] ?? '').trim();
+      }
+      if (title.isEmpty) title = _elementText(card);
+      if (title.isEmpty) return;
+      final text = _elementText(card);
+      var remark = '';
+      final remarkMatch = RegExp(r'(共\d+集|更新至[^\s]+|完结)').firstMatch(text);
+      if (remarkMatch != null) remark = remarkMatch.group(0)!;
+      items.add(
+        DramaSiteItem(
+          id: sourceId,
+          title: title,
+          cover: _cardCover(card, base) ?? '',
+          remark: remark,
+        ),
+      );
+    }
+
+    for (final card in cards) {
+      addCard(card);
+    }
+    if (items.isEmpty) {
+      for (final anchor in document.querySelectorAll('a')) {
+        final href = (anchor.attributes['href'] ?? '').trim();
+        if (href.isEmpty || !_detailLink.hasMatch(href)) continue;
+        dom.Element? parent;
+        var node = anchor.parent;
+        while (node != null) {
+          if (node.localName == 'li' || node.localName == 'div') {
+            parent = node;
+            break;
+          }
+          node = node.parent;
+        }
+        if (parent != null) addCard(parent);
+      }
+    }
+    return items;
+  }
+
+  static String _cleanTitle(String raw) {
+    var text = raw.trim();
+    for (final sep in [' - ', ' _ ']) {
+      final cut = text.indexOf(sep);
+      if (cut >= 0) text = text.substring(0, cut).trim();
+    }
+    for (final suffix in [
+      '在线观看',
+      '免费观看',
+      '高清完整版',
+      '完整版',
+      '全集',
+      '在线播放',
+      '高清',
+      '免费',
+    ]) {
+      while (text.endsWith(suffix) && text.length > suffix.length) {
+        text = text.substring(0, text.length - suffix.length).trim();
+      }
+    }
+    return text.trim();
+  }
+
+  static DramaSiteDetail parseDetail(String body, String seriesId) {
+    final document = html_parser.parse(body);
+    var title = '';
+    for (final name in [
+      'module-info-heading',
+      'detail-title',
+      'video-info-title',
+      'page-title',
+    ]) {
+      final node = document.querySelector('.$name');
+      if (node != null && _elementText(node).isNotEmpty) {
+        title = _cleanTitle(_elementText(node));
+        break;
+      }
+    }
+    if (title.isEmpty) {
+      final titleNode = document.querySelector('title');
+      if (titleNode != null) title = _cleanTitle(_elementText(titleNode));
+    }
+    var cover = '';
+    for (final name in ['module-item-pic', 'detail-pic', 'video-info-pic']) {
+      final node = document.querySelector('.$name');
+      if (node != null) {
+        final found = _cardCover(node, '');
+        if (found != null && found.isNotEmpty) {
+          cover = found;
+          break;
+        }
+      }
+    }
+    if (cover.isEmpty) {
+      final img = document.querySelector('img');
+      if (img != null) {
+        for (final attr in ['data-original', 'data-src', 'src']) {
+          final value = (img.attributes[attr] ?? '').trim();
+          if (value.isNotEmpty) {
+            cover = value;
+            break;
+          }
+        }
+      }
+    }
+    final anchors = <dom.Element>[];
+    for (final name in [
+      'content__playlist',
+      'content__list',
+      'playlink',
+      'pcDrama_catalogItem',
+      'catalogItem',
+      'playlist',
+      'module-play-list-content',
+      'tab-pane',
+    ]) {
+      for (final container in document.querySelectorAll('.$name')) {
+        anchors.addAll(container.querySelectorAll('a'));
+      }
+    }
+    if (anchors.isEmpty) {
+      anchors.addAll(document.querySelectorAll('a'));
+    }
+    final indexed = <({int number, DramaSiteEpisode episode})>[];
+    final seenLinks = <String>{};
+    for (var i = 0; i < anchors.length; i++) {
+      final anchor = anchors[i];
+      final href = (anchor.attributes['href'] ?? '').trim();
+      if (href.isEmpty || !_playLink.hasMatch(href)) continue;
+      final lower = href.toLowerCase();
+      if (lower.startsWith('javascript') ||
+          lower.startsWith('#') ||
+          lower.startsWith('mailto') ||
+          lower.startsWith('data:')) {
+        continue;
+      }
+      if (!seenLinks.add(href)) continue;
+      final anchorTitle = _elementText(anchor);
+      if (anchorTitle.contains('APP') || anchorTitle.contains('下载')) continue;
+      var number = i + 1;
+      final digitMatch = RegExp(r'(\d+)').firstMatch(anchorTitle);
+      if (digitMatch != null) {
+        number = int.tryParse(digitMatch.group(1)!) ?? i + 1;
+      }
+      indexed.add((
+        number: number,
+        episode: DramaSiteEpisode(
+          videoId: href,
+          title: anchorTitle.isNotEmpty ? anchorTitle : '第$number集',
+          seriesId: seriesId,
+        ),
+      ));
+    }
+    if (indexed.isEmpty) {
+      throw StateError('未解析到分集列表');
+    }
+    indexed.sort((a, b) => a.number.compareTo(b.number));
+    return DramaSiteDetail(
+      id: seriesId,
+      title: title,
+      cover: cover,
+      episodes: [for (final entry in indexed) entry.episode],
+    );
+  }
+
+  static String _jsUnescape(String value) {
+    var out = value;
+    out = out.replaceAllMapped(RegExp(r'%u([0-9a-fA-F]{4})'), (m) {
+      final code = int.tryParse(m.group(1)!, radix: 16);
+      return code == null ? m.group(0)! : String.fromCharCode(code);
+    });
+    try {
+      return Uri.decodeComponent(out);
+    } catch (_) {
+      return out.replaceAllMapped(RegExp(r'%([0-9a-fA-F]{2})'), (m) {
+        final code = int.tryParse(m.group(1)!, radix: 16);
+        return code == null ? m.group(0)! : String.fromCharCode(code);
+      });
+    }
+  }
+
+  static String _decryptPlayerUrl(String raw, String encrypt) {
+    switch (encrypt) {
+      case '1':
+        return _jsUnescape(raw);
+      case '2':
+        try {
+          return _jsUnescape(utf8.decode(base64Decode(raw)));
+        } catch (_) {
+          if (raw.contains('%')) {
+            try {
+              final unescaped = Uri.decodeComponent(raw);
+              if (unescaped != raw) {
+                return _jsUnescape(utf8.decode(base64Decode(unescaped)));
+              }
+            } catch (_) {}
+          }
+          return raw;
+        }
+      default:
+        return raw;
+    }
+  }
+
+  static String parsePlayerUrl(String body) {
+    final playerMatch = RegExp(
+      r'player_(?:aaaa|data)\s*=\s*(\{.*?\})\s*(?:</script>|;|$)',
+      caseSensitive: false,
+      dotAll: true,
+    ).firstMatch(body);
+    String? fieldUrl;
+    String encrypt = '';
+    if (playerMatch != null) {
+      var blob = playerMatch.group(1)!.replaceAll(r'\/', '/');
+      final urlMatch = RegExp(
+        r'"url"\s*:\s*"([^"]+)"',
+        caseSensitive: false,
+      ).firstMatch(blob);
+      if (urlMatch != null) fieldUrl = urlMatch.group(1);
+      final encryptMatch = RegExp(
+        r'"encrypt"\s*:\s*"?([0-9])"?',
+        caseSensitive: false,
+      ).firstMatch(blob);
+      if (encryptMatch != null) encrypt = encryptMatch.group(1)!;
+      if (fieldUrl != null) {
+        final decrypted = _decryptPlayerUrl(fieldUrl, encrypt);
+        if (decrypted.toLowerCase().startsWith('http')) return decrypted;
+      }
+    }
+    for (final pattern in [
+      RegExp(r'''\$\.url\s*=\s*"([^"]+)"''', caseSensitive: false),
+      RegExp(
+        r'"url"\s*:\s*"([^"]+\.(?:m3u8|mp4)[^"]*)"',
+        caseSensitive: false,
+      ),
+      RegExp(
+        r'''(https?://[^\s"'<>]+\.(?:m3u8|mp4)[^\s"'<>]*)''',
+        caseSensitive: false,
+      ),
+    ]) {
+      final match = pattern.firstMatch(body);
+      if (match != null) return match.group(1)!.replaceAll(r'\/', '/');
+    }
+    if (fieldUrl != null) {
+      return _decryptPlayerUrl(fieldUrl, encrypt);
+    }
+    final iframeMatch = RegExp(
+      r'<iframe[^>]*?[?&]url=([A-Za-z0-9+/]{20,}={0,2})',
+      caseSensitive: false,
+      dotAll: true,
+    ).firstMatch(body);
+    if (iframeMatch != null) {
+      var encoded = iframeMatch.group(1)!;
+      try {
+        final padded =
+            encoded + '=' * ((4 - encoded.length % 4) % 4);
+        final decoded = utf8.decode(base64Decode(padded));
+        for (final candidate in decoded.split(',')) {
+          if (candidate.trim().toLowerCase().startsWith('http')) {
+            return candidate.trim();
+          }
+        }
+      } catch (_) {}
+    }
+    return '';
+  }
+
+  String _catalogUrl(String categoryId, int page) {
+    final pageSafe = page < 1 ? 1 : page;
+    final category = categoryId == 'all' ? '' : categoryId;
+    switch (siteId) {
+      case 'huaguo':
+        if (pageSafe <= 1 && category.isEmpty) return '$baseUrl/';
+        final tid = category.isEmpty ? '27' : category;
+        return '$baseUrl/search.html?page=$pageSafe&searchtype=5&tid=${Uri.encodeComponent(tid)}&year=';
+      case 'faguo':
+        if (category.isEmpty) return '$baseUrl/xzyxvt/${pageSafe}zmn.html';
+        if (!category.contains('zmn')) {
+          throw StateError('发果分类无效');
+        }
+        return '$baseUrl${category.split('zmn').first}${pageSafe}zmn.html';
+      case 'wuguo':
+        if (category.isEmpty) return '$baseUrl/';
+        final trimmed = category.endsWith('.html')
+            ? category.substring(0, category.length - 5)
+            : category;
+        return '$baseUrl$trimmed/page/$pageSafe.html';
+      case 'wangguo':
+        if (category.isEmpty) {
+          return '$baseUrl/show/duanju-----------.html';
+        }
+        return '$baseUrl${category.split('---.html').first}$pageSafe---.html';
+      default:
+        throw StateError('未知的苹果 CMS 站点');
+    }
+  }
+
+  List<String> _detailCandidates(String seriesId) {
+    switch (siteId) {
+      case 'faguo':
+        return [
+          '$baseUrl/xzyxvd/$seriesId.html',
+          '$baseUrl/detail/$seriesId.html',
+          '$baseUrl/voddetail/$seriesId.html',
+        ];
+      case 'wuguo':
+        return [
+          '$baseUrl/index.php/vod/detail/id/$seriesId.html',
+          '$baseUrl/dramaDetail/$seriesId.html',
+          '$baseUrl/detail/$seriesId.html',
+        ];
+      case 'wangguo':
+        return [
+          '$baseUrl/vod/$seriesId.html',
+          '$baseUrl/index.php/vod/detail/id/$seriesId.html',
+          '$baseUrl/detail/$seriesId.html',
+        ];
+      case 'huaguo':
+        return [
+          '$baseUrl/zywview/$seriesId.html',
+          '$baseUrl/zywdetail/$seriesId.html',
+          '$baseUrl/detail/$seriesId.html',
+        ];
+      default:
+        return [];
+    }
+  }
+
+  @override
+  Future<List<DramaSiteCategory>> categories() async {
+    if (siteId == 'huaguo') {
+      return const [DramaSiteCategory('27', '短剧')];
+    }
+    return const [DramaSiteCategory('all', '全部')];
+  }
+
+  @override
+  Future<DramaSiteCatalogPage> catalog(String categoryId, int page) async {
+    final url = _catalogUrl(categoryId, page);
+    final response = await _client.get(
+      Uri.parse(url),
+      headers: {'Referer': '$baseUrl/'},
+    );
+    if (response.statusCode != 200) {
+      throw StateError('目录 HTTP ${response.statusCode}');
+    }
+    final items = parseCatalog(response.body, baseUrl);
+    return DramaSiteCatalogPage(items: items, hasMore: items.isNotEmpty);
+  }
+
+  @override
+  Future<DramaSiteDetail> detail(String seriesId) async {
+    StateError? lastError;
+    for (final url in _detailCandidates(seriesId)) {
+      final response = await _client.get(
+        Uri.parse(url),
+        headers: {'Referer': '$baseUrl/'},
+      );
+      if (response.statusCode != 200) {
+        lastError = StateError('详情 HTTP ${response.statusCode}');
+        continue;
+      }
+      try {
+        final parsed = parseDetail(response.body, seriesId);
+        return DramaSiteDetail(
+          id: seriesId,
+          title: parsed.title,
+          cover: parsed.cover.isEmpty
+              ? ''
+              : _resolve(baseUrl, parsed.cover),
+          episodes: [
+            for (final episode in parsed.episodes)
+              DramaSiteEpisode(
+                videoId: _resolve(baseUrl, episode.videoId),
+                title: episode.title,
+                seriesId: seriesId,
+              ),
+          ],
+        );
+      } catch (e) {
+        lastError = StateError(e.toString());
+      }
+    }
+    throw lastError ?? StateError('未找到该剧的详情页');
+  }
+
+  @override
+  Future<DramaPlaySource> playSource(DramaSiteEpisode episode) async {
+    final response = await _client.get(
+      Uri.parse(episode.videoId),
+      headers: {'Referer': '$baseUrl/'},
+    );
+    if (response.statusCode != 200) {
+      throw StateError('播放页 HTTP ${response.statusCode}');
+    }
+    var url = parsePlayerUrl(response.body);
+    if (url.contains('#')) {
+      for (final part in url.split('#')) {
+        if (part.trim().toLowerCase().startsWith('http')) {
+          url = part.trim();
+          break;
+        }
+      }
+    }
+    if (url.isEmpty || !url.toLowerCase().startsWith('http')) {
+      throw StateError('播放页未找到播放地址');
+    }
+    return DramaPlaySource(url: url);
+  }
+}
+
 DramaSiteContentClient? dramaSiteContentClient(String siteId) {
   if (siteId == 'hgtvmirror') return HgtvMirrorContentClient();
   if (siteId == 'hongguo') return HongguoContentClient();
@@ -1784,5 +2349,17 @@ DramaSiteContentClient? dramaSiteContentClient(String siteId) {
   if (siteId == 'xingguo') return XingguoContentClient();
   if (siteId == 'maoguo') return MaoguoContentClient();
   if (siteId == 'yaguo') return YaguoContentClient();
+  if (siteId == 'huaguo') {
+    return MaccmsContentClient('huaguo', 'https://www.zywest263.com');
+  }
+  if (siteId == 'faguo') {
+    return MaccmsContentClient('faguo', 'https://www.xzyx168.com');
+  }
+  if (siteId == 'wuguo') {
+    return MaccmsContentClient('wuguo', 'https://www.duanju55.com');
+  }
+  if (siteId == 'wangguo') {
+    return MaccmsContentClient('wangguo', 'https://www.duanju2.com');
+  }
   return null;
 }
