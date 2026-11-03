@@ -9,6 +9,7 @@ import '../pages/listen_mode_page.dart';
 import '../pages/novel_text_page.dart';
 import '../pages/pics_viewer_page.dart';
 import '../pages/player_page.dart';
+import '../pages/search_page.dart';
 import '../pages/series_detail_page.dart';
 import 'drama_playback.dart';
 import 'drama_site_content.dart';
@@ -109,21 +110,37 @@ Future<void> showEngineSourceSwitch(
     SourceRegistry.instance.custom,
     types: types,
   ).where((entry) => entry.id != currentSiteId).toList();
-  if (candidates.isEmpty) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('没有其他可换源的导入站')));
-    }
-    return;
-  }
   final hits = await showDialog<List<_SwitchHit>>(
     context: context,
     builder: (dialogContext) => AlertDialog(
       title: const Text('换源'),
       content: SizedBox(
         width: double.maxFinite,
-        child: FutureBuilder<List<_SwitchHit>>(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.search),
+              title: Text('原始版搜索：$title'),
+              subtitle: const Text('去原始版（番茄）搜同名书'),
+              onTap: () {
+                Navigator.pop(dialogContext);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => SearchPage(initialQuery: title),
+                  ),
+                );
+              },
+            ),
+            const Divider(height: 1),
+            Flexible(
+              child: candidates.isEmpty
+                  ? const Padding(
+                      padding: EdgeInsets.only(top: 16),
+                      child: Text('没有其他可换源的导入站'),
+                    )
+                  : FutureBuilder<List<_SwitchHit>>(
           future: Future.wait(
             candidates.map((entry) async {
               try {
@@ -171,6 +188,9 @@ Future<void> showEngineSourceSwitch(
               },
             );
           },
+            ),
+          ),
+          ],
         ),
       ),
     ),

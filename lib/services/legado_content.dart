@@ -26,6 +26,8 @@ class LegadoSource {
   LegadoSource(Map<String, dynamic> json)
       : name = '${json['bookSourceName'] ?? ''}',
         url = '${json['bookSourceUrl'] ?? ''}',
+        sourceType =
+            int.tryParse('${json['bookSourceType'] ?? 0}') ?? 0,
         group = '${json['bookSourceGroup'] ?? ''}',
         searchUrl = '${json['searchUrl'] ?? ''}',
         exploreUrl = '${json['exploreUrl'] ?? ''}',
@@ -38,6 +40,7 @@ class LegadoSource {
 
   final String name;
   final String url;
+  final int sourceType;
   final String group;
   final String searchUrl;
   final String exploreUrl;
@@ -754,8 +757,28 @@ class LegadoContentClient implements DramaSiteContentClient {
     if (text.isEmpty) {
       throw StateError('该章节正文为空或正文规则不匹配');
     }
-    return DramaPlaySource(
-      url: 'novel://${jsonEncode({'title': episode.title, 'content': text})}',
-    );
+    final httpLines = text
+        .split('\n')
+        .map((line) => line.trim())
+        .where((line) => line.startsWith('http'))
+        .toList();
+    switch (source.sourceType) {
+      case 3:
+        throw StateError('该源只提供下载，不支持在线阅读');
+      case 1:
+        if (httpLines.isEmpty) throw StateError('该章节音频地址为空');
+        return DramaPlaySource(url: httpLines.first);
+      case 2:
+        if (httpLines.isEmpty) throw StateError('该章节图片地址为空');
+        return DramaPlaySource(url: 'pics://${httpLines.join('&&')}');
+      case 4:
+        if (httpLines.isEmpty) throw StateError('该章节视频地址为空');
+        return DramaPlaySource(url: httpLines.first);
+      default:
+        return DramaPlaySource(
+          url:
+              'novel://${jsonEncode({'title': episode.title, 'content': text})}',
+        );
+    }
   }
 }

@@ -30,6 +30,9 @@ class DetailReadBar extends StatelessWidget {
   /// Opens the download sheet (整本下载 / 离线缓存).
   final VoidCallback? onDownload;
 
+  /// Opens the source switch dialog (导入站换源 / 原始版搜索).
+  final VoidCallback? onSwitchSource;
+
   /// Running whole-book batch: its progress replaces the static download icon.
   final ({int completed, int total})? download;
 
@@ -42,6 +45,7 @@ class DetailReadBar extends StatelessWidget {
     this.actionsEnabled = true,
     this.onListen,
     this.onDownload,
+    this.onSwitchSource,
     this.download,
   });
 
@@ -66,6 +70,14 @@ class DetailReadBar extends StatelessWidget {
           keyName: '下载',
           onTap: onDownload!,
           progress: download == null ? null : _fraction(download!),
+        ),
+      if (onSwitchSource != null)
+        (
+          icon: LucideIcons.arrow_left_right,
+          label: '换源',
+          keyName: '换源',
+          onTap: onSwitchSource!,
+          progress: null,
         ),
     ];
     return RepaintBoundary(

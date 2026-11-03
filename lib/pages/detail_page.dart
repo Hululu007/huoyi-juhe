@@ -14,6 +14,8 @@ import '../models/series_detail.dart';
 import '../models/shuqi_book.dart';
 import '../services/api_client.dart';
 import '../services/audio_history.dart';
+import '../services/drama_site_play.dart';
+import '../services/source_registry.dart';
 import '../services/book_open_preferences.dart';
 import '../services/chapter_cache_store.dart';
 import '../services/chapter_download.dart';
@@ -570,6 +572,10 @@ class _DetailPageState extends State<DetailPage> {
                 onListen: _isBook ? _openListening : null,
                 onDownload: _isBook ? _showDownloadSheet : null,
                 download: _isBook ? _downloadProgress : null,
+                onSwitchSource:
+                    (_isBook || _isManga || _isAudio)
+                        ? _openSourceSwitch
+                        : null,
               ),
       ),
     );
@@ -696,6 +702,19 @@ class _DetailPageState extends State<DetailPage> {
                     ),
                     icon: const Icon(LucideIcons.headphones, size: 16),
                     label: const Text('听书'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    key: const Key('detail_switch_button_desktop'),
+                    onPressed: _loading ? null : _openSourceSwitch,
+                    style: detailOutlineButtonStyle(
+                      palette,
+                      minimumSize: const Size.fromHeight(44),
+                    ),
+                    icon: const Icon(LucideIcons.arrow_left_right, size: 16),
+                    label: const Text('换源'),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -1395,6 +1414,23 @@ class _DetailPageState extends State<DetailPage> {
     }
     _autoOpened = true;
     await _openLastPosition(replace: true);
+  }
+
+  void _openSourceSwitch() {
+    final types = switch (widget.item.kind) {
+      'manga' => {ContentType.comic, ContentType.mixed},
+      'audio' => {ContentType.audio, ContentType.mixed},
+      _ => {ContentType.novel, ContentType.mixed},
+    };
+    unawaited(
+      showEngineSourceSwitch(
+        context,
+        title: widget.item.title,
+        currentIndex: _resumeIndex ?? 0,
+        currentSiteId: '',
+        types: types,
+      ),
+    );
   }
 
   Future<void> _openLastPosition({bool replace = false}) async {

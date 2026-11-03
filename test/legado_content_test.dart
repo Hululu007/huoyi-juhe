@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:html/parser.dart' as html_parser;
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:fqapp/services/drama_site_content.dart';
 import 'package:fqapp/services/legado_content.dart';
 
 const _searchHtml = '''
@@ -98,6 +99,50 @@ void main() {
         page: 2,
       ),
       'https://demo.example.com/s?k=%E6%96%97%E7%A0%B4&p=2&q=1',
+    );
+  });
+
+  test('源类型分流：音频直链、图片拼 pics、视频直链、文件源报错', () async {
+    Future<LegadoContentClient> clientForType(int type, String contentBody) {
+      final json = _sourceJson()
+        ..['bookSourceType'] = type
+        ..['ruleContent'] = {'content': 'div.c@text'};
+      final client = MockClient((request) async {
+        return http.Response.bytes(utf8.encode(contentBody), 200);
+      });
+      return Future.value(
+        LegadoContentClient('legado-type', LegadoSource(json), client: client),
+      );
+    }
+
+    final audio = await clientForType(1, '<div class="c">https://cdn.example.com/a.mp3</div>');
+    final audioSource = await audio.playSource(
+      const DramaSiteEpisode(videoId: 'https://demo.example.com/book/1/1.html', title: '第1章'),
+    );
+    expect(audioSource.url, 'https://cdn.example.com/a.mp3');
+
+    final image = await clientForType(
+      2,
+      '<div class="c">https://cdn.example.com/1.jpg\nhttps://cdn.example.com/2.jpg</div>',
+    );
+    final imageSource = await image.playSource(
+      const DramaSiteEpisode(videoId: 'https://demo.example.com/book/1/1.html', title: '第1章'),
+    );
+    expect(
+      imageSource.url,
+      'pics://https://cdn.example.com/1.jpg&&https://cdn.example.com/2.jpg',
+    );
+
+    final video = await clientForType(4, '<div class="c">https://cdn.example.com/v.m3u8</div>');
+    final videoSource = await video.playSource(
+      const DramaSiteEpisode(videoId: 'https://demo.example.com/book/1/1.html', title: '第1章'),
+    );
+    expect(videoSource.url, 'https://cdn.example.com/v.m3u8');
+
+    final file = await clientForType(3, '<div class="c">https://cdn.example.com/f.zip</div>');
+    await expectLater(
+      file.playSource(const DramaSiteEpisode(videoId: 'https://demo.example.com/book/1/1.html', title: '第1章')),
+      throwsA(isA<StateError>()),
     );
   });
 
