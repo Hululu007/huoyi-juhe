@@ -10,6 +10,8 @@ import '../models/search_discovery.dart';
 import '../models/shuqi_book.dart';
 import '../services/api_client.dart';
 import '../services/backend_transport.dart';
+import '../services/drama_site_play.dart';
+import '../services/drama_site_search.dart';
 import '../services/desktop_platform.dart';
 import '../services/search_history_store.dart';
 import '../services/user_facing_error.dart';
@@ -89,6 +91,9 @@ class _SearchPageState extends State<SearchPage> {
     keepScrollOffset: false,
   );
   List<_SearchFeed> _feeds = [for (final _ in _categories) _SearchFeed()];
+  List<DramaSiteSearchResult> _siteResults = const [];
+  bool _siteLoading = false;
+  String _siteQuery = '';
   String _query = '';
   String? _idQuery;
   int _tabIndex = 0;
@@ -349,6 +354,9 @@ class _SearchPageState extends State<SearchPage> {
     setState(() {
       _query = query;
       _draft = query;
+      _siteResults = const [];
+      _siteQuery = '';
+      _siteLoading = false;
       _suggestions = const [];
       // 书旗 id 是另一套命名空间，按 id 直查不适用。
       _idQuery = (_shuqiSource || asKeyword) ? null : mediaIdFromSearch(query);
@@ -541,8 +549,24 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   // Note: 分类来源、游标与请求隔离见 .agents/notes/implemented/bug-fix/2026-09-10-search-categories.md
+  Future<void> _loadSiteSearch() async {
+    if (_query.isEmpty || _siteLoading || _siteQuery == _query) return;
+    final generation = _requestGeneration;
+    setState(() => _siteLoading = true);
+    final results = await searchAllDramaSites(_query);
+    if (!mounted || generation != _requestGeneration) return;
+    setState(() {
+      _siteResults = results;
+      _siteQuery = _query;
+      _siteLoading = false;
+    });
+  }
+
   Future<void> _loadTab(int index) async {
     if (_shuqiSource) return;
+    if (_categories[index] == SearchCategory.sites) {
+      return _loadSiteSearch();
+    }
     if (_idQuery != null) return _loadId(_idQuery!);
     final feed = _feeds[index];
     if (_query.isEmpty || feed.loading || (feed.initialized && !feed.hasMore)) {
@@ -750,6 +774,9 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   Widget _resultsView(BuildContext context, _SearchFeed feed) {
+    if (_categories[_tabIndex] == SearchCategory.sites) {
+      return _siteResultsView(context);
+    }
     if (!feed.initialized && feed.loading) {
       return _resultsShell(
         context,
@@ -843,6 +870,78 @@ class _SearchPageState extends State<SearchPage> {
         onClearHistory: _confirmClearHistory,
         onRemoveHistory: _removeHistory,
       );
+
+  Widget _siteResultsView(BuildContext context) {
+    if (_siteLoading && _siteResults.isEmpty) {
+      return _resultsShell(
+        context,
+        const Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (_siteResults.isEmpty) {
+      return _resultsShell(
+        context,
+        const Center(child: Text('站源里没有搜到相关短剧')),
+      );
+    }
+    return _resultsShell(
+      context,
+      LayoutBuilder(
+        builder: (context, constraints) {
+          final width = constraints.maxWidth;
+          return CustomScrollView(
+            slivers: [
+              for (final group in _siteResults)
+                SliverMainAxisGroup(
+                  slivers: [
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                        child: Text(
+                          '${group.siteName} · ${group.items.length} 部',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                    SliverPadding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: homeGutter,
+                      ),
+                      sliver: SliverGrid(
+                        gridDelegate: homeShelfDelegate(context, width),
+                        delegate: SliverChildBuilderDelegate((context, i) {
+                          final item = group.items[i];
+                          return HomeMediaCard(
+                            item: MediaItem(
+                              id: item.id,
+                              title: item.title,
+                              cover: item.cover,
+                              author: '',
+                              badge: '',
+                              ep: item.remark,
+                              kind: 'video',
+                            ),
+                            coverWidth: homeShelfCardWidth(context, width),
+                            onTap: () => openDramaSiteItem(
+                              context,
+                              group.siteId,
+                              item,
+                            ),
+                          );
+                        }, childCount: group.items.length),
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
 
   Widget _resultItems(
     BuildContext context,
@@ -1048,7 +1147,8 @@ enum SearchCategory {
   video('短剧', 11, 'video'),
   manju('漫剧', 11, 'manju'),
   manga('漫画', 8, 'manga'),
-  audio('听书', 2, 'audio');
+  audio('听书', 2, 'audio'),
+  sites('站源', 0);
 
   const SearchCategory(this.title, this.tabType, [this.kind]);
 

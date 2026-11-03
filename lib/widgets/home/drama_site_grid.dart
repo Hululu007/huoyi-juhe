@@ -34,11 +34,42 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
   bool _loadingMore = false;
   String? _error;
 
+  /// 下一页预加载：首页加载完就后台取下一页，点「加载更多」时
+  /// 直接拼上，不再等一次接口；预取失败不报错，下次点按钮再取。
+  DramaSiteCatalogPage? _prefetchedPage;
+  int _prefetchedForPage = 0;
+
+  void _prefetchNext(int nextPage) {
+    final client = _client;
+    if (client == null || !_hasMore || _prefetchedForPage == nextPage) return;
+    _prefetchedForPage = nextPage;
+    client
+        .catalog(widget.categoryId, nextPage)
+        .then((page) {
+          if (mounted && _page + 1 == nextPage) {
+            _prefetchedPage = page;
+          }
+        })
+        .catchError((_) {});
+  }
+
   @override
   void initState() {
     super.initState();
     _client = dramaSiteContentClient(widget.siteId);
     _loadFirst();
+  }
+
+  @override
+  void didUpdateWidget(DramaSiteGrid oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.siteId != widget.siteId ||
+        oldWidget.categoryId != widget.categoryId) {
+      _client = dramaSiteContentClient(widget.siteId);
+      _prefetchedPage = null;
+      _prefetchedForPage = 0;
+      _loadFirst();
+    }
   }
 
   Future<void> _loadFirst() async {
@@ -47,6 +78,8 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
     setState(() {
       _loading = true;
       _error = null;
+      _prefetchedPage = null;
+      _prefetchedForPage = 0;
     });
     try {
       final page = await client.catalog(widget.categoryId, 1);
@@ -57,6 +90,7 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
         _hasMore = page.hasMore;
         _loading = false;
       });
+      if (page.hasMore) _prefetchNext(2);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -69,6 +103,18 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
   Future<void> _loadMore() async {
     final client = _client;
     if (client == null || _loadingMore || !_hasMore) return;
+    final prefetched = _prefetchedPage;
+    if (prefetched != null && _prefetchedForPage == _page + 1) {
+      setState(() {
+        _items = [..._items, ...prefetched.items];
+        _page += 1;
+        _hasMore = prefetched.hasMore;
+        _prefetchedPage = null;
+        _prefetchedForPage = 0;
+      });
+      if (prefetched.hasMore) _prefetchNext(_page + 1);
+      return;
+    }
     setState(() => _loadingMore = true);
     try {
       final page = await client.catalog(widget.categoryId, _page + 1);
@@ -79,6 +125,7 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
         _hasMore = page.hasMore;
         _loadingMore = false;
       });
+      if (page.hasMore) _prefetchNext(_page + 1);
     } catch (_) {
       if (!mounted) return;
       setState(() => _loadingMore = false);

@@ -62,6 +62,10 @@ abstract class DramaSiteContentClient {
   Future<DramaSiteCatalogPage> catalog(String categoryId, int page);
   Future<DramaSiteDetail> detail(String seriesId);
   Future<DramaPlaySource> playSource(DramaSiteEpisode episode);
+
+  /// 全局搜索：各站按自家搜索接口实现，未实现的站返回空，
+  /// 搜索页只展示有结果的站，不把未实现当成失败。
+  Future<List<DramaSiteItem>> search(String query) async => const [];
 }
 
 String _unescape(String value) {
@@ -332,6 +336,65 @@ class HgtvMirrorContentClient implements DramaSiteContentClient {
 
   static const userAgent =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
+
+  static List<DramaSiteItem> parseSearch(String body) {
+    final data = _extractRouterData(body);
+    if (data == null) return const [];
+    final loader = _asMap(data['loaderData']);
+    var page = <String, dynamic>{};
+    for (final entry in loader.entries) {
+      final candidate = _asMap(entry.value);
+      if (candidate['searchList'] is List) {
+        page = candidate;
+        break;
+      }
+    }
+    if (page.isEmpty) return const [];
+    final rawList = page['searchList'];
+    if (rawList is! List) return const [];
+    final seen = <String>{};
+    final items = <DramaSiteItem>[];
+    for (final raw in rawList) {
+      var node = _asMap(raw);
+      final video = _asMap(node['video_data']);
+      if (video.isNotEmpty) node = video;
+      final id = _stringOf(
+        node['series_id_str'] ?? node['series_id'] ?? node['keyword'],
+      );
+      if (!RegExp(r'^\d+$').hasMatch(id) || seen.contains(id)) continue;
+      final title = _stringOf(
+        node['series_title'] ?? node['series_name'] ?? node['title'] ?? node['name'],
+      );
+      if (title.isEmpty) continue;
+      var remark = _stringOf(node['episode_right_text']);
+      if (remark.isEmpty) {
+        final count = _stringOf(node['episode_cnt']);
+        if (count.isNotEmpty) remark = '共$count集';
+      }
+      seen.add(id);
+      items.add(
+        DramaSiteItem(
+          id: id,
+          title: title,
+          cover: _stringOf(node['series_cover'] ?? node['cover']),
+          remark: remark,
+        ),
+      );
+    }
+    return items;
+  }
+
+  @override
+  Future<List<DramaSiteItem>> search(String query) async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/search/${Uri.encodeComponent(query)}'),
+      headers: {'Referer': '$baseUrl/', 'User-Agent': userAgent},
+    );
+    if (response.statusCode != 200) {
+      throw StateError('红果镜像搜索 HTTP ${response.statusCode}');
+    }
+    return parseSearch(response.body);
+  }
 }
 
 /// 红果网页端：与红果镜像同域名同详情页，但分类页取 router 数据的
@@ -537,7 +600,68 @@ class HongguoContentClient implements DramaSiteContentClient {
     }
     return DramaPlaySource(url: direct360);
   }
-}
+
+  static List<DramaSiteItem> parseSearch(String body) {
+    final data = _extractRouterData(body);
+    if (data == null) return const [];
+    final loader = _asMap(data['loaderData']);
+    var page = <String, dynamic>{};
+    for (final entry in loader.entries) {
+      final candidate = _asMap(entry.value);
+      if (candidate['searchList'] is List) {
+        page = candidate;
+        break;
+      }
+    }
+    if (page.isEmpty) return const [];
+    final rawList = page['searchList'];
+    if (rawList is! List) return const [];
+    final seen = <String>{};
+    final items = <DramaSiteItem>[];
+    for (final raw in rawList) {
+      var node = _asMap(raw);
+      final video = _asMap(node['video_data']);
+      if (video.isNotEmpty) node = video;
+      final id = _stringOf(
+        node['series_id_str'] ?? node['series_id'] ?? node['keyword'],
+      );
+      if (!RegExp(r'^\d+$').hasMatch(id) || seen.contains(id)) continue;
+      final title = _stringOf(
+        node['series_title'] ?? node['series_name'] ?? node['title'] ?? node['name'],
+      );
+      if (title.isEmpty) continue;
+      var remark = _stringOf(node['episode_right_text']);
+      if (remark.isEmpty) {
+        final count = _stringOf(node['episode_cnt']);
+        if (count.isNotEmpty) remark = '共$count集';
+      }
+      seen.add(id);
+      items.add(
+        DramaSiteItem(
+          id: id,
+          title: title,
+          cover: _stringOf(node['series_cover'] ?? node['cover']),
+          remark: remark,
+        ),
+      );
+    }
+    return items;
+  }
+
+  @override
+  Future<List<DramaSiteItem>> search(String query) async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/search/${Uri.encodeComponent(query)}'),
+      headers: {
+        'Referer': '$baseUrl/',
+        'User-Agent': HgtvMirrorContentClient.userAgent,
+      },
+    );
+    if (response.statusCode != 200) {
+      throw StateError('红果搜索 HTTP ${response.statusCode}');
+    }
+    return parseSearch(response.body);
+  }}
 
 String _firstString(Map<String, dynamic> node, List<String> keys) {
   for (final key in keys) {
@@ -555,6 +679,7 @@ int _firstInt(Map<String, dynamic> node, List<String> keys) {
     if (parsed != null) return parsed;
   }
   return 0;
+
 }
 
 /// 饭果：西饭接口站，分类即搜索关键词，详情直接给每集播放直链，
@@ -728,6 +853,12 @@ class FanguoContentClient implements DramaSiteContentClient {
       return DramaPlaySource(url: episode.videoId);
     }
     throw StateError('饭果该集没有播放地址');
+  }
+
+  @override
+  Future<List<DramaSiteItem>> search(String query) async {
+    final page = await catalog(query, 1);
+    return page.items;
   }
 }
 
@@ -930,6 +1061,37 @@ class GuanguoContentClient implements DramaSiteContentClient {
       return DramaPlaySource(url: episode.videoId);
     }
     throw StateError('观果该集没有播放地址');
+  }
+
+  @override
+  Future<List<DramaSiteItem>> search(String query) async {
+    final uri = Uri.parse('$baseUrl/drama/home/search').replace(
+      queryParameters: _query({}),
+    );
+    final response = await _client.post(
+      uri,
+      headers: {
+        'Referer': '$baseUrl/',
+        'User-Agent': 'okhttp/5.1.0',
+        'Content-Type': 'application/json; charset=utf-8',
+      },
+      body: jsonEncode({
+        'audience': '全部',
+        'order': '最新',
+        'page': 1,
+        'pageSize': 30,
+        'searchWord': query,
+        'subject': '',
+      }),
+    );
+    if (response.statusCode != 200) {
+      throw StateError('观果搜索 HTTP ${response.statusCode}');
+    }
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw StateError('观果搜索数据格式无法识别');
+    }
+    return parseCatalog(decoded);
   }
 }
 
@@ -1138,6 +1300,57 @@ class HeguoContentClient implements DramaSiteContentClient {
       ],
     );
   }
+
+  static List<DramaSiteItem> parseSearch(Map<String, dynamic> response) {
+    final data = _asMap(response['data']);
+    final rows = data['bookList'];
+    if (rows is! List) return const [];
+    final items = <DramaSiteItem>[];
+    final seen = <String>{};
+    for (final entry in rows) {
+      final book = _asMap(entry);
+      final id = _firstString(book, ['bookId', 'book_id', 'id']);
+      if (id.isEmpty || seen.contains(id)) continue;
+      final title = _firstString(book, ['bookName', 'title', 'name']);
+      if (title.isEmpty) continue;
+      seen.add(id);
+      final total = _firstInt(book, ['totalChapterNum']);
+      var remark = _firstString(book, ['statusDesc']);
+      if (total > 0) {
+        remark = remark.isEmpty ? '共$total集' : '$remark 共$total集';
+      }
+      items.add(
+        DramaSiteItem(
+          id: id,
+          title: title,
+          cover: _firstString(book, ['coverWap', 'cover', 'coverUrl']),
+          remark: remark.trim(),
+        ),
+      );
+    }
+    return items;
+  }
+
+  @override
+  Future<List<DramaSiteItem>> search(String query) async {
+    final response = await _client.post(
+      Uri.parse('$baseUrl/seo/video/6007'),
+      headers: {
+        'Referer': '$baseUrl/',
+        'Content-Type': 'application/json',
+        'pname': 'www.kuaikaw.cn',
+      },
+      body: jsonEncode({'sourceType': 1, 'keyword': query, 'index': 1}),
+    );
+    if (response.statusCode != 200) {
+      throw StateError('河果搜索 HTTP ${response.statusCode}');
+    }
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw StateError('河果搜索数据格式无法识别');
+    }
+    return parseSearch(decoded);
+  }
 }
 
 /// 星果：多多接口站，分类是资源编号，详情直接给每集播放直链。
@@ -1305,6 +1518,27 @@ class XingguoContentClient implements DramaSiteContentClient {
       return DramaPlaySource(url: episode.videoId);
     }
     throw StateError('星果该集没有播放地址');
+  }
+
+  @override
+  Future<List<DramaSiteItem>> search(String query) async {
+    final uri = Uri.parse(
+      '$baseUrl/novel-api/basedata/book/searchBook',
+    ).replace(
+      queryParameters: _query({'key': query, 'pageNum': '1', 'pageSize': '20'}),
+    );
+    final response = await _client.get(
+      uri,
+      headers: {'Referer': '$baseUrl/'},
+    );
+    if (response.statusCode != 200) {
+      throw StateError('星果搜索 HTTP ${response.statusCode}');
+    }
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw StateError('星果搜索数据格式无法识别');
+    }
+    return parseCatalog(decoded);
   }
 }
 
@@ -1561,6 +1795,31 @@ class MaoguoContentClient implements DramaSiteContentClient {
     }
     throw StateError('猫果该集没有播放地址');
   }
+
+  @override
+  Future<List<DramaSiteItem>> search(String query) async {
+    const trackId = 'ec1280db127955061754851657967';
+    final sign = _sign('extend=page=1read_preference=0track_id=$trackId' 'wd=$query$_key');
+    final uri = Uri.parse('$baseUrl/api/v1/playlet/search').replace(
+      queryParameters: {
+        'extend': '',
+        'page': '1',
+        'wd': query,
+        'read_preference': '0',
+        'track_id': trackId,
+        'sign': sign,
+      },
+    );
+    final response = await _client.get(uri, headers: _headers());
+    if (response.statusCode != 200) {
+      throw StateError('猫果搜索 HTTP ${response.statusCode}');
+    }
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw StateError('猫果搜索数据格式无法识别');
+    }
+    return parseCatalog(decoded);
+  }
 }
 
 /// 芽果：先以固定设备号登录拿令牌（6 小时内复用），再带令牌调接口；
@@ -1776,6 +2035,36 @@ class YaguoContentClient implements DramaSiteContentClient {
       return DramaPlaySource(url: episode.videoId);
     }
     throw StateError('芽果该集没有播放地址');
+  }
+
+  @override
+  Future<List<DramaSiteItem>> search(String query) async {
+    final token = await _tokenValue();
+    final response = await _client.post(
+      Uri.parse('$baseUrl/v3/search'),
+      headers: {
+        'Referer': '$baseUrl/',
+        'authorization': token,
+        'platform': '1',
+        'version_name': '3.8.3.1',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({'text': query}),
+    );
+    if (response.statusCode != 200) {
+      throw StateError('芽果搜索 HTTP ${response.statusCode}');
+    }
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw StateError('芽果搜索数据格式无法识别');
+    }
+    final data = _asMap(decoded['data']);
+    var rows = data['list'];
+    if (rows is! List) {
+      rows = _asMap(data['theater'])['search_data'];
+    }
+    if (rows is! List) return const [];
+    return parseCatalog({'data': {'list': rows}});
   }
 }
 
@@ -2340,6 +2629,34 @@ class MaccmsContentClient implements DramaSiteContentClient {
     }
     return DramaPlaySource(url: url);
   }
+
+  String _searchUrl(String query) {
+    final encoded = Uri.encodeComponent(query);
+    switch (siteId) {
+      case 'huaguo':
+        return '$baseUrl/search.html?searchword=${Uri.encodeQueryComponent(query)}';
+      case 'faguo':
+        return '$baseUrl/xzyxvc/$encoded-wdyswzqun1num.html';
+      case 'wuguo':
+        return '$baseUrl/index.php/vod/search/page/1/wd/$encoded.html';
+      case 'wangguo':
+        return '$baseUrl/search/$encoded----------1---.html';
+      default:
+        throw StateError('未知的苹果 CMS 站点');
+    }
+  }
+
+  @override
+  Future<List<DramaSiteItem>> search(String query) async {
+    final response = await _client.get(
+      Uri.parse(_searchUrl(query)),
+      headers: {'Referer': '$baseUrl/'},
+    );
+    if (response.statusCode != 200) {
+      throw StateError('搜索 HTTP ${response.statusCode}');
+    }
+    return parseCatalog(response.body, baseUrl);
+  }
 }
 
 /// 牛果：响应是 Base64 + AES-ECB，密钥取请求地址前 16 字节；
@@ -2552,6 +2869,21 @@ class NiuguoContentClient implements DramaSiteContentClient {
       }
     }
     throw lastError ?? StateError('牛果未返回有效播放地址');
+  }
+
+  @override
+  Future<List<DramaSiteItem>> search(String query) async {
+    final response = await _fetch('/list', {
+      'class': '',
+      'order': '最新',
+      'type_id': '5',
+      'area': '',
+      'year': '',
+      'state': '',
+      'wd': query,
+      'page': '1',
+    });
+    return parseCatalog(response);
   }
 }
 

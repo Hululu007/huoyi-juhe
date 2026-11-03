@@ -273,6 +273,35 @@ void main() {
     expect(decrypted['status'], 0);
   });
 
+  test('红果搜索解析：search 页的 searchList 成卡片', () {
+    const body = '''
+<script>window.__ROUTER_DATA__ = {"loaderData":{"search_abc/page":{"isSuccess":true,"query":"样本","searchList":[{"video_data":{"series_id_str":"12345","series_title":"搜索样本剧","series_cover":"https://pic.example.cn/s.jpg","episode_cnt":"20"}}]}}}</script>
+''';
+    final items = HongguoContentClient.parseSearch(body);
+    expect(items.length, 1);
+    expect(items.first.id, '12345');
+    expect(items.first.title, '搜索样本剧');
+    expect(items.first.remark, '共20集');
+  });
+
+  test('河果搜索解析：data.bookList 成卡片', () {
+    final items = HeguoContentClient.parseSearch({
+      'data': {
+        'bookList': [
+          {
+            'bookId': '9988',
+            'bookName': '河果搜索样本',
+            'coverWap': 'https://pic.example.cn/h.jpg',
+            'totalChapterNum': 42,
+            'statusDesc': '已完结',
+          },
+        ],
+      },
+    });
+    expect(items.first.id, '9988');
+    expect(items.first.remark, '已完结 共42集');
+  });
+
   test('红果镜像详情解析：router 数据里的 vid_list 成选集', () {
     final detail = HgtvMirrorContentClient.parseDetail(
       '<html><script>window._ROUTER_DATA = {"loaderData":{"detail_page":{"seriesDetail":{"series_id":"123","series_title":"测试剧","series_cover":"https://example.test/cover.jpg","vid_list":["111","222","111"]}}}};</script></html>',
