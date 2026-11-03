@@ -38,4 +38,29 @@ void main() {
       ['py1', 'jar1', 'js1', 'mac2'],
     );
   });
+
+  test('类型区分：旧条目默认综合，类型过滤只留指定类型', () {
+    final old = entry('old1', SourceKind.pyImport);
+    expect(old.contentType, ContentType.mixed);
+    final typed = entry(
+      'nov1',
+      SourceKind.pyImport,
+      extra: {'contentType': 'novel'},
+    );
+    expect(typed.contentType, ContentType.novel);
+    expect(
+      engineSwitchCandidates(
+        [old, typed],
+        types: {ContentType.novel, ContentType.mixed},
+      ).map((e) => e.id),
+      ['old1', 'nov1'],
+    );
+    expect(
+      engineSwitchCandidates(
+        [old, typed],
+        types: {ContentType.comic, ContentType.mixed},
+      ).map((e) => e.id),
+      ['old1'],
+    );
+  });
 }

@@ -68,10 +68,14 @@ class _PlaySourcePreload {
   }
 }
 
-List<SourceEntry> engineSwitchCandidates(List<SourceEntry> entries) {
+List<SourceEntry> engineSwitchCandidates(
+  List<SourceEntry> entries, {
+  Set<ContentType>? types,
+}) {
   return [
     for (final entry in entries)
       if (entry.enabled &&
+          (types == null || types.contains(entry.contentType)) &&
           (entry.kind == SourceKind.pyImport ||
               entry.kind == SourceKind.jarImport ||
               entry.kind == SourceKind.jsImport ||
@@ -97,10 +101,12 @@ Future<void> showEngineSourceSwitch(
   required String title,
   required int currentIndex,
   required String currentSiteId,
+  Set<ContentType> types = const {ContentType.mixed},
 }) async {
-  final candidates = engineSwitchCandidates(SourceRegistry.instance.custom)
-      .where((entry) => entry.id != currentSiteId)
-      .toList();
+  final candidates = engineSwitchCandidates(
+    SourceRegistry.instance.custom,
+    types: types,
+  ).where((entry) => entry.id != currentSiteId).toList();
   if (candidates.isEmpty) {
     if (context.mounted) {
       ScaffoldMessenger.of(
@@ -307,6 +313,7 @@ Future<void> openDramaSitePlayback(
               title: title,
               currentIndex: index,
               currentSiteId: siteId,
+              types: {ContentType.novel, ContentType.mixed},
             ),
           ),
         ),
@@ -328,6 +335,7 @@ Future<void> openDramaSitePlayback(
               title: title,
               currentIndex: index,
               currentSiteId: siteId,
+              types: {ContentType.comic, ContentType.mixed},
             ),
           ),
         ),

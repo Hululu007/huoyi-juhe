@@ -34,6 +34,39 @@ extension SourceKindLabel on SourceKind {
   };
 }
 
+enum ContentType { video, novel, comic, audio, mixed }
+
+extension ContentTypeLabel on ContentType {
+  String get label => switch (this) {
+    ContentType.video => '影视',
+    ContentType.novel => '小说',
+    ContentType.comic => '漫画',
+    ContentType.audio => '听书',
+    ContentType.mixed => '综合',
+  };
+
+  String get key => switch (this) {
+    ContentType.video => 'video',
+    ContentType.novel => 'novel',
+    ContentType.comic => 'comic',
+    ContentType.audio => 'audio',
+    ContentType.mixed => 'mixed',
+  };
+
+  static ContentType fromKey(String? key) => switch (key) {
+    'video' => ContentType.video,
+    'novel' => ContentType.novel,
+    'comic' => ContentType.comic,
+    'audio' => ContentType.audio,
+    _ => ContentType.mixed,
+  };
+}
+
+extension SourceEntryContentType on SourceEntry {
+  ContentType get contentType =>
+      ContentTypeLabel.fromKey(extra['contentType'] as String?);
+}
+
 class SourceEntry {
   const SourceEntry({
     required this.id,
@@ -198,13 +231,14 @@ class SourceRegistry {
     await _persist();
   }
 
-  List<DramaSite> visibleDramaSites() {
+  List<DramaSite> visibleDramaSites({Set<ContentType>? types}) {
     final sites = <DramaSite>[];
     for (final site in dramaSites) {
       if (isBuiltinEnabled(site.id)) sites.add(site);
     }
     for (final entry in _custom) {
       if (!entry.enabled) continue;
+      if (types != null && !types.contains(entry.contentType)) continue;
       if (entry.kind != SourceKind.customMaccms &&
           entry.kind != SourceKind.pyImport &&
           entry.kind != SourceKind.jarImport &&
@@ -245,7 +279,11 @@ class SourceRegistry {
     return 'custom_$hash';
   }
 
-  Future<SourceEntry> addCustomMaccms(String name, String baseUrl) async {
+  Future<SourceEntry> addCustomMaccms(
+    String name,
+    String baseUrl, {
+    ContentType contentType = ContentType.mixed,
+  }) async {
     await load();
     final trimmed = baseUrl.trim();
     if (!trimmed.toLowerCase().startsWith('http')) {
@@ -259,6 +297,7 @@ class SourceRegistry {
       name: name.trim().isEmpty ? normalized : name.trim(),
       kind: SourceKind.customMaccms,
       address: normalized,
+      extra: {'contentType': contentType.key},
     );
     _custom = [
       for (final existing in _custom)
@@ -325,6 +364,7 @@ class SourceRegistry {
                 'md5': site.md5,
                 'ext': site.ext,
                 'remoteConfigId': configId,
+                'contentType': 'video',
               },
             ),
           );
@@ -336,7 +376,7 @@ class SourceRegistry {
               kind: SourceKind.customMaccms,
               address: site.apiUrl,
               detail: '来自远程配置 · 接口地址已转站首页抓取',
-              extra: {'remoteConfigId': configId},
+              extra: {'remoteConfigId': configId, 'contentType': 'video'},
             ),
           );
         case TvboxSiteKind.py:
@@ -364,6 +404,7 @@ class SourceRegistry {
                   'path': file.path,
                   'ext': site.ext,
                   'remoteConfigId': configId,
+                  'contentType': 'video',
                 },
               ),
             );
@@ -388,7 +429,11 @@ class SourceRegistry {
     return entry;
   }
 
-  Future<SourceEntry> addJsImport(String name, String source) async {
+  Future<SourceEntry> addJsImport(
+    String name,
+    String source, {
+    ContentType contentType = ContentType.mixed,
+  }) async {
     await load();
     final text = source.trim();
     if (text.isEmpty) {
@@ -411,7 +456,7 @@ class SourceRegistry {
       kind: SourceKind.jsImport,
       address: '$id.js',
       detail: detail,
-      extra: {'path': file.path},
+      extra: {'path': file.path, 'contentType': contentType.key},
     );
     _custom = [..._custom, entry];
     _registerCustomSites();
@@ -419,7 +464,11 @@ class SourceRegistry {
     return entry;
   }
 
-  Future<SourceEntry> addPyImport(String name, String source) async {
+  Future<SourceEntry> addPyImport(
+    String name,
+    String source, {
+    ContentType contentType = ContentType.mixed,
+  }) async {
     await load();
     final text = source.trim();
     if (text.isEmpty) {
@@ -444,7 +493,11 @@ class SourceRegistry {
       kind: SourceKind.pyImport,
       address: '$id.py',
       detail: detail,
-      extra: {'path': file.path, 'ext': ''},
+      extra: {
+        'path': file.path,
+        'ext': '',
+        'contentType': contentType.key,
+      },
     );
     _custom = [..._custom, entry];
     _registerCustomSites();
@@ -457,8 +510,9 @@ class SourceRegistry {
     String jarUrl,
     String className,
     String md5,
-    String ext,
-  ) async {
+    String ext, {
+    ContentType contentType = ContentType.mixed,
+  }) async {
     await load();
     final url = jarUrl.trim();
     if (!url.toLowerCase().startsWith('http')) {
@@ -501,6 +555,7 @@ class SourceRegistry {
         'jarUrl': url,
         'md5': md5.trim(),
         'ext': ext.trim(),
+        'contentType': contentType.key,
       },
     );
     _custom = [..._custom, entry];
@@ -532,6 +587,26 @@ class SourceRegistry {
     _custom = [
       for (final entry in _custom)
         if (entry.id == id) entry.copyWith(enabled: enabled) else entry,
+    ];
+    await _persist();
+  }
+
+  Future<void> setCustomContentType(String id, ContentType type) async {
+    await load();
+    _custom = [
+      for (final entry in _custom)
+        if (entry.id == id)
+          SourceEntry(
+            id: entry.id,
+            name: entry.name,
+            kind: entry.kind,
+            address: entry.address,
+            detail: entry.detail,
+            enabled: entry.enabled,
+            extra: {...entry.extra, 'contentType': type.key},
+          )
+        else
+          entry,
     ];
     await _persist();
   }

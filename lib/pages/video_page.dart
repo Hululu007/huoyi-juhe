@@ -39,7 +39,9 @@ class _VideoPageState extends State<VideoPage> {
                 entry.kind == SourceKind.pyImport ||
                 entry.kind == SourceKind.jarImport ||
                 entry.kind == SourceKind.jsImport) &&
-            entry.enabled)
+            entry.enabled &&
+            (entry.contentType == ContentType.video ||
+                entry.contentType == ContentType.mixed))
           entry,
     ];
   }

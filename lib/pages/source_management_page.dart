@@ -138,6 +138,7 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
     final md5Controller = TextEditingController();
     final extController = TextEditingController();
     var kind = SourceKind.pyImport;
+    var contentType = ContentType.mixed;
     final result = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
@@ -170,6 +171,37 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
                   ],
                   onChanged: (value) {
                     if (value != null) setDialogState(() => kind = value);
+                  },
+                ),
+                DropdownButton<ContentType>(
+                  value: contentType,
+                  isExpanded: true,
+                  items: const [
+                    DropdownMenuItem(
+                      value: ContentType.mixed,
+                      child: Text('类型：综合（影视与阅读都出现）'),
+                    ),
+                    DropdownMenuItem(
+                      value: ContentType.video,
+                      child: Text('类型：影视'),
+                    ),
+                    DropdownMenuItem(
+                      value: ContentType.novel,
+                      child: Text('类型：小说'),
+                    ),
+                    DropdownMenuItem(
+                      value: ContentType.comic,
+                      child: Text('类型：漫画'),
+                    ),
+                    DropdownMenuItem(
+                      value: ContentType.audio,
+                      child: Text('类型：听书'),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) {
+                      setDialogState(() => contentType = value);
+                    }
                   },
                 ),
                 if (kind == SourceKind.pyImport)
@@ -238,6 +270,7 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
         await SourceRegistry.instance.addPyImport(
           nameController.text,
           sourceController.text,
+          contentType: contentType,
         );
       } else if (kind == SourceKind.jarImport) {
         await SourceRegistry.instance.addJarImport(
@@ -246,11 +279,13 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
           classController.text,
           md5Controller.text,
           extController.text,
+          contentType: contentType,
         );
       } else {
         await SourceRegistry.instance.addJsImport(
           nameController.text,
           sourceController.text,
+          contentType: contentType,
         );
       }
       await _refresh();
@@ -289,7 +324,7 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
                 _groupTitle('内容源'),
                 const ListTile(
                   title: Text('小说 / 听书 / 漫画内容源'),
-                  subtitle: Text('随阅读区统一改造补，见午夜区与阅读统一批'),
+                  subtitle: Text('上方自定义里的导入源按类型区分，阅读区与换源按类型过滤'),
                 ),
                 const SizedBox(height: 24),
                 Padding(
@@ -363,7 +398,7 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
       title: Text(entry.name),
       subtitle: Text(
         [
-          entry.kind.label,
+          '${entry.kind.label} · ${entry.contentType.label}',
           if (entry.address.isNotEmpty) entry.address,
           if (entry.detail.isNotEmpty) entry.detail,
           if (checkError != null) '检测失败：$checkError',
@@ -373,6 +408,28 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          PopupMenuButton<ContentType>(
+            icon: const Icon(Icons.category_outlined),
+            tooltip: '改类型',
+            onSelected: (type) async {
+              await SourceRegistry.instance.setCustomContentType(
+                entry.id,
+                type,
+              );
+              await _refresh();
+            },
+            itemBuilder: (_) => [
+              for (final type in ContentType.values)
+                PopupMenuItem(
+                  value: type,
+                  child: Text(
+                    type == entry.contentType
+                        ? '${type.label}（当前）'
+                        : type.label,
+                  ),
+                ),
+            ],
+          ),
           if (playable)
             TextButton(
               onPressed: checking ? null : () => _check(entry.id),
