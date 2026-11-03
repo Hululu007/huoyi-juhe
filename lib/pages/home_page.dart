@@ -93,6 +93,9 @@ class _HomePageState extends ConsumerState<HomePage> {
   /// 选站目前只切换药丸显示与持久化，站内容适配是下一步。
   String _dramaSiteId = DramaSitePreferences.selectedId;
 
+  /// 当前短剧站点的分类：随站点变化，换站时回到该站第一个分类。
+  String _dramaCategoryId = dramaSiteById(DramaSitePreferences.selectedId).categories.first.id;
+
   /// 进过一次内容之后就是「切分类」，不再是冷启动：前者不能铺整页骨架。
   bool _hadContent = false;
 
@@ -348,6 +351,10 @@ class _HomePageState extends ConsumerState<HomePage> {
                             oled: palette.oled,
                           ),
                         ),
+                        if (state.tabIndex >= 0 &&
+                            state.tabIndex < homeCategories.length &&
+                            homeCategories[state.tabIndex].label == '短剧')
+                          _dramaCategoryStrip(),
                         ...content,
                       ],
                     ),
@@ -400,7 +407,58 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
     if (picked == null || !mounted) return;
     await DramaSitePreferences.save(picked);
-    if (mounted) setState(() => _dramaSiteId = picked);
+    if (mounted) {
+      setState(() {
+        _dramaSiteId = picked;
+        _dramaCategoryId = dramaSiteById(picked).categories.first.id;
+      });
+    }
+  }
+
+  /// 短剧站点的分类条：放在分类条下方、内容上方，只在短剧分类下出现。
+  /// 分类随站点变化：原站是番茄频道，红果、HGTV、红果镜像用各自的实测分类，
+  /// 其余站的分类尚未实测映射前只显示全部，不编造。
+  /// 分类点选目前只切换高亮，站内容按分类取数是下一步。
+  Widget _dramaCategoryStrip() {
+    final site = dramaSiteById(_dramaSiteId);
+    final palette = HomePalette.of(context);
+    return SliverToBoxAdapter(
+      child: SizedBox(
+        height: 40,
+        child: ListView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          children: [
+            for (final category in site.categories)
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: GestureDetector(
+                  onTap: () => setState(() => _dramaCategoryId = category.id),
+                  child: Container(
+                    alignment: Alignment.center,
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    decoration: BoxDecoration(
+                      color: category.id == _dramaCategoryId
+                          ? palette.ink
+                          : palette.searchBar,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      category.name,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: category.id == _dramaCategoryId
+                            ? palette.canvas
+                            : palette.ink,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 
   /// 记下当前分类这一帧的内容 slivers，供横滑时预渲染邻页。

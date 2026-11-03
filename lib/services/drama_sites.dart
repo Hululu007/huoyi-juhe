@@ -1,18 +1,49 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-class DramaSite {
+class DramaSiteCategory {
   final String id;
   final String name;
 
-  const DramaSite(this.id, this.name);
+  const DramaSiteCategory(this.id, this.name);
+}
+
+class DramaSite {
+  final String id;
+  final String name;
+  final List<DramaSiteCategory> categories;
+
+  const DramaSite(this.id, this.name, [this.categories = const [DramaSiteCategory('all', '全部')]]);
 }
 
 const dramaSites = [
-  DramaSite('original', '原始短剧'),
-  DramaSite('hongguo', '红果'),
-  DramaSite('hgtv', 'HGTV'),
-  DramaSite('hgtvmirror', '红果镜像'),
+  // 原始站是番茄系短剧流，不是红果；分类取它短剧频道的可内容项，
+  // 最近与收藏是本地历史与书架，不算内容分类，故不列入。
+  DramaSite('original', '原始短剧', [
+    DramaSiteCategory('all', '全部'),
+    DramaSiteCategory('recommend', '推荐'),
+    DramaSiteCategory('watch', '看剧'),
+    DramaSiteCategory('manju', '漫剧'),
+  ]),
+  DramaSite('hongguo', '红果', [
+    DramaSiteCategory('all', '全部'),
+    DramaSiteCategory('real-drama', '真人剧'),
+    DramaSiteCategory('comic-drama', '漫剧'),
+    DramaSiteCategory('ai-drama', 'AI剧'),
+    DramaSiteCategory('comic', '动漫'),
+  ]),
+  DramaSite('hgtv', 'HGTV', [
+    DramaSiteCategory('home', '首页推荐'),
+    DramaSiteCategory('real', '真人剧'),
+    DramaSiteCategory('comic', '漫剧'),
+    DramaSiteCategory('ai', 'AI剧'),
+    DramaSiteCategory('latest', '最新上架'),
+  ]),
+  DramaSite('hgtvmirror', '红果镜像', [
+    DramaSiteCategory('real-drama', '真人剧'),
+    DramaSiteCategory('comic-drama', '漫剧'),
+    DramaSiteCategory('ai-drama', 'AI剧'),
+  ]),
   DramaSite('huangdou', '黄豆'),
   DramaSite('huangju', '剧果'),
   DramaSite('yeguo', '野果'),
