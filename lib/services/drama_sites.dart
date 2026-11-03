@@ -19,7 +19,7 @@ class DramaSite {
 const dramaSites = [
   // 原始站是番茄系短剧流，不是红果；分类取它短剧频道的可内容项，
   // 最近与收藏是本地历史与书架，不算内容分类，故不列入。
-  DramaSite('original', '原始短剧', [
+  DramaSite('original', '番茄短剧', [
     DramaSiteCategory('all', '全部'),
     DramaSiteCategory('recommend', '推荐'),
     DramaSiteCategory('watch', '看剧'),
