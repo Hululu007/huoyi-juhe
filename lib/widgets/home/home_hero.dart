@@ -37,7 +37,7 @@ class HomeHero extends StatefulWidget {
   static const String searchHint = '请输入书名或作者名';
 
   /// 官方 `@string/gl`。
-  static const String categoryLabel = '分类';
+  static const String categoryLabel = '午夜区';
 
   final VoidCallback onSearch;
 

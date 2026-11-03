@@ -1,9 +1,10 @@
 import 'dart:convert';
 
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
-enum LiveProtocol { platform, list, aggregate }
+enum LiveProtocol { pingtai, list, platform }
 
 class LiveSource {
   const LiveSource({
@@ -12,10 +13,14 @@ class LiveSource {
     required this.description,
     required this.protocol,
     this.endpoints = const [],
+    this.script = '',
     this.headers = const {},
+    this.epg = '',
+    this.proxies = const [],
     this.group = '',
     this.adult = false,
     this.builtin = true,
+    this.enabled = true,
   });
 
   final String id;
@@ -23,12 +28,18 @@ class LiveSource {
   final String description;
   final LiveProtocol protocol;
   final List<String> endpoints;
+  final String script;
   final Map<String, String> headers;
+  final String epg;
+  final List<String> proxies;
   final String group;
   final bool adult;
   final bool builtin;
+  final bool enabled;
 
   String get endpoint => endpoints.isEmpty ? '' : endpoints.first;
+
+  bool get paginated => protocol != LiveProtocol.pingtai;
 }
 
 class LiveChannel {
@@ -37,18 +48,24 @@ class LiveChannel {
     required this.url,
     this.group = '',
     this.sourceId = '',
+    this.token = '',
+    this.subtitle = '',
   });
 
   final String title;
   final String url;
   final String group;
   final String sourceId;
+  final String token;
+  final String subtitle;
 
   Map<String, dynamic> toJson() => {
     'title': title,
     'url': url,
     'group': group,
     'sourceId': sourceId,
+    'token': token,
+    'subtitle': subtitle,
   };
 
   static LiveChannel? fromJson(Map<String, dynamic> json) {
@@ -60,11 +77,13 @@ class LiveChannel {
       url: url,
       group: json['group'] as String? ?? '',
       sourceId: json['sourceId'] as String? ?? '',
+      token: json['token'] as String? ?? '',
+      subtitle: json['subtitle'] as String? ?? '',
     );
   }
 }
 
-List<LiveChannel> parseM3u(String text) {
+List<LiveChannel> parseM3u(String text, {String sourceId = ''}) {
   final channels = <LiveChannel>[];
   String? pendingTitle;
   var pendingGroup = '';
@@ -93,6 +112,7 @@ List<LiveChannel> parseM3u(String text) {
         title: pendingTitle ?? line,
         url: line,
         group: pendingGroup,
+        sourceId: sourceId,
       ),
     );
     pendingTitle = null;
@@ -105,6 +125,17 @@ class LiveSources {
   LiveSources._();
 
   static const builtin = <LiveSource>[
+    LiveSource(
+      id: 'xiuguo',
+      name: '秀果',
+      description: '主播直播 · 实时开播',
+      protocol: LiveProtocol.pingtai,
+      endpoints: [
+        'http://api.vipmisss.com:81/xcdsw',
+        'http://api.hclyz.com:81/mf',
+      ],
+      adult: true,
+    ),
     LiveSource(
       id: 'bilibili',
       name: '哔哩哔哩',
@@ -120,35 +151,63 @@ class LiveSources {
       headers: {'Referer': 'https://www.huya.com/'},
     ),
     LiveSource(
-      id: 'yuhuo_live',
-      name: '欲火直播',
-      description: '内置频道表 · 未探活，频道表文件不在本包内',
-      protocol: LiveProtocol.list,
-      group: '欲火直播',
-    ),
-    LiveSource(
-      id: 'xiuguo',
-      name: '秀果',
-      description: '主播直播 · 实时开播',
-      protocol: LiveProtocol.aggregate,
-      endpoints: [
-        'http://api.vipmisss.com:81/xcdsw',
-        'http://api.hclyz.com:81/mf',
-      ],
-      adult: true,
-    ),
-    LiveSource(
       id: 'maiyoux',
       name: '欲火聚合',
       description: '欲火移植 · 平台动态聚合 · 实时开播',
-      protocol: LiveProtocol.aggregate,
+      protocol: LiveProtocol.pingtai,
       endpoints: [
         'http://api.maiyoux.com:81/mf',
         'http://api.vipmisss.com:81/xcdsw',
       ],
       adult: true,
     ),
+    LiveSource(
+      id: 'yuhuo_live',
+      name: '欲火直播',
+      description: '欲火移植 · 内置频道表 · 未探活',
+      protocol: LiveProtocol.list,
+      endpoints: ['asset://assets/live/yuhuo_live.m3u'],
+      group: '欲火直播',
+    ),
   ];
+
+  static LiveSource? byId(String id) {
+    for (final source in builtin) {
+      if (source.id == id) return source;
+    }
+    return null;
+  }
+
+  static Future<List<LiveChannel>> loadBuiltinListChannels(
+    LiveSource source,
+  ) async {
+    final endpoint = source.endpoint;
+    final String text;
+    if (endpoint.startsWith('asset://')) {
+      text = await rootBundle.loadString(
+        endpoint.substring('asset://'.length),
+      );
+    } else {
+      final response = await http
+          .get(Uri.parse(endpoint), headers: source.headers)
+          .timeout(const Duration(seconds: 20));
+      if (response.statusCode != 200) {
+        throw StateError('频道表拉取失败：HTTP ${response.statusCode}');
+      }
+      text = response.body;
+    }
+    return parseM3u(
+      text,
+      sourceId: source.id,
+    ).map((channel) {
+      return LiveChannel(
+        title: channel.title,
+        url: channel.url,
+        group: channel.group.isEmpty ? source.group : channel.group,
+        sourceId: source.id,
+      );
+    }).toList();
+  }
 
   static List<LiveSource> get mainTabSources =>
       [for (final source in builtin) if (!source.adult) source];

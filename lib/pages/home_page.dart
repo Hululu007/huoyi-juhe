@@ -31,7 +31,7 @@ import '../widgets/home/home_skeleton.dart';
 import '../widgets/home/home_tab_bar.dart';
 import '../widgets/tab_swipe_area.dart';
 import 'cached_book_reader.dart';
-import 'category_page.dart';
+import 'midnight_page.dart';
 import 'detail_page.dart';
 import 'rank_page.dart';
 import 'search_page.dart';
@@ -842,7 +842,7 @@ class _HomePageState extends ConsumerState<HomePage> {
   void _openCategory() {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const CategoryPage()),
+      MaterialPageRoute(builder: (_) => const MidnightPage()),
     );
   }
 

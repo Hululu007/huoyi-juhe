@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../models/media_item.dart';
 import '../services/live_sources.dart';
-import 'player_page.dart';
+import 'live_source_page.dart';
 
 class LivePage extends StatefulWidget {
   const LivePage({super.key});
@@ -67,31 +66,7 @@ class _LivePageState extends State<LivePage> {
     }
   }
 
-  void _play(LiveChannel channel) {
-    Navigator.push(
-      context,
-      MaterialPageRoute<void>(
-        builder: (_) => PlayerPage(
-          bookId: channel.url,
-          kind: 'video',
-          title: channel.title,
-          eps: [
-            Chapter(
-              itemId: channel.url,
-              title: channel.title,
-              volumeName: '',
-            ),
-          ],
-          startIndex: 0,
-          contentLoader: (_) async => {
-            'video_url': channel.url,
-            'key_hex': '',
-            'variants': <Map<String, dynamic>>[],
-          },
-        ),
-      ),
-    );
-  }
+  void _play(LiveChannel channel) => openLiveChannel(context, channel);
 
   @override
   Widget build(BuildContext context) {
@@ -124,10 +99,13 @@ class _LivePageState extends State<LivePage> {
                 for (final source in sources)
                   ListTile(
                     title: Text(source.name),
-                    subtitle: Text(
-                      source.id == 'yuhuo_live'
-                          ? '${source.description}，暂无频道'
-                          : '${source.description}，频道接口待接入',
+                    subtitle: Text(source.description),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (_) => LiveSourceBrowsePage(source: source),
+                      ),
                     ),
                   ),
                 const Padding(
@@ -156,7 +134,7 @@ class _LivePageState extends State<LivePage> {
                     child: Text(
                       '暂无导入频道。点右上角加号粘贴一个 m3u 地址导入，'
                       '频道点开即用原始播放器播。成人直播源不在此页，'
-                      '随午夜区接入。',
+                      '在首页右上角午夜区里。',
                     ),
                   ),
                 for (final channel in _channels)
