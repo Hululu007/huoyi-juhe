@@ -151,8 +151,10 @@ class _AdultTypeGridState extends State<_AdultTypeGrid> {
     });
     try {
       await SourceRegistry.instance.load();
-      final sources = adultRecommendSources(SourceRegistry.instance.custom)
-          .where((entry) => entry.contentType == widget.type);
+      final sources = adultRecommendSources(
+        SourceRegistry.instance.custom,
+        types: {widget.type},
+      );
       Future<List<MediaItem>> fetch(SourceEntry entry) async {
         try {
           final client = await SourceRegistry.instance.clientFor(entry.id);

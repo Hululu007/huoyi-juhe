@@ -280,15 +280,19 @@ const _AllManjuGroup _emptyManjuGroup = (
 /// Loads and pages the homepage feeds. Each async operation captures its tab
 /// and feed before the first await, so switching tabs can never redirect a
 /// late response into a different tab's cache.
-/// 推荐 tab 的成人推荐源：已启用、名字带 🔞、内容是小说或漫画的登记源。
+/// 成人推荐源：已启用、名字带 🔞、内容类型在 types 里的登记源。
 /// 只看登记信息（不探客户端）：取数时拿不到客户端或没有分类的源再跳过。
-/// 听书不在内（用户只点了小说与漫画），影视与未分类也不进阅读推荐。
-List<SourceEntry> adultRecommendSources(List<SourceEntry> entries) => [
+/// 缺省只认小说与漫画（首页推荐口径，用户只点了小说与漫画）；
+/// 成人小说聚合页按当前子 tab 传类型（小说/漫画/听书各取各的），
+/// 否则听书 tab 会被缺省口径滤空。
+List<SourceEntry> adultRecommendSources(
+  List<SourceEntry> entries, {
+  Set<ContentType> types = const {ContentType.novel, ContentType.comic},
+}) => [
   for (final entry in entries)
     if (entry.enabled &&
         MidnightGate.isAdultName(entry.name) &&
-        (entry.contentType == ContentType.novel ||
-            entry.contentType == ContentType.comic))
+        types.contains(entry.contentType))
       entry,
 ];
 

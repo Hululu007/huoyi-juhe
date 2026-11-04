@@ -44,6 +44,23 @@ void main() {
     );
   });
 
+  test('聚合页按 tab 取源：听书 tab 只取听书源，缺省仍不取听书', () {
+    final entries = [
+      _entry('n1', name: '🔞成人小说源', contentType: 'novel'),
+      _entry('a1', name: '🔞成人听书源', contentType: 'audio'),
+      _entry('plain-audio', name: '普通听书源', contentType: 'audio'),
+    ];
+    expect(
+      adultRecommendSources(entries, types: {ContentType.audio})
+          .map((entry) => entry.id),
+      ['a1'],
+    );
+    expect(
+      adultRecommendSources(entries).map((entry) => entry.id),
+      ['n1'],
+    );
+  });
+
   test('导入方式不影响入选：py 成人漫画源也入选', () {
     final picked = adultRecommendSources([
       _entry(
