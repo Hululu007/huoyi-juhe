@@ -378,7 +378,7 @@ Future<void> openDramaSitePlayback(
       title: title,
       cover: cover,
       author: '',
-      badge: '',
+      badge: siteId.startsWith('localdb:') ? '本地库' : '',
       ep: '',
       kind: kind,
       source: 'engine:$siteId',
@@ -561,9 +561,10 @@ Future<void> openDramaSiteItem(
   if (!context.mounted) return;
   if (client == null) return;
   final entry = SourceRegistry.instance.customById(siteId);
-  final isEngineSite = entry != null &&
-      entry.kind != SourceKind.customMaccms &&
-      entry.kind != SourceKind.builtinDrama;
+  final isEngineSite = siteId.startsWith('localdb:') ||
+      (entry != null &&
+          entry.kind != SourceKind.customMaccms &&
+          entry.kind != SourceKind.builtinDrama);
   DramaSiteDetail? cachedDetail;
   Future<DramaSiteDetail> loadSiteDetail() async {
     cachedDetail ??= await client.detail(item.id);

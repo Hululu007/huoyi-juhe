@@ -11,6 +11,8 @@ import 'drama_site_content.dart';
 import 'drama_sites.dart';
 import 'engine_site_content.dart';
 import 'jar_bridge.dart';
+import 'local_db_site_content.dart';
+import 'm3u_export_db.dart';
 import 'zakatv_builtin.dart';
 import 'js_bridge.dart';
 import 'py_bridge.dart';
@@ -896,6 +898,12 @@ class SourceRegistry {
   }
 
   Future<DramaSiteContentClient?> clientFor(String siteId) async {
+    if (siteId.startsWith('localdb:')) {
+      return LocalDbContentClient(
+        dbSiteId: siteId.substring('localdb:'.length),
+        dbSink: HiveM3uExportDb.instance,
+      );
+    }
     await load();
     final custom = customById(siteId);
     if (custom != null) {

@@ -103,6 +103,41 @@ class M3uExportVideoRecord {
 
   String get key => 'video:$siteId|$videoId';
 
+  /// 写库合并：双轨两字段并存，互不覆盖。
+  ///
+  /// 原始链接只读：新记录的 url 为空时沿用旧 url，绝不让一次
+  /// 写库把线上地址刷空；本地路径另起字段：新记录没下载时
+  /// 沿用旧本地路径（且旧文件还在），重复导出不刷空已下载
+  /// 的指针；旧文件已删时不留死指针，回落线上。
+  M3uExportVideoRecord mergedForSave(M3uExportVideoRecord? existing) {
+    if (existing == null) return this;
+    var localPath = this.localPath;
+    if (localPath.isEmpty &&
+        existing.localPath.isNotEmpty &&
+        File(existing.localPath).existsSync()) {
+      localPath = existing.localPath;
+    }
+    var url = this.url;
+    if (url.isEmpty && existing.url.isNotEmpty) url = existing.url;
+    if (localPath == this.localPath && url == this.url) return this;
+    return M3uExportVideoRecord(
+      siteId: siteId,
+      siteName: siteName,
+      categoryId: categoryId,
+      categoryName: categoryName,
+      categoryPath: categoryPath,
+      videoId: videoId,
+      title: title,
+      url: url,
+      localPath: localPath,
+      cover: cover,
+      synopsis: synopsis,
+      extra: extra,
+      episodeCount: episodeCount,
+      updatedAt: updatedAt,
+    );
+  }
+
   Map<String, dynamic> toMap() => {
     'siteId': siteId,
     'siteName': siteName,
@@ -203,6 +238,17 @@ abstract interface class M3uExportDbSink {
     String? siteId,
     String? categoryId,
   });
+
+  Future<List<M3uExportCategoryInfo>> listCategories({
+    required bool gateOpen,
+    String? siteId,
+  });
+
+  Future<M3uExportVideoRecord?> getVideo({
+    required bool gateOpen,
+    required String siteId,
+    required String videoId,
+  });
 }
 
 class HiveM3uExportDb implements M3uExportDbSink {
@@ -245,7 +291,16 @@ class HiveM3uExportDb implements M3uExportDbSink {
       for (final category in categories) category.key: category.toMap(),
     });
     await box.putAll({
-      for (final video in videos) video.key: video.toMap(),
+      for (final video in videos)
+        video.key: video
+            .mergedForSave(
+              box.get(video.key) is Map
+                  ? M3uExportVideoRecord.fromMap(
+                      box.get(video.key) as Map,
+                    )
+                  : null,
+            )
+            .toMap(),
     });
   }
 
@@ -269,6 +324,42 @@ class HiveM3uExportDb implements M3uExportDbSink {
     records.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
     return records;
   }
+
+  @override
+  Future<List<M3uExportCategoryInfo>> listCategories({
+    required bool gateOpen,
+    String? siteId,
+  }) async {
+    final box = await _box();
+    final categories = <M3uExportCategoryInfo>[];
+    for (final key in box.keys) {
+      if (key is! String || !key.startsWith('cat:')) continue;
+      final raw = box.get(key);
+      if (raw is! Map) continue;
+      final category = M3uExportCategoryInfo.fromMap(raw);
+      if (category == null) continue;
+      if (!gateOpen && MidnightGate.isAdultName(category.siteName)) continue;
+      if (siteId != null && category.siteId != siteId) continue;
+      categories.add(category);
+    }
+    categories.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    return categories;
+  }
+
+  @override
+  Future<M3uExportVideoRecord?> getVideo({
+    required bool gateOpen,
+    required String siteId,
+    required String videoId,
+  }) async {
+    final box = await _box();
+    final raw = box.get('video:$siteId|$videoId');
+    if (raw is! Map) return null;
+    final record = M3uExportVideoRecord.fromMap(raw);
+    if (record == null) return null;
+    if (!gateOpen && MidnightGate.isAdultName(record.siteName)) return null;
+    return record;
+  }
 }
 
 class MemoryM3uExportDb implements M3uExportDbSink {
@@ -286,7 +377,8 @@ class MemoryM3uExportDb implements M3uExportDbSink {
       this.categories[category.key] = category;
     }
     for (final video in videos) {
-      this.videos[video.key] = video;
+      this.videos[video.key] =
+          video.mergedForSave(this.videos[video.key]);
     }
   }
 
@@ -305,5 +397,32 @@ class MemoryM3uExportDb implements M3uExportDbSink {
     ];
     records.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
     return records;
+  }
+
+  @override
+  Future<List<M3uExportCategoryInfo>> listCategories({
+    required bool gateOpen,
+    String? siteId,
+  }) async {
+    final result = [
+      for (final category in categories.values)
+        if ((gateOpen || !MidnightGate.isAdultName(category.siteName)) &&
+            (siteId == null || category.siteId == siteId))
+          category,
+    ];
+    result.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    return result;
+  }
+
+  @override
+  Future<M3uExportVideoRecord?> getVideo({
+    required bool gateOpen,
+    required String siteId,
+    required String videoId,
+  }) async {
+    final record = videos['video:$siteId|$videoId'];
+    if (record == null) return null;
+    if (!gateOpen && MidnightGate.isAdultName(record.siteName)) return null;
+    return record;
   }
 }

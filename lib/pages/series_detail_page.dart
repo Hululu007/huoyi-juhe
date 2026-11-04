@@ -574,7 +574,9 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
           title: _titleText,
           cover: _coverText,
           author: '',
-          badge: isEngine ? '' : '短剧',
+          badge: isEngine
+              ? (widget.engineSiteId.startsWith('localdb:') ? '本地库' : '')
+              : '短剧',
           ep: _detail.episodeLabel,
           kind: widget.shelfKind,
           source: isEngine ? 'engine:${widget.engineSiteId}' : '',

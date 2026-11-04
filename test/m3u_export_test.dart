@@ -118,6 +118,23 @@ class _ThrowingDbSink implements M3uExportDbSink {
   }) async {
     throw UnimplementedError();
   }
+
+  @override
+  Future<List<M3uExportCategoryInfo>> listCategories({
+    required bool gateOpen,
+    String? siteId,
+  }) async {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<M3uExportVideoRecord?> getVideo({
+    required bool gateOpen,
+    required String siteId,
+    required String videoId,
+  }) async {
+    throw UnimplementedError();
+  }
 }
 
 DramaSiteItem _item(String id, String title, {String cover = ''}) {
@@ -859,6 +876,88 @@ void main() {
       } finally {
         if (temp.existsSync()) temp.deleteSync(recursive: true);
       }
+    });
+  });
+
+  group('原始链接只读', () {
+    M3uExportVideoRecord record({
+      required String videoId,
+      String url = 'https://cdn.example.com/v.m3u8',
+      String localPath = '',
+    }) {
+      return M3uExportVideoRecord(
+        siteId: 'py_site',
+        siteName: 'py 站',
+        categoryId: '1',
+        categoryName: '电影',
+        videoId: videoId,
+        title: '片',
+        url: url,
+        localPath: localPath,
+        cover: '',
+        synopsis: '',
+        updatedAt: 1,
+      );
+    }
+
+    test('写库合并：新记录没下载时沿用旧本地路径，旧文件没了不留死指针', () async {
+      final temp = await Directory.systemTemp.createTemp('link_ro_');
+      try {
+        final localFile = File('${temp.path}/v.m3u8');
+        await localFile.writeAsString('#EXTM3U');
+        final old = record(videoId: 'v1', localPath: localFile.path);
+        final kept = record(videoId: 'v1').mergedForSave(old);
+        expect(kept.localPath, localFile.path);
+        expect(kept.url, 'https://cdn.example.com/v.m3u8');
+        localFile.deleteSync();
+        final dropped = record(videoId: 'v1').mergedForSave(old);
+        expect(dropped.localPath, isEmpty);
+      } finally {
+        if (temp.existsSync()) temp.deleteSync(recursive: true);
+      }
+    });
+
+    test('写库合并：新记录线上地址为空时沿用旧线上地址', () {
+      final old = record(videoId: 'v1');
+      final kept = record(videoId: 'v1', url: '').mergedForSave(old);
+      expect(kept.url, 'https://cdn.example.com/v.m3u8');
+    });
+
+    test('重复导出不刷库：先下载后只导地址，库里本地路径与线上地址都在', () async {
+      final temp = await Directory.systemTemp.createTemp('link_ro2_');
+      try {
+        final localFile = File('${temp.path}/v.m3u8');
+        await localFile.writeAsString('#EXTM3U');
+        final db = MemoryM3uExportDb();
+        await db.saveExport(
+          siteId: 'py_site',
+          siteName: 'py 站',
+          categories: const [],
+          videos: [record(videoId: 'v1', localPath: localFile.path)],
+        );
+        await db.saveExport(
+          siteId: 'py_site',
+          siteName: 'py 站',
+          categories: const [],
+          videos: [record(videoId: 'v1')],
+        );
+        final kept = await db.getVideo(
+          gateOpen: true,
+          siteId: 'py_site',
+          videoId: 'v1',
+        );
+        expect(kept?.localPath, localFile.path);
+        expect(kept?.url, 'https://cdn.example.com/v.m3u8');
+      } finally {
+        if (temp.existsSync()) temp.deleteSync(recursive: true);
+      }
+    });
+
+    test('播放解析是纯读：解析前后记录字段不变', () {
+      final before = record(videoId: 'v1', localPath: '/no/such/file.m3u8');
+      resolveExportedPlayUrl(before);
+      expect(before.url, 'https://cdn.example.com/v.m3u8');
+      expect(before.localPath, '/no/such/file.m3u8');
     });
   });
 }
