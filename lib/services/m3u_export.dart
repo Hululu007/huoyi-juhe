@@ -336,6 +336,11 @@ Future<M3uExportResult> exportSiteM3u({
   final fetchDetail = dbSink != null;
   final categories = await client.categories();
   final lines = <String>['#EXTM3U'];
+
+  /// 去重边界：只认条目编号与站点身份，不认播放链接。
+  /// 不同条目、不同分类、不同站点共用同一个播放链接时全部保留，
+  /// 链接相同不等于同一条数据，绝不按链接合并；
+  /// 同一条目编号重复列出才记重复（翻页重叠的卫生处理）。
   final seenItemIds = <String>{};
   final records = <M3uExportVideoRecord>[];
   var success = 0;
