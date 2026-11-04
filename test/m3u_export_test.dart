@@ -1,9 +1,12 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fqapp/services/drama_playback.dart';
 import 'package:fqapp/services/drama_site_content.dart';
 import 'package:fqapp/services/drama_sites.dart';
 import 'package:fqapp/services/m3u_export.dart';
 import 'package:fqapp/services/m3u_export_db.dart';
+import 'package:fqapp/services/m3u_export_download.dart';
 import 'package:fqapp/services/one_click_py.dart';
 import 'package:fqapp/services/source_registry.dart';
 
@@ -69,6 +72,31 @@ SourceEntry _pyEntry(String name) {
     address: 'example.py',
     extra: {'path': '/tmp/imported_py/example.py', 'contentType': 'mixed'},
   );
+}
+
+class _FakeDownloader implements VideoDownloader {
+  _FakeDownloader({this.failWhenUrlContains = const {}});
+
+  final Set<String> failWhenUrlContains;
+  final downloadedUrls = <String>[];
+  var calls = 0;
+
+  @override
+  Future<String> downloadVideo({
+    required String url,
+    required Map<String, String> headers,
+    required Directory targetDir,
+    VideoDownloadProgress? onProgress,
+    bool Function()? isCancelled,
+  }) async {
+    calls++;
+    if (failWhenUrlContains.any(url.contains)) {
+      throw StateError('下载失败');
+    }
+    downloadedUrls.add(url);
+    onProgress?.call(1, 1);
+    return '/local/video_$calls.m3u8';
+  }
 }
 
 class _ThrowingDbSink implements M3uExportDbSink {
@@ -610,6 +638,219 @@ void main() {
       expect(result.dbVideoCount, 0);
       expect(result.dbError, contains('数据库写失败'));
       expect(sink.savedText, contains('https://cdn.example.com/v1.m3u8'));
+    });
+  });
+
+  group('本地下载（范围与失败回落）', () {
+    _FakePyClient twoCategoryClient() {
+      return _FakePyClient(
+        categoryList: const [
+          DramaSiteCategory('1', '电影'),
+          DramaSiteCategory('2', '剧集'),
+        ],
+        pages: {
+          '1/1': [_item('v1', '片一')],
+          '2/1': [_item('v2', '剧一')],
+        },
+        details: const {},
+        plays: {
+          '\u0001v1': 'https://cdn.example.com/v1.m3u8',
+          '\u0001v2': 'https://cdn.example.com/v2.m3u8',
+        },
+      );
+    }
+
+    M3uExportDownloadOptions optionsFor(
+      _FakeDownloader downloader,
+      M3uExportDownloadScope scope, {
+      String? categoryId,
+      String? videoId,
+    }) {
+      return M3uExportDownloadOptions(
+        scope: scope,
+        categoryId: categoryId,
+        videoId: videoId,
+        downloader: downloader,
+        directoryResolver: () async => Directory.systemTemp,
+      );
+    }
+
+    test('整站范围：全部视频走本地路径，m3u 与 db 一致', () async {
+      final downloader = _FakeDownloader();
+      final sink = _FakeM3uSink();
+      final db = MemoryM3uExportDb();
+      final result = await exportSiteM3u(
+        siteId: 'test_site',
+        siteName: '测试站',
+        client: twoCategoryClient(),
+        downloadSink: sink,
+        dbSink: db,
+        downloadOptions: optionsFor(downloader, M3uExportDownloadScope.site),
+        gateOpen: true,
+      );
+      expect(result.downloadedCount, 2);
+      expect(result.downloadFailedCount, 0);
+      expect(downloader.downloadedUrls.length, 2);
+      expect(sink.savedText, contains('/local/video_1.m3u8'));
+      expect(sink.savedText, contains('/local/video_2.m3u8'));
+      expect(
+        sink.savedText,
+        contains('#ONLINE-URL:https://cdn.example.com/v1.m3u8'),
+      );
+      final rows = await db.listVideos(gateOpen: true);
+      expect(rows.length, 2);
+      expect(
+        rows.every((row) => row.localPath.startsWith('/local/')),
+        isTrue,
+      );
+      expect(
+        rows.every((row) => row.url.startsWith('https://cdn.example.com/')),
+        isTrue,
+      );
+    });
+
+    test('按分类范围：只下选中分类，其他分类仍用在线地址', () async {
+      final downloader = _FakeDownloader();
+      final sink = _FakeM3uSink();
+      final result = await exportSiteM3u(
+        siteId: 'test_site',
+        siteName: '测试站',
+        client: twoCategoryClient(),
+        downloadSink: sink,
+        downloadOptions: optionsFor(
+          downloader,
+          M3uExportDownloadScope.category,
+          categoryId: '2',
+        ),
+        gateOpen: true,
+      );
+      expect(result.downloadedCount, 1);
+      expect(
+        downloader.downloadedUrls,
+        ['https://cdn.example.com/v2.m3u8'],
+      );
+      expect(sink.savedText, contains('https://cdn.example.com/v1.m3u8'));
+      expect(sink.savedText, contains('/local/video_1.m3u8'));
+    });
+
+    test('按单视频范围：只下选中视频', () async {
+      final downloader = _FakeDownloader();
+      final result = await exportSiteM3u(
+        siteId: 'test_site',
+        siteName: '测试站',
+        client: twoCategoryClient(),
+        downloadSink: _FakeM3uSink(),
+        downloadOptions: optionsFor(
+          downloader,
+          M3uExportDownloadScope.video,
+          videoId: 'v1',
+        ),
+        gateOpen: true,
+      );
+      expect(result.downloadedCount, 1);
+      expect(
+        downloader.downloadedUrls,
+        ['https://cdn.example.com/v1.m3u8'],
+      );
+    });
+
+    test('下载失败：该条回落在线地址并计失败，其他条照常本地', () async {
+      final downloader = _FakeDownloader(failWhenUrlContains: {'fail'});
+      final client = _FakePyClient(
+        categoryList: const [DramaSiteCategory('1', '电影')],
+        pages: {
+          '1/1': [_item('v1', '片一'), _item('v2', '片二')],
+        },
+        details: const {},
+        plays: {
+          '\u0001v1': 'https://cdn.example.com/v1.m3u8',
+          '\u0001v2': 'https://cdn.example.com/fail.m3u8',
+        },
+      );
+      final sink = _FakeM3uSink();
+      final db = MemoryM3uExportDb();
+      final result = await exportSiteM3u(
+        siteId: 'test_site',
+        siteName: '测试站',
+        client: client,
+        downloadSink: sink,
+        dbSink: db,
+        downloadOptions: optionsFor(downloader, M3uExportDownloadScope.site),
+        gateOpen: true,
+      );
+      expect(result.downloadedCount, 1);
+      expect(result.downloadFailedCount, 1);
+      expect(result.successCount, 2);
+      expect(sink.savedText, contains('https://cdn.example.com/fail.m3u8'));
+      final rows = await db.listVideos(gateOpen: true);
+      final failed = rows.firstWhere((row) => row.videoId == 'v2');
+      expect(failed.url, 'https://cdn.example.com/fail.m3u8');
+      expect(failed.localPath, isEmpty);
+      final ok = rows.firstWhere((row) => row.videoId == 'v1');
+      expect(ok.url, 'https://cdn.example.com/v1.m3u8');
+      expect(ok.localPath, startsWith('/local/'));
+    });
+  });
+
+  group('双轨（线上地址与本地路径双保留）', () {
+    M3uExportVideoRecord record({
+      String url = 'https://cdn.example.com/v1.m3u8',
+      String localPath = '',
+    }) {
+      return M3uExportVideoRecord(
+        siteId: 'test_site',
+        siteName: '测试站',
+        categoryId: '1',
+        categoryName: '电影',
+        videoId: 'v1',
+        title: '片一',
+        url: url,
+        localPath: localPath,
+        cover: '',
+        synopsis: '',
+        updatedAt: 1,
+      );
+    }
+
+    test('记录往返保留线上地址与本地路径', () {
+      final restored = M3uExportVideoRecord.fromMap(
+        record(localPath: '/local/video_1.m3u8').toMap(),
+      );
+      expect(restored?.url, 'https://cdn.example.com/v1.m3u8');
+      expect(restored?.localPath, '/local/video_1.m3u8');
+    });
+
+    test('旧形状兼容：只有本地路径的 url 认成本地路径', () {
+      final restored = M3uExportVideoRecord.fromMap(
+        record(url: '/local/old.m3u8').toMap()
+          ..remove('localPath'),
+      );
+      expect(restored?.url, isEmpty);
+      expect(restored?.localPath, '/local/old.m3u8');
+    });
+
+    test('播放解析：本地文件在走本地，本地没了走线上，两处都没有回空', () async {
+      final temp = await Directory.systemTemp.createTemp('m3u_dual_');
+      try {
+        final localFile = File('${temp.path}/video.m3u8');
+        await localFile.writeAsString('#EXTM3U');
+        expect(
+          resolveExportedPlayUrl(record(localPath: localFile.path)),
+          localFile.path,
+        );
+        expect(
+          resolveExportedPlayUrl(
+            record(localPath: '${temp.path}/gone.m3u8'),
+          ),
+          'https://cdn.example.com/v1.m3u8',
+        );
+        expect(
+          resolveExportedPlayUrl(record(url: '')),
+          isNull,
+        );
+      } finally {
+        if (temp.existsSync()) temp.deleteSync(recursive: true);
+      }
     });
   });
 }

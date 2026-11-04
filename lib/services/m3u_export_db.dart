@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:hive_ce/hive.dart';
 
 import 'encrypted_hive.dart';
@@ -59,6 +61,7 @@ class M3uExportVideoRecord {
     required this.videoId,
     required this.title,
     required this.url,
+    this.localPath = '',
     required this.cover,
     required this.synopsis,
     required this.updatedAt,
@@ -70,7 +73,12 @@ class M3uExportVideoRecord {
   final String categoryName;
   final String videoId;
   final String title;
+
+  /// 线上地址：始终保留，下载成功也不被本地路径覆盖。
   final String url;
+
+  /// 本地路径：没下载时为空；下载成功后记本地文件路径。
+  final String localPath;
   final String cover;
   final String synopsis;
   final int updatedAt;
@@ -85,6 +93,7 @@ class M3uExportVideoRecord {
     'videoId': videoId,
     'title': title,
     'url': url,
+    'localPath': localPath,
     'cover': cover,
     'synopsis': synopsis,
     'updatedAt': updatedAt,
@@ -103,6 +112,22 @@ class M3uExportVideoRecord {
       return null;
     }
     String text(dynamic value) => value is String ? value : '';
+    final localPath = text(raw['localPath']);
+    if (localPath.isEmpty && !_looksOnline(url)) {
+      return M3uExportVideoRecord(
+        siteId: siteId,
+        siteName: text(raw['siteName']),
+        categoryId: text(raw['categoryId']),
+        categoryName: text(raw['categoryName']),
+        videoId: videoId,
+        title: text(raw['title']),
+        url: '',
+        localPath: url,
+        cover: text(raw['cover']),
+        synopsis: text(raw['synopsis']),
+        updatedAt: raw['updatedAt'] is int ? raw['updatedAt'] as int : 0,
+      );
+    }
     return M3uExportVideoRecord(
       siteId: siteId,
       siteName: text(raw['siteName']),
@@ -111,11 +136,29 @@ class M3uExportVideoRecord {
       videoId: videoId,
       title: text(raw['title']),
       url: url,
+      localPath: localPath,
       cover: text(raw['cover']),
       synopsis: text(raw['synopsis']),
       updatedAt: raw['updatedAt'] is int ? raw['updatedAt'] as int : 0,
     );
   }
+
+  static bool _looksOnline(String value) {
+    final uri = Uri.tryParse(value);
+    return uri != null &&
+        (uri.scheme == 'http' || uri.scheme == 'https');
+  }
+}
+
+/// 双轨播放解析：有本地文件走本地，没本地走线上，两处都没有回 null，
+/// 调用方须把 null 如实报成“没有可播地址”，不要静默失败。
+String? resolveExportedPlayUrl(M3uExportVideoRecord record) {
+  if (record.localPath.isNotEmpty &&
+      File(record.localPath).existsSync()) {
+    return record.localPath;
+  }
+  if (record.url.isNotEmpty) return record.url;
+  return null;
 }
 
 abstract interface class M3uExportDbSink {

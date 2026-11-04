@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'drama_site_content.dart';
 import 'm3u_export_db.dart';
+import 'm3u_export_download.dart';
 import 'midnight_gate.dart';
 import 'one_click_py.dart';
 import 'source_registry.dart';
@@ -22,6 +25,9 @@ class M3uExportProgress {
     required this.categoriesTotal,
     required this.successCount,
     required this.skippedCount,
+    this.downloadTitle = '',
+    this.downloadDone = 0,
+    this.downloadTotal = 0,
   });
 
   final String categoryName;
@@ -29,6 +35,9 @@ class M3uExportProgress {
   final int categoriesTotal;
   final int successCount;
   final int skippedCount;
+  final String downloadTitle;
+  final int downloadDone;
+  final int downloadTotal;
 }
 
 class M3uExportResult {
@@ -44,6 +53,9 @@ class M3uExportResult {
     required this.duplicateCount,
     required this.dbVideoCount,
     required this.dbError,
+    required this.downloadedCount,
+    required this.downloadFailedCount,
+    required this.downloadBasePath,
     required this.cancelled,
   });
 
@@ -58,6 +70,9 @@ class M3uExportResult {
   final int duplicateCount;
   final int dbVideoCount;
   final String? dbError;
+  final int downloadedCount;
+  final int downloadFailedCount;
+  final String? downloadBasePath;
   final bool cancelled;
 }
 
@@ -126,11 +141,13 @@ class _ResolvedVideo {
     required this.url,
     required this.cover,
     required this.synopsis,
+    required this.headers,
   });
 
   final String url;
   final String cover;
   final String synopsis;
+  final Map<String, String> headers;
 }
 
 String _cleanSynopsis(String synopsis) {
@@ -163,6 +180,7 @@ Future<_ResolvedVideo?> _resolveVideo(
           url: play.url,
           cover: fallbackCover,
           synopsis: fallbackSynopsis,
+          headers: play.headers,
         );
       }
     } catch (_) {}
@@ -215,6 +233,7 @@ Future<M3uExportResult> exportSiteM3u({
   required DramaSiteContentClient client,
   OneClickDownloadSink? downloadSink,
   M3uExportDbSink? dbSink,
+  M3uExportDownloadOptions? downloadOptions,
   required bool gateOpen,
   bool allowNonM3u8 = false,
   void Function(M3uExportProgress)? onProgress,
@@ -232,6 +251,9 @@ Future<M3uExportResult> exportSiteM3u({
   var skipped = 0;
   var nonM3u8 = 0;
   var duplicates = 0;
+  var downloaded = 0;
+  var downloadFailed = 0;
+  Directory? downloadBase;
   final emptyCategories = <String>[];
   final truncatedCategories = <String>[];
   var cancelled = false;
@@ -278,8 +300,53 @@ Future<M3uExportResult> exportSiteM3u({
         if (resolved == null) {
           skipped++;
         } else {
+          var finalUrl = resolved.url;
+          var downloadedThis = false;
+          if (downloadOptions != null &&
+              downloadOptions.appliesTo(category.id, item.id)) {
+            try {
+              downloadBase ??= Directory(
+                '${(await downloadOptions.directoryResolver()).path}'
+                '/m3u_export_downloads/${sanitizeDownloadStem(siteName)}',
+              );
+              final targetDir = Directory(
+                '${downloadBase.path}/${sanitizeDownloadStem(item.id)}',
+              );
+              finalUrl = await downloadOptions.downloader.downloadVideo(
+                url: resolved.url,
+                headers: resolved.headers,
+                targetDir: targetDir,
+                onProgress: (done, total) {
+                  onProgress?.call(
+                    M3uExportProgress(
+                      categoryName: category.name,
+                      categoriesDone: ci,
+                      categoriesTotal: categories.length,
+                      successCount: success,
+                      skippedCount: skipped,
+                      downloadTitle: item.title,
+                      downloadDone: done,
+                      downloadTotal: total,
+                    ),
+                  );
+                },
+                isCancelled: () => cancellation?.cancelled == true,
+              );
+              downloaded++;
+              downloadedThis = true;
+            } on M3uExportDownloadCancelled {
+              cancelled = true;
+              break;
+            } catch (_) {
+              downloadFailed++;
+            }
+          }
+          if (cancelled) break;
           lines.add('#EXTINF:-1,${_cleanTitle(item.title)}');
-          lines.add(resolved.url);
+          if (downloadedThis) {
+            lines.add('#ONLINE-URL:${resolved.url}');
+          }
+          lines.add(finalUrl);
           success++;
           categorySuccess++;
           if (!isExportableM3u8(resolved.url)) nonM3u8++;
@@ -293,6 +360,7 @@ Future<M3uExportResult> exportSiteM3u({
                 videoId: item.id,
                 title: item.title,
                 url: resolved.url,
+                localPath: downloadedThis ? finalUrl : '',
                 cover: resolved.cover,
                 synopsis: resolved.synopsis,
                 updatedAt: DateTime.now().millisecondsSinceEpoch,
@@ -374,6 +442,9 @@ Future<M3uExportResult> exportSiteM3u({
     duplicateCount: duplicates,
     dbVideoCount: dbVideoCount,
     dbError: dbError,
+    downloadedCount: downloaded,
+    downloadFailedCount: downloadFailed,
+    downloadBasePath: downloadBase?.path,
     cancelled: cancelled,
   );
 }

@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'package:path_provider/path_provider.dart';
+
 import '../services/drama_site_content.dart';
+import '../services/drama_sites.dart';
 import '../services/jar_bridge.dart';
 import '../services/m3u_export.dart';
 import '../services/m3u_export_db.dart';
+import '../services/m3u_export_download.dart';
 import '../services/midnight_gate.dart';
 import '../services/one_click_py.dart';
 import '../services/source_registry.dart';
@@ -288,13 +292,137 @@ class _OneClickPyPageState extends State<OneClickPyPage> {
       );
       return;
     }
-    await _runM3uExport(picked, client, gateOpen);
+    final (downloadOptions, aborted) = await _pickDownloadOptions(client);
+    if (aborted) return;
+    await _runM3uExport(picked, client, gateOpen, downloadOptions);
+  }
+
+  Future<(M3uExportDownloadOptions?, bool)> _pickDownloadOptions(
+    DramaSiteContentClient client,
+  ) async {
+    if (!mounted) return (null, true);
+    final scope = await showDialog<M3uExportDownloadScope>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('下载到本地吗？（默认只导地址）'),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(ctx, M3uExportDownloadScope.none),
+            child: const Text('只导出地址，不下载'),
+          ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(ctx, M3uExportDownloadScope.site),
+            child: const Text('下载整站'),
+          ),
+          SimpleDialogOption(
+            onPressed: () =>
+                Navigator.pop(ctx, M3uExportDownloadScope.category),
+            child: const Text('按分类下载'),
+          ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(ctx, M3uExportDownloadScope.video),
+            child: const Text('按单视频下载'),
+          ),
+        ],
+      ),
+    );
+    if (scope == null || !mounted) return (null, true);
+    if (scope == M3uExportDownloadScope.none) return (null, false);
+    List<DramaSiteCategory> categories;
+    try {
+      categories = await client.categories();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('读取分类失败：$e')),
+        );
+      }
+      return (null, true);
+    }
+    if (!mounted) return (null, true);
+    final category = await showDialog<DramaSiteCategory>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('选一个分类'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: categories.length,
+            itemBuilder: (ctx, index) {
+              final item = categories[index];
+              return ListTile(
+                title: Text(item.name),
+                onTap: () => Navigator.pop(ctx, item),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+    if (category == null || !mounted) return (null, true);
+    String? videoId;
+    if (scope == M3uExportDownloadScope.video) {
+      DramaSiteCatalogPage firstPage;
+      try {
+        firstPage = await client.catalog(category.id, 1);
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('读取分类内容失败：$e')),
+          );
+        }
+        return (null, true);
+      }
+      if (firstPage.items.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('该分类第一页没有视频')),
+          );
+        }
+        return (null, true);
+      }
+      if (!mounted) return (null, true);
+      final video = await showDialog<DramaSiteItem>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('选一个视频（仅第一页）'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: firstPage.items.length,
+              itemBuilder: (ctx, index) {
+                final item = firstPage.items[index];
+                return ListTile(
+                  title: Text(item.title),
+                  onTap: () => Navigator.pop(ctx, item),
+                );
+              },
+            ),
+          ),
+        ),
+      );
+      if (video == null) return (null, true);
+      videoId = video.id;
+    }
+    return (
+      M3uExportDownloadOptions(
+        scope: scope,
+        categoryId: scope == M3uExportDownloadScope.site ? null : category.id,
+        videoId: videoId,
+        downloader: HttpVideoDownloader(),
+        directoryResolver: getApplicationSupportDirectory,
+      ),
+      false,
+    );
   }
 
   Future<void> _runM3uExport(
     _M3uExportTarget target,
     DramaSiteContentClient client,
     bool gateOpen,
+    M3uExportDownloadOptions? downloadOptions,
   ) async {
     final cancellation = M3uExportCancellation();
     M3uExportProgress? progress;
@@ -316,6 +444,7 @@ class _OneClickPyPageState extends State<OneClickPyPage> {
                     siteName: target.label,
                     client: client,
                     dbSink: HiveM3uExportDb.instance,
+                    downloadOptions: downloadOptions,
                     gateOpen: gateOpen,
                     allowNonM3u8: target.allowNonM3u8,
                     cancellation: cancellation,
@@ -343,6 +472,12 @@ class _OneClickPyPageState extends State<OneClickPyPage> {
                 lines.add(
                   '成功 ${progress!.successCount} 条，跳过 ${progress!.skippedCount} 条',
                 );
+                if (progress!.downloadTotal > 0) {
+                  lines.add(
+                    '正在下载：${progress!.downloadTitle} '
+                    '（${progress!.downloadDone}/${progress!.downloadTotal} 片）',
+                  );
+                }
               }
             } else if (error != null) {
               lines.add('导出失败：$error');
@@ -377,6 +512,16 @@ class _OneClickPyPageState extends State<OneClickPyPage> {
                 lines.add('数据库同步失败：${result!.dbError}（m3u 文件已保存）。');
               } else {
                 lines.add('已同步写入本地数据库 ${result!.dbVideoCount} 条。');
+              }
+              if (downloadOptions != null) {
+                lines.add(
+                  '已下载到本地 ${result!.downloadedCount} 条，'
+                  '下载失败 ${result!.downloadFailedCount} 条'
+                  '（失败的仍用在线地址）。',
+                );
+                if (result!.downloadBasePath != null) {
+                  lines.add('本地文件在：${result!.downloadBasePath}');
+                }
               }
               if (result!.successCount > 0) {
                 lines.add('地址为导出时刻的快照，带签名的地址过期会失效，不是永久有效。');
