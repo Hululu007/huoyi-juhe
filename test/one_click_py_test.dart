@@ -295,6 +295,55 @@ void main() {
       expect(identification.template.code, 'T9');
       expect(identification.apiLinks, isNotEmpty);
     });
+
+    test('评分命中模板改走试套验证而非直接生成', () async {
+      final client = MockClient((request) async {
+        if (request.url.path.contains('api.php')) {
+          return _textResponse('not found', status: 404);
+        }
+        return _textResponse(
+          '<html><body><a href="/arttype/12/">分类</a>'
+          '<a href="/artdetail-abc/">文章</a></body></html>',
+        );
+      });
+      final identification = await identifySite(
+        'https://example.com',
+        client: client,
+      );
+      expect(identification.template.code, 'T3');
+      expect(identification.trialMode, isTrue);
+      expect(identification.trialCandidates, ['T3']);
+      expect(identification.homeHtml, isNotEmpty);
+    });
+
+    test('T9 接口链接过滤广告追踪', () {
+      final scored = scoreHomepage(
+        '<html><body>'
+        '<a href="https://go.whitetrafsa.com/api/goToTheRoom?tag=x">广告</a>'
+        '<a href="https://api.example.com/api/list">接口</a>'
+        '</body></html>',
+        'https://example.com',
+      );
+      expect(scored.apiLinks, ['https://api.example.com/api/list']);
+      expect(scored.templateCode, 'T9');
+    });
+
+    test('纯广告链接时不计入 T9 评分', () {
+      final scored = scoreHomepage(
+        '<html><body>'
+        '<a href="https://go.whitetrafsa.com/api/goToTheRoom?tag=x">广告</a>'
+        '</body></html>',
+        'https://example.com',
+      );
+      expect(scored.apiLinks, isEmpty);
+      expect(scored.templateCode, isNull);
+    });
+
+    test('模板请求函数容忍断流', () {
+      final py = buildOneClickPy(_id('T5'), siteName: 'example');
+      expect(py, contains('IncompleteRead'));
+      expect(py, contains('e.partial'));
+    });
   });
 
   group('试套用', () {

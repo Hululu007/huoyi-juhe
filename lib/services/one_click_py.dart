@@ -356,6 +356,23 @@ const _specificityOrder = [
   'T9',
 ];
 
+// 接口链接里的广告追踪域名特征：这类 /api/ 链接不是数据接口，
+// 计入 T9 评分会把广告当成站内接口，必须先过滤掉。
+const _trackerHostParts = [
+  'traf',
+  'track',
+  'doubleclick',
+  'adservice',
+  'adsystem',
+  'promo',
+  'affiliate',
+];
+
+bool _isTrackerHost(String host) {
+  final lower = host.toLowerCase();
+  return _trackerHostParts.any(lower.contains);
+}
+
 OneClickHomepageScore scoreHomepage(String html, String origin) {
   final lower = html.toLowerCase();
   final shell =
@@ -409,6 +426,10 @@ OneClickHomepageScore scoreHomepage(String html, String origin) {
     final absolute = raw.startsWith('http')
         ? raw
         : origin + (raw.startsWith('/') ? raw : '/$raw');
+    final linkHost = Uri.tryParse(absolute)?.host ?? '';
+    if (_isTrackerHost(linkHost)) {
+      continue;
+    }
     if (seenLinks.add(absolute)) {
       apiLinks.add(absolute);
     }
@@ -576,12 +597,19 @@ Future<OneClickIdentification> identifySite(
           (template.code == 'T9' || template.code == 'T13') &&
           scored.apiLinks.isEmpty;
       if (!linksMissing) {
+        // 评分命中只作占位：生成前必须走该模板的试套验证，验过才导入，
+        // 不过如实报套不上，不再把评分命中的模板直接生成。
         return OneClickIdentification(
           template: template,
           origin: origin,
           siteKey: siteKey,
           siteName: siteName,
           apiLinks: scored.apiLinks,
+          fallbackNote:
+              '评分命中 ${template.code}，生成前走该模板试套验证，验过才导入。',
+          trialCandidates: [scored.templateCode!],
+          homeHtml: home,
+          inputUrl: url,
         );
       }
       // 接口路径未探到：不直接判死，落到试套用。
@@ -592,7 +620,10 @@ Future<OneClickIdentification> identifySite(
         origin: origin,
         siteKey: siteKey,
         siteName: siteName,
-        fallbackNote: '未命中已知模板，按通用 HTML 视频骨架试写套用，播放选择器可能需人工钉。',
+        fallbackNote: '仅视频特征命中通用 HTML 视频骨架，生成前走 T6 试套验证，验过才导入。',
+        trialCandidates: const ['T6'],
+        homeHtml: home,
+        inputUrl: url,
       );
     }
     // 无对应模板的站不再直接判不支持：返回试套模式，生成时按
@@ -1635,8 +1666,10 @@ Future<OneClickGenerateResult> generateAndImport({
           for (final attempt in outcome.attempts)
             '${attempt.code}：${attempt.failedStep}',
         ].join('；');
+        final tried =
+            outcome.attempts.map((attempt) => attempt.code).join('、');
         throw OneClickUnsupported(
-          '试套不上：已按 T1、T3、T5、T6、T9 顺序试套，均未通过交付门自检（$reasons），未导入任何站点，请走完整流程。',
+          '试套不上：已按 $tried 试套，均未通过交付门自检（$reasons），未导入任何站点，请走完整流程。',
           needsFullFlow: true,
         );
       }
@@ -2058,8 +2091,10 @@ Future<RegenResult> regenerateSiteDomain({
           for (final attempt in outcome.attempts)
             '${attempt.code}：${attempt.failedStep}',
         ].join('；');
+        final tried =
+            outcome.attempts.map((attempt) => attempt.code).join('、');
         throw OneClickUnsupported(
-          '试套不上：新域名未命中已知模板，已按 T1、T3、T5、T6、T9 顺序试套，'
+          '试套不上：新域名未命中已知模板，已按 $tried 试套，'
           '均未通过交付门自检（$reasons），旧站未动，未导入任何站点，请走完整流程。',
           needsFullFlow: true,
         );
@@ -2174,6 +2209,7 @@ String _pyQuoted(String value) {
 
 const _oneClickPyTemplate = r'''
 import gzip
+import http.client
 import json
 import re
 import urllib.parse
@@ -2200,11 +2236,14 @@ def _headers():
 
 def _get(url):
     req = urllib.request.Request(url, headers=_headers())
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        raw = resp.read()
-        if resp.headers.get("Content-Encoding") == "gzip":
-            raw = gzip.decompress(raw)
-        return raw.decode("utf-8", errors="ignore")
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            raw = resp.read()
+            if resp.headers.get("Content-Encoding") == "gzip":
+                raw = gzip.decompress(raw)
+            return raw.decode("utf-8", errors="ignore")
+    except http.client.IncompleteRead as e:
+        return (e.partial or b"").decode("utf-8", errors="ignore")
 
 
 def _get_safe(url):
