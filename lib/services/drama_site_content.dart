@@ -11,6 +11,7 @@ import 'package:http/http.dart' as http;
 
 import 'drama_playback.dart';
 import 'drama_sites.dart';
+import 'hgtv_content.dart';
 import 'huangju_content.dart';
 import 'yeguo_content.dart';
 
@@ -3240,6 +3241,7 @@ DramaSiteContentClient? dramaSiteContentClient(String siteId) {
   if (siteId == 'yeguo') return YeguoContentClient();
   if (siteId == 'hgtvmirror') return HgtvMirrorContentClient();
   if (siteId == 'hongguo') return HongguoContentClient();
+  if (siteId == 'hgtv') return HgtvContentClient();
   if (siteId == 'fanguo') return FanguoContentClient();
   if (siteId == 'guanguo') return GuanguoContentClient();
   if (siteId == 'heguo') return HeguoContentClient();
