@@ -13,6 +13,7 @@ import '../services/book_open_preferences.dart';
 import '../services/chapter_cache_store.dart';
 import '../services/desktop_platform.dart';
 import '../services/drama_site_content.dart';
+import '../services/drama_site_play.dart';
 import '../services/drama_sites.dart';
 import '../services/source_registry.dart';
 import '../services/home_continue_preferences.dart';
@@ -922,6 +923,24 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   void _openItem(MediaItem item) {
+    // 成人推荐卡（source 带 engine: 前缀）：走站内详情链路，不进番茄详情页
+    //（番茄详情拿这个 id 查不到书）；番茄与书旗卡保持原路由。
+    if (item.source.startsWith('engine:')) {
+      final siteId = item.source.substring('engine:'.length);
+      unawaited(
+        openDramaSiteItem(
+          context,
+          siteId,
+          DramaSiteItem(
+            id: item.seriesId ?? item.id,
+            title: item.title,
+            cover: item.cover,
+            remark: item.ep,
+          ),
+        ),
+      );
+      return;
+    }
     openBookDetail(context, item);
   }
 

@@ -7,8 +7,11 @@ import '../models/media_item.dart';
 import '../services/api_client.dart';
 import '../services/app_log.dart';
 import '../services/backend_transport.dart';
+import '../services/drama_site_content.dart';
 import '../services/home_feed_cache.dart';
 import '../services/home_page_affinity.dart';
+import '../services/midnight_gate.dart';
+import '../services/source_registry.dart';
 import '../services/user_facing_error.dart';
 
 typedef HomepageLoader =
@@ -277,6 +280,33 @@ const _AllManjuGroup _emptyManjuGroup = (
 /// Loads and pages the homepage feeds. Each async operation captures its tab
 /// and feed before the first await, so switching tabs can never redirect a
 /// late response into a different tab's cache.
+/// 推荐 tab 的成人推荐源：已启用、名字带 🔞、内容是小说或漫画的登记源。
+/// 只看登记信息（不探客户端）：取数时拿不到客户端或没有分类的源再跳过。
+/// 听书不在内（用户只点了小说与漫画），影视与未分类也不进阅读推荐。
+List<SourceEntry> adultRecommendSources(List<SourceEntry> entries) => [
+  for (final entry in entries)
+    if (entry.enabled &&
+        MidnightGate.isAdultName(entry.name) &&
+        (entry.contentType == ContentType.novel ||
+            entry.contentType == ContentType.comic))
+      entry,
+];
+
+/// 成人推荐卡：沿用站内条目字段，source 打 `engine:` 前缀，走站内详情链路
+/// （首页点卡按此前缀分流，不进番茄详情页）。
+MediaItem adultRecommendItem(DramaSiteItem item, SourceEntry entry) =>
+    MediaItem(
+      id: item.id,
+      title: item.title,
+      cover: item.cover,
+      author: '',
+      badge: '',
+      ep: item.remark,
+      kind: entry.contentType == ContentType.comic ? 'manga' : 'book',
+      seriesId: item.id,
+      source: 'engine:${entry.id}',
+    );
+
 class HomeNotifier extends Notifier<HomeState> {
   static const tabs = ['全部', '小说', '短剧', '漫剧', '漫画', '听书', '视频'];
   static const tabKinds = {
@@ -843,6 +873,57 @@ class HomeNotifier extends Notifier<HomeState> {
     );
   }
 
+  /// 推荐 tab 的成人推荐：门禁未开返回空；门禁已开时从成人小说 / 漫画源
+  /// 各取首分类第一页前 6 条，置于推荐流最前面。单源失败只跳过该源，
+  /// 整体 10 秒封顶，不拖慢推荐流；取不到源时推荐流保持原样。
+  Future<List<MediaItem>> _adultRecommendations() async {
+    try {
+      await SourceRegistry.instance.load();
+      await MidnightGate.ensureLoaded();
+      if (!MidnightGate.activated.value) return const [];
+      final sources =
+          adultRecommendSources(SourceRegistry.instance.custom);
+      final novels = sources
+          .where((entry) => entry.contentType == ContentType.novel)
+          .take(4);
+      final comics = sources
+          .where((entry) => entry.contentType == ContentType.comic)
+          .take(4);
+      Future<List<MediaItem>> fetch(SourceEntry entry) async {
+        try {
+          final client = await SourceRegistry.instance.clientFor(entry.id);
+          if (client == null) return const [];
+          final categories = await client.categories();
+          if (categories.isEmpty) return const [];
+          final page = await client.catalog(categories.first.id, 1);
+          return [
+            for (final item in page.items.take(6))
+              adultRecommendItem(item, entry),
+          ];
+        } catch (_) {
+          return const [];
+        }
+      }
+
+      final both = await Future.wait([
+        Future.wait(novels.map(fetch)),
+        Future.wait(comics.map(fetch)),
+      ]).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => const <List<List<MediaItem>>>[[], []],
+      );
+      final novelItems = [
+        for (final items in both[0]) ...items,
+      ].take(6);
+      final comicItems = [
+        for (final items in both[1]) ...items,
+      ].take(6);
+      return [...novelItems, ...comicItems];
+    } catch (_) {
+      return const [];
+    }
+  }
+
   /// "全部" combines the novel recommendation stream with first pages for
   /// the other supported categories.
   /// Loads the "全部" tab.
@@ -857,11 +938,18 @@ class HomeNotifier extends Notifier<HomeState> {
   /// stream fails outright, mixing the other sources keeps the tab usable
   /// instead of blanking it.
   Future<_FetchedFeed> _loadAllInitial() async {
+    // 成人推荐与小说推荐流并行取：门禁未开或取不到源时为空；整体 10 秒
+    // 封顶——登记或门禁读取万一拖住，也不挡主链路出首屏。
+    final adultFuture = _adultRecommendations().timeout(
+      const Duration(seconds: 10),
+      onTimeout: () => const <MediaItem>[],
+    );
     final recommendation = await _attempt(_loadInitial(1));
     final page = recommendation.value;
     if (page != null && (page.items.isNotEmpty || page.cells.isNotEmpty)) {
+      final adultItems = await adultFuture;
       return _FetchedFeed(
-        items: page.items,
+        items: [...adultItems, ...page.items],
         cells: page.cells,
         tabs: page.tabs,
         nextOffset: page.nextOffset,

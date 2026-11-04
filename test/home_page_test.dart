@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fqapp/models/home_cell.dart';
 import 'package:fqapp/models/media_item.dart';
@@ -15,6 +16,12 @@ import 'package:fqapp/widgets/home/home_shelf.dart';
 import 'package:fqapp/widgets/home/home_skeleton.dart';
 
 void main() {
+  // 推荐流现会读登记表与午夜门禁（偏好存储）：测试环境须先给空 mock，
+  // 否则未 mock 的平台通道调用挂起，拖住推荐流与测试收尾的计时器。
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
   testWidgets(
     'manju, manga and audio tabs show the matching feed after insertion',
     (tester) async {
