@@ -9,12 +9,22 @@ import 'midnight_gate.dart';
 /// 站号用 `localdb:<归一键>`，经 SourceRegistry.clientFor 解析；
 /// 同一站点的多入口（内置、采集、书源）读同一批记录。
 class LocalDbContentClient implements DramaSiteContentClient {
-  LocalDbContentClient({required this.dbSiteId, required this.dbSink});
+  LocalDbContentClient({
+    required this.dbSiteId,
+    required this.dbSink,
+    this.liveResolver,
+  });
 
   static const pageSize = 20;
 
   final String dbSiteId;
   final M3uExportDbSink dbSink;
+
+  /// 播放自动爬取：本地库记录没有可播地址时，现取原站地址的解析器。
+  /// 由 SourceRegistry 在创建本地库客户端时注入（它认得归一键到
+  /// 原站的映射）；为空时保持旧行为（直接报没有可播地址）。
+  /// 返回 null 表示原站也解析不出，不写库。
+  final Future<DramaPlaySource?> Function(String videoId)? liveResolver;
 
   Future<bool> _gateOpen() async {
     await MidnightGate.ensureLoaded();
@@ -109,10 +119,48 @@ class LocalDbContentClient implements DramaSiteContentClient {
     );
     if (record == null) throw StateError('本地库没有该视频');
     final url = resolveExportedPlayUrl(record);
-    if (url == null) {
-      throw StateError('没有可播地址：本地文件已删、线上地址已失效');
+    if (url != null) return DramaPlaySource(url: url);
+    // 播放自动爬取：浏览存库的记录只有元数据、没有地址，
+    // 播放时现取原站地址并回写进库，下次直接走库里地址。
+    final resolver = liveResolver;
+    if (resolver != null) {
+      try {
+        final live = await resolver(_plainVideoId(episode.videoId));
+        if (live != null) {
+          try {
+            await dbSink.saveExport(
+              siteId: dbSiteId,
+              siteName: record.siteName,
+              categories: const [],
+              videos: [
+                M3uExportVideoRecord(
+                  siteId: record.siteId,
+                  siteName: record.siteName,
+                  categoryId: record.categoryId,
+                  categoryName: record.categoryName,
+                  categoryPath: record.categoryPath,
+                  videoId: record.videoId,
+                  title: record.title,
+                  url: live.url,
+                  localPath: record.localPath,
+                  cover: record.cover,
+                  synopsis: record.synopsis,
+                  extra: record.extra,
+                  episodeCount: record.episodeCount,
+                  updatedAt: DateTime.now().millisecondsSinceEpoch,
+                ),
+              ],
+            );
+          } catch (_) {
+            // 回写失败不影响本次播放。
+          }
+          return live;
+        }
+      } catch (_) {
+        // 现取失败时落回旧报错。
+      }
     }
-    return DramaPlaySource(url: url);
+    throw StateError('没有可播地址：本地文件已删、线上地址已失效');
   }
 
   @override

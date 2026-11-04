@@ -1,9 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../models/media_item.dart';
 import '../../services/drama_site_content.dart';
 import '../../services/drama_site_play.dart';
 import '../../services/drama_sites.dart';
+import '../../services/m3u_export.dart';
+import '../../services/m3u_export_db.dart';
 import '../../services/midnight_gate.dart';
 import '../../services/xbpq_content.dart';
 import '../../services/source_registry.dart';
@@ -20,11 +24,30 @@ class DramaSiteGrid extends StatefulWidget {
     required this.siteId,
     required this.categoryId,
     required this.gridWidth,
+    this.client,
+    this.autoSaveToDb = false,
+    this.browseCategory,
+    this.dbSink,
   });
 
   final String siteId;
   final String categoryId;
   final double gridWidth;
+
+  /// 测试注入的客户端；为空时走登记表取客户端。
+  final DramaSiteContentClient? client;
+
+  /// 浏览自动爬取开关：只在浏览页打开，首页/影视/午夜网格默认不开。
+  /// 开启时每页取到的视频列表存进本地库（只插新条，见
+  /// saveBrowsedCatalogToDb）；dbSink 为空时不存。
+  final bool autoSaveToDb;
+
+  /// 当前分类对象（名、路径、父级），存库时用；为空时以 categoryId
+  /// 充当分类名。
+  final DramaSiteCategory? browseCategory;
+
+  /// 存库目标；为空时不存，避免测试与未传库的页面触到真实 Hive。
+  final M3uExportDbSink? dbSink;
 
   @override
   State<DramaSiteGrid> createState() => _DramaSiteGridState();
@@ -45,6 +68,27 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
   void _onGateChanged() {
     if (!mounted) return;
     _loadFirst();
+  }
+
+  /// 浏览自动存库：fire-and-forget，不等结果、不挡界面，
+  /// 写库失败由 helper 内部静默。
+  void _autoSave(List<DramaSiteItem> items) {
+    final dbSink = widget.dbSink;
+    if (!widget.autoSaveToDb || dbSink == null || items.isEmpty) return;
+    final category = widget.browseCategory ??
+        DramaSiteCategory(widget.categoryId, widget.categoryId);
+    final siteName =
+        SourceRegistry.instance.customById(widget.siteId)?.name ??
+            dramaSiteById(widget.siteId).name;
+    unawaited(
+      saveBrowsedCatalogToDb(
+        siteId: widget.siteId,
+        siteName: siteName,
+        category: category,
+        items: items,
+        dbSink: dbSink,
+      ),
+    );
   }
 
   Future<DramaSiteCatalogPage> _catalog(
@@ -182,7 +226,7 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
       });
       return;
     }
-    final client =
+    final client = widget.client ??
         await SourceRegistry.instance.clientFor(widget.siteId);
     if (!mounted) return;
     _client = client;
@@ -212,6 +256,7 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
         _hasMore = page.hasMore;
         _loading = false;
       });
+      _autoSave(page.items);
       if (page.hasMore) _prefetchNext(2);
     } catch (e) {
       if (!mounted) return;
@@ -234,6 +279,7 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
         _prefetchedPage = null;
         _prefetchedForPage = 0;
       });
+      _autoSave(prefetched.items);
       if (prefetched.hasMore) _prefetchNext(_page + 1);
       return;
     }
@@ -247,6 +293,7 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
         _hasMore = page.hasMore;
         _loadingMore = false;
       });
+      _autoSave(page.items);
       if (page.hasMore) _prefetchNext(_page + 1);
     } catch (_) {
       if (!mounted) return;

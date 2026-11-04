@@ -1104,6 +1104,31 @@ class SourceRegistry {
     await _persist();
   }
 
+  /// 归一键反查原站客户端：本地库播放现取地址时用。
+  /// 先按登记条目（内置/采集/书源）的归一键匹配，再按内置剧站匹配；
+  /// 找不到或原站不可用时回 null（播放保持旧报错）。
+  Future<DramaSiteContentClient?> _liveClientForCanonicalKey(
+    String key,
+  ) async {
+    await load();
+    for (final entry in custom) {
+      if (!entry.enabled) continue;
+      final entryKey = canonicalSiteKey(
+        siteId: entry.id,
+        address: entry.address,
+        addressIsSiteAddress: addressIsSiteAddressForKind(entry.kind.name),
+      );
+      if (entryKey == key) return clientFor(entry.id);
+    }
+    for (final site in allDramaSites) {
+      if (canonicalSiteKey(siteId: site.id) != key) continue;
+      if (!isBuiltinEnabled(site.id)) continue;
+      final client = dramaSiteContentClient(site.id);
+      if (client != null) return client;
+    }
+    return null;
+  }
+
   Future<DramaSiteContentClient?> clientFor(String siteId) async {
     if (siteId.startsWith('localdb:')) {
       // 本地库入口按归一键读库：同一站点的多入口（内置、采集、
@@ -1112,14 +1137,30 @@ class SourceRegistry {
       final raw = siteId.substring('localdb:'.length);
       await load();
       final custom = customById(raw);
+      final dbSiteId = canonicalSiteKey(
+        siteId: raw,
+        address: custom?.address ?? '',
+        addressIsSiteAddress: custom != null &&
+            addressIsSiteAddressForKind(custom.kind.name),
+      );
       return LocalDbContentClient(
-        dbSiteId: canonicalSiteKey(
-          siteId: raw,
-          address: custom?.address ?? '',
-          addressIsSiteAddress: custom != null &&
-              addressIsSiteAddressForKind(custom.kind.name),
-        ),
+        dbSiteId: dbSiteId,
         dbSink: HiveM3uExportDb.instance,
+        // 播放自动爬取：库里只有浏览存下的元数据、没有地址时，
+        // 现取原站地址并回写进库。
+        liveResolver: (videoId) async {
+          final live = custom != null
+              ? await clientFor(raw)
+              : await _liveClientForCanonicalKey(dbSiteId);
+          if (live == null) return null;
+          try {
+            final detail = await live.detail(videoId);
+            if (detail.episodes.isEmpty) return null;
+            return await live.playSource(detail.episodes.first);
+          } catch (_) {
+            return null;
+          }
+        },
       );
     }
     await load();
