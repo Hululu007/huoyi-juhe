@@ -10,7 +10,7 @@ import '../widgets/settings/settings_widgets.dart';
 
 /// About page styled after PiliPlus: centered logo/name header, a short
 /// intro paragraph, then grouped card rows (version, updates, licenses,
-/// source code, feedback, ...).
+/// source code, ...).
 class AboutPage extends StatelessWidget {
   const AboutPage({super.key});
 
@@ -206,16 +206,6 @@ class _AboutInfoCard extends StatelessWidget {
           subtitle: 'github.com/ch6vip/fqapp',
           onTap: () =>
               _launchExternalUrl(context, 'https://github.com/ch6vip/fqapp'),
-        ),
-        SettingsRow(
-          icon: LucideIcons.message_square,
-          iconTile: true,
-          title: '问题反馈',
-          subtitle: '前往 GitHub Issues 提交',
-          onTap: () => _launchExternalUrl(
-            context,
-            'https://github.com/ch6vip/fqapp/issues',
-          ),
         ),
       ],
     );

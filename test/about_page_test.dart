@@ -40,9 +40,9 @@ void main() {
     expect(find.text('GPL-3.0 与第三方组件许可'), findsOneWidget);
     expect(find.text('Source Code'), findsNothing);
     expect(find.text('源代码'), findsOneWidget);
-    expect(find.text('问题反馈'), findsOneWidget);
+    expect(find.text('问题反馈'), findsNothing);
     // 信息行统一走设置组件，不再使用 Material ListTile。
-    expect(find.byType(SettingsRow), findsNWidgets(5));
+    expect(find.byType(SettingsRow), findsNWidgets(4));
     expect(find.byType(ListTile), findsNothing);
 
     expect(find.text('支持作者'), findsNothing);
