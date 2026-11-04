@@ -221,7 +221,7 @@ String normalizeSiteUrl(String raw) {
 
 String siteOriginOf(String url) {
   final uri = Uri.parse(url);
-  return '${uri.scheme}://${uri.host}';
+  return uri.origin;
 }
 
 String siteKeyFromHost(String host) {
@@ -481,7 +481,7 @@ Future<OneClickIdentification> identifySite(
 }) async {
   final url = normalizeSiteUrl(rawUrl);
   final uri = Uri.parse(url);
-  final origin = '${uri.scheme}://${uri.host}';
+  final origin = uri.origin;
   final siteKey = siteKeyFromHost(uri.host);
   final siteName = displayNameFromHost(uri.host);
   final urlMatch = matchUrlPatterns(url);
@@ -2037,7 +2037,7 @@ Future<RegenResult> regenerateSiteDomain({
   }
   final url = normalizeSiteUrl(newDomain);
   final uri = Uri.parse(url);
-  final origin = '${uri.scheme}://${uri.host}';
+  final origin = uri.origin;
   final store = historyStore ?? OneClickHistoryStore();
   final history = await store.load();
   final httpClient = client ?? http.Client();
