@@ -94,26 +94,30 @@ test('the build scripts target Android ARM64 + ARMv7 with the project NDK and 16
   );
 });
 
-test('the APK workflow builds and verifies both ABIs', () => {
+test('the APK workflow builds and verifies the single arm64 ABI', () => {
   const workflow = fs.readFileSync(
     path.join(appDir, '.github', 'workflows', 'android-apk.yml'),
     'utf8',
   );
   assert.ok(
-    workflow.includes('armv7-linux-androideabi'),
-    'the APK workflow must install the 32-bit Rust target',
+    workflow.includes('--target-platform android-arm64'),
+    'the APK workflow must build a single arm64 APK',
   );
   assert.ok(
-    workflow.includes('--split-per-abi'),
-    'the APK workflow must split the APK per ABI instead of shipping one arm64-only package',
+    !workflow.includes('--split-per-abi'),
+    'the APK workflow must not split the APK per ABI',
   );
   assert.ok(
-    workflow.includes('app-$abi-release.apk') || workflow.includes('app-armeabi-v7a-release.apk'),
-    'the APK workflow must verify the 32-bit APK',
+    workflow.includes('app-arm64-v8a-release.apk'),
+    'the APK workflow must verify the arm64 APK',
   );
   assert.ok(
-    workflow.includes('fqapp-armv7-'),
-    'the APK workflow must upload a separate 32-bit artifact',
+    workflow.includes('fqapp-arm64-'),
+    'the APK workflow must upload the arm64 artifact',
+  );
+  assert.ok(
+    !workflow.includes('fqapp-armv7-'),
+    'the APK workflow must not upload a separate 32-bit artifact',
   );
 });
 

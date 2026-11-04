@@ -433,9 +433,9 @@ jobs:
       # resolved package config and the regenerated plugin registrant.
       - name: Compile release APK (ARM64 only)
         # Single architecture: arm64-v8a only. Chaquopy requires
-        # ndk.abiFilters, which AGP rejects whenever splits are set, so
-        # --split-per-abi is not used. Keep pub enabled to regenerate the
-        # release plugin registrant after tests.
+        # ndk.abiFilters, which AGP rejects whenever per-ABI splits are
+        # set, so no per-ABI split is used. Keep pub enabled to
+        # regenerate the release plugin registrant after tests.
         run: |
           flutter build apk --release --target-platform android-arm64
           # Normalize the output name: a single-ABI build normally yields
