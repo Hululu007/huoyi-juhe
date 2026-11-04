@@ -49,12 +49,12 @@ String decodeHttpBody(List<int> bytes, {String? contentType}) {
   if (contentType != null && _declaresGbk(contentType)) {
     return gbkDecode(bytes);
   }
+  final headLen = bytes.length < 2048 ? bytes.length : 2048;
+  final head = String.fromCharCodes(bytes.sublist(0, headLen));
+  if (_declaresGbk(head)) return gbkDecode(bytes);
   try {
     return utf8.decode(bytes);
   } catch (_) {
-    final headLen = bytes.length < 2048 ? bytes.length : 2048;
-    final head = String.fromCharCodes(bytes.sublist(0, headLen));
-    if (_declaresGbk(head)) return gbkDecode(bytes);
     return utf8.decode(bytes, allowMalformed: true);
   }
 }

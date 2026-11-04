@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/drama_site_content.dart';
 import '../services/source_registry.dart';
+import 'site_browse_page.dart';
 
 class SourceManagementPage extends StatefulWidget {
   const SourceManagementPage({super.key});
@@ -439,6 +440,17 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
     );
   }
 
+  /// 可浏览的导入源：有内容客户端的 legado/py/jar/js/xbpq 导入源；
+  /// 预置内置站不走这里（影视与午夜页已有它们的浏览入口）。
+  bool _browsable(SourceEntry entry) {
+    if (entry.extra['builtin'] == true) return false;
+    return entry.kind == SourceKind.legadoImport ||
+        entry.kind == SourceKind.pyImport ||
+        entry.kind == SourceKind.jarImport ||
+        entry.kind == SourceKind.jsImport ||
+        entry.kind == SourceKind.xbpqImport;
+  }
+
   Widget _customTile(SourceEntry entry) {
     final checking = _checking.contains(entry.id);
     final checkError = _checkResults[entry.id];
@@ -460,6 +472,19 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (_browsable(entry))
+            TextButton(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => SiteBrowsePage(
+                    siteId: entry.id,
+                    siteName: entry.name,
+                  ),
+                ),
+              ),
+              child: const Text('浏览'),
+            ),
           PopupMenuButton<ContentType>(
             icon: const Icon(Icons.category_outlined),
             tooltip: '改类型',

@@ -395,6 +395,26 @@ class _LegadoDoc {
   bool get isJson => json != null;
 }
 
+/// 挑战页判定：只认强标记，不区分大小写。小说正文里常见的裸“验证”
+/// 二字不在内，避免误杀。
+bool isChallengePage(String body) {
+  final lower = body.toLowerCase();
+  const markers = [
+    'challenges.cloudflare.com',
+    'cf-challenge',
+    'jschl',
+    'turnstile',
+    'attention required',
+    'just a moment',
+    '请完成安全验证',
+    '人机验证',
+    '验证您是人类',
+    'cf_clearance',
+    'ddos-guard',
+  ];
+  return markers.any(lower.contains);
+}
+
 class LegadoContentClient implements DramaSiteContentClient {
   LegadoContentClient(
     this.siteId,
@@ -448,10 +468,16 @@ class LegadoContentClient implements DramaSiteContentClient {
     if (response.statusCode != 200) {
       throw StateError('HTTP ${response.statusCode}');
     }
-    return decodeHttpBody(
+    final body = decodeHttpBody(
       response.bodyBytes,
       contentType: response.headers['content-type'],
     );
+    if (isChallengePage(body)) {
+      throw StateError(
+        '该源返回了验证页（浏览器挑战），引擎无法通过；建议换源或稍后重试',
+      );
+    }
+    return body;
   }
 
   String _resolve(String pageUrl, String ref) {
