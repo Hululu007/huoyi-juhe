@@ -141,6 +141,12 @@ def inspect_archive(archive: zipfile.ZipFile, abi: str) -> list[zipfile.ZipInfo]
             raise VerificationError(f"Unexpected APK ABI: {parts[1]!r} (expected {abi})")
         if not name.lower().endswith(".so"):
             continue
+        # Chaquopy loads its native code from its own assets directory at
+        # runtime (extracted to the app's private directory, never dlopen'd
+        # from the APK), so its files are not subject to the lib/<abi>/
+        # location rule that governs linker-loaded libraries.
+        if parts[0] == "assets" and len(parts) >= 2 and parts[1] == "chaquopy":
+            continue
         if (entry.is_dir() or len(parts) != 3 or parts[:2] != ["lib", abi]
                 or re.fullmatch(r"lib[A-Za-z0-9_.+\-]+\.so", parts[2]) is None):
             raise VerificationError(f"Native library has an unsupported APK location: {name!r}")

@@ -18,7 +18,7 @@ MISSING_MANIFEST = "DOES NOT VERIFY\nERROR: Missing META-INF/MANIFEST.MF\n"
 
 class SignatureClassificationTest(unittest.TestCase):
     def run_verifier(self, output=MISSING_MANIFEST, material=None, abi=None,
-                     fixture_abi=None):
+                     fixture_abi=None, chaquopy=False):
         with tempfile.TemporaryDirectory(prefix="fqapp-apk-signature-") as temporary:
             root = Path(temporary)
             apk = root / "fixture.apk"
@@ -27,6 +27,10 @@ class SignatureClassificationTest(unittest.TestCase):
             with zipfile.ZipFile(apk, "w") as archive:
                 for name in required:
                     archive.writestr(name, b"native fixture; ELF checker is isolated")
+                if chaquopy:
+                    archive.writestr(
+                        f"assets/chaquopy/bootstrap-native/{verify_abi}/_bz2.cpython-311.so",
+                        b"chaquopy fixture")
                 if material == "v1":
                     archive.writestr("META-INF/CERT.SF", b"broken signature fixture")
             if material == "v2":
@@ -65,6 +69,10 @@ class SignatureClassificationTest(unittest.TestCase):
         report = self.run_verifier()
         self.assertEqual(report["status"], "passed")
         self.assertFalse(report["signature"]["signed"])
+
+    def test_chaquopy_asset_libraries_are_allowed(self):
+        report = self.run_verifier(chaquopy=True)
+        self.assertEqual(report["status"], "passed")
 
     def test_armeabi_v7a_apk_verifies_with_its_own_abi(self):
         report = self.run_verifier(abi="armeabi-v7a")
