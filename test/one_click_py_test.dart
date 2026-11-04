@@ -197,12 +197,14 @@ void main() {
       expect(identification.template.code, 'T3');
     });
 
-    test('首页无信号报错', () async {
+    test('首页无信号时进试套模式而非直接判死', () async {
       final client = MockClient((_) async => _textResponse('<html></html>'));
-      await expectLater(
-        identifySite('https://example.com', client: client),
-        throwsA(isA<OneClickUnsupported>()),
+      final identification = await identifySite(
+        'https://example.com',
+        client: client,
       );
+      expect(identification.trialMode, isTrue);
+      expect(identification.trialCandidates, oneClickTrialOrder);
     });
 
     test('壳特征判不支持', () async {
@@ -291,6 +293,285 @@ void main() {
       );
       expect(identification.template.code, 'T9');
       expect(identification.apiLinks, isNotEmpty);
+    });
+  });
+
+  group('试套用', () {
+    const detailHtml =
+        '<html><head><title>文章甲标题</title></head><body>'
+        '<h1>文章甲标题</h1>'
+        '<p>这是一段超过十个字的正文内容，用来通过试套自检。</p>'
+        '<p>第二段正文内容同样超过十个字，可以继续凑字数。</p>'
+        '</body></html>';
+
+    MockClient trialClient({
+      required String sectionHtml,
+      required Map<String, String> pages,
+    }) {
+      return MockClient((request) async {
+        final url = request.url;
+        if (url.path.contains('api.php')) {
+          return _textResponse('not found', status: 404);
+        }
+        if (url.path == '/section') {
+          return _textResponse(sectionHtml);
+        }
+        final body = pages[url.path];
+        if (body != null) {
+          return _textResponse(body);
+        }
+        if ((url.path == '/' || url.path.isEmpty) &&
+            url.queryParameters.containsKey('s')) {
+          final searchBody = pages['/?s='];
+          if (searchBody != null) {
+            return _textResponse(searchBody);
+          }
+          return _textResponse('not found', status: 404);
+        }
+        if (url.path == '/' || url.path.isEmpty) {
+          return _textResponse('<html><body>欢迎</body></html>');
+        }
+        return _textResponse('not found', status: 404);
+      });
+    }
+
+    test('T5 试套成功且导入用胜出模板', () async {
+      final client = trialClient(
+        sectionHtml:
+            '<html><body><a href="/post/a">文章甲</a>'
+            '<a href="/post/b">文章乙</a></body></html>',
+        pages: {
+          '/post/a': detailHtml,
+          '/?s=':
+              '<html><body><a href="/post/a">文章甲</a></body></html>',
+        },
+      );
+      _ImportCall? captured;
+      final sink = _FakeDownloadSink();
+      final result = await generateAndImport(
+        url: 'https://example.com/section',
+        client: client,
+        downloadSink: sink,
+        importSite: ({
+          required name,
+          required source,
+          required contentType,
+          required fileBaseName,
+          required oneClick,
+          required String? downloadPath,
+        }) async {
+          captured = _ImportCall(
+            name: name,
+            source: source,
+            contentType: contentType,
+            fileBaseName: fileBaseName,
+            oneClick: oneClick,
+            downloadPath: downloadPath,
+          );
+          return SourceEntry(
+            id: 'trial_2',
+            name: name,
+            kind: SourceKind.pyImport,
+            detail: 'Python 蜘蛛 · 已导入',
+          );
+        },
+      );
+      expect(captured, isNotNull);
+      expect(captured!.source, contains('TMPL = "T5"'));
+      expect(result.identification.template.code, 'T5');
+      expect(result.identification.fallbackNote, contains('试套用'));
+      expect(result.identification.fallbackNote, contains('搜索通过'));
+      final saved = await OneClickHistoryStore().load();
+      expect(saved.first.templateCode, 'T5');
+    });
+
+    test('T3 试套成功：输入栏目页有文章改写分类', () async {
+      final client = trialClient(
+        sectionHtml:
+            '<html><body><a href="/arttype/12/">分类甲</a>'
+            '<a href="/arttype/13/">分类乙</a></body></html>',
+        pages: {
+          '/arttype/12/':
+              '<html><body><a href="/artdetail-abc/">文章甲</a>'
+              '<a href="/artdetail-def/">文章乙</a></body></html>',
+          '/artdetail-abc/': detailHtml,
+          '/artsearch/-------/':
+              '<html><body><a href="/artdetail-abc/">文章甲</a></body></html>',
+        },
+      );
+      _ImportCall? captured;
+      final result = await generateAndImport(
+        url: 'https://example.com/section',
+        client: client,
+        downloadSink: _FakeDownloadSink(),
+        importSite: ({
+          required name,
+          required source,
+          required contentType,
+          required fileBaseName,
+          required oneClick,
+          required String? downloadPath,
+        }) async {
+          captured = _ImportCall(
+            name: name,
+            source: source,
+            contentType: contentType,
+            fileBaseName: fileBaseName,
+            oneClick: oneClick,
+            downloadPath: downloadPath,
+          );
+          return SourceEntry(
+            id: 'trial_3',
+            name: name,
+            kind: SourceKind.pyImport,
+            detail: 'Python 蜘蛛 · 已导入',
+          );
+        },
+      );
+      expect(captured!.source, contains('TMPL = "T3"'));
+      expect(result.identification.template.code, 'T3');
+    });
+
+    test('T6 试套成功：输入栏目页带可播地址', () async {
+      final client = trialClient(
+        sectionHtml:
+            '<html><head><title>视频站标题</title></head><body>'
+            '<video src="http://cdn.example.com/a.m3u8"></video>'
+            '<a href="/v/1">视频一</a></body></html>',
+        pages: {
+          '/?s=':
+              '<html><body><a href="/v/1">视频一</a></body></html>',
+          '/a.m3u8': '#EXTM3U\n#EXTINF:10,\nseg.ts\n',
+        },
+      );
+      _ImportCall? captured;
+      final result = await generateAndImport(
+        url: 'https://example.com/section',
+        client: client,
+        downloadSink: _FakeDownloadSink(),
+        importSite: ({
+          required name,
+          required source,
+          required contentType,
+          required fileBaseName,
+          required oneClick,
+          required String? downloadPath,
+        }) async {
+          captured = _ImportCall(
+            name: name,
+            source: source,
+            contentType: contentType,
+            fileBaseName: fileBaseName,
+            oneClick: oneClick,
+            downloadPath: downloadPath,
+          );
+          return SourceEntry(
+            id: 'trial_6',
+            name: name,
+            kind: SourceKind.pyImport,
+            detail: 'Python 蜘蛛 · 已导入',
+          );
+        },
+      );
+      expect(captured!.source, contains('TMPL = "T6"'));
+      expect(result.identification.template.code, 'T6');
+    });
+
+    test('T9 试套成功：输入地址本身就是接口地址', () async {
+      final client = MockClient((request) async {
+        final url = request.url;
+        if (url.path.contains('api.php')) {
+          return _textResponse('not found', status: 404);
+        }
+        if (url.path == '/api/media') {
+          if (url.queryParameters.containsKey('id')) {
+            return _textResponse(
+              '{"vod_id":1,"vod_name":"剧目甲","play_url":"http://cdn.example.com/a.m3u8"}',
+            );
+          }
+          return _textResponse(
+            '{"list":[{"vod_id":1,"vod_name":"剧目甲","vod_pic":"http://x/y.jpg"}]}',
+          );
+        }
+        if (url.path == '/a.m3u8') {
+          return _textResponse('#EXTM3U\n#EXTINF:10,\nseg.ts\n');
+        }
+        if (url.path == '/') {
+          return _textResponse('<html><body>欢迎</body></html>');
+        }
+        return _textResponse('not found', status: 404);
+      });
+      _ImportCall? captured;
+      final result = await generateAndImport(
+        url: 'https://example.com/api/media',
+        client: client,
+        downloadSink: _FakeDownloadSink(),
+        importSite: ({
+          required name,
+          required source,
+          required contentType,
+          required fileBaseName,
+          required oneClick,
+          required String? downloadPath,
+        }) async {
+          captured = _ImportCall(
+            name: name,
+            source: source,
+            contentType: contentType,
+            fileBaseName: fileBaseName,
+            oneClick: oneClick,
+            downloadPath: downloadPath,
+          );
+          return SourceEntry(
+            id: 'trial_4',
+            name: name,
+            kind: SourceKind.pyImport,
+            detail: 'Python 蜘蛛 · 已导入',
+          );
+        },
+      );
+      expect(captured!.source, contains('TMPL = "T9"'));
+      expect(captured!.source, contains('https://example.com/api/media'));
+      expect(result.identification.template.code, 'T9');
+    });
+
+    test('试套全败时报套不上且不导入不记历史', () async {
+      var imported = false;
+      final client = MockClient(
+        (_) async => _textResponse('<html></html>'),
+      );
+      await expectLater(
+        generateAndImport(
+          url: 'https://example.com',
+          client: client,
+          downloadSink: _FakeDownloadSink(),
+          importSite: ({
+            required name,
+            required source,
+            required contentType,
+            required fileBaseName,
+            required oneClick,
+            required String? downloadPath,
+          }) async {
+            imported = true;
+            return SourceEntry(
+              id: 'trial_5',
+              name: name,
+              kind: SourceKind.pyImport,
+              detail: 'Python 蜘蛛 · 已导入',
+            );
+          },
+        ),
+        throwsA(
+          isA<OneClickUnsupported>().having(
+            (error) => error.message,
+            'message',
+            contains('试套不上'),
+          ),
+        ),
+      );
+      expect(imported, isFalse);
+      expect(await OneClickHistoryStore().load(), isEmpty);
     });
   });
 

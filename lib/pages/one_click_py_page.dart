@@ -314,12 +314,18 @@ class _OneClickPyPageState extends State<OneClickPyPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '模板：${identification.template.code} '
-                      '${identification.template.name} · '
-                      '${identification.template.levelLabel}',
+                      identification.trialMode
+                          ? '模板：试套用（按 T1、T3、T5、T6、T9 顺序自检）'
+                          : '模板：${identification.template.code} '
+                              '${identification.template.name} · '
+                              '${identification.template.levelLabel}',
                     ),
                     const SizedBox(height: 4),
-                    Text(identification.template.note),
+                    Text(
+                      identification.trialMode
+                          ? '未命中已知模板，生成时逐项自检，验过才导入，不过如实报套不上。'
+                          : identification.template.note,
+                    ),
                     if (identification.fallbackNote != null) ...[
                       const SizedBox(height: 4),
                       Text(identification.fallbackNote!),

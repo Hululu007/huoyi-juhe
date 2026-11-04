@@ -160,6 +160,9 @@ class OneClickIdentification {
     required this.siteName,
     this.apiLinks = const [],
     this.fallbackNote,
+    this.trialCandidates = const [],
+    this.homeHtml = '',
+    this.inputUrl = '',
   });
 
   final OneClickTemplateInfo template;
@@ -168,7 +171,24 @@ class OneClickIdentification {
   final String siteName;
   final List<String> apiLinks;
   final String? fallbackNote;
+
+  /// 试套用候选（按优先顺序）：非空即试套模式，template 只是占位，
+  /// 生成前必须逐项自检，验过才换成胜出模板导入，不过则报套不上。
+  final List<String> trialCandidates;
+
+  /// 识别时抓到的首页（或输入页）HTML，试套自检直接复用，不重抓。
+  final String homeHtml;
+
+  /// 用户输入的归一化网址：试套 T9 时可把它本身当接口地址探一次
+  /// （登记表仅见接口地址的站，用户往往直接贴接口地址）。
+  final String inputUrl;
+
+  bool get trialMode => trialCandidates.isNotEmpty;
 }
+
+/// 试套用优先顺序（用户定）：T1 全自动探针已在识别时跑过，试套时
+/// 再跑一次不亏；其余按文章、WP、通用视频、站内接口排。
+const oneClickTrialOrder = ['T1', 'T3', 'T5', 'T6', 'T9'];
 
 String normalizeSiteUrl(String raw) {
   var text = raw.trim();
@@ -440,7 +460,7 @@ const _unsupportedMessages = {
   'shell': '壳混淆站：混淆层需逐站复现，需完整流程，暂不支持一键生成。',
   'nextjs': 'Next.js RSC 视频站：对象字段分型需人工钉，不在首版范围，暂不支持一键生成。',
   'unknown':
-      '无法识别该站模板：请确认输入的是站点首页或分类、详情页地址。App 签名接口、壳混淆站、YouTube 系、果源系列与未活验站不在一键首版范围，如属此类请走完整流程。',
+      '无法识别该站模板：请确认输入的是站点首页或分类、详情页地址。',
 };
 
 OneClickUnsupported unsupportedFor(String kind) {
@@ -548,17 +568,19 @@ Future<OneClickIdentification> identifySite(
     }
     if (scored.templateCode != null) {
       final template = oneClickTemplates[scored.templateCode!]!;
-      if ((template.code == 'T9' || template.code == 'T13') &&
-          scored.apiLinks.isEmpty) {
-        throw StateError('未探到接口路径，需人工钉接口');
+      final linksMissing =
+          (template.code == 'T9' || template.code == 'T13') &&
+          scored.apiLinks.isEmpty;
+      if (!linksMissing) {
+        return OneClickIdentification(
+          template: template,
+          origin: origin,
+          siteKey: siteKey,
+          siteName: siteName,
+          apiLinks: scored.apiLinks,
+        );
       }
-      return OneClickIdentification(
-        template: template,
-        origin: origin,
-        siteKey: siteKey,
-        siteName: siteName,
-        apiLinks: scored.apiLinks,
-      );
+      // 接口路径未探到：不直接判死，落到试套用。
     }
     if (scored.videoMarkers) {
       return OneClickIdentification(
@@ -569,12 +591,760 @@ Future<OneClickIdentification> identifySite(
         fallbackNote: '未命中已知模板，按通用 HTML 视频骨架试写套用，播放选择器可能需人工钉。',
       );
     }
-    throw unsupportedFor('unknown');
+    // 无对应模板的站不再直接判不支持：返回试套模式，生成时按
+    // T1、T3、T5、T6、T9 顺序逐项自检，验过才导入，不过报套不上。
+    return OneClickIdentification(
+      template: oneClickTemplates['T1']!,
+      origin: origin,
+      siteKey: siteKey,
+      siteName: siteName,
+      apiLinks: scored.apiLinks,
+      fallbackNote:
+          '未命中已知模板，生成时按 T1、T3、T5、T6、T9 顺序试套，逐项自检，验过才导入，不过如实报套不上。',
+      trialCandidates: oneClickTrialOrder,
+      homeHtml: home,
+      inputUrl: url,
+    );
   } finally {
     if (client == null) {
       httpClient.close();
     }
   }
+}
+
+const _trialUa =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
+
+Future<String> _trialFetch(
+  http.Client client,
+  String url,
+  String referer,
+) async {
+  try {
+    final response = await client
+        .get(Uri.parse(url), headers: {'User-Agent': _trialUa, 'Referer': referer})
+        .timeout(const Duration(seconds: 15));
+    if (response.statusCode != 200) {
+      return '';
+    }
+    return utf8.decode(response.bodyBytes, allowMalformed: true);
+  } catch (_) {
+    return '';
+  }
+}
+
+List<(String, String)> _trialLinks(String html) {
+  final found = <(String, String)>[];
+  for (final match in RegExp(
+    r'<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
+    dotAll: true,
+  ).allMatches(html)) {
+    final href = match.group(1)!;
+    var name = match.group(2)!.replaceAll(RegExp(r'<[^>]+>'), '').trim();
+    if (name.isEmpty) {
+      final title = RegExp(r'title="([^"]+)"').firstMatch(match.group(0)!);
+      if (title != null) {
+        name = title.group(1)!;
+      }
+    }
+    if (href.isNotEmpty && name.isNotEmpty) {
+      found.add((href, name));
+    }
+  }
+  return found;
+}
+
+List<(String, String)> _trialCards(String html, RegExp? pattern) {
+  return [
+    for (final link in _trialLinks(html))
+      if (pattern == null || pattern.hasMatch(link.$1)) link,
+  ];
+}
+
+String _trialAbs(String origin, String href) {
+  if (href.startsWith('http')) {
+    return href;
+  }
+  if (href.startsWith('//')) {
+    return 'https:$href';
+  }
+  return origin + (href.startsWith('/') ? href : '/$href');
+}
+
+String _trialTitle(String html) {
+  final h1 = RegExp(
+    r'<h1[^>]*>(.*?)</h1>',
+    dotAll: true,
+  ).firstMatch(html);
+  if (h1 != null) {
+    final text = h1.group(1)!.replaceAll(RegExp(r'<[^>]+>'), '').trim();
+    if (text.isNotEmpty) {
+      return text;
+    }
+  }
+  final title = RegExp(
+    r'<title>(.*?)</title>',
+    dotAll: true,
+  ).firstMatch(html);
+  if (title != null) {
+    return title.group(1)!.replaceAll(RegExp(r'<[^>]+>'), '').trim();
+  }
+  return '';
+}
+
+String _trialText(String html) {
+  final texts = <String>[];
+  for (final match in RegExp(
+    r'<p[^>]*>(.*?)</p>',
+    dotAll: true,
+  ).allMatches(html)) {
+    final text = match.group(1)!.replaceAll(RegExp(r'<[^>]+>'), '').trim();
+    if (text.length > 10) {
+      texts.add(text);
+    }
+  }
+  if (texts.isNotEmpty) {
+    return texts.join('\n');
+  }
+  final body = RegExp(
+    r'<body[^>]*>(.*?)</body>',
+    dotAll: true,
+  ).firstMatch(html);
+  if (body == null) {
+    return '';
+  }
+  return body
+      .group(1)!
+      .replaceAll(RegExp(r'<[^>]+>'), '')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+}
+
+List<String> _trialImages(String origin, String html) {
+  final urls = <String>[];
+  for (final match in RegExp(r'<img[^>]+src="([^"]+)"').allMatches(html)) {
+    final url = _trialAbs(origin, match.group(1)!);
+    if (!urls.contains(url)) {
+      urls.add(url);
+    }
+  }
+  return urls;
+}
+
+List<String> _trialMediaUrls(String html) {
+  final urls = <String>[];
+  for (final pattern in [
+    r'''https?://[^"'\s<>]+\.m3u8[^"'\s<>]*''',
+    r'''https?://[^"'\s<>]+\.mp4[^"'\s<>]*''',
+    r'''https?://[^"'\s<>]+\.mp3[^"'\s<>]*''',
+    r'''https?://[^"'\s<>]+\.webm[^"'\s<>]*''',
+    r'''https?://[^"'\s<>]+\.m4a[^"'\s<>]*''',
+    r'data-m3u8="([^"]+)"',
+    r'<source[^>]+src="([^"]+)"',
+  ]) {
+    for (final match in RegExp(pattern).allMatches(html)) {
+      final url = match.groupCount >= 1
+          ? (match.group(1) ?? match.group(0)!)
+          : match.group(0)!;
+      if (url.isNotEmpty && !urls.contains(url)) {
+        urls.add(url);
+      }
+    }
+  }
+  return urls;
+}
+
+List<Object?> _trialJsonList(Object? obj) {
+  if (obj is List) {
+    return obj;
+  }
+  if (obj is Map) {
+    for (final key in ['list', 'data', 'rows', 'items', 'results']) {
+      final value = obj[key];
+      if (value is List) {
+        return value;
+      }
+      if (value is Map) {
+        final inner = _trialJsonList(value);
+        if (inner.isNotEmpty) {
+          return inner;
+        }
+      }
+    }
+  }
+  return const [];
+}
+
+List<Map<String, dynamic>> _trialJsonRows(String body) {
+  try {
+    final decoded = jsonDecode(body);
+    final list = _trialJsonList(decoded);
+    return [
+      for (final row in list)
+        if (row is Map) Map<String, dynamic>.from(row),
+    ];
+  } catch (_) {
+    return const [];
+  }
+}
+
+Map<String, dynamic>? _trialJsonDetail(String body) {
+  try {
+    final decoded = jsonDecode(body);
+    if (decoded is Map) {
+      final rows = _trialJsonRows(body);
+      if (rows.isNotEmpty) {
+        return rows.first;
+      }
+      return Map<String, dynamic>.from(decoded);
+    }
+    if (decoded is List && decoded.isNotEmpty && decoded.first is Map) {
+      return Map<String, dynamic>.from(decoded.first);
+    }
+  } catch (_) {}
+  return null;
+}
+
+String _trialRowString(Map<String, dynamic> row, List<String> keys) {
+  for (final key in keys) {
+    final value = row[key];
+    if (value != null && '$value'.isNotEmpty) {
+      return '$value';
+    }
+  }
+  return '';
+}
+
+String _trialKeyword(String title) {
+  final cleaned = title.replaceAll(RegExp(r'\s+'), '');
+  if (cleaned.isEmpty) {
+    return '';
+  }
+  return cleaned.length >= 2 ? cleaned.substring(0, 2) : cleaned;
+}
+
+/// 取流实测：只读首个数据块就断流，不下载整文件；按扩展名验魔数，
+/// m3u8 认 #EXTM3U，mp4 认 ftyp，mp3 认 ID3 或帧头，webm 认 EBML 头，
+/// 其他扩展名只认状态 200/206 与非空首块。
+Future<bool> _trialMediaOk(
+  http.Client client,
+  String url,
+  String referer,
+) async {
+  try {
+    final request = http.Request('GET', Uri.parse(url));
+    request.headers['User-Agent'] = _trialUa;
+    request.headers['Referer'] = referer;
+    request.headers['Range'] = 'bytes=0-4095';
+    final streamed = await client
+        .send(request)
+        .timeout(const Duration(seconds: 15));
+    if (streamed.statusCode != 200 && streamed.statusCode != 206) {
+      return false;
+    }
+    final chunk = await streamed.stream.first.timeout(
+      const Duration(seconds: 15),
+    );
+    if (chunk.isEmpty) {
+      return false;
+    }
+    final lower = url.toLowerCase().split('?').first;
+    if (lower.endsWith('.m3u8')) {
+      return utf8.decode(chunk, allowMalformed: true).contains('#EXTM3U');
+    }
+    if (lower.endsWith('.mp4') ||
+        lower.endsWith('.mov') ||
+        lower.endsWith('.m4v')) {
+      return utf8.decode(chunk, allowMalformed: true).contains('ftyp');
+    }
+    if (lower.endsWith('.mp3')) {
+      return chunk.length >= 3 &&
+          (utf8.decode(chunk.sublist(0, 3), allowMalformed: true) == 'ID3' ||
+              (chunk[0] == 0xFF && (chunk[1] & 0xE0) == 0xE0));
+    }
+    if (lower.endsWith('.webm')) {
+      return chunk.length >= 4 &&
+          chunk[0] == 0x1A &&
+          chunk[1] == 0x45 &&
+          chunk[2] == 0xDF &&
+          chunk[3] == 0xA3;
+    }
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+class OneClickTrialAttempt {
+  const OneClickTrialAttempt({
+    required this.code,
+    required this.passed,
+    required this.failedStep,
+    required this.summary,
+    this.effectiveApiLinks = const [],
+  });
+
+  final String code;
+  final bool passed;
+  final String failedStep;
+  final String summary;
+  final List<String> effectiveApiLinks;
+}
+
+class OneClickTrialOutcome {
+  const OneClickTrialOutcome({this.winner, required this.attempts});
+
+  final OneClickIdentification? winner;
+  final List<OneClickTrialAttempt> attempts;
+}
+
+class _TrialCtx {
+  _TrialCtx({
+    required this.identification,
+    required this.content,
+    required this.client,
+    required this.homeHtml,
+  });
+
+  final OneClickIdentification identification;
+  final OneClickContent content;
+  final http.Client client;
+
+  /// 识别首页与输入页拼起来的待验 HTML：首页无信号的站，输入页
+  ///（栏目页、接口地址页）往往才有分类与卡片，单看首页会漏掉。
+  final String homeHtml;
+
+  String get origin => identification.origin;
+  String get referer => '$origin/';
+
+  Future<String> fetch(String url) => _trialFetch(client, url, referer);
+}
+
+/// 详情完整性（按生效类型）：标题必填；小说要正文、漫画要章节
+/// 链接或图片、视频与听书要可播地址。小说与漫画的取流由详情直接
+/// 构造（novel://、pics://），详情通过即取流通过。
+bool _trialDetailOk(String html, String origin, OneClickContent content) {
+  if (_trialTitle(html).isEmpty) {
+    return false;
+  }
+  switch (content) {
+    case OneClickContent.novel:
+      return _trialText(html).length >= 10;
+    case OneClickContent.comic:
+      final chapters = _trialCards(html, RegExp(r'(chapter|detail|/ch/)'));
+      return chapters.isNotEmpty || _trialImages(origin, html).isNotEmpty;
+    case OneClickContent.video:
+    case OneClickContent.audio:
+      return _trialMediaUrls(html).isNotEmpty;
+  }
+}
+
+OneClickTrialAttempt _trialFail(String code, String step, String summary) {
+  return OneClickTrialAttempt(
+    code: code,
+    passed: false,
+    failedStep: step,
+    summary: summary,
+  );
+}
+
+OneClickTrialAttempt _trialPass(
+  String code,
+  String summary, {
+  List<String> effectiveApiLinks = const [],
+}) {
+  return OneClickTrialAttempt(
+    code: code,
+    passed: true,
+    failedStep: '',
+    summary: summary,
+    effectiveApiLinks: effectiveApiLinks,
+  );
+}
+
+Future<OneClickTrialAttempt> _verifyTrialT1(_TrialCtx ctx) async {
+  const code = 'T1';
+  if (ctx.content != OneClickContent.video) {
+    return _trialFail(code, '类型不符', '该模板只出视频流，与所选类型不符');
+  }
+  String api(String params) => '${ctx.origin}/api.php/provide/vod/?$params';
+  final rows = _trialJsonRows(await ctx.fetch(api('ac=list')));
+  if (rows.isEmpty) {
+    return _trialFail(code, '分类首页无数据', '接口 ac=list 未返回列表');
+  }
+  final page2 = _trialJsonRows(await ctx.fetch(api('ac=list&pg=2')));
+  final pageNote = page2.isNotEmpty ? '翻页通过' : '翻页未验（第二页无数据，可能单页）';
+  final firstId = _trialRowString(rows.first, ['vod_id', 'id', 'vid', 'aid']);
+  if (firstId.isEmpty) {
+    return _trialFail(code, '详情无编号', '列表首条无编号，无法取详情');
+  }
+  final detail = _trialJsonDetail(
+    await ctx.fetch(api('ac=detail&ids=${Uri.encodeComponent(firstId)}')),
+  );
+  if (detail == null) {
+    return _trialFail(code, '详情无数据', '详情接口未返回数据');
+  }
+  final name = _trialRowString(detail, ['vod_name', 'name', 'title']);
+  var playUrl = _trialRowString(detail, ['vod_play_url', 'play_url']);
+  if (playUrl.contains('#')) {
+    playUrl = playUrl.split('#').first;
+  }
+  if (playUrl.contains('\$')) {
+    playUrl = playUrl.split('\$').last;
+  }
+  if (playUrl.isEmpty) {
+    playUrl = _trialRowString(rows.first, ['vod_play_url', 'play_url']);
+    if (playUrl.contains('#')) {
+      playUrl = playUrl.split('#').first;
+    }
+    if (playUrl.contains('\$')) {
+      playUrl = playUrl.split('\$').last;
+    }
+  }
+  if (name.isEmpty ||
+      (playUrl.isEmpty &&
+          _trialRowString(detail, ['vod_pic', 'pic']).isEmpty)) {
+    return _trialFail(code, '详情无数据', '详情接口未返回标题与播放地址');
+  }
+  final keyword = _trialKeyword(name);
+  if (keyword.isEmpty) {
+    return _trialFail(code, '搜索无关键词', '详情无标题，无法构造搜索关键词');
+  }
+  final searchRows = _trialJsonRows(
+    await ctx.fetch(api('ac=list&wd=${Uri.encodeComponent(keyword)}&pg=1')),
+  );
+  if (searchRows.isEmpty) {
+    return _trialFail(code, '搜索无结果', '搜索接口未返回结果');
+  }
+  if (playUrl.isEmpty || !playUrl.startsWith('http')) {
+    return _trialFail(code, '取流无地址', '详情无 http 播放地址');
+  }
+  final ok = await _trialMediaOk(ctx.client, playUrl, ctx.referer);
+  if (!ok) {
+    return _trialFail(code, '取流首字节未通过', '播放地址首字节校验未通过');
+  }
+  return _trialPass(code, '分类首页通过、$pageNote、详情通过、搜索通过、取流通过');
+}
+
+Future<OneClickTrialAttempt> _verifyTrialT3(_TrialCtx ctx) async {
+  const code = 'T3';
+  final categories = _trialCards(
+    ctx.homeHtml,
+    RegExp(r'/arttype/'),
+  );
+  if (categories.isEmpty) {
+    return _trialFail(code, '分类首页无分类', '首页无 /arttype/ 分类链接');
+  }
+  final catHtml = await ctx.fetch(
+    _trialAbs(ctx.origin, categories.first.$1),
+  );
+  final cards = _trialCards(catHtml, RegExp(r'/artdetail-'));
+  if (cards.isEmpty) {
+    return _trialFail(code, '目录无文章', '分类页无 /artdetail- 文章卡片');
+  }
+  var pageNote = '翻页未验';
+  final catId = RegExp(
+    r'/arttype/(\d+)/',
+  ).firstMatch(categories.first.$1)?.group(1);
+  if (catId != null) {
+    final page2 = _trialCards(
+      await ctx.fetch('${ctx.origin}/arttype/$catId-2/'),
+      RegExp(r'/artdetail-'),
+    );
+    pageNote = page2.isNotEmpty ? '翻页通过' : '翻页未验（第二页无数据，可能单页）';
+  }
+  final detailHtml = await ctx.fetch(
+    _trialAbs(ctx.origin, cards.first.$1),
+  );
+  if (!_trialDetailOk(detailHtml, ctx.origin, ctx.content)) {
+    return _trialFail(code, '详情不完整', '详情页标题或正文、图片、可播地址缺失');
+  }
+  final keyword = _trialKeyword(_trialTitle(detailHtml));
+  if (keyword.isEmpty) {
+    return _trialFail(code, '搜索无关键词', '详情无标题，无法构造搜索关键词');
+  }
+  final searchCards = _trialCards(
+    await ctx.fetch(
+      '${ctx.origin}/artsearch/-------/?wd=${Uri.encodeComponent(keyword)}',
+    ),
+    RegExp(r'/artdetail-'),
+  );
+  if (searchCards.isEmpty) {
+    return _trialFail(code, '搜索无结果', '搜索页无 /artdetail- 结果卡片');
+  }
+  if (ctx.content == OneClickContent.video ||
+      ctx.content == OneClickContent.audio) {
+    final media = _trialMediaUrls(detailHtml);
+    if (media.isEmpty) {
+      return _trialFail(code, '详情无可播地址', '详情页无可播地址');
+    }
+    final ok = await _trialMediaOk(ctx.client, media.first, ctx.referer);
+    if (!ok) {
+      return _trialFail(code, '取流首字节未通过', '播放地址首字节校验未通过');
+    }
+    return _trialPass(code, '分类首页通过、$pageNote、详情通过、搜索通过、取流通过');
+  }
+  return _trialPass(code, '分类首页通过、$pageNote、详情通过、搜索通过、取流随详情通过');
+}
+
+Future<OneClickTrialAttempt> _verifyTrialT5(_TrialCtx ctx) async {
+  const code = 'T5';
+  final cards = _trialCards(
+    ctx.homeHtml,
+    RegExp(r'/(post|article)/'),
+  );
+  if (cards.isEmpty) {
+    return _trialFail(code, '分类首页无文章卡片', '首页无 /post/、/article/ 文章卡片');
+  }
+  final page2 = _trialCards(
+    await ctx.fetch('${ctx.origin}/page/2/'),
+    RegExp(r'/(post|article)/'),
+  );
+  final pageNote = page2.isNotEmpty ? '翻页通过' : '翻页未验（第二页无数据，可能单页）';
+  final detailHtml = await ctx.fetch(
+    _trialAbs(ctx.origin, cards.first.$1),
+  );
+  if (!_trialDetailOk(detailHtml, ctx.origin, ctx.content)) {
+    return _trialFail(code, '详情不完整', '详情页标题或正文、图片、可播地址缺失');
+  }
+  final keyword = _trialKeyword(_trialTitle(detailHtml));
+  if (keyword.isEmpty) {
+    return _trialFail(code, '搜索无关键词', '详情无标题，无法构造搜索关键词');
+  }
+  final searchCards = _trialCards(
+    await ctx.fetch('${ctx.origin}/?s=${Uri.encodeComponent(keyword)}'),
+    RegExp(r'/(post|article)/'),
+  );
+  if (searchCards.isEmpty) {
+    return _trialFail(code, '搜索无结果', '搜索页无文章结果卡片');
+  }
+  if (ctx.content == OneClickContent.video ||
+      ctx.content == OneClickContent.audio) {
+    final media = _trialMediaUrls(detailHtml);
+    if (media.isEmpty) {
+      return _trialFail(code, '详情无可播地址', '详情页无可播地址');
+    }
+    final ok = await _trialMediaOk(ctx.client, media.first, ctx.referer);
+    if (!ok) {
+      return _trialFail(code, '取流首字节未通过', '播放地址首字节校验未通过');
+    }
+    return _trialPass(code, '分类首页通过、$pageNote、详情通过、搜索通过、取流通过');
+  }
+  return _trialPass(code, '分类首页通过、$pageNote、详情通过、搜索通过、取流随详情通过');
+}
+
+Future<OneClickTrialAttempt> _verifyTrialT6(_TrialCtx ctx) async {
+  const code = 'T6';
+  var media = _trialMediaUrls(ctx.homeHtml);
+  var detailHtml = ctx.homeHtml;
+  if (media.isEmpty) {
+    final cards = _trialLinks(ctx.homeHtml);
+    if (cards.isEmpty) {
+      return _trialFail(code, '分类首页无卡片', '首页无卡片与可播地址');
+    }
+    detailHtml = await ctx.fetch(
+      _trialAbs(ctx.origin, cards.first.$1),
+    );
+    media = _trialMediaUrls(detailHtml);
+    if (media.isEmpty) {
+      return _trialFail(code, '详情无可播地址', '首页首卡详情页无可播地址');
+    }
+  }
+  final title = _trialTitle(detailHtml);
+  if (title.isEmpty) {
+    return _trialFail(code, '详情无标题', '可播页无标题');
+  }
+  final keyword = _trialKeyword(title);
+  if (keyword.isEmpty) {
+    return _trialFail(code, '搜索无关键词', '可播页无标题，无法构造搜索关键词');
+  }
+  final searchCards = _trialLinks(
+    await ctx.fetch('${ctx.origin}/?s=${Uri.encodeComponent(keyword)}'),
+  );
+  if (searchCards.isEmpty) {
+    return _trialFail(code, '搜索无结果', '搜索页无结果卡片');
+  }
+  final ok = await _trialMediaOk(ctx.client, media.first, ctx.referer);
+  if (!ok) {
+    return _trialFail(code, '取流首字节未通过', '播放地址首字节校验未通过');
+  }
+  return _trialPass(code, '分类首页通过、模板不分页、详情通过、搜索通过、取流通过');
+}
+
+Future<OneClickTrialAttempt> _verifyTrialT9(_TrialCtx ctx) async {
+  const code = 'T9';
+  if (ctx.content != OneClickContent.video &&
+      ctx.content != OneClickContent.audio) {
+    return _trialFail(code, '类型不符', '该模板只出视频与音频流，与所选类型不符');
+  }
+  final links = <String>[...ctx.identification.apiLinks];
+  final inputUrl = ctx.identification.inputUrl;
+  if (inputUrl.isNotEmpty && inputUrl != ctx.origin && !links.contains(inputUrl)) {
+    links.add(inputUrl);
+  }
+  if (links.isEmpty) {
+    return _trialFail(code, '未探到接口路径', '首页无 /api/ 链接，输入地址也不是接口地址');
+  }
+  String? working;
+  List<Map<String, dynamic>> rows = const [];
+  for (final link in links) {
+    final probes = <String>[];
+    if (link == inputUrl) {
+      probes.add(link);
+    }
+    final sep = link.contains('?') ? '&' : '?';
+    probes.add('$link${sep}page=1');
+    for (final probe in probes) {
+      final probed = _trialJsonRows(await ctx.fetch(probe));
+      if (probed.isNotEmpty) {
+        working = link;
+        rows = probed;
+        break;
+      }
+    }
+    if (working != null) {
+      break;
+    }
+  }
+  if (working == null) {
+    return _trialFail(code, '接口无数据', '接口探针未返回列表');
+  }
+  final sep = working.contains('?') ? '&' : '?';
+  final page2 = _trialJsonRows(await ctx.fetch('$working${sep}page=2'));
+  final pageNote = page2.isNotEmpty ? '翻页通过' : '翻页未验（第二页无数据，可能单页）';
+  final firstId = _trialRowString(rows.first, ['vod_id', 'id', 'vid', 'aid']);
+  Map<String, dynamic>? detail;
+  if (firstId.isNotEmpty) {
+    for (final param in ['id', 'album_id', 'albumId']) {
+      detail = _trialJsonDetail(
+        await ctx.fetch('$working$sep$param=${Uri.encodeComponent(firstId)}'),
+      );
+      if (detail != null) {
+        break;
+      }
+    }
+  }
+  detail ??= rows.first;
+  final name = _trialRowString(detail, ['vod_name', 'name', 'title']);
+  final media = _trialRowString(detail, [
+    'url',
+    'play_url',
+    'video_url',
+    'm3u8',
+    'mp4',
+    'audio_url',
+    'src',
+  ]);
+  if (name.isEmpty) {
+    return _trialFail(code, '详情无数据', '详情接口未返回标题');
+  }
+  final keyword = _trialKeyword(name);
+  if (keyword.isEmpty) {
+    return _trialFail(code, '搜索无关键词', '详情无标题，无法构造搜索关键词');
+  }
+  var searchOk = false;
+  for (final param in ['q', 'key', 'wd', 'keyword']) {
+    final searchRows = _trialJsonRows(
+      await ctx.fetch('$working$sep$param=${Uri.encodeComponent(keyword)}'),
+    );
+    if (searchRows.isNotEmpty) {
+      searchOk = true;
+      break;
+    }
+  }
+  if (!searchOk) {
+    return _trialFail(code, '搜索无结果', '搜索接口未返回结果');
+  }
+  if (media.isEmpty || !media.startsWith('http')) {
+    return _trialFail(code, '取流无地址', '详情无 http 播放地址');
+  }
+  final ok = await _trialMediaOk(ctx.client, media, ctx.referer);
+  if (!ok) {
+    return _trialFail(code, '取流首字节未通过', '播放地址首字节校验未通过');
+  }
+  return _trialPass(
+    code,
+    '分类首页通过、$pageNote、详情通过、搜索通过、取流通过',
+    effectiveApiLinks: [working],
+  );
+}
+
+Future<OneClickTrialAttempt> _verifyTrialCandidate({
+  required String code,
+  required OneClickIdentification identification,
+  required String homeHtml,
+  OneClickContent? contentType,
+  required http.Client client,
+}) async {
+  final template = oneClickTemplates[code];
+  if (template == null) {
+    return _trialFail(code, '无此模板', '模板库无此模板');
+  }
+  final ctx = _TrialCtx(
+    identification: identification,
+    content: contentType ?? template.content,
+    client: client,
+    homeHtml: homeHtml,
+  );
+  switch (code) {
+    case 'T1':
+      return _verifyTrialT1(ctx);
+    case 'T3':
+      return _verifyTrialT3(ctx);
+    case 'T5':
+      return _verifyTrialT5(ctx);
+    case 'T6':
+      return _verifyTrialT6(ctx);
+    case 'T9':
+      return _verifyTrialT9(ctx);
+    default:
+      return _trialFail(code, '不在试套范围', '该模板不在试套优先顺序内');
+  }
+}
+
+/// 试套用：按候选顺序逐项自检，首个全过的胜出；全不过返回空胜出
+/// 与逐项失败原因，调用方如实报套不上，不导入任何站点。
+Future<OneClickTrialOutcome> runTrialFit({
+  required OneClickIdentification identification,
+  OneClickContent? contentType,
+  required http.Client client,
+}) async {
+  var inputHtml = '';
+  final inputUrl = identification.inputUrl;
+  if (inputUrl.isNotEmpty && inputUrl != identification.origin) {
+    inputHtml = await _trialFetch(
+      client,
+      inputUrl,
+      '${identification.origin}/',
+    );
+  }
+  final homeHtml = inputHtml.isEmpty
+      ? identification.homeHtml
+      : '${identification.homeHtml}\n$inputHtml';
+  final attempts = <OneClickTrialAttempt>[];
+  for (final code in identification.trialCandidates) {
+    final attempt = await _verifyTrialCandidate(
+      code: code,
+      identification: identification,
+      homeHtml: homeHtml,
+      contentType: contentType,
+      client: client,
+    );
+    attempts.add(attempt);
+    if (attempt.passed) {
+      final template = oneClickTemplates[code]!;
+      final winner = OneClickIdentification(
+        template: template,
+        origin: identification.origin,
+        siteKey: identification.siteKey,
+        siteName: identification.siteName,
+        apiLinks: attempt.effectiveApiLinks,
+        fallbackNote: '试套用：按 $code ${template.name}试验生成；${attempt.summary}',
+      );
+      return OneClickTrialOutcome(winner: winner, attempts: attempts);
+    }
+  }
+  return OneClickTrialOutcome(attempts: attempts);
 }
 
 class OneClickHistoryEntry {
@@ -841,65 +1611,92 @@ Future<OneClickGenerateResult> generateAndImport({
 }) async {
   final store = historyStore ?? OneClickHistoryStore();
   final history = await store.load();
-  final identification = await identifySite(
-    url,
-    client: client,
-    history: history,
-  );
-  final rawName = (name ?? '').trim();
-  final baseName = rawName.isEmpty ? identification.siteName : rawName;
-  final displayName = adult ? '🔞$baseName' : baseName;
-  final content = contentType ?? identification.template.content;
-  final py = buildOneClickPy(
-    identification,
-    siteName: baseName,
-    contentOverride: contentType,
-  );
-  final checkError = OneClickStructureCheck.check(py);
-  if (checkError != null) {
-    throw StateError('生成自检未通过：$checkError');
-  }
-  String? downloadPath;
-  String? downloadWarning;
+  final httpClient = client ?? http.Client();
   try {
-    downloadPath = await (downloadSink ?? const PlatformOneClickDownloadSink())
-        .saveText(fileName: '${identification.siteKey}.py', text: py);
-  } catch (error) {
-    downloadWarning = '下载文件夹保存失败（$error），已继续导入，下载文件夹无原文件';
-  }
-  final importFn = importSite ?? _defaultImportSite;
-  final entry = await importFn(
-    name: displayName,
-    source: py,
-    contentType: content.registryType,
-    fileBaseName: identification.siteKey,
-    oneClick: true,
-    downloadPath: downloadPath,
-  );
-  if (entry.detail.contains('校验未通过')) {
-    final removeFn = removeSite ?? SourceRegistry.instance.removeCustom;
-    await removeFn(entry.id);
-    throw StateError('导入校验未通过：${entry.detail}，已撤掉登记');
-  }
-  try {
-    await store.add(
-      OneClickHistoryEntry(
-        name: baseName,
-        url: normalizeSiteUrl(url),
-        templateCode: identification.template.code,
-        apiLinks: identification.apiLinks,
-        updatedAt: DateTime.now().millisecondsSinceEpoch,
-      ),
+    var identification = await identifySite(
+      url,
+      client: httpClient,
+      history: history,
     );
-  } catch (_) {}
-  return OneClickGenerateResult(
-    entry: entry,
-    identification: identification,
-    displayName: displayName,
-    pySource: py,
-    downloadPath: downloadPath,
-    downloadWarning: downloadWarning,
-  );
+    if (identification.trialMode) {
+      final outcome = await runTrialFit(
+        identification: identification,
+        contentType: contentType,
+        client: httpClient,
+      );
+      final winner = outcome.winner;
+      if (winner == null) {
+        final reasons = [
+          for (final attempt in outcome.attempts)
+            '${attempt.code}：${attempt.failedStep}',
+        ].join('；');
+        throw OneClickUnsupported(
+          '试套不上：已按 T1、T3、T5、T6、T9 顺序试套，均未通过交付门自检（$reasons），未导入任何站点，请走完整流程。',
+          needsFullFlow: true,
+        );
+      }
+      identification = winner;
+    }
+    final rawName = (name ?? '').trim();
+    final baseName = rawName.isEmpty ? identification.siteName : rawName;
+    final displayName = adult ? '🔞$baseName' : baseName;
+    final content = contentType ?? identification.template.content;
+    final py = buildOneClickPy(
+      identification,
+      siteName: baseName,
+      contentOverride: contentType,
+    );
+    final checkError = OneClickStructureCheck.check(py);
+    if (checkError != null) {
+      throw StateError('生成自检未通过：$checkError');
+    }
+    String? downloadPath;
+    String? downloadWarning;
+    try {
+      downloadPath =
+          await (downloadSink ?? const PlatformOneClickDownloadSink())
+              .saveText(fileName: '${identification.siteKey}.py', text: py);
+    } catch (error) {
+      downloadWarning = '下载文件夹保存失败（$error），已继续导入，下载文件夹无原文件';
+    }
+    final importFn = importSite ?? _defaultImportSite;
+    final entry = await importFn(
+      name: displayName,
+      source: py,
+      contentType: content.registryType,
+      fileBaseName: identification.siteKey,
+      oneClick: true,
+      downloadPath: downloadPath,
+    );
+    if (entry.detail.contains('校验未通过')) {
+      final removeFn = removeSite ?? SourceRegistry.instance.removeCustom;
+      await removeFn(entry.id);
+      throw StateError('导入校验未通过：${entry.detail}，已撤掉登记');
+    }
+    try {
+      await store.add(
+        OneClickHistoryEntry(
+          name: baseName,
+          url: normalizeSiteUrl(url),
+          templateCode: identification.template.code,
+          apiLinks: identification.apiLinks,
+          updatedAt: DateTime.now().millisecondsSinceEpoch,
+        ),
+      );
+    } catch (_) {}
+    return OneClickGenerateResult(
+      entry: entry,
+      identification: identification,
+      displayName: displayName,
+      pySource: py,
+      downloadPath: downloadPath,
+      downloadWarning: downloadWarning,
+    );
+  } finally {
+    if (client == null) {
+      httpClient.close();
+    }
+  }
 }
 
 String buildOneClickPy(
