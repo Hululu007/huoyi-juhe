@@ -8,6 +8,7 @@ import '../../services/drama_sites.dart';
 import '../../services/midnight_gate.dart';
 import '../../services/xbpq_content.dart';
 import '../../services/source_registry.dart';
+import 'drama_site_filter_drawer.dart';
 import 'home_feed_states.dart';
 import 'home_media_card.dart';
 import 'home_shelf.dart';
@@ -58,39 +59,66 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
     return client.catalog(categoryId, page);
   }
 
-  Widget _filterBar() {
+  Widget _filterButtonRow() {
+    final active =
+        _filters.entries.where((entry) => entry.value.isNotEmpty).length;
     return Padding(
       padding: const EdgeInsets.fromLTRB(homeGutter, 0, homeGutter, 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
         children: [
-          for (final group in _filterGroups)
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  for (final option in group.options)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 6),
-                      child: ChoiceChip(
-                        label: Text(option.name),
-                        selected: (_filters[group.key] ?? '') == option.value,
-                        onSelected: (_) {
-                          setState(() {
-                            _filters = {
-                              ..._filters,
-                              group.key: option.value,
-                            };
-                          });
-                          _loadFirst(keepItems: true);
-                        },
-                      ),
-                    ),
-                ],
-              ),
-            ),
+          TextButton.icon(
+            onPressed: _openFilterDrawer,
+            icon: const Icon(Icons.tune),
+            label: Text(active > 0 ? '筛选·$active' : '筛选'),
+          ),
         ],
       ),
+    );
+  }
+
+  Future<void> _openFilterDrawer() async {
+    if (_filterGroups.isEmpty || !mounted) return;
+    await showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: '筛选',
+      barrierColor: Colors.black54,
+      transitionDuration: const Duration(milliseconds: 250),
+      pageBuilder: (context, _, __) {
+        final width = MediaQuery.sizeOf(context).width * 0.85;
+        return Align(
+          alignment: Alignment.centerRight,
+          child: SizedBox(
+            width: width > 360 ? 360 : width,
+            height: double.infinity,
+            child: DramaSiteFilterDrawer(
+              groups: _filterGroups,
+              selected: _filters,
+              onSelected: (groupKey, value) {
+                setState(() {
+                  _filters = {..._filters, groupKey: value};
+                });
+                _loadFirst(keepItems: true);
+              },
+              onClear: () {
+                setState(() => _filters = {});
+                _loadFirst(keepItems: true);
+              },
+              onClose: () => Navigator.pop(context),
+            ),
+          ),
+        );
+      },
+      transitionBuilder: (context, animation, _, child) {
+        final offset = Tween<Offset>(
+          begin: const Offset(1, 0),
+          end: Offset.zero,
+        ).animate(
+          CurvedAnimation(parent: animation, curve: Curves.easeOut),
+        );
+        return SlideTransition(position: offset, child: child);
+      },
     );
   }
 
@@ -266,7 +294,7 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
       return SliverMainAxisGroup(
         slivers: [
           if (_filterGroups.isNotEmpty)
-            SliverToBoxAdapter(child: _filterBar()),
+            SliverToBoxAdapter(child: _filterButtonRow()),
           SliverToBoxAdapter(
             child: HomeFeedEmpty(
               title: '暂无内容',
@@ -282,7 +310,7 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
     return SliverMainAxisGroup(
       slivers: [
         if (_filterGroups.isNotEmpty)
-          SliverToBoxAdapter(child: _filterBar()),
+          SliverToBoxAdapter(child: _filterButtonRow()),
         SliverPadding(
           padding: const EdgeInsets.symmetric(horizontal: homeGutter),
           sliver: SliverGrid(
