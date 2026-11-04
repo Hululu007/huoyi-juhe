@@ -128,6 +128,23 @@ ContentType? detectPyContentType(String source) {
   return null;
 }
 
+/// 书源导入输入的判定：阅读（Legado）导入框同款三态——JSON 对象/数组
+/// 直接导入，http(s) 链接走远程拉取，其他内容不认（不硬猜、不发请求）。
+enum BookSourceImportKind { remote, json, invalid }
+
+BookSourceImportKind classifyBookSourceInput(String input) {
+  final text = input.trim();
+  if (text.isEmpty) return BookSourceImportKind.invalid;
+  final lower = text.toLowerCase();
+  if (lower.startsWith('http://') || lower.startsWith('https://')) {
+    return BookSourceImportKind.remote;
+  }
+  if (text.startsWith('{') || text.startsWith('[')) {
+    return BookSourceImportKind.json;
+  }
+  return BookSourceImportKind.invalid;
+}
+
 class SourceEntry {
   const SourceEntry({
     required this.id,

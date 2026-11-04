@@ -11,6 +11,7 @@ import '../services/audio_preferences.dart';
 import '../services/native_player.dart';
 import '../services/player_preferences.dart';
 import '../services/player_layout_preferences.dart';
+import '../services/source_registry.dart';
 import '../services/book_open_preferences.dart';
 import '../services/drama_mute_preferences.dart';
 import '../services/library_store.dart';
@@ -131,6 +132,26 @@ class SettingsPage extends StatelessWidget {
         ],
       ),
       SettingsCategory(
+        icon: LucideIcons.book_open,
+        title: '书源',
+        subtitle: '导入阅读书源（链接或 JSON）',
+        items: [
+          SettingsItem(
+            icon: LucideIcons.book_plus,
+            title: '书源导入',
+            subtitle: '粘贴书源链接或 JSON，自动识别导入',
+            onTap: (context, _) => _showBookSourceImportDialog(context),
+          ),
+          SettingsItem(
+            icon: LucideIcons.book_down,
+            title: 'JSON 书源导入',
+            subtitle: '粘贴 JSON 书源，支持单个或数组',
+            onTap: (context, _) =>
+                _showBookSourceImportDialog(context, jsonOnly: true),
+          ),
+        ],
+      ),
+      SettingsCategory(
         icon: LucideIcons.database,
         title: '数据',
         subtitle: '备份与恢复、缓存、阅读与播放历史',
@@ -219,6 +240,85 @@ class SettingsPage extends StatelessWidget {
             ),
       ),
     );
+  }
+
+  // ── 书源 ──────────────────────────────────────────────────────────────
+
+  /// 书源导入：阅读（Legado）导入框同款——粘贴后自动识别：JSON 对象/数组
+  /// 直接导入，http(s) 链接走远程拉取；JSON 专线只认 JSON。导入走注册表
+  /// 现成的 addLegadoImport / addLegadoRemote，导入后在站源管理里可见。
+  Future<void> _showBookSourceImportDialog(
+    BuildContext context, {
+    bool jsonOnly = false,
+  }) async {
+    var text = '';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(jsonOnly ? 'JSON 书源导入' : '书源导入'),
+        content: TextField(
+          maxLines: 8,
+          minLines: 4,
+          onChanged: (value) => text = value,
+          decoration: InputDecoration(
+            hintText: jsonOnly ? '粘贴 JSON 书源（单个或数组）' : '粘贴书源链接或 JSON',
+            border: const OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('导入'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    final registry = SourceRegistry.instance;
+    try {
+      if (jsonOnly) {
+        final trimmed = text.trim();
+        if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('请粘贴 JSON 书源（单个或数组）')),
+          );
+          return;
+        }
+        final entries = await registry.addLegadoImport(text);
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已导入 ${entries.length} 个书源')),
+        );
+        return;
+      }
+      switch (classifyBookSourceInput(text)) {
+        case BookSourceImportKind.invalid:
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('请输入书源链接或 JSON')),
+          );
+        case BookSourceImportKind.remote:
+          final entries = await registry.addLegadoRemote(text.trim());
+          if (!context.mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('已导入 ${entries.length} 个书源')),
+          );
+        case BookSourceImportKind.json:
+          final entries = await registry.addLegadoImport(text);
+          if (!context.mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('已导入 ${entries.length} 个书源')),
+          );
+      }
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('导入失败：$e')),
+      );
+    }
   }
 
   // ── 外观 ──────────────────────────────────────────────────────────────
