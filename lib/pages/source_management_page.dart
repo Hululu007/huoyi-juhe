@@ -1,8 +1,60 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../services/drama_site_content.dart';
+import '../services/live_sources.dart';
 import '../services/source_registry.dart';
 import 'site_browse_page.dart';
+
+/// 站源管理的一级技术分组：按技术分，空组也保留（页里显示“暂无…”）。
+/// 预置内置站（extra['builtin'] == true）不在此表里，页里另起 jar 内置组；
+/// 混合技术组不按类型再拆组，行内类型标区分。
+List<({String title, String emptyTitle, List<SourceEntry> entries})>
+managementTechGroups(List<SourceEntry> custom) {
+  final own = custom.where((e) => e.extra['builtin'] != true).toList();
+  List<SourceEntry> byKind(SourceKind kind) =>
+      own.where((e) => e.kind == kind).toList();
+  List<SourceEntry> jsonSources() => own
+      .where(
+        (e) =>
+            e.kind == SourceKind.customMaccms ||
+            e.kind == SourceKind.remoteJson,
+      )
+      .toList();
+  return [
+    (
+      title: 'JSON 网页源',
+      emptyTitle: '暂无 JSON 网页源',
+      entries: jsonSources(),
+    ),
+    (
+      title: 'JS 内容源',
+      emptyTitle: '暂无 JS 内容源',
+      entries: byKind(SourceKind.jsImport),
+    ),
+    (
+      title: 'Python 内容源',
+      emptyTitle: '暂无 Python 内容源',
+      entries: byKind(SourceKind.pyImport),
+    ),
+    (
+      title: 'Jar 内容源',
+      emptyTitle: '暂无 Jar 内容源',
+      entries: byKind(SourceKind.jarImport),
+    ),
+    (
+      title: 'XBPQ',
+      emptyTitle: '暂无 XBPQ 规则',
+      entries: byKind(SourceKind.xbpqImport),
+    ),
+    (
+      title: '阅读书源',
+      emptyTitle: '暂无阅读书源',
+      entries: byKind(SourceKind.legadoImport),
+    ),
+  ];
+}
 
 class SourceManagementPage extends StatefulWidget {
   const SourceManagementPage({super.key});
@@ -15,6 +67,7 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
   bool _loading = true;
   final Map<String, String?> _checkResults = {};
   final Set<String> _checking = {};
+  int? _liveChannelCount;
 
   @override
   void initState() {
@@ -22,6 +75,20 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
     SourceRegistry.instance.load().then((_) {
       if (mounted) setState(() => _loading = false);
     });
+    unawaited(_loadLiveChannelCount());
+  }
+
+  /// 欲火直播内置频道表的条数：只作展示，读不到就只显示直播源个数。
+  Future<void> _loadLiveChannelCount() async {
+    try {
+      final source = LiveSources.byId('yuhuo_live');
+      if (source == null) return;
+      final channels = await LiveSources.loadBuiltinListChannels(source);
+      if (!mounted) return;
+      setState(() => _liveChannelCount = channels.length);
+    } catch (_) {
+      // 读不到频道表不影响站源管理，静默只显示源个数。
+    }
   }
 
   Future<void> _refresh() async {
@@ -354,9 +421,11 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
     final custom = registry.custom
         .where((entry) => entry.extra['builtin'] != true)
         .toList();
-    final bookSources = custom.where(isBookSourceEntry).toList();
-    final videoSources =
-        custom.where((entry) => !isBookSourceEntry(entry)).toList();
+    // 一级分组按技术（见 managementTechGroups）；混合技术组不按类型
+    // 再拆组，每行副标题里已有类型标（影视/小说/漫画/听书/综合）区分；
+    // 阅读区与换源仍按类型过滤，那是行为，不随分组显示变。
+    final techGroups = managementTechGroups(custom);
+    final liveNames = LiveSources.builtin.map((s) => s.name).join('、');
     return Scaffold(
       appBar: AppBar(title: const Text('站源管理')),
       body: _loading
@@ -366,14 +435,22 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
                 _groupTitle('内置短剧'),
                 for (final entry in builtin)
                   _builtinTile(entry),
-                _groupTitle('影视源'),
-                if (videoSources.isEmpty)
-                  const ListTile(title: Text('暂无影视源')),
-                for (final entry in videoSources) _customTile(entry),
-                _groupTitle('书源'),
-                if (bookSources.isEmpty)
-                  const ListTile(title: Text('暂无书源')),
-                for (final entry in bookSources) _customTile(entry),
+                for (final group in techGroups) ...[
+                  _groupTitle(group.title),
+                  if (group.entries.isEmpty)
+                    ListTile(title: Text(group.emptyTitle)),
+                  for (final entry in group.entries) _customTile(entry),
+                ],
+                _groupTitle('直播源'),
+                ListTile(
+                  title: const Text('直播源汇总'),
+                  subtitle: Text(
+                    _liveChannelCount == null
+                        ? '${LiveSources.builtin.length} 个直播源：$liveNames'
+                        : '${LiveSources.builtin.length} 个直播源：$liveNames'
+                            '，其中欲火直播频道表 $_liveChannelCount 条',
+                  ),
+                ),
                 _groupTitle('jar 内置'),
                 if (builtinJar.isEmpty)
                   const ListTile(title: Text('暂无 jar 内置站源')),
@@ -381,7 +458,10 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
                 _groupTitle('内容源'),
                 const ListTile(
                   title: Text('小说 / 听书 / 漫画内容源'),
-                  subtitle: Text('书源与影视源分开列出，阅读区与换源按类型过滤'),
+                  subtitle: Text(
+                    '各组按技术分，行内带类型标（影视/小说/漫画/听书/综合）区分；'
+                    '阅读区与换源仍按类型过滤',
+                  ),
                 ),
                 const SizedBox(height: 24),
                 Padding(
