@@ -439,6 +439,8 @@ class HomeNotifier extends Notifier<HomeState> {
     HomeFeedCache? feedCache,
     // 成人推荐的测试注入点：缺省走真实的 _adultRecommendations
     //（读登记表与午夜门禁，引擎客户端在测试环境不可用）。
+    // 参数名刻意与私有字段名不同（公开名供测试传参），故不用
+    // initializing formal，prefer_initializing_formals 提示忽略。
     Future<List<MediaItem>> Function()? adultRecommendationsLoader,
     this.initialTabIndex = 0,
     this.usesLocalTabs = false,
