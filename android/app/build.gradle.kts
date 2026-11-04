@@ -83,21 +83,20 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        // No ndk.abiFilters here on purpose: `flutter build apk
-        // --split-per-abi` makes the Flutter Gradle plugin configure AGP
-        // splits, and AGP rejects abiFilters whenever splits are set
-        // ("abiFilters cannot be present when splits abi filters are set").
-        // The split APKs therefore contain exactly the ABIs Flutter was
-        // asked to build (--target-platform android-arm,android-arm64).
-        // The guards against a backend-less slice are the packaging check
-        // below (both libfqapi_core.so files must exist and match their
-        // ABI) and scripts/verify_android_apk.py --abi, which rejects any
-        // unexpected ABI in the APK. Always build with the documented
-        // split command; a plain fat `flutter build apk` would include an
-        // x86_64 slice with no Rust backend.
-        //
-        // NOTE: do not re-add abiFilters to "restrict" the build. It breaks
-        // every split build at configuration time.
+        // Single architecture: this product ships arm64-v8a only.
+        // Chaquopy (on-device Python host) requires ndk.abiFilters at
+        // configuration time, and AGP rejects abiFilters whenever splits
+        // are set -- so this build does NOT use --split-per-abi. Do not
+        // re-add --split-per-abi without removing abiFilters first, and
+        // do not remove abiFilters while Chaquopy is applied: either
+        // change breaks configuration. A plain fat `flutter build apk`
+        // would include an x86_64 slice with no Rust backend; the
+        // --target-platform flag in CI keeps the build to arm64, and
+        // scripts/verify_android_apk.py --abi rejects any unexpected
+        // ABI in the APK.
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
         externalNativeBuild {
             cmake {
                 // shortplay_tempo 是 issue #129 的 WSOLA 时伸缩库，必须一起打包；

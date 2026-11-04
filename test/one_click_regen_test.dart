@@ -189,7 +189,7 @@ void main() {
           client: _t1Client(),
           downloadSink: sink,
           historyStore: history,
-          verifyRegenerated: (_, __) async =>
+          verifyRegenerated: (_, _) async =>
               RegenDeliveryCheck.failed('搜索'),
           updateSite: ({
             required id,

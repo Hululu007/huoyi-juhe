@@ -449,7 +449,7 @@ class HomeNotifier extends Notifier<HomeState> {
     this.initialTabIndex = 0,
     this.usesLocalTabs = false,
   }) : _feedCache = feedCache ?? HomeFeedCache.instance,
-       _adultRecommendationsLoader = adultRecommendationsLoader,
+       _adultRecommendationsLoader = adultRecommendationsLoader, // ignore: prefer_initializing_formals
        // 注入的 loader 只认 `tabType`；生产路径要额外带上顶栏下标，所以
        // 缺省时直接用带下标的那个（见 [HomepageLoaderWithIndex]）；注入的
        // 测试加载器只认 `tabType`，这里补一层适配，多余的下标参数丢弃。

@@ -431,12 +431,19 @@ jobs:
       # The trade-off is one extra Flutter SDK install on the gate's runner;
       # the pub get below still has to run because the release build needs the
       # resolved package config and the regenerated plugin registrant.
-      - name: Compile release APKs (ARM64 + ARMv7)
-        # --split-per-abi produces one APK per ABI (app-arm64-v8a-release.apk,
-        # app-armeabi-v7a-release.apk) instead of a fat APK, so a 32-bit
-        # device does not download the ARM64 native libraries and vice versa.
-        # Keep pub enabled to regenerate the release plugin registrant after tests.
-        run: flutter build apk --release --target-platform android-arm,android-arm64 --split-per-abi
+      - name: Compile release APK (ARM64 only)
+        # Single architecture: arm64-v8a only. Chaquopy requires
+        # ndk.abiFilters, which AGP rejects whenever splits are set, so
+        # --split-per-abi is not used. Keep pub enabled to regenerate the
+        # release plugin registrant after tests.
+        run: |
+          flutter build apk --release --target-platform android-arm64
+          # Normalize the output name: a single-ABI build normally yields
+          # app-arm64-v8a-release.apk, but fall back to the fat name if
+          # the Flutter tool ever emits app-release.apk instead.
+          if [ ! -f build/app/outputs/flutter-apk/app-arm64-v8a-release.apk ] && [ -f build/app/outputs/flutter-apk/app-release.apk ]; then
+            cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+          fi
 
       - name: Test Android runtime boundaries
         working-directory: app/android
@@ -484,9 +491,8 @@ jobs:
           # actually applied. Without the secrets the package is unsigned, so
           # pinning a certificate there could never pass; every other check
           # (16 KiB alignment, packaged native libraries) still runs.
-          # Each split APK is verified with its own ABI, into its own report
-          # directory, so the two reports never overwrite each other.
-          for abi in arm64-v8a armeabi-v7a; do
+          # The single arm64-v8a APK is verified with its own ABI.
+          for abi in arm64-v8a; do
             python3 scripts/verify_android_apk.py \
               --apk "build/app/outputs/flutter-apk/app-$abi-release.apk" \
               --abi "$abi" \
@@ -522,7 +528,7 @@ jobs:
           import pathlib
           import zipfile
           rows = []
-          for abi in ('arm64-v8a', 'armeabi-v7a'):
+          for abi in ('arm64-v8a',):
               apk = pathlib.Path(f'build/app/outputs/flutter-apk/app-{abi}-release.apk')
               with zipfile.ZipFile(apk) as archive:
                   native = [name for name in archive.namelist() if name.startswith('lib/') and name.endswith('.so')]
@@ -555,26 +561,6 @@ jobs:
             app/build/ci-artifacts/verification/arm64-v8a/*.sha256
             app/build/ci-artifacts/verification/arm64-v8a/*.log
 
-      - name: Upload ARMv7 (32-bit) APK and verification reports
-        id: artifact-armv7
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          # Same retention as the ARM64 artifact. Older 32-bit devices
-          # (including many e-readers) install this one; the ARM64 APK
-          # refuses to install on them.
-          name: fqapp-armv7-${{ steps.artifact-ids.outputs.safe_ref }}-${{ steps.artifact-ids.outputs.short_sha }}-${{ github.run_number }}
-          retention-days: 14
-          if-no-files-found: error
-          compression-level: 0
-          path: |
-            app/build/ci-artifacts/app-armeabi-v7a-release.apk
-            app/build/ci-artifacts/android-media-boundary.json
-            app/build/ci-artifacts/build-info.txt
-            app/build/ci-artifacts/rust-core-symbols-armeabi-v7a.txt
-            app/build/ci-artifacts/rust-core-program-headers-armeabi-v7a.txt
-            app/build/ci-artifacts/verification/armeabi-v7a/*.json
-            app/build/ci-artifacts/verification/armeabi-v7a/*.sha256
-            app/build/ci-artifacts/verification/armeabi-v7a/*.log
 
       - name: Retain diagnostics if a build or APK check fails
         if: failure()
@@ -594,18 +580,14 @@ jobs:
       - name: Write download summary
         env:
           ARTIFACT_URL_ARM64: ${{ steps.artifact-arm64.outputs.artifact-url }}
-          ARTIFACT_URL_ARMV7: ${{ steps.artifact-armv7.outputs.artifact-url }}
           HAS_RELEASE_SIGNING: ${{ steps.signing.outputs.has_release_signing }}
         run: |
           {
             printf '[下载 ARM64 APK 和校验报告](%s)\n\n' "$ARTIFACT_URL_ARM64"
-            printf '[下载 ARMv7（32 位）APK 和校验报告](%s)\n\n' "$ARTIFACT_URL_ARMV7"
             printf 'App commit: `%s`  \n' "$GITHUB_SHA"
             printf 'Rust core: `fqapi_core` (flutter_rust_bridge `%s`)\n\n' "$FRB_VERSION"
             printf 'Rust core library SHA-256 (arm64-v8a): `%s`\n\n' \
               "$(sha256sum android/app/src/main/jniLibs/arm64-v8a/libfqapi_core.so | cut -d ' ' -f 1)"
-            printf 'Rust core library SHA-256 (armeabi-v7a): `%s`\n\n' \
-              "$(sha256sum android/app/src/main/jniLibs/armeabi-v7a/libfqapi_core.so | cut -d ' ' -f 1)"
             # Only a build that actually restored the release signing identity
             # may claim the formal release signature. Anything else (missing
             # secrets, fork PR) is unsigned: say so plainly, print no

@@ -3,6 +3,8 @@
 /// from the GF(2^8) definition at first use, not copied tables, so a
 /// typo in a table cannot silently break decryption.
 
+library;
+
 int _gfMul(int a, int b) {
   var result = 0;
   var x = a;
