@@ -11,24 +11,24 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 MemoryM3uExportDb seededDb() {
   final db = MemoryM3uExportDb();
-  db.categories['cat:py_site|1'] = const M3uExportCategoryInfo(
-    siteId: 'py_site',
+  db.categories['cat:id:py_site|1'] = const M3uExportCategoryInfo(
+    siteId: 'id:py_site',
     siteName: 'py 站',
     categoryId: '1',
     categoryName: '电影',
     categoryPath: '电影',
     updatedAt: 3,
   );
-  db.categories['cat:py_site|2'] = const M3uExportCategoryInfo(
-    siteId: 'py_site',
+  db.categories['cat:id:py_site|2'] = const M3uExportCategoryInfo(
+    siteId: 'id:py_site',
     siteName: 'py 站',
     categoryId: '2',
     categoryName: '剧集',
     categoryPath: '剧集',
     updatedAt: 2,
   );
-  db.categories['cat:adult_site|1'] = const M3uExportCategoryInfo(
-    siteId: 'adult_site',
+  db.categories['cat:id:adult_site|1'] = const M3uExportCategoryInfo(
+    siteId: 'id:adult_site',
     siteName: '🔞成人站',
     categoryId: '1',
     categoryName: '电影',
@@ -64,8 +64,8 @@ MemoryM3uExportDb seededDb() {
     );
   }
 
-  db.videos['video:py_site|v1'] = video(
-    siteId: 'py_site',
+  db.videos['video:id:py_site|v1'] = video(
+    siteId: 'id:py_site',
     siteName: 'py 站',
     categoryId: '1',
     categoryName: '电影',
@@ -73,24 +73,24 @@ MemoryM3uExportDb seededDb() {
     title: '片一',
     episodeCount: 3,
   );
-  db.videos['video:py_site|v2'] = video(
-    siteId: 'py_site',
+  db.videos['video:id:py_site|v2'] = video(
+    siteId: 'id:py_site',
     siteName: 'py 站',
     categoryId: '1',
     categoryName: '电影',
     videoId: 'v2',
     title: '片二',
   );
-  db.videos['video:py_site|v3'] = video(
-    siteId: 'py_site',
+  db.videos['video:id:py_site|v3'] = video(
+    siteId: 'id:py_site',
     siteName: 'py 站',
     categoryId: '2',
     categoryName: '剧集',
     videoId: 'v3',
     title: '剧一',
   );
-  db.videos['video:adult_site|a1'] = video(
-    siteId: 'adult_site',
+  db.videos['video:id:adult_site|a1'] = video(
+    siteId: 'id:adult_site',
     siteName: '🔞成人站',
     categoryId: '1',
     categoryName: '电影',
@@ -151,8 +151,8 @@ void main() {
         final localFile = File('${temp.path}/v1.m3u8');
         await localFile.writeAsString('#EXTM3U');
         final db = seededDb();
-        db.videos['video:py_site|v1'] = M3uExportVideoRecord(
-          siteId: 'py_site',
+        db.videos['video:id:py_site|v1'] = M3uExportVideoRecord(
+          siteId: 'id:py_site',
           siteName: 'py 站',
           categoryId: '1',
           categoryName: '电影',
@@ -173,8 +173,8 @@ void main() {
           const DramaSiteEpisode(videoId: 'v2', title: '片二', seriesId: 'v2'),
         );
         expect(online.url, 'https://cdn.example.com/v.m3u8');
-        db.videos['video:py_site|v2'] = M3uExportVideoRecord(
-          siteId: 'py_site',
+        db.videos['video:id:py_site|v2'] = M3uExportVideoRecord(
+          siteId: 'id:py_site',
           siteName: 'py 站',
           categoryId: '1',
           categoryName: '电影',
@@ -223,7 +223,7 @@ void main() {
       expect(client, isA<LocalDbContentClient>());
       expect(
         (client as LocalDbContentClient).dbSiteId,
-        'py_site',
+        'id:py_site',
       );
     });
   });
@@ -238,7 +238,7 @@ void main() {
       );
       expect(
         groups.map((g) => g.siteId).toList(),
-        ['localdb:py_site', 'localdb:adult_site'],
+        ['localdb:id:py_site', 'localdb:id:adult_site'],
       );
       expect(groups.first.siteName, 'py 站·本地库');
       expect(groups.last.siteName, '🔞成人站·本地库');

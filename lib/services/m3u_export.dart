@@ -6,6 +6,7 @@ import 'm3u_export_db.dart';
 import 'm3u_export_download.dart';
 import 'midnight_gate.dart';
 import 'one_click_py.dart';
+import 'site_identity.dart';
 import 'source_registry.dart';
 
 const _callTimeout = Duration(seconds: 30);
@@ -317,10 +318,21 @@ Future<M3uExportResult> exportSiteM3u({
   bool allowNonM3u8 = false,
   void Function(M3uExportProgress)? onProgress,
   M3uExportCancellation? cancellation,
+
+  /// 登记条目的地址与它是不是内容站地址（见 site_identity 的
+  /// 适用范围）：同站多入口导出时，db 记录按归一键写同一批，
+  /// 不另存第二份。
+  String siteAddress = '',
+  bool addressIsSiteAddress = false,
 }) async {
   if (!gateOpen && MidnightGate.isAdultName(siteName)) {
     throw StateError('午夜未开，成人站不导出');
   }
+  final dbSiteId = canonicalSiteKey(
+    siteId: siteId,
+    address: siteAddress,
+    addressIsSiteAddress: addressIsSiteAddress,
+  );
   final fetchDetail = dbSink != null;
   final categories = await client.categories();
   final lines = <String>['#EXTM3U'];
@@ -432,7 +444,7 @@ Future<M3uExportResult> exportSiteM3u({
           if (dbSink != null) {
             records.add(
               M3uExportVideoRecord(
-                siteId: siteId,
+                siteId: dbSiteId,
                 siteName: siteName,
                 categoryId: category.id,
                 categoryName: category.name,
@@ -492,12 +504,12 @@ Future<M3uExportResult> exportSiteM3u({
       try {
         final now = DateTime.now().millisecondsSinceEpoch;
         await dbSink.saveExport(
-          siteId: siteId,
+          siteId: dbSiteId,
           siteName: siteName,
           categories: [
             for (final category in categories)
               M3uExportCategoryInfo(
-                siteId: siteId,
+                siteId: dbSiteId,
                 siteName: siteName,
                 categoryId: category.id,
                 categoryName: category.name,

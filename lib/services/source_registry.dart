@@ -13,6 +13,7 @@ import 'engine_site_content.dart';
 import 'jar_bridge.dart';
 import 'local_db_site_content.dart';
 import 'm3u_export_db.dart';
+import 'site_identity.dart';
 import 'zakatv_builtin.dart';
 import 'js_bridge.dart';
 import 'py_bridge.dart';
@@ -899,8 +900,19 @@ class SourceRegistry {
 
   Future<DramaSiteContentClient?> clientFor(String siteId) async {
     if (siteId.startsWith('localdb:')) {
+      // 本地库入口按归一键读库：同一站点的多入口（内置、采集、
+      // 书源）读同一批记录；localdb: 后已是归一键时直接透传
+      // （搜索分组就是按记录的归一键建组的）。
+      final raw = siteId.substring('localdb:'.length);
+      await load();
+      final custom = customById(raw);
       return LocalDbContentClient(
-        dbSiteId: siteId.substring('localdb:'.length),
+        dbSiteId: canonicalSiteKey(
+          siteId: raw,
+          address: custom?.address ?? '',
+          addressIsSiteAddress: custom != null &&
+              addressIsSiteAddressForKind(custom.kind.name),
+        ),
         dbSink: HiveM3uExportDb.instance,
       );
     }

@@ -6,7 +6,8 @@ import 'midnight_gate.dart';
 
 /// 本地库当成一个站：把导出存进 db 的视频按同一套站接口
 /// （分类、列表、详情、取流、搜索）挂回现有页面，不另起浏览口。
-/// 站号用 `localdb:<原站点 id>`，经 SourceRegistry.clientFor 解析。
+/// 站号用 `localdb:<归一键>`，经 SourceRegistry.clientFor 解析；
+/// 同一站点的多入口（内置、采集、书源）读同一批记录。
 class LocalDbContentClient implements DramaSiteContentClient {
   LocalDbContentClient({required this.dbSiteId, required this.dbSink});
 

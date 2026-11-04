@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fqapp/services/local_db_site_content.dart';
 import 'package:fqapp/services/source_registry.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -79,6 +80,22 @@ void main() {
         }
       }
     });
+  });
+
+  test('本地库入口按归一键解析：内置站走已核实主机，镜像不合并', () async {
+    final hongguo =
+        await SourceRegistry.instance.clientFor('localdb:hongguo');
+    expect(hongguo, isA<LocalDbContentClient>());
+    expect(
+      (hongguo as LocalDbContentClient).dbSiteId,
+      'host:hongguoduanju.com',
+    );
+    final mirror =
+        await SourceRegistry.instance.clientFor('localdb:hgtvmirror');
+    expect(
+      (mirror as LocalDbContentClient).dbSiteId,
+      'id:hgtvmirror',
+    );
   });
 
   test('自定义站源记录往返：类型与开关不变，内置类型不进自定义', () {

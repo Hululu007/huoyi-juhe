@@ -6,6 +6,48 @@ import 'encrypted_hive.dart';
 import 'midnight_gate.dart';
 import 'public_folder.dart';
 import 'secure_key_provider.dart';
+import 'site_identity.dart';
+
+/// 库内一律归一键：写侧把记录换成归一键再落盘，读侧把传入
+/// 的 id 归一后再比对；调用方传原始 id 也能读到同一批记录。
+/// 旧箱迁移同样先换键再拷（见 _migrateFromLegacy），
+/// 不留原始键的记录在新箱里。
+M3uExportCategoryInfo _rekeyCategory(
+  M3uExportCategoryInfo category,
+  String siteId,
+) {
+  return M3uExportCategoryInfo(
+    siteId: siteId,
+    siteName: category.siteName,
+    categoryId: category.categoryId,
+    categoryName: category.categoryName,
+    categoryPath: category.categoryPath,
+    parentId: category.parentId,
+    updatedAt: category.updatedAt,
+  );
+}
+
+M3uExportVideoRecord _rekeyVideo(
+  M3uExportVideoRecord video,
+  String siteId,
+) {
+  return M3uExportVideoRecord(
+    siteId: siteId,
+    siteName: video.siteName,
+    categoryId: video.categoryId,
+    categoryName: video.categoryName,
+    categoryPath: video.categoryPath,
+    videoId: video.videoId,
+    title: video.title,
+    url: video.url,
+    localPath: video.localPath,
+    cover: video.cover,
+    synopsis: video.synopsis,
+    extra: video.extra,
+    episodeCount: video.episodeCount,
+    updatedAt: video.updatedAt,
+  );
+}
 
 class M3uExportCategoryInfo {
   const M3uExportCategoryInfo({
@@ -334,6 +376,7 @@ class HiveM3uExportDb implements M3uExportDbSink {
   /// 旧箱到公开箱的一次性迁移：公开箱为空且旧箱有数据时
   /// 全量拷过去；旧箱文件保留作备份，不删除、不再读取。
   /// 迁移失败（旧箱打不开等）不拦新箱使用，下次打开再试。
+  /// 拷过去之前先把记录换成归一键，不留原始键与新键并存的两份。
   Future<void> _migrateFromLegacy(Box<dynamic> publicBox) async {
     if (publicBox.isNotEmpty) return;
     Box<dynamic>? legacy;
@@ -353,7 +396,32 @@ class HiveM3uExportDb implements M3uExportDbSink {
     if (legacy.isEmpty) return;
     final entries = <dynamic, dynamic>{};
     for (final key in legacy.keys) {
-      entries[key] = legacy.get(key);
+      final raw = legacy.get(key);
+      // 按键前缀分流，不用 fromMap 试解析：视频记录也有
+      // siteId/categoryId，分类 fromMap 会误把它认成分类。
+      if (raw is Map && key is String && key.startsWith('cat:')) {
+        final category = M3uExportCategoryInfo.fromMap(raw);
+        if (category != null) {
+          final keyed = _rekeyCategory(
+            category,
+            canonicalSiteKey(siteId: category.siteId),
+          );
+          entries[keyed.key] = keyed.toMap();
+          continue;
+        }
+      }
+      if (raw is Map && key is String && key.startsWith('video:')) {
+        final video = M3uExportVideoRecord.fromMap(raw);
+        if (video != null) {
+          final keyed = _rekeyVideo(
+            video,
+            canonicalSiteKey(siteId: video.siteId),
+          );
+          entries[keyed.key] = keyed.toMap();
+          continue;
+        }
+      }
+      entries[key] = raw;
     }
     if (entries.isNotEmpty) await publicBox.putAll(entries);
   }
@@ -366,11 +434,19 @@ class HiveM3uExportDb implements M3uExportDbSink {
     required List<M3uExportVideoRecord> videos,
   }) async {
     final box = await _box();
+    final dbSiteId = canonicalSiteKey(siteId: siteId);
+    final keyedCategories = [
+      for (final category in categories) _rekeyCategory(category, dbSiteId),
+    ];
+    final keyedVideos = [
+      for (final video in videos) _rekeyVideo(video, dbSiteId),
+    ];
     await box.putAll({
-      for (final category in categories) category.key: category.toMap(),
+      for (final category in keyedCategories)
+        category.key: category.toMap(),
     });
     await box.putAll({
-      for (final video in videos)
+      for (final video in keyedVideos)
         video.key: video
             .mergedForSave(
               box.get(video.key) is Map
@@ -390,13 +466,14 @@ class HiveM3uExportDb implements M3uExportDbSink {
     String? categoryId,
   }) async {
     final box = await _box();
+    final want = siteId == null ? null : canonicalSiteKey(siteId: siteId);
     final records = <M3uExportVideoRecord>[];
     for (final raw in box.values) {
       if (raw is! Map) continue;
       final record = M3uExportVideoRecord.fromMap(raw);
       if (record == null) continue;
       if (!gateOpen && MidnightGate.isAdultName(record.siteName)) continue;
-      if (siteId != null && record.siteId != siteId) continue;
+      if (want != null && record.siteId != want) continue;
       if (categoryId != null && record.categoryId != categoryId) continue;
       records.add(record);
     }
@@ -410,6 +487,7 @@ class HiveM3uExportDb implements M3uExportDbSink {
     String? siteId,
   }) async {
     final box = await _box();
+    final want = siteId == null ? null : canonicalSiteKey(siteId: siteId);
     final categories = <M3uExportCategoryInfo>[];
     for (final key in box.keys) {
       if (key is! String || !key.startsWith('cat:')) continue;
@@ -418,7 +496,7 @@ class HiveM3uExportDb implements M3uExportDbSink {
       final category = M3uExportCategoryInfo.fromMap(raw);
       if (category == null) continue;
       if (!gateOpen && MidnightGate.isAdultName(category.siteName)) continue;
-      if (siteId != null && category.siteId != siteId) continue;
+      if (want != null && category.siteId != want) continue;
       categories.add(category);
     }
     categories.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
@@ -432,7 +510,8 @@ class HiveM3uExportDb implements M3uExportDbSink {
     required String videoId,
   }) async {
     final box = await _box();
-    final raw = box.get('video:$siteId|$videoId');
+    final raw =
+        box.get('video:${canonicalSiteKey(siteId: siteId)}|$videoId');
     if (raw is! Map) return null;
     final record = M3uExportVideoRecord.fromMap(raw);
     if (record == null) return null;
@@ -452,12 +531,15 @@ class MemoryM3uExportDb implements M3uExportDbSink {
     required List<M3uExportCategoryInfo> categories,
     required List<M3uExportVideoRecord> videos,
   }) async {
+    final dbSiteId = canonicalSiteKey(siteId: siteId);
     for (final category in categories) {
-      this.categories[category.key] = category;
+      final keyed = _rekeyCategory(category, dbSiteId);
+      this.categories[keyed.key] = keyed;
     }
     for (final video in videos) {
-      this.videos[video.key] =
-          video.mergedForSave(this.videos[video.key]);
+      final keyed = _rekeyVideo(video, dbSiteId);
+      this.videos[keyed.key] =
+          keyed.mergedForSave(this.videos[keyed.key]);
     }
   }
 
@@ -467,10 +549,11 @@ class MemoryM3uExportDb implements M3uExportDbSink {
     String? siteId,
     String? categoryId,
   }) async {
+    final want = siteId == null ? null : canonicalSiteKey(siteId: siteId);
     final records = [
       for (final video in videos.values)
         if ((gateOpen || !MidnightGate.isAdultName(video.siteName)) &&
-            (siteId == null || video.siteId == siteId) &&
+            (want == null || video.siteId == want) &&
             (categoryId == null || video.categoryId == categoryId))
           video,
     ];
@@ -483,10 +566,11 @@ class MemoryM3uExportDb implements M3uExportDbSink {
     required bool gateOpen,
     String? siteId,
   }) async {
+    final want = siteId == null ? null : canonicalSiteKey(siteId: siteId);
     final result = [
       for (final category in categories.values)
         if ((gateOpen || !MidnightGate.isAdultName(category.siteName)) &&
-            (siteId == null || category.siteId == siteId))
+            (want == null || category.siteId == want))
           category,
     ];
     result.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
@@ -499,7 +583,8 @@ class MemoryM3uExportDb implements M3uExportDbSink {
     required String siteId,
     required String videoId,
   }) async {
-    final record = videos['video:$siteId|$videoId'];
+    final record =
+        videos['video:${canonicalSiteKey(siteId: siteId)}|$videoId'];
     if (record == null) return null;
     if (!gateOpen && MidnightGate.isAdultName(record.siteName)) return null;
     return record;

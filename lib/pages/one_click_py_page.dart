@@ -12,6 +12,7 @@ import '../services/m3u_export_download.dart';
 import '../services/midnight_gate.dart';
 import '../services/one_click_py.dart';
 import '../services/public_folder.dart';
+import '../services/site_identity.dart';
 import '../services/source_registry.dart';
 import 'source_management_page.dart';
 
@@ -22,6 +23,8 @@ class _M3uExportTarget {
     required this.subtitle,
     required this.allowNonM3u8,
     required this.resolveClient,
+    this.siteAddress = '',
+    this.addressIsSiteAddress = false,
   });
 
   final String siteId;
@@ -29,6 +32,11 @@ class _M3uExportTarget {
   final String subtitle;
   final bool allowNonM3u8;
   final Future<DramaSiteContentClient?> Function() resolveClient;
+
+  /// 登记条目的地址与它是不是内容站地址（见 site_identity）：
+  /// 选站列表按归一键去重、导出写库按归一键合一都认这两个字段。
+  final String siteAddress;
+  final bool addressIsSiteAddress;
 }
 
 class OneClickPyPage extends StatefulWidget {
@@ -254,31 +262,43 @@ class _OneClickPyPageState extends State<OneClickPyPage> {
       SourceKind.legadoImport => '书源站',
       _ => '登记站',
     };
-    final targets = <_M3uExportTarget>[
-      for (final builtin in m3uExportBuiltinTargets(
-        dramaSites,
-        SourceRegistry.instance.isBuiltinEnabled,
-        gateOpen,
-      ))
-        _M3uExportTarget(
-          siteId: builtin.siteId,
-          label: builtin.label,
-          subtitle: builtin.siteId == 'hongguo'
-              ? '网页线 + 360p 兜底，非 m3u8 直链会注明条数'
-              : '内置站',
-          allowNonM3u8: builtin.allowNonM3u8,
-          resolveClient: () =>
-              SourceRegistry.instance.clientFor(builtin.siteId),
-        ),
-      for (final entry in entries)
-        _M3uExportTarget(
-          siteId: entry.id,
-          label: entry.name,
-          subtitle: subtitleFor(entry.kind),
-          allowNonM3u8: false,
-          resolveClient: () => SourceRegistry.instance.clientFor(entry.id),
-        ),
-    ];
+    // 选站列表按归一键去重：同一站点多入口只列一行（内置行在前，
+    // 后来的同站登记行被折掉），导出时不再对同一站重复爬第二份。
+    final targets = dedupeByCanonicalKey(
+      <_M3uExportTarget>[
+        for (final builtin in m3uExportBuiltinTargets(
+          dramaSites,
+          SourceRegistry.instance.isBuiltinEnabled,
+          gateOpen,
+        ))
+          _M3uExportTarget(
+            siteId: builtin.siteId,
+            label: builtin.label,
+            subtitle: builtin.siteId == 'hongguo'
+                ? '网页线 + 360p 兜底，非 m3u8 直链会注明条数'
+                : '内置站',
+            allowNonM3u8: builtin.allowNonM3u8,
+            resolveClient: () =>
+                SourceRegistry.instance.clientFor(builtin.siteId),
+          ),
+        for (final entry in entries)
+          _M3uExportTarget(
+            siteId: entry.id,
+            label: entry.name,
+            subtitle: subtitleFor(entry.kind),
+            allowNonM3u8: false,
+            resolveClient: () => SourceRegistry.instance.clientFor(entry.id),
+            siteAddress: entry.address,
+            addressIsSiteAddress:
+                addressIsSiteAddressForKind(entry.kind.name),
+          ),
+      ],
+      (target) => canonicalSiteKey(
+        siteId: target.siteId,
+        address: target.siteAddress,
+        addressIsSiteAddress: target.addressIsSiteAddress,
+      ),
+    );
     if (!mounted) return;
     final picked = await showDialog<_M3uExportTarget>(
       context: context,
@@ -465,6 +485,8 @@ class _OneClickPyPageState extends State<OneClickPyPage> {
                     downloadOptions: downloadOptions,
                     gateOpen: gateOpen,
                     allowNonM3u8: target.allowNonM3u8,
+                    siteAddress: target.siteAddress,
+                    addressIsSiteAddress: target.addressIsSiteAddress,
                     cancellation: cancellation,
                     onProgress: (p) {
                       progress = p;
