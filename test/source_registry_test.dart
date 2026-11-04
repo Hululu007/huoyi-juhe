@@ -1,5 +1,9 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fqapp/services/source_registry.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   test('远程 JSON 站点名解析：sites 列表与直接列表都认', () {
@@ -20,6 +24,61 @@ void main() {
       ['丙站'],
     );
     expect(parseRemoteJsonSiteNames({'other': 1}), isEmpty);
+  });
+
+  group('导入站删除', () {
+    test('删导入站：登记与导入副本清掉，下载原文件保留', () async {
+      final temp = await Directory.systemTemp.createTemp('juhe_remove_');
+      final copyOneClick = File('${temp.path}/copy_oneclick.py');
+      final copyPlain = File('${temp.path}/copy_plain.py');
+      final downloadFile = File('${temp.path}/example.py');
+      await copyOneClick.writeAsString('one click copy');
+      await copyPlain.writeAsString('plain copy');
+      await downloadFile.writeAsString('download original');
+      final seeded = [
+        SourceEntry(
+          id: 'import_oneclick',
+          name: '一键站',
+          kind: SourceKind.pyImport,
+          address: 'example.py',
+          extra: {
+            'path': copyOneClick.path,
+            'oneClick': true,
+            'downloadPath': downloadFile.path,
+            'contentType': 'mixed',
+          },
+        ),
+        SourceEntry(
+          id: 'import_plain',
+          name: '手动站',
+          kind: SourceKind.pyImport,
+          address: 'plain.py',
+          extra: {
+            'path': copyPlain.path,
+            'contentType': 'mixed',
+          },
+        ),
+      ];
+      SharedPreferences.setMockInitialValues({
+        'juhe_custom_sources':
+            jsonEncode([for (final entry in seeded) entry.toJson()]),
+      });
+      try {
+        final registry = SourceRegistry.instance;
+        await registry.removeCustom('import_oneclick');
+        expect(registry.customById('import_oneclick'), isNull);
+        expect(await copyOneClick.exists(), isFalse);
+        expect(await downloadFile.exists(), isTrue);
+        await registry.removeCustom('import_plain');
+        expect(registry.customById('import_plain'), isNull);
+        expect(await copyPlain.exists(), isFalse);
+        expect(await downloadFile.exists(), isTrue);
+      } finally {
+        if (await temp.exists()) {
+          await temp.delete(recursive: true);
+        }
+      }
+    });
   });
 
   test('自定义站源记录往返：类型与开关不变，内置类型不进自定义', () {

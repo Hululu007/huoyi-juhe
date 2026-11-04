@@ -455,6 +455,9 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
           '${entry.kind.label} · ${entry.contentType.label}',
           if (entry.address.isNotEmpty) entry.address,
           if (entry.detail.isNotEmpty) entry.detail,
+          if (entry.extra['downloadPath'] is String &&
+              (entry.extra['downloadPath'] as String).isNotEmpty)
+            '下载文件：${entry.extra['downloadPath']}',
           if (checkError != null) '检测失败：$checkError',
         ].join('\n'),
       ),

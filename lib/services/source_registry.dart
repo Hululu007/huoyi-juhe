@@ -856,9 +856,9 @@ class SourceRegistry {
     await _persist();
     if (removed?.kind == SourceKind.pyImport) {
       final path = removed?.extra['path'] as String? ?? '';
-      if (path.isNotEmpty) unawaited(PyBridge.dispose(path));
-      if (removed?.extra['oneClick'] == true && path.isNotEmpty) {
-        unawaited(_deleteQuietly(path));
+      if (path.isNotEmpty) {
+        await PyBridge.dispose(path);
+        await _deleteQuietly(path);
       }
     }
     if (removed?.kind == SourceKind.jarImport) {

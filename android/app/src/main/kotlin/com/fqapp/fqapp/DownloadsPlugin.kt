@@ -17,7 +17,8 @@ import java.io.IOException
 import java.util.concurrent.Executors
 
 /**
- * 平台导出通道（`fqapp/downloads`）：把一段纯文本写成系统「下载」目录里的 .txt。
+ * 平台导出通道（`fqapp/downloads`）：把一段纯文本写成系统「下载」目录里的文件
+ *（调用方定文件名，一键写 PY 存的是 .py；同名时 MediaStore 会改名）。
  *
  * Android 10（API 29）起走 `MediaStore.Downloads`：不需要任何存储权限，
  * 文件在文件管理器的「下载」里直接可见；API 29 之前没有免权限的公共目录写法，

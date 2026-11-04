@@ -354,10 +354,6 @@ class _OneClickPyPageState extends State<OneClickPyPage> {
                       const SizedBox(height: 4),
                       Text('下载文件夹原文件：${_result!.downloadPath}'),
                     ],
-                    if (_result!.downloadWarning != null) ...[
-                      const SizedBox(height: 4),
-                      Text(_result!.downloadWarning!),
-                    ],
                     const SizedBox(height: 4),
                     const Text('删除请到站源管理，删除后下载文件夹原文件保留。'),
                     const SizedBox(height: 8),

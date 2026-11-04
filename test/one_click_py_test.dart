@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fqapp/services/one_click_py.dart';
+import 'package:fqapp/services/platform_channel.dart';
 import 'package:fqapp/services/source_registry.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -841,33 +842,75 @@ void main() {
       expect(saved, isEmpty);
     });
 
-    test('下载失败记警告但继续导入', () async {
+    test('下载失败则不导入、不记历史', () async {
       var imported = false;
-      final result = await generateAndImport(
-        url: 'https://example.com',
-        client: t1Client(),
-        downloadSink: _FakeDownloadSink(shouldFail: true),
-        importSite: ({
-          required name,
-          required source,
-          required contentType,
-          required fileBaseName,
-          required oneClick,
-          required String? downloadPath,
-        }) async {
-          imported = true;
-          expect(downloadPath, isNull);
-          return SourceEntry(
-            id: 'import_4',
-            name: name,
-            kind: SourceKind.pyImport,
-            detail: 'Python 蜘蛛 · 已导入',
-          );
-        },
+      await expectLater(
+        generateAndImport(
+          url: 'https://example.com',
+          client: t1Client(),
+          downloadSink: _FakeDownloadSink(shouldFail: true),
+          importSite: ({
+            required name,
+            required source,
+            required contentType,
+            required fileBaseName,
+            required oneClick,
+            required String? downloadPath,
+          }) async {
+            imported = true;
+            return SourceEntry(
+              id: 'import_4',
+              name: name,
+              kind: SourceKind.pyImport,
+              detail: 'Python 蜘蛛 · 已导入',
+            );
+          },
+        ),
+        throwsStateError,
       );
-      expect(imported, isTrue);
-      expect(result.downloadWarning, isNotNull);
-      expect(result.downloadPath, isNull);
+      expect(imported, isFalse);
+      final saved = await OneClickHistoryStore().load();
+      expect(saved, isEmpty);
+    });
+  });
+
+  group('平台下载通道', () {
+    tearDown(() {
+      PlatformChannels.invoke = null;
+    });
+
+    test('非公开目录回退时抛错，不当成下载成功', () async {
+      PlatformChannels.invoke = (channel, method, args) async {
+        if (channel == 'fqapp/downloads' && method == 'saveText') {
+          return {
+            'path': '/data/data/com.example/files/Download/example.py',
+            'public': false,
+          };
+        }
+        return null;
+      };
+      await expectLater(
+        const PlatformOneClickDownloadSink()
+            .saveText(fileName: 'example.py', text: 'x'),
+        throwsStateError,
+      );
+    });
+
+    test('公开下载目录时返回系统下载路径', () async {
+      PlatformChannels.invoke = (channel, method, args) async {
+        if (channel == 'fqapp/downloads' && method == 'saveText') {
+          return {
+            'path': '/storage/emulated/0/Download/example.py',
+            'public': true,
+          };
+        }
+        return null;
+      };
+      expect(
+        await const PlatformOneClickDownloadSink()
+            .saveText(fileName: 'example.py', text: 'x'),
+        '/storage/emulated/0/Download/example.py',
+      );
     });
   });
 }

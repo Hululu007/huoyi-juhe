@@ -1546,6 +1546,9 @@ class PlatformOneClickDownloadSink implements OneClickDownloadSink {
     if (path is! String || path.isEmpty) {
       throw StateError('系统未返回导出路径');
     }
+    if (result?['public'] == false) {
+      throw StateError('当前系统不支持直接写入下载文件夹，文件未保存');
+    }
     return path;
   }
 }
@@ -1587,7 +1590,6 @@ class OneClickGenerateResult {
     required this.displayName,
     required this.pySource,
     this.downloadPath,
-    this.downloadWarning,
   });
 
   final SourceEntry entry;
@@ -1595,7 +1597,6 @@ class OneClickGenerateResult {
   final String displayName;
   final String pySource;
   final String? downloadPath;
-  final String? downloadWarning;
 }
 
 Future<OneClickGenerateResult> generateAndImport({
@@ -1650,15 +1651,9 @@ Future<OneClickGenerateResult> generateAndImport({
     if (checkError != null) {
       throw StateError('生成自检未通过：$checkError');
     }
-    String? downloadPath;
-    String? downloadWarning;
-    try {
-      downloadPath =
-          await (downloadSink ?? const PlatformOneClickDownloadSink())
-              .saveText(fileName: '${identification.siteKey}.py', text: py);
-    } catch (error) {
-      downloadWarning = '下载文件夹保存失败（$error），已继续导入，下载文件夹无原文件';
-    }
+    final downloadPath =
+        await (downloadSink ?? const PlatformOneClickDownloadSink())
+            .saveText(fileName: '${identification.siteKey}.py', text: py);
     final importFn = importSite ?? _defaultImportSite;
     final entry = await importFn(
       name: displayName,
@@ -1690,7 +1685,6 @@ Future<OneClickGenerateResult> generateAndImport({
       displayName: displayName,
       pySource: py,
       downloadPath: downloadPath,
-      downloadWarning: downloadWarning,
     );
   } finally {
     if (client == null) {
