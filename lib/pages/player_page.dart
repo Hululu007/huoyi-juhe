@@ -86,6 +86,10 @@ class PlayerPage extends StatefulWidget {
   /// 播放页信息层的 AI 声明行。
   final bool aiGenerated;
 
+  /// 引擎播放页内收藏：非空时播放器顶栏显示收藏按钮；空时不显示
+  /// （原站短剧走自己的追剧，不混用引擎书架）。
+  final VoidCallback? onAddToShelf;
+
   /// 进页即全屏（并请求横屏）。官方 feed 卡片右侧的横屏钮不是「观看全集」
   /// 的同一条路：它 `transformToLandActivity` → 起独立
   /// `ShortSeriesLandActivity`（`jq3/x.java:4499-4538`，manifest 锁
@@ -118,6 +122,7 @@ class PlayerPage extends StatefulWidget {
     this.shortSeries = false,
     this.aiGenerated = false,
     this.openFullScreen = false,
+    this.onAddToShelf,
     this.downloader,
     this.store,
   });
@@ -1780,6 +1785,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       // 官方播放页标题行「剧名 >」（ql3/v0 `a1()`）与选集面板头部箭头
       // 都进剧集详情页（`series_detail`）。
       onOpenSeriesDetail: widget.shortSeries ? _openSeriesDetail : null,
+      onAddToShelf: widget.onAddToShelf,
       onOpenRelatedSeries:
           widget.shortSeries && (_seriesDetail?.hasRelatedSeries ?? false)
           ? () => unawaited(_openRelatedSeries())

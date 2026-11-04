@@ -18,6 +18,7 @@ import 'library_store.dart';
 import 'midnight_gate.dart';
 import 'reader_history.dart';
 import 'episode_source_cache.dart';
+import 'local_media_proxy.dart';
 import 'nonvideo_play.dart';
 import 'shelf_store.dart';
 import 'source_registry.dart';
@@ -30,6 +31,77 @@ import 'source_registry.dart';
 /// 切到下一集时先命中缓存，不再等一次接口；预取失败直接丢弃，
 ///
 /// 不影响当前播放。缓存只留当前这部剧，退出详情页即失效。
+/// 外来壳代理地址判定（可单测）：回环 host + 路径含 proxy，且不是
+/// 本代理自己的会话地址（本代理地址也回环，但 owns 判定在前）。
+bool isForeignProxyUrl(String url) {
+  final uri = Uri.tryParse(url);
+  if (uri == null) return false;
+  if (uri.host != '127.0.0.1' && uri.host != 'localhost') return false;
+  if (!uri.path.contains('proxy')) return false;
+  return !LocalMediaProxy.instance.owns(url);
+}
+
+/// 取流结果 → 播放器可播地址：dict 头非空时经本地代理带上；外来壳
+/// 代理地址经蜘蛛 localProxy 会话转接；其余直链原样。主地址与每个
+/// variant 一起换，keyHex 与高度原样保留。
+Future<DramaPlaySource> _proxyIfNeeded(
+  DramaSiteContentClient client,
+  DramaPlaySource source,
+) async {
+  final proxy = LocalMediaProxy.instance;
+  Future<DramaPlaySource> mapUrl(
+    Future<String> Function(String) map,
+  ) async {
+    final url = await map(source.url);
+    final variants = <DramaPlayVariant>[];
+    for (final variant in source.variants) {
+      variants.add(
+        DramaPlayVariant(
+          name: variant.name,
+          url: await map(variant.url),
+          keyHex: variant.keyHex,
+          height: variant.height,
+        ),
+      );
+    }
+    return DramaPlaySource(
+      url: url,
+      keyHex: source.keyHex,
+      variants: variants,
+    );
+  }
+
+  if (isForeignProxyUrl(source.url)) {
+    if (client is! LocalProxyCapable) {
+      throw StateError('该站未实现本地代理，无法转接壳代理地址');
+    }
+    // 上面的守卫已保证类型；这里用 as 纯粹是绕开参数提升失效，
+    // 到不了错类型（错类型在守卫处已抛诚实错误）。
+    final capable = client as LocalProxyCapable;
+    final sessionUrl = await proxy.registerHandler(
+      handler: (requestUri) async {
+        final result = await capable.localProxy(requestUri);
+        if (result == null) {
+          throw StateError('该站未实现本地代理');
+        }
+        return result;
+      },
+    );
+    return mapUrl((url) async {
+      if (!isForeignProxyUrl(url)) return url;
+      final query = Uri.parse(url).query;
+      return query.isEmpty ? sessionUrl : '$sessionUrl?$query';
+    });
+  }
+  if (source.headers.isNotEmpty && source.url.startsWith('http')) {
+    return mapUrl((url) async {
+      if (!url.startsWith('http')) return url;
+      return proxy.register(targetUrl: url, headers: source.headers);
+    });
+  }
+  return source;
+}
+
 class _PlaySourcePreload {
   final Map<String, DramaPlaySource> _cache = {};
   final Set<String> _inFlight = {};
@@ -49,7 +121,8 @@ class _PlaySourcePreload {
     String key,
   ) async {
     try {
-      _cache[key] = await client.playSource(episode);
+      final raw = await client.playSource(episode);
+      _cache[key] = await _proxyIfNeeded(client, raw);
     } catch (_) {
     } finally {
       _inFlight.remove(key);
@@ -238,6 +311,11 @@ Future<void> openDramaSitePlayback(
     return;
   }
   final preload = _PlaySourcePreload();
+  final entry = SourceRegistry.instance.customById(siteId);
+  // 播放页收藏与详情页收藏同规则：按站点登记的内容类型定架子，
+  // 未登记的站按当前内容定（视频 video、音频 audio）。
+  String shelfKind(String fallback) =>
+      entry == null ? fallback : engineShelfKindFor(entry.contentType);
   DramaSiteDetail? cachedDetail;
   Future<DramaSiteDetail> loadSiteDetail() async {
     cachedDetail ??= await client.detail(seriesId);
@@ -277,7 +355,8 @@ Future<void> openDramaSitePlayback(
     );
     final cached = preload.take(episode);
     if (cached != null) return cached;
-    final source = await client.playSource(episode);
+    final raw = await client.playSource(episode);
+    final source = await _proxyIfNeeded(client, raw);
     preload.put(episode, source);
     final loaded = await loadSiteDetail();
     final found = loaded.episodes.indexWhere(
@@ -425,6 +504,7 @@ Future<void> openDramaSitePlayback(
             coverUrl: cover,
             episodes: chapters,
             initialIndex: safeIndex,
+            onAddToShelf: () => addToShelf(kind: shelfKind('audio')),
             resolveSource: (chapter) async {
               final source = await resolveSource(chapter);
               return EpisodeSource(source.url, source.keyHex);
@@ -444,6 +524,7 @@ Future<void> openDramaSitePlayback(
             eps: chapters,
             startIndex: safeIndex,
             shortSeries: true,
+            onAddToShelf: () => addToShelf(kind: shelfKind('video')),
             initialSeriesDetail: initialDetail,
             seriesLoader: initialDetail == null
                 ? null

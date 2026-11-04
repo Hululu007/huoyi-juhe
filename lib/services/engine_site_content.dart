@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'drama_playback.dart';
+import 'local_media_proxy.dart';
 import 'drama_site_content.dart';
 import 'drama_sites.dart';
 import 'jar_bridge.dart';
@@ -96,6 +99,31 @@ DramaSiteDetail parseTvboxDetail(Map<String, dynamic> json) {
   );
 }
 
+/// 蜘蛛本地代理回包（py host 的 proxy 动作与 jar 的 jarProxy 共用此形）：
+/// {status, mime, bodyBase64, headers?}。base64 解不开时如实抛错。
+LocalProxyResponse parseLocalProxyResponse(Map<String, dynamic> json) {
+  final encoded = _text(json['bodyBase64']);
+  List<int> body;
+  try {
+    body = base64Decode(encoded);
+  } catch (_) {
+    throw StateError('本地代理回包的 bodyBase64 解不开');
+  }
+  final headers = <String, String>{};
+  final headerRaw = json['headers'];
+  if (headerRaw is Map) {
+    for (final entry in headerRaw.entries) {
+      headers[entry.key.toString()] = entry.value.toString();
+    }
+  }
+  return LocalProxyResponse(
+    status: int.tryParse(_text(json['status'])) ?? 200,
+    mime: _text(json['mime']),
+    body: body,
+    headers: headers,
+  );
+}
+
 DramaPlaySource parseTvboxPlay(Map<String, dynamic> json) {
   final parse = _text(json['parse']);
   if (parse == '1') {
@@ -105,10 +133,18 @@ DramaPlaySource parseTvboxPlay(Map<String, dynamic> json) {
   if (url.isEmpty) {
     throw StateError('该集没有可播地址');
   }
-  return DramaPlaySource(url: url);
+  final headers = <String, String>{};
+  final headerRaw = json['header'];
+  if (headerRaw is Map) {
+    for (final entry in headerRaw.entries) {
+      headers[entry.key.toString()] = entry.value.toString();
+    }
+  }
+  return DramaPlaySource(url: url, headers: headers);
 }
 
-class PySiteContentClient extends DramaSiteContentClient {
+class PySiteContentClient extends DramaSiteContentClient
+    implements LocalProxyCapable {
   PySiteContentClient(this.pyPath, {this.ext = ''});
 
   final String pyPath;
@@ -157,6 +193,15 @@ class PySiteContentClient extends DramaSiteContentClient {
       'playId': parts.sublist(1).join('\u0001'),
     });
     return parseTvboxPlay(json);
+  }
+
+  @override
+  Future<LocalProxyResponse?> localProxy(Uri uri) async {
+    final json = await _call({
+      'action': 'proxy',
+      'param': uri.queryParameters,
+    });
+    return parseLocalProxyResponse(json);
   }
 }
 
@@ -219,7 +264,8 @@ class JsSiteContentClient extends DramaSiteContentClient {
   }
 }
 
-class JarSiteContentClient extends DramaSiteContentClient {
+class JarSiteContentClient extends DramaSiteContentClient
+    implements LocalProxyCapable {
   JarSiteContentClient(this.spec);
 
   final JarSiteSpec spec;
@@ -280,5 +326,11 @@ class JarSiteContentClient extends DramaSiteContentClient {
       'vipFlags': <String>[],
     });
     return parseTvboxPlay(json);
+  }
+
+  @override
+  Future<LocalProxyResponse?> localProxy(Uri uri) async {
+    final json = await JarBridge.jarProxy(spec, uri.queryParameters);
+    return parseLocalProxyResponse(json);
   }
 }

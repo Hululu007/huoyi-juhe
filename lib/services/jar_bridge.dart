@@ -147,6 +147,34 @@ class JarBridge {
 
   static String md5Hex(List<int> bytes) => md5.convert(bytes).toString();
 
+  /// jar 蜘蛛本地代理：调原生 jarProxy（静态 proxy(Map) 方法），回包与
+  /// py host 的 proxy 动作同形 {status, mime, bodyBase64}。
+  static Future<Map<String, dynamic>> jarProxy(
+    JarSiteSpec spec,
+    Map<String, String> param,
+  ) async {
+    final jarPath = await _ensureJar(spec);
+    if (!supported) {
+      throw JarBridgeFailure('jar 桥仅支持 Android，当前平台无法调用本地代理');
+    }
+    try {
+      final result = await _channel.invokeMapMethod<String, dynamic>(
+        'jarProxy',
+        {
+          'configId': spec.configId,
+          'jarPath': jarPath,
+          'className': spec.className,
+          'param': param,
+        },
+      );
+      return result == null ? const {} : Map<String, dynamic>.from(result);
+    } on PlatformException catch (error) {
+      throw JarBridgeFailure(error.message ?? 'jar 本地代理调用失败');
+    } on MissingPluginException {
+      throw JarBridgeFailure('jar 桥未就绪：当前安装包未包含 jar 桥通道');
+    }
+  }
+
   static Future<List<JarClassInfo>> enumerate(String jarPath) async {
     if (!supported) {
       throw JarBridgeFailure('jar 桥仅支持 Android，当前平台无法枚举 jar 内的 Spider 类');

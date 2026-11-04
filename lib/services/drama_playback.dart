@@ -33,10 +33,15 @@ class DramaPlaySource {
   final String keyHex;
   final List<DramaPlayVariant> variants;
 
+  /// playerContent 回的 dict 头：取流层不直接交给播放器，统一经本地
+  /// 媒体代理带上（见 drama_site_play 的 _proxyIfNeeded）。
+  final Map<String, String> headers;
+
   const DramaPlaySource({
     required this.url,
     this.keyHex = '',
     this.variants = const [],
+    this.headers = const {},
   });
 
   Map<String, dynamic> toResponse() => {

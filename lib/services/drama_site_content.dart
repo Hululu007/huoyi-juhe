@@ -11,6 +11,7 @@ import 'package:http/http.dart' as http;
 
 import 'drama_playback.dart';
 import 'drama_sites.dart';
+import 'local_media_proxy.dart';
 import 'hgtv_content.dart';
 import 'huangju_content.dart';
 import 'yeguo_content.dart';
@@ -60,6 +61,14 @@ class DramaSiteCatalogPage {
   final bool hasMore;
 
   const DramaSiteCatalogPage({required this.items, required this.hasMore});
+}
+
+/// 蜘蛛本地代理能力：只有 py/jar 引擎客户端实现。基类不给默认实现，
+/// 因为十多个 implements 客户端都要跟着补方法；不具备的站由调用方
+/// （drama_site_play 的 _proxyIfNeeded）如实报错，不静默回空。
+/// 入参是待播地址的完整 URI（查询参数即蜘蛛 localProxy 的 param）。
+abstract interface class LocalProxyCapable {
+  Future<LocalProxyResponse?> localProxy(Uri uri);
 }
 
 abstract class DramaSiteContentClient {

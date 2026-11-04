@@ -181,6 +181,9 @@ class VideoPlayerChrome extends StatefulWidget {
   /// `a1()` 的默认分支）。null 时不响应（非短剧形态）。
   final VoidCallback? onOpenSeriesDetail;
   final VoidCallback? onOpenRelatedSeries;
+
+  /// 引擎播放页内收藏：非空时顶栏「更多」左侧显示收藏按钮。
+  final VoidCallback? onAddToShelf;
   final String seriesCover;
   final String episodeLabel;
 
@@ -279,6 +282,7 @@ class VideoPlayerChrome extends StatefulWidget {
     this.synopsis = '',
     this.onOpenSeriesDetail,
     this.onOpenRelatedSeries,
+    this.onAddToShelf,
     this.seriesCover = '',
     this.episodeLabel = '',
     this.relateBook,
@@ -3835,6 +3839,15 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
                       ),
                     ),
             ),
+            if (widget.onAddToShelf != null)
+              IconButton(
+                tooltip: '收藏',
+                onPressed: widget.onAddToShelf,
+                icon: const Icon(
+                  Icons.bookmark_add_outlined,
+                  color: Colors.white,
+                ),
+              ),
             IconButton(
               tooltip: '更多',
               onPressed: _showSettingsPanel,

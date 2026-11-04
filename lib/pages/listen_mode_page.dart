@@ -33,6 +33,7 @@ class ListenModePage extends StatefulWidget {
     required this.initialIndex,
     required this.resolveSource,
     this.playerFactory,
+    this.onAddToShelf,
   });
 
   final String seriesTitle;
@@ -45,6 +46,10 @@ class ListenModePage extends StatefulWidget {
 
   /// 测试注入点；生产用 [NativePlayer.new]。
   final NativePlayer Function()? playerFactory;
+
+  /// 引擎播放页内收藏：非空时顶栏显示收藏按钮；空时不显示
+  /// （原站听书走自己的收藏，不混用引擎书架）。
+  final VoidCallback? onAddToShelf;
 
   @override
   State<ListenModePage> createState() => _ListenModePageState();
@@ -313,6 +318,14 @@ class _ListenModePageState extends State<ListenModePage>
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
+          actions: [
+            if (widget.onAddToShelf != null)
+              IconButton(
+                tooltip: '收藏',
+                icon: const Icon(Icons.bookmark_add_outlined),
+                onPressed: widget.onAddToShelf,
+              ),
+          ],
         ),
         body: SafeArea(
           child: Column(
