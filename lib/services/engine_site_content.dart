@@ -222,7 +222,8 @@ class PySiteContentClient extends DramaSiteContentClient
   }
 }
 
-class JsSiteContentClient extends DramaSiteContentClient {
+class JsSiteContentClient extends DramaSiteContentClient
+    implements LocalProxyCapable {
   JsSiteContentClient(this.script);
 
   final String script;
@@ -278,6 +279,27 @@ class JsSiteContentClient extends DramaSiteContentClient {
       playId: parts.sublist(1).join('\u0001'),
     );
     return parseTvboxPlay(json);
+  }
+
+  @override
+  Future<LocalProxyResponse?> localProxy(Uri uri) async {
+    Map<String, dynamic> json;
+    try {
+      json = await JsBridge.run(
+        script: script,
+        operation: 'proxy',
+        params: uri.queryParameters,
+      );
+    } on StateError catch (error) {
+      // 脚本根本没定义 localProxy：按“未实现”回空，让调用方
+      // （drama_site_play 的会话转接）报统一的未实现错误，
+      // 而不是把引擎的缺函数报错当成代理执行失败。
+      if (error.message.contains('does not provide localProxy')) {
+        return null;
+      }
+      rethrow;
+    }
+    return parseLocalProxyResponse(json);
   }
 }
 

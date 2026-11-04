@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fqapp/services/drama_site_content.dart';
 import 'package:fqapp/services/engine_site_content.dart';
 
 void main() {
@@ -96,5 +97,22 @@ void main() {
       throwsStateError,
     );
     expect(() => parseTvboxPlay({}), throwsStateError);
+  });
+
+  test('JS 客户端实现本地代理：壳代理地址转接不再报未实现', () {
+    expect(JsSiteContentClient(''), isA<LocalProxyCapable>());
+  });
+
+  test('本地代理回包：JS 脚本回包形状与 py/jar 共用解析器', () {
+    final response = parseLocalProxyResponse({
+      'status': 200,
+      'mime': 'application/vnd.apple.mpegurl',
+      'bodyBase64': 'I0VYVE0zVQ==',
+      'headers': {'Cache-Control': 'no-cache'},
+    });
+    expect(response.status, 200);
+    expect(response.mime, 'application/vnd.apple.mpegurl');
+    expect(String.fromCharCodes(response.body), '#EXTM3U');
+    expect(response.headers['Cache-Control'], 'no-cache');
   });
 }

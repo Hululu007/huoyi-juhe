@@ -57,4 +57,15 @@ void main() {
       throwsStateError,
     );
   });
+
+  test('JS 驱动脚本：本地代理操作调 localProxy，查询参数整包传过去', () {
+    final driver = buildJsDriverScript(
+      script: '',
+      operation: 'proxy',
+      params: {'do': 'play', 'id': '1'},
+    );
+    expect(driver, contains('localProxy'));
+    expect(driver, contains('fn({"do":"play","id":"1"})'));
+    expect(driver, contains("['proxy']"));
+  });
 }

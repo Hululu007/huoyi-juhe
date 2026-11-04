@@ -19,6 +19,7 @@ String buildJsDriverScript({
   String vodId = '',
   String flag = '',
   String playId = '',
+  Map<String, String> params = const {},
 }) {
   const fnNames = {
     'home': 'homeContent',
@@ -26,6 +27,10 @@ String buildJsDriverScript({
     'detail': 'detailContent',
     'search': 'searchContent',
     'player': 'playerContent',
+    // 本地代理：脚本定义 localProxy(param)，param 即待播代理地址的
+    // 查询参数（与 py/jar 的 localProxy 入参同一口径）；回包形状与
+    // parseLocalProxyResponse 一致：{status, mime, bodyBase64, headers}。
+    'proxy': 'localProxy',
   };
   final fnName = fnNames[operation];
   if (fnName == null) throw StateError('不支持的 JS 蜘蛛操作：$operation');
@@ -45,6 +50,9 @@ String buildJsDriverScript({
       break;
     case 'player':
       call = 'fn(${jsonEncode(flag)}, ${jsonEncode(playId)}, [])';
+      break;
+    case 'proxy':
+      call = 'fn(${jsonEncode(params)})';
       break;
     default:
       call = 'fn()';
@@ -73,7 +81,8 @@ $script
     'categoryContent': ['category'],
     'detailContent': ['detail'],
     'searchContent': ['search'],
-    'playerContent': ['play', 'player']
+    'playerContent': ['play', 'player'],
+    'localProxy': ['proxy']
   }[target] || [];
   for (var i = 0; i < alts.length && !fn; i++) fn = findFn(alts[i]);
   if (!fn) throw new Error('JS spider does not provide ' + target);
@@ -184,6 +193,7 @@ class JsBridge {
     String vodId = '',
     String flag = '',
     String playId = '',
+    Map<String, String> params = const {},
     int timeoutMs = 30000,
   }) async {
     await ensureReady();
@@ -196,6 +206,7 @@ class JsBridge {
       vodId: vodId,
       flag: flag,
       playId: playId,
+      params: params,
     );
     try {
       final raw = await _channel.invokeMethod<String>('eval', {
