@@ -160,13 +160,13 @@ List<LocalDbExportBuiltinTarget> localDbExportBuiltinTargets(
 ) {
   return [
     for (final site in sites)
-      if (site.id != 'original' &&
-          isEnabled(site.id) &&
+      if (isEnabled(site.id) &&
           (gateOpen || !MidnightGate.isAdultName(site.name)))
         LocalDbExportBuiltinTarget(
           siteId: site.id,
           label: site.name,
-          allowNonM3u8: site.id == 'hongguo',
+          // 番茄短剧流地址可能是 m3u8 也可能是 mp4 直链，与红果同理放行。
+          allowNonM3u8: site.id == 'hongguo' || site.id == 'original',
         ),
   ];
 }

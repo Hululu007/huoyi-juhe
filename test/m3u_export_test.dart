@@ -401,7 +401,7 @@ void main() {
       );
     });
 
-    test('内置站导出目标：除番茄短剧外全进，午夜未开滤成人站，红果放行非 m3u8', () {
+    test('内置站导出目标：番茄短剧已接适配器，全进，午夜未开滤成人站，红果与番茄放行非 m3u8', () {
       const sites = [
         DramaSite('original', '番茄短剧'),
         DramaSite('hongguo', '红果'),
@@ -411,10 +411,14 @@ void main() {
       final open = localDbExportBuiltinTargets(sites, (_) => true, true);
       expect(
         [for (final t in open) t.siteId],
-        ['hongguo', 'fanguo', '🔞adult'],
+        ['original', 'hongguo', 'fanguo', '🔞adult'],
       );
       expect(
         open.firstWhere((t) => t.siteId == 'hongguo').allowNonM3u8,
+        isTrue,
+      );
+      expect(
+        open.firstWhere((t) => t.siteId == 'original').allowNonM3u8,
         isTrue,
       );
       expect(
@@ -424,7 +428,7 @@ void main() {
       final closed = localDbExportBuiltinTargets(sites, (_) => true, false);
       expect(
         [for (final t in closed) t.siteId],
-        ['hongguo', 'fanguo'],
+        ['original', 'hongguo', 'fanguo'],
       );
       final disabled = localDbExportBuiltinTargets(
         sites,
@@ -433,7 +437,7 @@ void main() {
       );
       expect(
         [for (final t in disabled) t.siteId],
-        ['hongguo', '🔞adult'],
+        ['original', 'hongguo', '🔞adult'],
       );
     });
 

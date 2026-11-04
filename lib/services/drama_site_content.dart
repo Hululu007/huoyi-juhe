@@ -14,6 +14,7 @@ import 'drama_sites.dart';
 import 'local_media_proxy.dart';
 import 'hgtv_content.dart';
 import 'huangju_content.dart';
+import 'original_site_content.dart';
 import 'yeguo_content.dart';
 
 class DramaSiteItem {
@@ -3287,6 +3288,7 @@ class HuangdouContentClient implements DramaSiteContentClient {
 }
 
 DramaSiteContentClient? dramaSiteContentClient(String siteId) {
+  if (siteId == 'original') return OriginalContentClient();
   if (siteId == 'huangju') return HuangjuContentClient();
   if (siteId == 'yeguo') return YeguoContentClient();
   if (siteId == 'hgtvmirror') return HgtvMirrorContentClient();

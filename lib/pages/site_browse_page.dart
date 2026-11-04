@@ -120,7 +120,8 @@ class _SiteBrowsePageState extends State<SiteBrowsePage> {
                     client: client,
                     dbSink: widget.dbSink ?? HiveM3uExportDb.instance,
                     gateOpen: gateOpen,
-                    allowNonM3u8: widget.siteId == 'hongguo',
+                    allowNonM3u8: widget.siteId == 'hongguo' ||
+                        widget.siteId == 'original',
                     siteAddress: custom?.address ?? '',
                     addressIsSiteAddress: custom != null &&
                         addressIsSiteAddressForKind(custom.kind.name),
