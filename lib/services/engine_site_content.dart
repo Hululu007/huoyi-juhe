@@ -95,6 +95,7 @@ DramaSiteDetail parseTvboxDetail(Map<String, dynamic> json) {
     id: vodId,
     title: title,
     cover: cover,
+    synopsis: _text(row['vod_content']),
     episodes: episodes,
   );
 }

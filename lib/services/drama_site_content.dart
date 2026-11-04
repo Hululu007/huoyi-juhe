@@ -46,12 +46,14 @@ class DramaSiteDetail {
   final String id;
   final String title;
   final String cover;
+  final String synopsis;
   final List<DramaSiteEpisode> episodes;
 
   const DramaSiteDetail({
     required this.id,
     required this.title,
     required this.cover,
+    this.synopsis = '',
     required this.episodes,
   });
 }
@@ -272,6 +274,13 @@ class HgtvMirrorContentClient implements DramaSiteContentClient {
       id: seriesId,
       title: title,
       cover: cover,
+      synopsis: _stringOf(
+        series['series_desc'] ??
+            series['desc'] ??
+            series['introduction'] ??
+            series['synopsis'] ??
+            series['content'],
+      ),
       episodes: episodes,
     );
   }

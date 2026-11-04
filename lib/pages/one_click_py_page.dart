@@ -1,8 +1,30 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../services/drama_site_content.dart';
+import '../services/jar_bridge.dart';
+import '../services/m3u_export.dart';
+import '../services/m3u_export_db.dart';
+import '../services/midnight_gate.dart';
 import '../services/one_click_py.dart';
+import '../services/source_registry.dart';
 import 'source_management_page.dart';
+
+class _M3uExportTarget {
+  const _M3uExportTarget({
+    required this.siteId,
+    required this.label,
+    required this.subtitle,
+    required this.allowNonM3u8,
+    required this.resolveClient,
+  });
+
+  final String siteId;
+  final String label;
+  final String subtitle;
+  final bool allowNonM3u8;
+  final Future<DramaSiteContentClient?> Function() resolveClient;
+}
 
 class OneClickPyPage extends StatefulWidget {
   const OneClickPyPage({super.key});
@@ -209,6 +231,192 @@ class _OneClickPyPageState extends State<OneClickPyPage> {
     _filterController.clear();
   }
 
+  Future<void> _exportM3u() async {
+    await SourceRegistry.instance.load();
+    await MidnightGate.ensureLoaded();
+    final gateOpen = MidnightGate.activated.value;
+    final entries = filterM3uExportSites(
+      SourceRegistry.instance.custom,
+      gateOpen,
+      includeJar: JarBridge.supported,
+    );
+    final targets = <_M3uExportTarget>[
+      _M3uExportTarget(
+        siteId: 'hongguo',
+        label: '红果',
+        subtitle: '网页线 + 360p 兜底，非 m3u8 直链会注明条数',
+        allowNonM3u8: true,
+        resolveClient: () async => HongguoContentClient(),
+      ),
+      for (final entry in entries)
+        _M3uExportTarget(
+          siteId: entry.id,
+          label: entry.name,
+          subtitle: entry.kind == SourceKind.jarImport ? 'jar 站' : 'py 站',
+          allowNonM3u8: false,
+          resolveClient: () => SourceRegistry.instance.clientFor(entry.id),
+        ),
+    ];
+    if (!mounted) return;
+    final picked = await showDialog<_M3uExportTarget>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('选一个站点导出 m3u'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: targets.length,
+            itemBuilder: (ctx, index) {
+              final target = targets[index];
+              return ListTile(
+                title: Text(target.label),
+                subtitle: Text(target.subtitle),
+                onTap: () => Navigator.pop(ctx, target),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+    if (picked == null || !mounted) return;
+    final client = await picked.resolveClient();
+    if (!mounted) return;
+    if (client == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('该站当前不可用（已关闭或导入副本缺失）')),
+      );
+      return;
+    }
+    await _runM3uExport(picked, client, gateOpen);
+  }
+
+  Future<void> _runM3uExport(
+    _M3uExportTarget target,
+    DramaSiteContentClient client,
+    bool gateOpen,
+  ) async {
+    final cancellation = M3uExportCancellation();
+    M3uExportProgress? progress;
+    M3uExportResult? result;
+    Object? error;
+    var started = false;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (dialogCtx, setState) {
+            if (!started) {
+              started = true;
+              Future(() async {
+                try {
+                  result = await exportSiteM3u(
+                    siteId: target.siteId,
+                    siteName: target.label,
+                    client: client,
+                    dbSink: HiveM3uExportDb.instance,
+                    gateOpen: gateOpen,
+                    allowNonM3u8: target.allowNonM3u8,
+                    cancellation: cancellation,
+                    onProgress: (p) {
+                      progress = p;
+                      if (dialogCtx.mounted) setState(() {});
+                    },
+                  );
+                } catch (e) {
+                  error = e;
+                }
+                if (dialogCtx.mounted) setState(() {});
+              });
+            }
+            final running = result == null && error == null;
+            final lines = <String>[];
+            if (running) {
+              if (progress == null) {
+                lines.add('正在读取分类…');
+              } else {
+                lines.add(
+                  '正在导出：${progress!.categoryName} '
+                  '（${progress!.categoriesDone}/${progress!.categoriesTotal} 个分类）',
+                );
+                lines.add(
+                  '成功 ${progress!.successCount} 条，跳过 ${progress!.skippedCount} 条',
+                );
+              }
+            } else if (error != null) {
+              lines.add('导出失败：$error');
+            } else if (result!.cancelled) {
+              lines.add('已取消，未保存文件。');
+            } else {
+              lines.add(
+                '成功 ${result!.successCount} 条，跳过 ${result!.skippedCount} 条。',
+              );
+              if (result!.nonM3u8Count > 0) {
+                lines.add(
+                  '其中非 m3u8 直链 ${result!.nonM3u8Count} 条'
+                  '（红果中继解密形态，不是普通 m3u8）。',
+                );
+              }
+              if (result!.duplicateCount > 0) {
+                lines.add('重复 ${result!.duplicateCount} 条已去重。');
+              }
+              if (result!.emptyCategories.isNotEmpty) {
+                lines.add(
+                  '以下分类没有可用 m3u8：${result!.emptyCategories.join('、')}',
+                );
+              }
+              if (result!.truncatedCategories.isNotEmpty) {
+                lines.add(
+                  '以下分类达到 100 页上限，可能未爬全：'
+                  '${result!.truncatedCategories.join('、')}',
+                );
+              }
+              lines.add('已保存到下载文件夹：${result!.downloadPath}');
+              if (result!.dbError != null) {
+                lines.add('数据库同步失败：${result!.dbError}（m3u 文件已保存）。');
+              } else {
+                lines.add('已同步写入本地数据库 ${result!.dbVideoCount} 条。');
+              }
+              if (result!.successCount > 0) {
+                lines.add('地址为导出时刻的快照，带签名的地址过期会失效，不是永久有效。');
+              }
+            }
+            return AlertDialog(
+              title: Text('导出 m3u：${target.label}'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final line in lines) ...[
+                    Text(line),
+                    const SizedBox(height: 4),
+                  ],
+                  if (running) ...[
+                    const SizedBox(height: 8),
+                    const LinearProgressIndicator(),
+                  ],
+                ],
+              ),
+              actions: [
+                if (running)
+                  TextButton(
+                    onPressed: cancellation.cancel,
+                    child: const Text('取消'),
+                  ),
+                if (!running)
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('关闭'),
+                  ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final identification = _identification;
@@ -304,6 +512,18 @@ class _OneClickPyPageState extends State<OneClickPyPage> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Text('生成并导入'),
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton(
+            onPressed: _exportM3u,
+            child: const Text('导出 m3u'),
+          ),
+          const Padding(
+            padding: EdgeInsets.only(top: 4),
+            child: Text(
+              '选红果或一个已导入的 py/jar 站，把全部分类视频的可播地址导出到下载文件夹。py/jar 站只收 m3u8，红果站写解析到的直链并注明非 m3u8 条数；取不到的跳过并报数；午夜未开时成人站不显示。',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
           ),
           if (identification != null) ...[
             const SizedBox(height: 16),
