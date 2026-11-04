@@ -2391,7 +2391,7 @@ class Spider(BaseSpider):
                         continue
                     tid = _pick(row, ("type_id", "id"))
                     tname = _pick(row, ("type_name", "name"))
-                    if tid and tname:
+                    if tid and tname and str(tid) not in [t["type_id"] for t in typed]:
                         typed.append({"type_id": str(tid), "type_name": str(tname)})
                 if typed:
                     classes = typed
