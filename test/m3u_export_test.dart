@@ -95,6 +95,11 @@ class _ThrowingDbSink implements M3uExportDbSink {
   }
 
   @override
+  Future<List<M3uExportSiteInfo>> listSites({required bool gateOpen}) async {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<List<M3uExportVideoRecord>> listVideos({
     required bool gateOpen,
     String? siteId,

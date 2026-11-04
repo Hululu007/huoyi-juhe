@@ -278,12 +278,14 @@ class _SiteBrowsePageState extends State<SiteBrowsePage> {
       appBar: AppBar(
         title: Text(widget.siteName),
         actions: [
-          IconButton(
-            key: const Key('precrawl-button'),
-            icon: const Icon(Icons.download),
-            tooltip: '预爬取本站',
-            onPressed: _client == null ? null : _preCrawl,
-          ),
+          // 本地库站没有可爬的线上源，预爬取等于把库倒回库里，不显示。
+          if (!widget.siteId.startsWith('localdb:'))
+            IconButton(
+              key: const Key('precrawl-button'),
+              icon: const Icon(Icons.download),
+              tooltip: '预爬取本站',
+              onPressed: _client == null ? null : _preCrawl,
+            ),
         ],
       ),
       body: _loading

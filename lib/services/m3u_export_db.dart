@@ -311,6 +311,18 @@ String? resolveExportedPlayUrl(M3uExportVideoRecord record) {
   return null;
 }
 
+/// 本地库里一个站点的汇总：归一键、站名、视频条数。
+class M3uExportSiteInfo {
+  final String siteId;
+  final String siteName;
+  final int videoCount;
+  const M3uExportSiteInfo({
+    required this.siteId,
+    required this.siteName,
+    required this.videoCount,
+  });
+}
+
 abstract interface class M3uExportDbSink {
   Future<void> saveExport({
     required String siteId,
@@ -318,6 +330,10 @@ abstract interface class M3uExportDbSink {
     required List<M3uExportCategoryInfo> categories,
     required List<M3uExportVideoRecord> videos,
   });
+
+  /// 库里有视频的站点汇总（只看视频记录，不看分类记录，
+  /// 空分类的站不列）；午夜未开时成人站不列；按最近更新倒序。
+  Future<List<M3uExportSiteInfo>> listSites({required bool gateOpen});
 
   Future<List<M3uExportVideoRecord>> listVideos({
     required bool gateOpen,
@@ -495,6 +511,37 @@ class HiveM3uExportDb implements M3uExportDbSink {
   }
 
   @override
+  Future<List<M3uExportSiteInfo>> listSites({required bool gateOpen}) async {
+    final box = await _box();
+    final counts = <String, int>{};
+    final names = <String, String>{};
+    final latest = <String, int>{};
+    for (final raw in box.values) {
+      if (raw is! Map) continue;
+      final record = M3uExportVideoRecord.fromMap(raw);
+      if (record == null) continue;
+      if (!gateOpen && MidnightGate.isAdultName(record.siteName)) continue;
+      counts[record.siteId] = (counts[record.siteId] ?? 0) + 1;
+      names[record.siteId] ??= record.siteName;
+      if (record.updatedAt > (latest[record.siteId] ?? 0)) {
+        latest[record.siteId] = record.updatedAt;
+      }
+    }
+    final sites = [
+      for (final siteId in counts.keys)
+        M3uExportSiteInfo(
+          siteId: siteId,
+          siteName: names[siteId] ?? siteId,
+          videoCount: counts[siteId]!,
+        ),
+    ];
+    sites.sort(
+      (a, b) => (latest[b.siteId] ?? 0).compareTo(latest[a.siteId] ?? 0),
+    );
+    return sites;
+  }
+
+  @override
   Future<List<M3uExportVideoRecord>> listVideos({
     required bool gateOpen,
     String? siteId,
@@ -576,6 +623,33 @@ class MemoryM3uExportDb implements M3uExportDbSink {
       this.videos[keyed.key] =
           keyed.mergedForSave(this.videos[keyed.key]);
     }
+  }
+
+  @override
+  Future<List<M3uExportSiteInfo>> listSites({required bool gateOpen}) async {
+    final counts = <String, int>{};
+    final names = <String, String>{};
+    final latest = <String, int>{};
+    for (final video in videos.values) {
+      if (!gateOpen && MidnightGate.isAdultName(video.siteName)) continue;
+      counts[video.siteId] = (counts[video.siteId] ?? 0) + 1;
+      names[video.siteId] ??= video.siteName;
+      if (video.updatedAt > (latest[video.siteId] ?? 0)) {
+        latest[video.siteId] = video.updatedAt;
+      }
+    }
+    final sites = [
+      for (final siteId in counts.keys)
+        M3uExportSiteInfo(
+          siteId: siteId,
+          siteName: names[siteId] ?? siteId,
+          videoCount: counts[siteId]!,
+        ),
+    ];
+    sites.sort(
+      (a, b) => (latest[b.siteId] ?? 0).compareTo(latest[a.siteId] ?? 0),
+    );
+    return sites;
   }
 
   @override

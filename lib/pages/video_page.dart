@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/midnight_gate.dart';
 import '../services/source_registry.dart';
 import '../widgets/home/drama_site_grid.dart';
+import 'local_library_page.dart';
 import 'source_management_page.dart';
 
 /// 影视页选站规则：只列用户自己导入的站，预置的内置站不列。
@@ -80,6 +81,18 @@ class _VideoPageState extends State<VideoPage> {
       appBar: AppBar(
         title: const Text('影视'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.video_library),
+            tooltip: '本地库',
+            onPressed: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const LocalLibraryPage(),
+                ),
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.list),
             tooltip: '站源管理',
