@@ -53,11 +53,9 @@ mixin _LibraryShelfChrome on _LibraryPageActions {
                 PopupMenuItem(
                   key: Key('library-menu-${action.name}'),
                   value: action,
-                  // 当前版式选中时不可再点；清空历史没有数据时也不可点。
+                  // 当前版式选中时不可再点。
                   enabled: action.layout != null
                       ? action.layout != _layout
-                      : action == _MenuAction.clearHistory
-                      ? _browseHistory.isNotEmpty
                       : true,
                   child: Row(
                     children: [
@@ -66,8 +64,6 @@ mixin _LibraryShelfChrome on _LibraryPageActions {
                         size: 16,
                         color: action.layout == _layout
                             ? palette.muted
-                            : action == _MenuAction.clearHistory
-                            ? ShelfTokens.deleteRed
                             : palette.ink,
                       ),
                       const SizedBox(width: 10),
@@ -80,8 +76,6 @@ mixin _LibraryShelfChrome on _LibraryPageActions {
                               : FontWeight.w500,
                           color: action.layout == _layout
                               ? palette.muted
-                              : action == _MenuAction.clearHistory
-                              ? ShelfTokens.deleteRed
                               : palette.ink,
                         ),
                       ),
@@ -103,7 +97,7 @@ mixin _LibraryShelfChrome on _LibraryPageActions {
     );
   }
 
-  /// L2 工具栏（书架 tab）：左今日已读胶囊，右版式分段控件。
+  /// L2 工具栏（小说 / 漫画 / 听书三 tab 共用）：左今日已读胶囊，右版式分段控件。
   ///
   /// 2026-10-13 按用户要求删掉排序 / 筛选 / 编辑三个入口：排序退回固定「最近
   /// 阅读优先」，类型筛选整个移除，编辑改由卡片长按进入（见 `_longPress`）。
@@ -158,49 +152,6 @@ mixin _LibraryShelfChrome on _LibraryPageActions {
     );
   }
 
-  /// L2 筛选行（收藏 tab）：全部 / 短剧 / 漫剧胶囊 + 右侧版式分段，
-  /// 形态与书架 tab 工具栏同构。
-  Widget _collectionToolbar(HomePalette palette) {
-    return Padding(
-      padding: const EdgeInsets.only(
-        top: ShelfTokens.spaceXS,
-        bottom: ShelfTokens.spaceS,
-        left: ShelfTokens.screenPadding,
-        right: ShelfTokens.screenPadding,
-      ),
-      child: Row(
-        children: [
-          HomeChip(
-            key: const Key('library-collection-filter-all'),
-            label: '全部',
-            selected: _collectionFilter == null,
-            onTap: () => setState(() => _collectionFilter = null),
-          ),
-          const SizedBox(width: 8),
-          HomeChip(
-            key: const Key('library-collection-filter-video'),
-            label: '短剧',
-            selected: _collectionFilter == 'video',
-            onTap: () => setState(() => _collectionFilter = 'video'),
-          ),
-          const SizedBox(width: 8),
-          HomeChip(
-            key: const Key('library-collection-filter-manju'),
-            label: '漫剧',
-            selected: _collectionFilter == 'manju',
-            onTap: () => setState(() => _collectionFilter = 'manju'),
-          ),
-          const Spacer(),
-          _LayoutSegments(
-            current: _layout,
-            palette: palette,
-            onChanged: _setLayout,
-          ),
-        ],
-      ),
-    );
-  }
-
   /// 编辑态顶部操作栏（by1.xml）：全选 / 已选择 N 本 / 完成。
   Widget _editBar(HomePalette palette) {
     return Container(
@@ -229,7 +180,7 @@ mixin _LibraryShelfChrome on _LibraryPageActions {
           Expanded(
             child: Center(
               child: Text(
-                '已选择 ${_selected.length} ${_tab == 2 ? '部' : '本'}',
+                '已选择 ${_selected.length} 本',
                 style: TextStyle(
                   fontSize: 17,
                   fontWeight: FontWeight.w700,
@@ -261,10 +212,8 @@ mixin _LibraryShelfChrome on _LibraryPageActions {
   ///
   /// 官方底栏还有找相似书 / 移动至分组 / 分享为书单 / 加入桌面 / 云同步 /
   /// 导入图书 / 最近删除，这些本地都没有数据源，不伪造入口；
-  /// 有数据支撑的只有「移出书架」（书架 / 收藏 tab，可撤销故直接执行）与
-  /// 「删除」（浏览历史 tab，不可撤销故保留确认）。
+  /// 有数据支撑的只有「移出书架」（可撤销故直接执行）。
   Widget _editBottomBar(HomePalette palette) {
-    final removing = _tab != 1;
     return _SlideUp(
       child: RepaintBoundary(
         child: DecoratedBox(
@@ -291,19 +240,11 @@ mixin _LibraryShelfChrome on _LibraryPageActions {
               child: Row(
                 children: [
                   _BottomAction(
-                    key: Key(
-                      removing
-                          ? 'shelf-remove-action'
-                          : 'history-delete-action',
-                    ),
-                    icon: removing ? LucideIcons.bookmark_x : LucideIcons.trash,
-                    label: removing ? '移出书架' : '删除',
-                    color: removing ? palette.ink : ShelfTokens.deleteRed,
-                    onTap: _selected.isEmpty
-                        ? null
-                        : removing
-                        ? _removeFromShelf
-                        : _deleteHistory,
+                    key: const Key('shelf-remove-action'),
+                    icon: LucideIcons.bookmark_x,
+                    label: '移出书架',
+                    color: palette.ink,
+                    onTap: _selected.isEmpty ? null : _removeFromShelf,
                   ),
                   const Spacer(),
                 ],

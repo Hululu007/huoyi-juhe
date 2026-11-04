@@ -104,33 +104,41 @@ void main() {
   });
 
   group('LibraryPage', () {
-    testWidgets('书架 tab 读本地收藏，浏览历史 tab 读阅读历史', (tester) async {
+    testWidgets('书架三 tab 按 kind 分流：小说 / 漫画 / 听书各只放本类', (tester) async {
       // 真实的 Hive 文件 I/O 只能在真实异步区里完成：testWidgets 的测试体跑在
       // fake async 区，直接 await store 会永久挂住整份测试。
       await tester.runAsync(() async {
-        await ShelfStore.instance.add(_item('shelf-book', title: '书架里的书'));
-        await LibraryStore.instance.addHistory({
-          'id': 'history-book',
-          'kind': 'book',
-          'title': '历史里的书',
-          'episode': 3,
-          'progress': 0.5,
-          'time': DateTime.now().millisecondsSinceEpoch,
-        });
+        await ShelfStore.instance.add(_item('shelf-book', title: '架上小说'));
+        await ShelfStore.instance.add(
+          _item('shelf-manga', title: '架上漫画', kind: 'manga'),
+        );
+        await ShelfStore.instance.add(
+          _item('shelf-audio', title: '架上听书', kind: 'audio'),
+        );
+        await ShelfStore.instance.add(
+          _item('shelf-video', title: '架上短剧', kind: 'video'),
+        );
       });
 
       await tester.pumpWidget(_app());
       await tester.pumpAndSettle();
-      expect(find.text('书架里的书'), findsWidgets);
-      expect(find.text('历史里的书'), findsNothing);
-      // 书架 tab 有官方页头。
+      // 小说 tab：只有书，漫画 / 听书 / 视频类不混进来。
+      expect(find.text('架上小说'), findsWidgets);
+      expect(find.text('架上漫画'), findsNothing);
+      expect(find.text('架上听书'), findsNothing);
+      expect(find.text('架上短剧'), findsNothing);
+      // 小说 tab 有官方页头。
       expect(find.text('今日已读0分钟'), findsOneWidget);
 
-      await tester.tap(find.text('浏览历史'));
+      await tester.tap(find.text('漫画'));
       await tester.pumpAndSettle();
-      expect(find.text('历史里的书'), findsWidgets);
-      expect(find.text('书架里的书'), findsNothing);
-      expect(find.text('第4章 · 50%'), findsWidgets);
+      expect(find.text('架上漫画'), findsWidgets);
+      expect(find.text('架上小说'), findsNothing);
+
+      await tester.tap(find.text('听书'));
+      await tester.pumpAndSettle();
+      expect(find.text('架上听书'), findsWidgets);
+      expect(find.text('架上漫画'), findsNothing);
     });
 
     testWidgets('有总章数时显示「第 N/M 章」，读完整本显示「共 M 章·已读完」（issue #110）',
@@ -371,61 +379,58 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('收藏 tab 只放短剧/漫剧，书架 tab 只放书籍', (tester) async {
+    testWidgets('视频类不再进书架，书架三 tab 各只放本类', (tester) async {
       await tester.runAsync(() async {
         await ShelfStore.instance.add(_item('plain-book', title: '架上小说'));
+        await ShelfStore.instance.add(
+          _item('m1', title: '架上漫画', kind: 'manga'),
+        );
+        await ShelfStore.instance.add(
+          _item('a1', title: '架上听书', kind: 'audio'),
+        );
         await ShelfStore.instance.add(
           _item('v1', title: '追的短剧', kind: 'video'),
         );
         await ShelfStore.instance.add(
-          _item('m1', title: '追的漫剧', kind: 'manju'),
+          _item('m2', title: '追的漫剧', kind: 'manju'),
         );
       });
       await tester.pumpWidget(_app());
       await tester.pumpAndSettle();
 
-      // 书架 tab：只有书，视频类不混进来。
+      // 小说 tab：只有书，视频类不混进来。
       expect(find.text('架上小说'), findsWidgets);
       expect(find.text('追的短剧'), findsNothing);
       expect(find.text('追的漫剧'), findsNothing);
 
-      await tester.tap(find.text('收藏'));
+      await tester.tap(find.text('漫画'));
       await tester.pumpAndSettle();
-      expect(find.text('追的短剧'), findsWidgets);
-      expect(find.text('追的漫剧'), findsWidgets);
+      expect(find.text('架上漫画'), findsWidgets);
       expect(find.text('架上小说'), findsNothing);
 
-      // 筛选胶囊：短剧只剩 video，漫剧只剩 manju，全部恢复两条都在。
-      await tester.tap(find.byKey(const Key('library-collection-filter-video')));
+      await tester.tap(find.text('听书'));
       await tester.pumpAndSettle();
-      expect(find.text('追的短剧'), findsWidgets);
-      expect(find.text('追的漫剧'), findsNothing);
-      await tester.tap(find.byKey(const Key('library-collection-filter-manju')));
-      await tester.pumpAndSettle();
+      expect(find.text('架上听书'), findsWidgets);
       expect(find.text('追的短剧'), findsNothing);
-      expect(find.text('追的漫剧'), findsWidgets);
-      await tester.tap(find.byKey(const Key('library-collection-filter-all')));
-      await tester.pumpAndSettle();
-      expect(find.text('追的短剧'), findsWidgets);
-      expect(find.text('追的漫剧'), findsWidgets);
+      expect(find.text('追的漫剧'), findsNothing);
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('收藏 tab 编辑态移出：免确认直接执行，书籍不受影响', (tester) async {
+    testWidgets('漫画 tab 编辑态移出：免确认直接执行，小说不受影响', (tester) async {
       await tester.runAsync(() async {
         await ShelfStore.instance.add(_item('plain-book', title: '架上小说'));
         await ShelfStore.instance.add(
-          _item('v1', title: '追的短剧', kind: 'video'),
+          _item('m1', title: '架上漫画', kind: 'manga'),
         );
       });
       await tester.pumpWidget(_app());
       await tester.pumpAndSettle();
-      await tester.tap(find.text('收藏'));
+      await tester.tap(find.text('漫画'));
       await tester.pumpAndSettle();
 
-      await tester.longPress(find.byKey(const ValueKey('shelf-grid-video:v1')));
+      await tester.longPress(find.byKey(const ValueKey('shelf-grid-manga:m1')));
       await tester.pumpAndSettle();
-      expect(find.text('已选择 1 部'), findsOneWidget);
+      expect(find.text('已选择 1 本'), findsOneWidget);
 
       await tester.runAsync(() async {
         await tester.tap(find.byKey(const Key('shelf-remove-action')));
@@ -433,34 +438,28 @@ void main() {
       });
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
-      // 短剧已移出，书还在架上。
+      // 漫画已移出，书还在架上。
       expect(
         ShelfStore.instance.records().map((record) => record.item.id),
         ['plain-book'],
       );
-      expect(find.text('暂无收藏内容'), findsOneWidget);
+      expect(find.text('暂无漫画'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('收藏为空：空态文案随筛选变化，「找短剧」触发回调', (tester) async {
-      var findDramaCalls = 0;
-      await tester.runAsync(() async {
-        await ShelfStore.instance.add(
-          _item('v1', title: '追的短剧', kind: 'video'),
-        );
-      });
-      await tester.pumpWidget(_app(onFindDrama: () => findDramaCalls++));
+    testWidgets('三 tab 空态：小说给去书城入口，漫画与听书给一行提示', (tester) async {
+      await tester.pumpWidget(_app());
       await tester.pumpAndSettle();
-      await tester.tap(find.text('收藏'));
-      await tester.pumpAndSettle();
+      expect(find.text('书架暂无书籍'), findsOneWidget);
 
-      // 有短剧、无漫剧：切到漫剧筛选是「暂无漫剧」+ 找短剧入口。
-      await tester.tap(find.byKey(const Key('library-collection-filter-manju')));
+      await tester.tap(find.text('漫画'));
       await tester.pumpAndSettle();
-      expect(find.text('暂无漫剧'), findsOneWidget);
-      await tester.tap(find.byKey(const Key('collection-find-drama-button')));
+      expect(find.text('暂无漫画'), findsOneWidget);
+      expect(find.text('书架暂无书籍'), findsNothing);
+
+      await tester.tap(find.text('听书'));
       await tester.pumpAndSettle();
-      expect(findDramaCalls, 1);
+      expect(find.text('暂无听书'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 
@@ -646,54 +645,6 @@ void main() {
       expect(browsed, isTrue);
     });
 
-    testWidgets('空的浏览历史用官方空态文案', (tester) async {
-      await tester.pumpWidget(_app());
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('浏览历史'));
-      await tester.pumpAndSettle();
-      expect(find.text('未找到相关内容'), findsOneWidget);
-    });
-
-    testWidgets('浏览历史编辑态的删除会移除选中记录', (tester) async {
-      await tester.runAsync(() async {
-        await LibraryStore.instance.addHistory({
-          'id': 'history-book',
-          'kind': 'book',
-          'title': '历史里的书',
-          'time': DateTime.now().millisecondsSinceEpoch,
-        });
-      });
-      await tester.pumpWidget(_app());
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('浏览历史'));
-      await tester.pumpAndSettle();
-
-      // 编辑入口按钮已按用户要求删除：改为长按卡片进入编辑态（并选中该项）。
-      await tester.longPress(
-        find.byKey(const ValueKey('shelf-grid-book:history-book')),
-      );
-      await tester.pumpAndSettle();
-      expect(find.text('已选择 1 本'), findsOneWidget);
-      // 同上：页面发起的清空写在真实异步区里起步。
-      await tester.runAsync(() async {
-        await tester.tap(find.byKey(const Key('history-delete-action')));
-      });
-      await tester.pumpAndSettle();
-      expect(find.textContaining('无法撤销'), findsOneWidget);
-      await tester.runAsync(() async {
-        // 底栏动作标签同为「删除」，用控件类型收窄到对话框的确认按钮。
-        await tester.tap(find.widgetWithText(FilledButton, '删除'));
-        await Future<void>.delayed(const Duration(milliseconds: 50));
-      });
-      await tester.pumpAndSettle();
-      await _settlePageWrite(
-        tester,
-        () => LibraryStore.instance.historySnapshot().isEmpty,
-      );
-      expect(LibraryStore.instance.historySnapshot(), isEmpty);
-      expect(find.text('未找到相关内容'), findsOneWidget);
-    });
-
     testWidgets('页头显示今日已读分钟数', (tester) async {
       await tester.runAsync(() async {
         await LibraryStore.instance.accumulateReadTime('book-1', 'book', 600);
@@ -703,37 +654,19 @@ void main() {
       expect(find.text('今日已读10分钟'), findsOneWidget);
     });
 
-    testWidgets('更多菜单保留清空历史与离线缓存', (tester) async {
-      await tester.runAsync(() async {
-        await LibraryStore.instance.addHistory({
-          'id': 'history-book',
-          'kind': 'book',
-          'title': '历史里的书',
-          'time': DateTime.now().millisecondsSinceEpoch,
-        });
-      });
+    testWidgets('更多菜单保留离线缓存，书架页不再设清空历史', (tester) async {
       await tester.pumpWidget(_app());
       await tester.pumpAndSettle();
+      // 搜索入口仍然指向搜索页。
+      expect(find.byKey(const Key('library-search-button')), findsOneWidget);
       await tester.tap(find.byKey(const Key('library-more-button')));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('library-menu-importBook')), findsOneWidget);
       expect(find.byKey(const Key('library-menu-cachedBooks')), findsOneWidget);
-      await tester.runAsync(() async {
-        await tester.tap(find.byKey(const Key('library-menu-clearHistory')));
-      });
-      await tester.pumpAndSettle();
-      await tester.runAsync(() async {
-        await tester.tap(find.text('清空'));
-        await Future<void>.delayed(const Duration(milliseconds: 50));
-      });
-      await tester.pumpAndSettle();
-      await _settlePageWrite(
-        tester,
-        () => LibraryStore.instance.historySnapshot().isEmpty,
+      expect(
+        find.byKey(const Key('library-menu-clearHistory')),
+        findsNothing,
       );
-      expect(LibraryStore.instance.historySnapshot(), isEmpty);
-      // 搜索入口仍然指向搜索页。
-      expect(find.byKey(const Key('library-search-button')), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   });
@@ -1048,15 +981,15 @@ void main() {
 
     await tester.drag(find.byType(LibraryPage), const Offset(-240, 0));
     await tester.pumpAndSettle();
-    // 「浏览历史」的空态；书架的空态同时消失，说明确实换了 tab。
-    expect(find.text('未找到相关内容'), findsOneWidget);
+    // 「漫画」的空态；小说的空态同时消失，说明确实换了 tab。
+    expect(find.text('暂无漫画'), findsOneWidget);
     expect(find.text('书架暂无书籍'), findsNothing);
 
-    // 往右滑回到「书架」。
+    // 往右滑回到「小说」。
     await tester.drag(find.byType(LibraryPage), const Offset(240, 0));
     await tester.pumpAndSettle();
     expect(find.text('书架暂无书籍'), findsOneWidget);
-    // 已经在首个 tab 上继续右滑：边界，不环绕到「收藏」。
+    // 已经在首个 tab 上继续右滑：边界，不环绕到「听书」。
     await tester.drag(find.byType(LibraryPage), const Offset(240, 0));
     await tester.pumpAndSettle();
     expect(find.text('书架暂无书籍'), findsOneWidget);

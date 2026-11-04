@@ -30,7 +30,6 @@ import '../services/reader_history.dart';
 import '../services/shelf_store.dart';
 import '../services/update_check_gate.dart';
 import '../widgets/bookshelf_card.dart';
-import '../widgets/home/home_chip.dart';
 import '../widgets/home/home_design.dart';
 import '../widgets/shelf/shelf_design.dart';
 import '../widgets/shelf/shelf_empty.dart';
@@ -51,20 +50,16 @@ part 'library_shelf_widgets.dart';
 /// 6.0 以前的版本在这里存的是列数 (2..6)，读取时迁移成宫格。
 const _bookshelfLayoutPreference = 'bookshelf_layout';
 
-/// 顶栏一级 tab 的官方文案（amg.xml 的 SlidingTabLayout；顺序同官方
-/// 书架页：书架 / 历史 / 收藏）。官方还有「圈子」，本地无此功能不设。
-const _tabTitles = ['书架', '浏览历史', '收藏'];
-
-/// 官方分工：书架 tab 只放书籍类，追剧 / 追漫的视频类只进「收藏」tab
-/// （与短剧页收藏频道同一批 [ShelfStore] 数据）。
-bool _isVideoKind(String kind) => kind == 'video' || kind == 'manju';
+/// 顶栏一级 tab：小说 / 漫画 / 听书——只放加入书架的书、漫画、听书，
+/// 按 kind 分流；视频类（短剧 / 漫剧）不进书架，追剧仍走短剧页收藏频道
+/// （同一批 [ShelfStore] 数据）；浏览历史不在书架页设 tab。
+const _tabTitles = ['小说', '漫画', '听书'];
 
 enum _MenuAction {
   importBook('导入图书', null, LucideIcons.plus),
   switchGrid('切换为宫格', BookshelfLayout.grid, LucideIcons.layout_grid),
   switchDouble('切换为双列', BookshelfLayout.doubleColumn, LucideIcons.columns_2),
   switchList('切换为列表', BookshelfLayout.list, LucideIcons.list),
-  clearHistory('清空历史', null, LucideIcons.trash),
   cachedBooks('离线缓存', null, LucideIcons.download);
 
   const _MenuAction(this.label, this.layout, this.icon);
@@ -133,13 +128,9 @@ mixin _LibraryPageStateBase on State<LibraryPage>, WidgetsBindingObserver {
   bool _importingBook = false;
   final Set<String> _selected = {};
   int _todayMinutes = 0;
-  List<_ShelfEntry> _shelf = const [];
-  List<_ShelfEntry> _browseHistory = const [];
-  List<_ShelfEntry> _collection = const [];
-
-  /// 收藏 tab 的类型筛选：null 全部 / video 短剧 / manju 漫剧（官方还有
-  /// 「其他视频」，本地没有这种 kind，不放空壳胶囊）。
-  String? _collectionFilter;
+  List<_ShelfEntry> _novels = const [];
+  List<_ShelfEntry> _comics = const [];
+  List<_ShelfEntry> _audios = const [];
   bool _visible = false;
   final Map<String, int> _latestChapterCounts = {};
   final _updateChecks = UpdateCheckGate();
@@ -192,10 +183,8 @@ mixin _LibraryPageStateBase on State<LibraryPage>, WidgetsBindingObserver {
   Future<void> _checkUpdates() async {
     final cache = widget.cacheStore ?? ChapterCacheStore.instance;
     final books = [
-      for (final entry in _shelf)
-        if (entry.item.kind == 'book' &&
-            !ImportedBookStore.isLocalBookId(entry.item.id))
-          entry.item,
+      for (final entry in _novels)
+        if (!ImportedBookStore.isLocalBookId(entry.item.id)) entry.item,
     ];
     var changed = false;
     for (final item in books) {
@@ -255,24 +244,25 @@ mixin _LibraryPageStateBase on State<LibraryPage>, WidgetsBindingObserver {
     final history = LibraryStore.instance.historySnapshot();
     setState(() {
       final records = ShelfStore.instance.records();
-      _shelf = _shelfEntries([
+      _novels = _shelfEntries([
         for (final record in records)
-          if (!_isVideoKind(record.item.kind)) record,
+          if (record.item.kind == 'book') record,
       ], history);
-      _collection = _shelfEntries([
+      _comics = _shelfEntries([
         for (final record in records)
-          if (_isVideoKind(record.item.kind)) record,
+          if (record.item.kind == 'manga') record,
       ], history);
-      _browseHistory = [
-        for (final entry in history) _ShelfEntry.fromHistory(entry),
-      ];
+      _audios = _shelfEntries([
+        for (final record in records)
+          if (record.item.kind == 'audio') record,
+      ], history);
       // 选中集合随数据回真：条目在别处被移出 / 删除后，它的键不该继续占着
       // 「已选择 N 本」，也不该把全选判定带偏。
       final available = {
         for (final entry in switch (_tab) {
-          1 => _browseHistory,
-          2 => _collection,
-          _ => _shelf,
+          1 => _comics,
+          2 => _audios,
+          _ => _novels,
         })
           entry.selectionKey,
       };
@@ -403,8 +393,7 @@ class _LibraryPageState extends State<LibraryPage>
                         child: _tabRow(palette),
                       ),
               ),
-              if (!_editing && _tab == 0) _toolbar(palette),
-              if (!_editing && _tab == 2) _collectionToolbar(palette),
+              if (!_editing) _toolbar(palette),
               Expanded(
                 child: TabSwipeArea(
                   index: _tab,

@@ -57,9 +57,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('书架保留的书'), findsWidgets);
-    await tester.tap(find.text('浏览历史'));
-    await tester.pumpAndSettle();
-    expect(find.text('保留的阅读记录'), findsWidgets);
+    // 书架页不再设历史 tab：历史数据仍保留，快照可查。
     expect(
       LibraryStore.instance.historySnapshot().single['id'],
       'preserved-book',
@@ -158,12 +156,9 @@ void main() {
       if (statistics) {
         expect(find.text('阅读热力图'), findsOneWidget);
       } else {
-        // 偏好读失败时保留默认宫格；阅读历史仍能从第二个 tab 打开。
+        // 偏好读失败时保留默认宫格；阅读历史数据仍保留（快照一条）。
         expect(find.byKey(const Key('shelf-grid-view')), findsOneWidget);
         expect(find.text('书架保留的书'), findsWidgets);
-        await tester.tap(find.text('浏览历史'));
-        await tester.pumpAndSettle();
-        expect(find.text('保留的阅读记录'), findsWidgets);
       }
       expect(LibraryStore.instance.historySnapshot(), hasLength(1));
     });

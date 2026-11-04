@@ -1,19 +1,14 @@
 part of 'library_page.dart';
 
-/// 书架 / 浏览历史 / 收藏行共用的展示模型与历史字段读取。原来写在
-/// `library_page.dart` 里；属于页面的数据整理职责，拆出来给状态类与各
-/// 版式共用。
+/// 书架三 tab（小说 / 漫画 / 听书）行共用的展示模型与历史字段读取。
+/// 原来写在 `library_page.dart` 里；属于页面的数据整理职责，拆出来给
+/// 状态类与各版式共用。
 class _ShelfEntry {
   final MediaItem item;
 
   /// Stable identity of the row: `kind:contentId`, i.e. the same key the shelf
   /// box and the history dedupe use.
   final String selectionKey;
-
-  /// 历史 / 删除 API 用的内容标识（`kind:contentId` 的 contentId 部分）：
-  /// 历史条目取存储记录的 `contentId ?? id`（与 LibraryStore 的
-  /// _historyIdentity 一致），书架条目取 `seriesId ?? id`。
-  final String contentId;
 
   /// Last read time in milliseconds; null when the work has no history yet.
   final int? readTime;
@@ -31,7 +26,6 @@ class _ShelfEntry {
   const _ShelfEntry({
     required this.item,
     required this.selectionKey,
-    required this.contentId,
     required this.addedAt,
     this.readTime,
     this.progress,
@@ -49,7 +43,6 @@ class _ShelfEntry {
     item: record.item,
     selectionKey:
         '${record.item.kind}:${record.item.seriesId ?? record.item.id}',
-    contentId: record.item.seriesId ?? record.item.id,
     addedAt: record.addedAt.millisecondsSinceEpoch,
     readTime: _timeOf(history),
     progress: _progressOf(history),
@@ -61,35 +54,6 @@ class _ShelfEntry {
         history?['fanqieImported'] == true &&
         history?['chapterId'] != null,
   );
-
-  factory _ShelfEntry.fromHistory(Map<String, dynamic> history) {
-    final item = MediaItem(
-      id: historyContentId(history),
-      title: history['title']?.toString() ?? '未知作品',
-      cover: history['cover']?.toString() ?? '',
-      author: history['author']?.toString() ?? '',
-      badge: '',
-      ep: history['ep']?.toString() ?? '',
-      kind: history['kind']?.toString() ?? 'book',
-      seriesId: history['seriesId']?.toString(),
-      episodeId: history['episodeId']?.toString(),
-    );
-    final contentId = historyContentId(history);
-    return _ShelfEntry(
-      item: item,
-      selectionKey: '${item.kind}:$contentId',
-      contentId: contentId,
-      addedAt: 0,
-      readTime: _timeOf(history),
-      progress: _progressOf(history),
-      episode: _episodeOf(history),
-      chapterCount: _chapterCountOf(history),
-      importedResume:
-          item.kind == 'book' &&
-          history['fanqieImported'] == true &&
-          history['chapterId'] != null,
-    );
-  }
 
   /// 是否读到最后一章（含章内进度）。
   ///

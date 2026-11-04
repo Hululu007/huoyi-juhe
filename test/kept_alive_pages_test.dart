@@ -6,9 +6,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:fqapp/models/media_item.dart';
 import 'package:fqapp/pages/library_page.dart';
 import 'package:fqapp/pages/mine_page.dart';
 import 'package:fqapp/services/library_store.dart';
+import 'package:fqapp/services/shelf_store.dart';
 import 'package:fqapp/widgets/lazy_indexed_stack.dart';
 
 void main() {
@@ -20,6 +22,7 @@ void main() {
     directory = await Directory.systemTemp.createTemp('fqapp-visible-pages-');
     Hive.init(directory.path);
     await store.init();
+    await ShelfStore.instance.init();
   });
 
   tearDown(() async {
@@ -63,15 +66,26 @@ void main() {
     debugPrint('rendering: hidden tabs $builds');
     expect(builds, isEmpty);
 
-    // 书架 tab 的集合是本地的，这次写入只落在阅读历史上，所以在第二个
-    // tab 上验证「下次可见时追上最新数据」。
+    // 隐藏期间再加一条漫画进书架：下次可见时切到漫画 tab 能追上最新数据。
+    await tester.runAsync(() async {
+      await ShelfStore.instance.add(
+        MediaItem(
+          id: 'hidden-manga',
+          title: '暗处加的漫画',
+          cover: '',
+          author: '',
+          badge: '',
+          ep: '',
+          kind: 'manga',
+        ),
+      );
+    });
     index.value = 0;
     await tester.pumpAndSettle();
     expect(find.text('书架暂无书籍'), findsOneWidget);
-    await tester.tap(find.text('浏览历史'));
+    await tester.tap(find.text('漫画'));
     await tester.pumpAndSettle();
-    expect(find.text('最新记录 9'), findsWidgets);
-    expect(find.text('10%'), findsOneWidget);
+    expect(find.text('暗处加的漫画'), findsWidgets);
     index.value = 1;
     await tester.pumpAndSettle();
     expect(find.text('10分钟'), findsWidgets);

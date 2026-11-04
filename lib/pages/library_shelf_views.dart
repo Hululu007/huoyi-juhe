@@ -7,26 +7,15 @@ mixin _LibraryShelfViews on _LibraryPageActions {
   Widget _content(HomePalette palette) {
     final entries = _visibleEntries;
     if (entries.isEmpty) {
-      // 空态按 tab 区分：书架为空给「去书城找书 + 查看离线缓存」（筛选已
-      // 移除，故这已是书架 tab 唯一的空态）；浏览历史为空沿用官方通用
-      // 文案；收藏为空按当前筛选给文案 + 「找短剧」入口（官方空态形态）。
-      if (_tab == 0 && _shelf.isEmpty) {
+      // 空态按 tab 区分：小说为空给「去书城找书 + 查看离线缓存」；
+      // 漫画 / 听书为空给一行提示（视频类不进书架，没有收藏空态）。
+      if (_tab == 0) {
         return ShelfEmptyState(
           onBrowse: widget.onBrowse,
           onCachedBooks: _openCachedBooks,
         );
       }
-      if (_tab == 2) {
-        return ShelfCollectionEmptyState(
-          text: switch (_collectionFilter) {
-            'video' => '暂无短剧',
-            'manju' => '暂无漫剧',
-            _ => '暂无收藏内容',
-          },
-          onFindDrama: widget.onFindDrama,
-        );
-      }
-      return const ShelfEmptyHint(text: '未找到相关内容');
+      return ShelfEmptyHint(text: _tab == 1 ? '暂无漫画' : '暂无听书');
     }
     final body = switch (_layout) {
       BookshelfLayout.grid => _grid(entries),
