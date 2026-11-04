@@ -23,6 +23,7 @@ import 'cached_books_page.dart';
 import 'cached_dramas_page.dart';
 import 'library_backup_page.dart';
 import 'midnight_page.dart';
+import 'one_click_py_page.dart';
 import 'settings_category_page.dart';
 import 'source_management_page.dart';
 import 'system_tts_settings_page.dart';
@@ -114,6 +115,17 @@ class SettingsPage extends StatelessWidget {
               context,
               MaterialPageRoute(
                 builder: (_) => const SourceManagementPage(),
+              ),
+            ),
+          ),
+          SettingsItem(
+            icon: LucideIcons.wand_sparkles,
+            title: '一键写PY',
+            subtitle: '输入网址按模板生成 py 并自动导入站点',
+            onTap: (context, _) => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const OneClickPyPage(),
               ),
             ),
           ),
