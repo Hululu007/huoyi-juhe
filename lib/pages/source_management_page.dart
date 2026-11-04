@@ -370,11 +370,6 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
                 if (builtinJar.isEmpty)
                   const ListTile(title: Text('暂无 jar 内置站源')),
                 for (final entry in builtinJar) _customTile(entry),
-                _groupTitle('内置影视'),
-                const ListTile(
-                  title: Text('暂无内置影视站源'),
-                  subtitle: Text('影视页签接入后补'),
-                ),
                 _groupTitle('内容源'),
                 const ListTile(
                   title: Text('小说 / 听书 / 漫画内容源'),

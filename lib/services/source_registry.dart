@@ -172,6 +172,16 @@ List<String> parseRemoteJsonSiteNames(dynamic decoded) {
   return names;
 }
 
+/// 午夜 jar 内置站：jar 内置批的视频站（含 YouTube）。
+/// 这批归属午夜区，不进正常区列表（首页条带、搜索、短剧药丸）；
+/// 午夜页单独列它们。音频听书站不是视频站，不在此列。
+bool isMidnightJarBuiltin(SourceEntry entry) {
+  if (entry.kind != SourceKind.jarImport) return false;
+  if (entry.extra['builtin'] != true) return false;
+  final type = entry.contentType;
+  return type == ContentType.video || type == ContentType.mixed;
+}
+
 class SourceRegistry {
   SourceRegistry._();
 
@@ -335,6 +345,7 @@ class SourceRegistry {
     }
     for (final entry in _custom) {
       if (!entry.enabled) continue;
+      if (isMidnightJarBuiltin(entry)) continue;
       if (types != null && !types.contains(entry.contentType)) continue;
       if (entry.kind != SourceKind.customMaccms &&
           entry.kind != SourceKind.pyImport &&

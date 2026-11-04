@@ -2,7 +2,18 @@ import 'package:flutter/material.dart';
 
 import '../services/live_sources.dart';
 import '../services/midnight_gate.dart';
+import '../services/source_registry.dart';
+import '../widgets/home/drama_site_grid.dart';
 import 'live_source_page.dart';
+
+/// 午夜页视频站列表：jar 内置批的视频站（已启用），
+/// 音频听书站不在此列。
+List<SourceEntry> midnightJarVideoSites(List<SourceEntry> entries) {
+  return [
+    for (final entry in entries)
+      if (isMidnightJarBuiltin(entry) && entry.enabled) entry,
+  ];
+}
 
 class MidnightPage extends StatefulWidget {
   const MidnightPage({super.key});
@@ -15,17 +26,27 @@ class _MidnightPageState extends State<MidnightPage> {
   bool _loading = true;
   bool _activated = false;
   String? _selectedSiteId;
+  String? _selectedVideoId;
 
   @override
   void initState() {
     super.initState();
-    MidnightGate.load().then((value) {
-      if (mounted) {
-        setState(() {
-          _activated = value;
-          _loading = false;
-        });
-      }
+    _load();
+  }
+
+  Future<void> _load() async {
+    final activated = await MidnightGate.load();
+    await SourceRegistry.instance.load();
+    if (!mounted) {
+      return;
+    }
+    final videoSites = midnightJarVideoSites(
+      SourceRegistry.instance.custom,
+    );
+    setState(() {
+      _activated = activated;
+      _loading = false;
+      _selectedVideoId = videoSites.isEmpty ? null : videoSites.first.id;
     });
   }
 
@@ -101,9 +122,18 @@ class _MidnightPageState extends State<MidnightPage> {
         ),
       );
     }
-    final sources = LiveSources.midnightSources.where(
-      (source) => _selectedSiteId == null || source.id == _selectedSiteId,
+    final sources = LiveSources.midnightSources
+        .where(
+          (source) => _selectedSiteId == null || source.id == _selectedSiteId,
+        )
+        .toList();
+    final videoSites = midnightJarVideoSites(
+      SourceRegistry.instance.custom,
     );
+    final selectedVideoId = _selectedVideoId != null &&
+            videoSites.any((site) => site.id == _selectedVideoId)
+        ? _selectedVideoId
+        : (videoSites.isEmpty ? null : videoSites.first.id);
     return Scaffold(
       appBar: AppBar(
         title: const Text('午夜区'),
@@ -123,44 +153,87 @@ class _MidnightPageState extends State<MidnightPage> {
           ),
         ],
       ),
-      body: ListView(
-        children: [
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
-            child: Text(
-              '成人直播源',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-            ),
-          ),
-          for (final source in sources)
-            ListTile(
-              title: Text(source.name),
-              subtitle: Text('${source.description}。点开看分类与频道。'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute<void>(
-                  builder: (_) => LiveSourceBrowsePage(source: source),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          return CustomScrollView(
+            slivers: [
+              const SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
+                  child: Text(
+                    '成人直播源',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
               ),
-            ),
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 20, 16, 4),
-            child: Text(
-              '点播区与午夜区站点',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-            ),
-          ),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16),
-            child: Text(
-              '火蚁TV 点播区与午夜区的 jar / Python 站点尚未迁入本包，'
-              '它们的执行引擎（Java 桥与 Python 蜘蛛）还没接，'
-              '这里先不列假站点；引擎接通后这些站按 🔞 标记归到午夜区。',
-            ),
-          ),
-          const SizedBox(height: 24),
-        ],
+              SliverList.builder(
+                itemCount: sources.length,
+                itemBuilder: (context, index) {
+                  final source = sources[index];
+                  return ListTile(
+                    title: Text(source.name),
+                    subtitle: Text(
+                      '${source.description}。点开看分类与频道。',
+                    ),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (_) =>
+                            LiveSourceBrowsePage(source: source),
+                      ),
+                    ),
+                  );
+                },
+              ),
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        '视频站',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      if (videoSites.isEmpty)
+                        const Text('暂无视频站。')
+                      else
+                        Wrap(
+                          spacing: 8,
+                          children: [
+                            for (final site in videoSites)
+                              ChoiceChip(
+                                label: Text(site.name),
+                                selected: site.id == selectedVideoId,
+                                onSelected: (_) => setState(
+                                  () => _selectedVideoId = site.id,
+                                ),
+                              ),
+                          ],
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              if (selectedVideoId != null)
+                DramaSiteGrid(
+                  key: ValueKey('midnight-site-$selectedVideoId'),
+                  siteId: selectedVideoId,
+                  categoryId: 'all',
+                  gridWidth: constraints.maxWidth,
+                ),
+              const SliverToBoxAdapter(child: SizedBox(height: 24)),
+            ],
+          );
+        },
       ),
     );
   }

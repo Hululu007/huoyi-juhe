@@ -5,6 +5,30 @@ import '../services/source_registry.dart';
 import '../widgets/home/drama_site_grid.dart';
 import 'source_management_page.dart';
 
+/// 影视页选站规则：只列用户自己导入的站，预置的内置站不列。
+/// 新用户打开影视区是空白的，按空态提示去站源管理添加或导入。
+List<SourceEntry> videoPagePlayableSites(
+  List<SourceEntry> entries,
+  bool gateOpen,
+) {
+  return [
+    for (final entry in entries)
+      if ((entry.kind == SourceKind.customMaccms ||
+              entry.kind == SourceKind.pyImport ||
+              entry.kind == SourceKind.jarImport ||
+              entry.kind == SourceKind.jsImport ||
+              entry.kind == SourceKind.xbpqImport ||
+              (entry.kind == SourceKind.legadoImport &&
+                  entry.extra['hasExplore'] == true)) &&
+          entry.extra['builtin'] != true &&
+          entry.enabled &&
+          (entry.contentType == ContentType.video ||
+              entry.contentType == ContentType.mixed) &&
+          (gateOpen || !MidnightGate.isAdultName(entry.name)))
+        entry,
+  ];
+}
+
 class VideoPage extends StatefulWidget {
   const VideoPage({super.key});
 
@@ -36,21 +60,7 @@ class _VideoPageState extends State<VideoPage> {
   List<SourceEntry> _playableSites() {
     final registry = SourceRegistry.instance;
     final gateOpen = MidnightGate.activated.value;
-    return [
-      for (final entry in registry.custom)
-        if ((entry.kind == SourceKind.customMaccms ||
-                entry.kind == SourceKind.pyImport ||
-                entry.kind == SourceKind.jarImport ||
-                entry.kind == SourceKind.jsImport ||
-                entry.kind == SourceKind.xbpqImport ||
-                (entry.kind == SourceKind.legadoImport &&
-                    entry.extra['hasExplore'] == true)) &&
-            entry.enabled &&
-            (entry.contentType == ContentType.video ||
-                entry.contentType == ContentType.mixed) &&
-            (gateOpen || !MidnightGate.isAdultName(entry.name)))
-          entry,
-    ];
+    return videoPagePlayableSites(registry.custom, gateOpen);
   }
 
   @override
