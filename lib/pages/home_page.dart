@@ -508,7 +508,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
-                      category.name,
+                      category.displayName,
                       style: TextStyle(
                         fontSize: 13,
                         color: category.id == _dramaCategoryId

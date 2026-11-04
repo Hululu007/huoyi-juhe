@@ -448,7 +448,9 @@ Future<M3uExportResult> exportSiteM3u({
                 siteName: siteName,
                 categoryId: category.id,
                 categoryName: category.name,
-                categoryPath: category.name,
+                categoryPath: category.path.isNotEmpty
+                    ? category.path
+                    : category.name,
                 videoId: item.id,
                 title: item.title,
                 url: resolved.url,
@@ -513,7 +515,11 @@ Future<M3uExportResult> exportSiteM3u({
                 siteName: siteName,
                 categoryId: category.id,
                 categoryName: category.name,
-                categoryPath: category.name,
+                categoryPath: category.path.isNotEmpty
+                    ? category.path
+                    : category.name,
+                parentId: category.parentId,
+                extra: category.extra,
                 updatedAt: now,
               ),
           ],

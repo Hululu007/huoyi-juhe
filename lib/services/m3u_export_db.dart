@@ -40,6 +40,7 @@ M3uExportCategoryInfo _rekeyCategory(
     categoryName: category.categoryName,
     categoryPath: category.categoryPath,
     parentId: category.parentId,
+    extra: category.extra,
     updatedAt: category.updatedAt,
   );
 }
@@ -74,6 +75,7 @@ class M3uExportCategoryInfo {
     required this.categoryName,
     this.categoryPath = '',
     this.parentId = '',
+    this.extra = const {},
     required this.updatedAt,
   });
 
@@ -90,6 +92,9 @@ class M3uExportCategoryInfo {
   /// 父分类 id：顶级分类为空；多级分类时指向上级分类的
   /// categoryId，层级链按 parentId 走，不跨站混。
   final String parentId;
+
+  /// 分类级扩展字段：该站分类自带的属性，按站原样保留。
+  final Map<String, String> extra;
   final int updatedAt;
 
   String get key => 'cat:$siteId|$categoryId';
@@ -101,6 +106,7 @@ class M3uExportCategoryInfo {
     'categoryName': categoryName,
     'categoryPath': categoryPath,
     'parentId': parentId,
+    'extra': extra,
     'updatedAt': updatedAt,
   };
 
@@ -116,6 +122,13 @@ class M3uExportCategoryInfo {
     String text(dynamic value) => value is String ? value : '';
     final categoryName = text(raw['categoryName']);
     final categoryPath = text(raw['categoryPath']);
+    final extra = <String, String>{};
+    final rawExtra = raw['extra'];
+    if (rawExtra is Map) {
+      for (final entry in rawExtra.entries) {
+        extra[entry.key.toString()] = entry.value.toString();
+      }
+    }
     return M3uExportCategoryInfo(
       siteId: siteId,
       siteName: text(raw['siteName']),
@@ -123,6 +136,7 @@ class M3uExportCategoryInfo {
       categoryName: categoryName,
       categoryPath: categoryPath.isEmpty ? categoryName : categoryPath,
       parentId: text(raw['parentId']),
+      extra: extra,
       updatedAt: raw['updatedAt'] is int ? raw['updatedAt'] as int : 0,
     );
   }

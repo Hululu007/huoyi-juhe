@@ -5,7 +5,30 @@ class DramaSiteCategory {
   final String id;
   final String name;
 
-  const DramaSiteCategory(this.id, this.name);
+  /// 父分类 id：顶级分类为空。多级分类时指向上级分类的 id，
+  /// 层级链按它走，不跨站混；各站层级按站原样保留，不压平。
+  final String parentId;
+
+  /// 从站根到本分类的完整路径（层级间用 / 连接）；单级分类
+  /// 时为空或与名相同，展示时仍用名，不受影响。
+  final String path;
+
+  /// 分类级扩展字段：该站分类自带的属性（图标、描述等），
+  /// 按站原样保留，不砍字段。
+  final Map<String, String> extra;
+
+  const DramaSiteCategory(
+    this.id,
+    this.name, {
+    this.parentId = '',
+    this.path = '',
+    this.extra = const {},
+  });
+
+  /// 展示名：有父级时显示完整路径（电影/动作），否则显示名本身；
+  /// 平铺分类的展示不受影响。
+  String get displayName =>
+      parentId.isNotEmpty && path.isNotEmpty ? path : name;
 }
 
 class DramaSite {

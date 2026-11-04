@@ -390,7 +390,7 @@ class _OneClickPyPageState extends State<OneClickPyPage> {
             itemBuilder: (ctx, index) {
               final item = categories[index];
               return ListTile(
-                title: Text(item.name),
+                title: Text(item.displayName),
                 onTap: () => Navigator.pop(ctx, item),
               );
             },

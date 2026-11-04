@@ -44,7 +44,13 @@ class LocalDbContentClient implements DramaSiteContentClient {
     );
     return [
       for (final category in categories)
-        DramaSiteCategory(category.categoryId, category.categoryName),
+        DramaSiteCategory(
+          category.categoryId,
+          category.categoryName,
+          parentId: category.parentId,
+          path: category.categoryPath,
+          extra: category.extra,
+        ),
     ];
   }
 
