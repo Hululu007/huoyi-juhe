@@ -89,6 +89,19 @@ jobs:
           path: app
           persist-credentials: false
 
+      # Round 7 built the APK (app-release-unsigned.apk) but failed on the
+      # final copy into flutter-apk: the runner disk was full (No space left
+      # on device). This build is heavy (Rust host + Android targets, Gradle
+      # caches, Chaquopy Python env), so reclaim space up front from
+      # preinstalled software this workflow never uses. The Android SDK and
+      # NDK are untouched; every toolchain this workflow needs (Rust, Java,
+      # Node, Flutter, Python 3.11) is installed by its own later step.
+      - name: Free runner disk space for the build
+        run: |
+          df -h
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /opt/hostedtoolcache
+          df -h
+
       # The version-monotonicity gate below reads `git tag --list 'v*'`. A
       # default checkout is `--depth=1 --no-tags`, so that list comes back
       # EMPTY and the gate silently passes on every branch and PR build. Worse,
