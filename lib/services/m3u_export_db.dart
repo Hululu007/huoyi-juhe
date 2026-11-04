@@ -12,6 +12,7 @@ class M3uExportCategoryInfo {
     required this.siteName,
     required this.categoryId,
     required this.categoryName,
+    this.categoryPath = '',
     required this.updatedAt,
   });
 
@@ -19,6 +20,10 @@ class M3uExportCategoryInfo {
   final String siteName;
   final String categoryId;
   final String categoryName;
+
+  /// 分类路径：该站自己的层级路径（蜘蛛分类目前是平的，路径即
+  /// 分类名；字段留给以后多级分类，跨站不混）。
+  final String categoryPath;
   final int updatedAt;
 
   String get key => 'cat:$siteId|$categoryId';
@@ -28,6 +33,7 @@ class M3uExportCategoryInfo {
     'siteName': siteName,
     'categoryId': categoryId,
     'categoryName': categoryName,
+    'categoryPath': categoryPath,
     'updatedAt': updatedAt,
   };
 
@@ -40,13 +46,15 @@ class M3uExportCategoryInfo {
         categoryId.isEmpty) {
       return null;
     }
+    String text(dynamic value) => value is String ? value : '';
+    final categoryName = text(raw['categoryName']);
+    final categoryPath = text(raw['categoryPath']);
     return M3uExportCategoryInfo(
       siteId: siteId,
-      siteName: raw['siteName'] is String ? raw['siteName'] as String : '',
+      siteName: text(raw['siteName']),
       categoryId: categoryId,
-      categoryName: raw['categoryName'] is String
-          ? raw['categoryName'] as String
-          : '',
+      categoryName: categoryName,
+      categoryPath: categoryPath.isEmpty ? categoryName : categoryPath,
       updatedAt: raw['updatedAt'] is int ? raw['updatedAt'] as int : 0,
     );
   }
@@ -58,12 +66,15 @@ class M3uExportVideoRecord {
     required this.siteName,
     required this.categoryId,
     required this.categoryName,
+    this.categoryPath = '',
     required this.videoId,
     required this.title,
     required this.url,
     this.localPath = '',
     required this.cover,
     required this.synopsis,
+    this.extra = const {},
+    this.episodeCount = 0,
     required this.updatedAt,
   });
 
@@ -71,6 +82,7 @@ class M3uExportVideoRecord {
   final String siteName;
   final String categoryId;
   final String categoryName;
+  final String categoryPath;
   final String videoId;
   final String title;
 
@@ -81,6 +93,12 @@ class M3uExportVideoRecord {
   final String localPath;
   final String cover;
   final String synopsis;
+
+  /// 详情原字段扩展：通用列之外的站原字段，按站原样保留。
+  final Map<String, String> extra;
+
+  /// 集数：取详情时为详情选集数，详情拿不到时为 0（表示未知）。
+  final int episodeCount;
   final int updatedAt;
 
   String get key => 'video:$siteId|$videoId';
@@ -90,12 +108,15 @@ class M3uExportVideoRecord {
     'siteName': siteName,
     'categoryId': categoryId,
     'categoryName': categoryName,
+    'categoryPath': categoryPath,
     'videoId': videoId,
     'title': title,
     'url': url,
     'localPath': localPath,
     'cover': cover,
     'synopsis': synopsis,
+    'extra': extra,
+    'episodeCount': episodeCount,
     'updatedAt': updatedAt,
   };
 
@@ -113,34 +134,42 @@ class M3uExportVideoRecord {
     }
     String text(dynamic value) => value is String ? value : '';
     final localPath = text(raw['localPath']);
-    if (localPath.isEmpty && !_looksOnline(url)) {
+    final categoryName = text(raw['categoryName']);
+    final categoryPath = text(raw['categoryPath']);
+    final extra = <String, String>{};
+    final rawExtra = raw['extra'];
+    if (rawExtra is Map) {
+      for (final entry in rawExtra.entries) {
+        extra[entry.key.toString()] = entry.value.toString();
+      }
+    }
+    M3uExportVideoRecord build({
+      required String onlineUrl,
+      required String local,
+    }) {
       return M3uExportVideoRecord(
         siteId: siteId,
         siteName: text(raw['siteName']),
         categoryId: text(raw['categoryId']),
-        categoryName: text(raw['categoryName']),
+        categoryName: categoryName,
+        categoryPath: categoryPath.isEmpty ? categoryName : categoryPath,
         videoId: videoId,
         title: text(raw['title']),
-        url: '',
-        localPath: url,
+        url: onlineUrl,
+        localPath: local,
         cover: text(raw['cover']),
         synopsis: text(raw['synopsis']),
+        extra: extra,
+        episodeCount:
+            raw['episodeCount'] is int ? raw['episodeCount'] as int : 0,
         updatedAt: raw['updatedAt'] is int ? raw['updatedAt'] as int : 0,
       );
     }
-    return M3uExportVideoRecord(
-      siteId: siteId,
-      siteName: text(raw['siteName']),
-      categoryId: text(raw['categoryId']),
-      categoryName: text(raw['categoryName']),
-      videoId: videoId,
-      title: text(raw['title']),
-      url: url,
-      localPath: localPath,
-      cover: text(raw['cover']),
-      synopsis: text(raw['synopsis']),
-      updatedAt: raw['updatedAt'] is int ? raw['updatedAt'] as int : 0,
-    );
+
+    if (localPath.isEmpty && !_looksOnline(url)) {
+      return build(onlineUrl: '', local: url);
+    }
+    return build(onlineUrl: url, local: localPath);
   }
 
   static bool _looksOnline(String value) {

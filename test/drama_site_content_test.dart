@@ -343,4 +343,17 @@ void main() {
       throwsStateError,
     );
   });
+
+  test('红果镜像详情解析：通用列之外的标量原字段进扩展列', () {
+    final detail = HgtvMirrorContentClient.parseDetail(
+      '<html><script>window._ROUTER_DATA = {"loaderData":{"detail_page":{"seriesDetail":{"series_id":"123","series_title":"测试剧","series_cover":"https://example.test/cover.jpg","series_desc":"简介文字","episode_cnt":42,"series_area":"内地","vid_list":["111"]}}}};</script></html>',
+      '123',
+    );
+    expect(detail.synopsis, '简介文字');
+    expect(detail.extra['episode_cnt'], '42');
+    expect(detail.extra['series_area'], '内地');
+    expect(detail.extra.containsKey('series_desc'), isFalse);
+    expect(detail.extra.containsKey('vid_list'), isFalse);
+    expect(detail.extra.containsKey('series_title'), isFalse);
+  });
 }

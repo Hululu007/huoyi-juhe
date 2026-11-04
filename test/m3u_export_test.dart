@@ -498,6 +498,7 @@ void main() {
             title: '有详情片',
             cover: 'detail_cover.jpg',
             synopsis: '<p>简介文字</p>',
+            extra: {'vod_actor': '演员A', 'vod_year': '2024'},
             episodes: [
               DramaSiteEpisode(
                 videoId: 'flag\u0001ep1',
@@ -535,11 +536,18 @@ void main() {
       expect(withDetail.synopsis, '简介文字');
       expect(withDetail.siteName, '测试站');
       expect(withDetail.categoryName, '电影');
+      expect(withDetail.categoryPath, '电影');
+      expect(withDetail.extra['vod_actor'], '演员A');
+      expect(withDetail.extra['vod_year'], '2024');
+      expect(withDetail.episodeCount, 1);
       final withoutDetail = rows.firstWhere((row) => row.videoId == 'v2');
       expect(withoutDetail.cover, 'list_cover.jpg');
       expect(withoutDetail.synopsis, isEmpty);
+      expect(withoutDetail.extra, isEmpty);
+      expect(withoutDetail.episodeCount, 0);
       expect(db.categories.length, 1);
       expect(db.categories.values.first.categoryName, '电影');
+      expect(db.categories.values.first.categoryPath, '电影');
     });
 
     test('重复导出按视频唯一标识更新，不重复插', () async {

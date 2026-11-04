@@ -91,11 +91,27 @@ DramaSiteDetail parseTvboxDetail(Map<String, dynamic> json) {
       );
     }
   }
+  final extra = <String, String>{};
+  for (final entry in row.entries) {
+    final key = entry.key.toString();
+    if (const {
+      'vod_id',
+      'vod_name',
+      'vod_pic',
+      'vod_content',
+      'vod_play_url',
+    }.contains(key)) {
+      continue;
+    }
+    final value = _text(entry.value);
+    if (value.isNotEmpty) extra[key] = value;
+  }
   return DramaSiteDetail(
     id: vodId,
     title: title,
     cover: cover,
     synopsis: _text(row['vod_content']),
+    extra: extra,
     episodes: episodes,
   );
 }

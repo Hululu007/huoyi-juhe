@@ -47,6 +47,10 @@ class DramaSiteDetail {
   final String title;
   final String cover;
   final String synopsis;
+
+  /// 详情页原字段扩展：通用列之外的站原字段（演员、年份、地区、
+  /// 播放线路等），按站原样保留，键就是源字段名。
+  final Map<String, String> extra;
   final List<DramaSiteEpisode> episodes;
 
   const DramaSiteDetail({
@@ -54,6 +58,7 @@ class DramaSiteDetail {
     required this.title,
     required this.cover,
     this.synopsis = '',
+    this.extra = const {},
     required this.episodes,
   });
 }
@@ -270,6 +275,32 @@ class HgtvMirrorContentClient implements DramaSiteContentClient {
     if (title.isEmpty || episodes.isEmpty) {
       throw StateError('红果镜像详情未返回有效分集');
     }
+    final extra = <String, String>{};
+    for (final entry in series.entries) {
+      final key = entry.key.toString();
+      if (const {
+        'series_id',
+        'series_title',
+        'series_name',
+        'title',
+        'series_cover',
+        'cover',
+        'img',
+        'vid_list',
+        'series_desc',
+        'desc',
+        'introduction',
+        'synopsis',
+        'content',
+      }.contains(key)) {
+        continue;
+      }
+      final value = entry.value;
+      if (value is String || value is num || value is bool) {
+        final text = value.toString().trim();
+        if (text.isNotEmpty) extra[key] = text;
+      }
+    }
     return DramaSiteDetail(
       id: seriesId,
       title: title,
@@ -281,6 +312,7 @@ class HgtvMirrorContentClient implements DramaSiteContentClient {
             series['synopsis'] ??
             series['content'],
       ),
+      extra: extra,
       episodes: episodes,
     );
   }

@@ -142,12 +142,16 @@ class _ResolvedVideo {
     required this.cover,
     required this.synopsis,
     required this.headers,
+    this.extra = const {},
+    this.episodeCount = 0,
   });
 
   final String url;
   final String cover;
   final String synopsis;
   final Map<String, String> headers;
+  final Map<String, String> extra;
+  final int episodeCount;
 }
 
 String _cleanSynopsis(String synopsis) {
@@ -171,6 +175,8 @@ Future<_ResolvedVideo?> _resolveVideo(
     DramaSiteEpisode episode, {
     required String fallbackCover,
     required String fallbackSynopsis,
+    Map<String, String> fallbackExtra = const {},
+    int fallbackEpisodeCount = 0,
   }) async {
     try {
       final play =
@@ -181,26 +187,36 @@ Future<_ResolvedVideo?> _resolveVideo(
           cover: fallbackCover,
           synopsis: fallbackSynopsis,
           headers: play.headers,
+          extra: fallbackExtra,
+          episodeCount: fallbackEpisodeCount,
         );
       }
     } catch (_) {}
     return null;
   }
 
-  Future<_ResolvedVideo?> tryDetail() async {
+  DramaSiteDetail? fetchedDetail;
+  Future<DramaSiteDetail?> fetchDetailOnce() async {
+    if (fetchedDetail != null) return fetchedDetail;
     try {
-      final detail = await client.detail(item.id).timeout(_callTimeout);
-      final cover = detail.cover.isNotEmpty ? detail.cover : item.cover;
-      final synopsis = _cleanSynopsis(detail.synopsis);
-      for (final episode in detail.episodes) {
-        final resolved = await tryPlay(
-          episode,
-          fallbackCover: cover,
-          fallbackSynopsis: synopsis,
-        );
-        if (resolved != null) return resolved;
-      }
+      fetchedDetail = await client.detail(item.id).timeout(_callTimeout);
     } catch (_) {}
+    return fetchedDetail;
+  }
+
+  Future<_ResolvedVideo?> tryEpisodes(DramaSiteDetail detail) async {
+    final cover = detail.cover.isNotEmpty ? detail.cover : item.cover;
+    final synopsis = _cleanSynopsis(detail.synopsis);
+    for (final episode in detail.episodes) {
+      final resolved = await tryPlay(
+        episode,
+        fallbackCover: cover,
+        fallbackSynopsis: synopsis,
+        fallbackExtra: detail.extra,
+        fallbackEpisodeCount: detail.episodes.length,
+      );
+      if (resolved != null) return resolved;
+    }
     return null;
   }
 
@@ -210,8 +226,19 @@ Future<_ResolvedVideo?> _resolveVideo(
     seriesId: item.id,
   );
   if (fetchDetail) {
-    final viaDetail = await tryDetail();
-    if (viaDetail != null) return viaDetail;
+    final detail = await fetchDetailOnce();
+    if (detail != null) {
+      final viaEpisodes = await tryEpisodes(detail);
+      if (viaEpisodes != null) return viaEpisodes;
+      return tryPlay(
+        fastEpisode,
+        fallbackCover:
+            detail.cover.isNotEmpty ? detail.cover : item.cover,
+        fallbackSynopsis: _cleanSynopsis(detail.synopsis),
+        fallbackExtra: detail.extra,
+        fallbackEpisodeCount: detail.episodes.length,
+      );
+    }
     return tryPlay(
       fastEpisode,
       fallbackCover: item.cover,
@@ -224,7 +251,9 @@ Future<_ResolvedVideo?> _resolveVideo(
     fallbackSynopsis: '',
   );
   if (fast != null) return fast;
-  return tryDetail();
+  final detail = await fetchDetailOnce();
+  if (detail != null) return tryEpisodes(detail);
+  return null;
 }
 
 Future<M3uExportResult> exportSiteM3u({
@@ -357,12 +386,15 @@ Future<M3uExportResult> exportSiteM3u({
                 siteName: siteName,
                 categoryId: category.id,
                 categoryName: category.name,
+                categoryPath: category.name,
                 videoId: item.id,
                 title: item.title,
                 url: resolved.url,
                 localPath: downloadedThis ? finalUrl : '',
                 cover: resolved.cover,
                 synopsis: resolved.synopsis,
+                extra: resolved.extra,
+                episodeCount: resolved.episodeCount,
                 updatedAt: DateTime.now().millisecondsSinceEpoch,
               ),
             );
@@ -419,6 +451,7 @@ Future<M3uExportResult> exportSiteM3u({
                 siteName: siteName,
                 categoryId: category.id,
                 categoryName: category.name,
+                categoryPath: category.name,
                 updatedAt: now,
               ),
           ],

@@ -58,6 +58,36 @@ void main() {
     expect(detail.episodes[2].seriesId, 'v1');
   });
 
+  test('TVBox 详情：通用列之外的原字段进扩展列，通用列与选集源不重复存', () {
+    final detail = parseTvboxDetail({
+      'list': [
+        {
+          'vod_id': 'v1',
+          'vod_name': '剧一',
+          'vod_pic': 'https://x/p.jpg',
+          'vod_content': '简介',
+          'vod_actor': '演员A',
+          'vod_director': '导演B',
+          'vod_year': '2024',
+          'vod_area': '内地',
+          'vod_remarks': '已完结',
+          'vod_play_from': '线路A',
+          'vod_play_url': '第1集\$id1',
+        },
+      ],
+    });
+    expect(detail.synopsis, '简介');
+    expect(detail.extra['vod_actor'], '演员A');
+    expect(detail.extra['vod_director'], '导演B');
+    expect(detail.extra['vod_year'], '2024');
+    expect(detail.extra['vod_area'], '内地');
+    expect(detail.extra['vod_remarks'], '已完结');
+    expect(detail.extra['vod_play_from'], '线路A');
+    expect(detail.extra.containsKey('vod_content'), isFalse);
+    expect(detail.extra.containsKey('vod_play_url'), isFalse);
+    expect(detail.extra.containsKey('vod_id'), isFalse);
+  });
+
   test('TVBox 取流：直链放行，需壳解析与空地址抛错', () {
     expect(parseTvboxPlay({'url': 'https://x/play.m3u8'}).url,
         'https://x/play.m3u8');
