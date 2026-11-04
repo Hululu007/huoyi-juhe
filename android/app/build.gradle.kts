@@ -173,6 +173,11 @@ dependencies {
     // Jsoup powers the JS spider host selectors (pdfa/pdfh/pd).
     implementation("org.jsoup:jsoup:1.18.1")
 
+    // Gson powers the catvod Java support code (Json helper used by the
+    // jar spider bridge); without it compileReleaseJavaWithJavac fails
+    // with "package com.google.gson does not exist".
+    implementation("com.google.code.gson:gson:2.10.1")
+
     // Media3 ExoPlayer — NativePlayerPlugin host for short-drama playback.
     val media3Version = "1.4.1"
     implementation("androidx.media3:media3-exoplayer:$media3Version")
