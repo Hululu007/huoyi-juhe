@@ -42,9 +42,9 @@ class EncryptedHive {
   /// while local data is being initialized, and widget tests drive that inside
   /// a fake-async zone, where a real async file probe never completes
   /// (CRIT-014 in docs/规范/踩坑判据.md).
-  static bool _encryptedBoxOnDisk(String encName) {
+  static bool _encryptedBoxOnDisk(String encName, [String? path]) {
     if (Hive.isBoxOpen(encName)) return true;
-    final base = _boxFileBase(encName);
+    final base = _boxFileBase(encName, path);
     if (base == null) return false;
     return File('$base.hive').existsSync() ||
         File('$base.hivec').existsSync() ||
@@ -53,11 +53,13 @@ class EncryptedHive {
 
   /// `<homePath>/<lowercased name>`, the base of a box's on-disk files:
   /// `<base>.hive` plus optional `.hivec` / `.lock` siblings
-  /// (hive_ce `BackendManager`).
-  static String? _boxFileBase(String name) {
+  /// (hive_ce `BackendManager`). [path] overrides the global home path
+  /// for boxes opened at a custom location.
+  static String? _boxFileBase(String name, [String? pathOverride]) {
     // `Hive` is typed as `HiveInterface`, which exposes no path accessor; the
     // concrete implementation that the global always is carries `homePath`.
-    final home = (Hive as dynamic).homePath as String?;
+    final home =
+        pathOverride ?? ((Hive as dynamic).homePath as String?);
     if (home == null || home.isEmpty) return null;
     final delimiter = Platform.isWindows ? '\\' : '/';
     return '$home$delimiter${name.toLowerCase()}';
@@ -71,8 +73,8 @@ class EncryptedHive {
   /// was), so an I/O error can never be mistaken for a wiped box. Synchronous
   /// on purpose, like [_encryptedBoxOnDisk]: this can run inside a widget
   /// test's fake-async zone, where real async file operations never complete.
-  static List<File> _quarantineUnreadableBox(String encName) {
-    final base = _boxFileBase(encName);
+  static List<File> _quarantineUnreadableBox(String encName, [String? path]) {
+    final base = _boxFileBase(encName, path);
     if (base == null) return const [];
     final stamp = DateTime.now().microsecondsSinceEpoch;
     final preserved = <File>[];
@@ -99,6 +101,11 @@ class EncryptedHive {
     SecureKeyProvider? keys,
     bool requireEncryption = false,
     CompactionStrategy? compactionStrategy,
+
+    /// Custom on-disk directory for this box; null keeps the global
+    /// Hive home path. Only the m3u export db uses a custom path
+    /// (the public 火蚁聚合 folder).
+    String? path,
   }) async {
     // hive_ce's openBox takes a non-nullable compaction strategy (its
     // default is internal, so reproduce it here: compact once 15% of the
@@ -120,24 +127,29 @@ class EncryptedHive {
       // writing in parallel beside them - so fail closed instead. Callers sit
       // under a retryable bootstrap, so the user can retry once the key is
       // available and nothing is lost.
-      if (_encryptedBoxOnDisk(encName)) {
+      if (_encryptedBoxOnDisk(encName, path)) {
         throw StateError('加密密钥不可用，而 $encName 已存在，拒绝以明文回落');
       }
       // Degraded path (tests, a first run before any key existed, a broken
       // Keystore with no encrypted data yet): plaintext legacy box, so the app
       // keeps working. Never used when a key is available.
-      return hive.openBox<E>(name, compactionStrategy: strategy);
+      return hive.openBox<E>(
+        name,
+        compactionStrategy: strategy,
+        path: path,
+      );
     }
 
     final cipher = HiveAesCipher(key);
-    if (await hive.boxExists(encName)) {
+    if (await hive.boxExists(encName, path: path)) {
       try {
         final box = await hive.openBox<E>(
           encName,
           encryptionCipher: cipher,
           compactionStrategy: strategy,
+          path: path,
         );
-        await _reconcileLegacy(hive, name, box);
+        await _reconcileLegacy(hive, name, box, path);
         return box;
       } on HiveError catch (e) {
         if (!_looksLikeDecryptionFailure(e)) rethrow;
@@ -146,7 +158,7 @@ class EncryptedHive {
         // deleting the box would turn that hiccup into permanent data loss.
         // Move the unreadable files out of Hive's lookup names instead, keep
         // them for recovery, then continue with a fresh empty box.
-        final preserved = _quarantineUnreadableBox(encName);
+        final preserved = _quarantineUnreadableBox(encName, path);
         if (preserved.isEmpty) {
           AppLog.w('hive', '加密箱 $encName 无法解密，且未找到可保留的箱文件');
         } else {
@@ -158,8 +170,8 @@ class EncryptedHive {
       }
     }
 
-    if (await hive.boxExists(name)) {
-      final legacy = await hive.openBox<E>(name);
+    if (await hive.boxExists(name, path: path)) {
+      final legacy = await hive.openBox<E>(name, path: path);
       final entries = <dynamic, dynamic>{};
       for (final legacyKey in legacy.keys) {
         entries[legacyKey] = legacy.get(legacyKey);
@@ -169,11 +181,12 @@ class EncryptedHive {
         encName,
         encryptionCipher: cipher,
         compactionStrategy: strategy,
+        path: path,
       );
       if (entries.isNotEmpty) {
         await box.putAll(Map<dynamic, E>.from(entries));
       }
-      await _reconcileLegacy(hive, name, box);
+      await _reconcileLegacy(hive, name, box, path);
       return box;
     }
 
@@ -181,6 +194,7 @@ class EncryptedHive {
       encName,
       encryptionCipher: cipher,
       compactionStrategy: strategy,
+      path: path,
     );
   }
 
@@ -288,10 +302,11 @@ class EncryptedHive {
   static Future<void> _reconcileLegacy<E>(
     HiveInterface hive,
     String name,
-    Box<E> encrypted,
-  ) async {
-    if (!await hive.boxExists(name)) return;
-    final legacy = await hive.openBox<E>(name);
+    Box<E> encrypted, [
+    String? path,
+  ]) async {
+    if (!await hive.boxExists(name, path: path)) return;
+    final legacy = await hive.openBox<E>(name, path: path);
     try {
       final missing = <dynamic, dynamic>{};
       for (final key in legacy.keys) {
@@ -305,7 +320,7 @@ class EncryptedHive {
     } finally {
       await legacy.close();
     }
-    await hive.deleteBoxFromDisk(name);
+    await hive.deleteBoxFromDisk(name, path: path);
   }
 
   /// Only decryption failures may delete an encrypted box. Anything else

@@ -37,6 +37,9 @@ class MainActivity : FlutterActivity() {
         flutterEngine.plugins.add(SharePlugin())
         // 整本 TXT 导出：MediaStore.Downloads 或应用外部目录，见 DownloadsPlugin。
         flutterEngine.plugins.add(DownloadsPlugin())
+        // 本地数据库公开目录（手机根目录火蚁聚合文件夹）：Android 11+ 需
+        // 全部文件访问权限，用户在系统设置页亲手开一次，见 PublicFolderPlugin。
+        flutterEngine.plugins.add(PublicFolderPlugin())
         // 海信墨水屏整屏刷新（压残影）：反射调用厂商 EPD 接口。
         flutterEngine.plugins.add(EinkRefreshPlugin())
         // 小米澎湃 OS 公平运行内存：收 TRIM/KILL 广播，转发 Dart 处理后回系统。

@@ -4,6 +4,7 @@ import 'package:hive_ce/hive.dart';
 
 import 'encrypted_hive.dart';
 import 'midnight_gate.dart';
+import 'public_folder.dart';
 import 'secure_key_provider.dart';
 
 class M3uExportCategoryInfo {
@@ -13,6 +14,7 @@ class M3uExportCategoryInfo {
     required this.categoryId,
     required this.categoryName,
     this.categoryPath = '',
+    this.parentId = '',
     required this.updatedAt,
   });
 
@@ -21,9 +23,14 @@ class M3uExportCategoryInfo {
   final String categoryId;
   final String categoryName;
 
-  /// 分类路径：该站自己的层级路径（蜘蛛分类目前是平的，路径即
-  /// 分类名；字段留给以后多级分类，跨站不混）。
+  /// 分类路径：从站根到本分类的完整路径，层级间用 / 连接；
+  /// 单级分类时路径即分类名。详情挂在最末级分类（视频记录
+  /// 的 categoryId）下，不压平成一级。
   final String categoryPath;
+
+  /// 父分类 id：顶级分类为空；多级分类时指向上级分类的
+  /// categoryId，层级链按 parentId 走，不跨站混。
+  final String parentId;
   final int updatedAt;
 
   String get key => 'cat:$siteId|$categoryId';
@@ -34,6 +41,7 @@ class M3uExportCategoryInfo {
     'categoryId': categoryId,
     'categoryName': categoryName,
     'categoryPath': categoryPath,
+    'parentId': parentId,
     'updatedAt': updatedAt,
   };
 
@@ -55,6 +63,7 @@ class M3uExportCategoryInfo {
       categoryId: categoryId,
       categoryName: categoryName,
       categoryPath: categoryPath.isEmpty ? categoryName : categoryPath,
+      parentId: text(raw['parentId']),
       updatedAt: raw['updatedAt'] is int ? raw['updatedAt'] as int : 0,
     );
   }
@@ -252,31 +261,101 @@ abstract interface class M3uExportDbSink {
 }
 
 class HiveM3uExportDb implements M3uExportDbSink {
-  HiveM3uExportDb({HiveInterface? hive, this._keys}) : _hive = hive ?? Hive;
+  HiveM3uExportDb({
+    HiveInterface? hive,
+    this._keys,
+    this.directoryResolver,
+  }) : _hive = hive ?? Hive;
 
   static final HiveM3uExportDb instance = HiveM3uExportDb();
+
+  /// 旧箱名：公开目录启用前的数据落点，迁移后只作备份，不再读取。
   static const _boxName = 'm3u_export_v1';
+
+  /// 公开目录里的箱名：与旧箱名不同，避免同一会话里新旧箱
+  /// 按名撞上（Hive 按名登记已开箱）。
+  static const _publicBoxName = 'm3u_export_v1_pub';
+
+  /// 手机根目录下的公开文件夹名。
+  static const publicFolderName = '火蚁聚合';
 
   final HiveInterface _hive;
   final SecureKeyProvider? _keys;
+
+  /// 公开目录解析：默认取主外置存储根下的火蚁聚合文件夹；
+  /// 测试注入临时目录。文件夹不存在时自动创建。
+  final Future<Directory> Function()? directoryResolver;
   Future<Box<dynamic>>? _opening;
 
-  bool get isReady => EncryptedHive.isBoxOpen(_hive, _boxName);
+  bool get isReady => EncryptedHive.isBoxOpen(_hive, _publicBoxName);
+
+  Future<Directory> _publicDir() async {
+    final resolve = directoryResolver ?? _defaultPublicDir;
+    final dir = await resolve();
+    try {
+      await dir.create(recursive: true);
+    } on FileSystemException catch (e) {
+      throw StateError(
+        '无法创建火蚁聚合文件夹（${dir.path}）：${e.message}',
+      );
+    }
+    return dir;
+  }
+
+  static Future<Directory> _defaultPublicDir() async {
+    final root = await PublicFolder.publicRoot();
+    return Directory('$root/$publicFolderName');
+  }
 
   Future<Box<dynamic>> _box() async {
-    if (EncryptedHive.isBoxOpen(_hive, _boxName)) {
-      return EncryptedHive.box<dynamic>(_hive, _boxName);
+    if (EncryptedHive.isBoxOpen(_hive, _publicBoxName)) {
+      return EncryptedHive.box<dynamic>(_hive, _publicBoxName);
     }
-    final opening = _opening ??= EncryptedHive.openBox<dynamic>(
-      _hive,
-      _boxName,
-      keys: _keys,
-    );
+    final opening = _opening ??= _openPublic();
     try {
       return await opening;
     } finally {
       if (identical(_opening, opening)) _opening = null;
     }
+  }
+
+  Future<Box<dynamic>> _openPublic() async {
+    final dir = await _publicDir();
+    final box = await EncryptedHive.openBox<dynamic>(
+      _hive,
+      _publicBoxName,
+      keys: _keys,
+      path: dir.path,
+    );
+    await _migrateFromLegacy(box);
+    return box;
+  }
+
+  /// 旧箱到公开箱的一次性迁移：公开箱为空且旧箱有数据时
+  /// 全量拷过去；旧箱文件保留作备份，不删除、不再读取。
+  /// 迁移失败（旧箱打不开等）不拦新箱使用，下次打开再试。
+  Future<void> _migrateFromLegacy(Box<dynamic> publicBox) async {
+    if (publicBox.isNotEmpty) return;
+    Box<dynamic>? legacy;
+    try {
+      if (EncryptedHive.isBoxOpen(_hive, _boxName)) {
+        legacy = EncryptedHive.box<dynamic>(_hive, _boxName);
+      } else {
+        legacy = await EncryptedHive.openBox<dynamic>(
+          _hive,
+          _boxName,
+          keys: _keys,
+        );
+      }
+    } catch (_) {
+      return;
+    }
+    if (legacy.isEmpty) return;
+    final entries = <dynamic, dynamic>{};
+    for (final key in legacy.keys) {
+      entries[key] = legacy.get(key);
+    }
+    if (entries.isNotEmpty) await publicBox.putAll(entries);
   }
 
   @override

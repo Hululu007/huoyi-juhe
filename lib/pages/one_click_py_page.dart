@@ -11,6 +11,7 @@ import '../services/m3u_export_db.dart';
 import '../services/m3u_export_download.dart';
 import '../services/midnight_gate.dart';
 import '../services/one_click_py.dart';
+import '../services/public_folder.dart';
 import '../services/source_registry.dart';
 import 'source_management_page.dart';
 
@@ -528,7 +529,10 @@ class _OneClickPyPageState extends State<OneClickPyPage> {
               if (result!.dbError != null) {
                 lines.add('数据库同步失败：${result!.dbError}（m3u 文件已保存）。');
               } else {
-                lines.add('已同步写入本地数据库 ${result!.dbVideoCount} 条。');
+                lines.add(
+                  '已同步写入本地数据库 ${result!.dbVideoCount} 条'
+                  '（存放在手机根目录“火蚁聚合”文件夹）。',
+                );
               }
               if (downloadOptions != null) {
                 lines.add(
@@ -565,6 +569,12 @@ class _OneClickPyPageState extends State<OneClickPyPage> {
                   TextButton(
                     onPressed: cancellation.cancel,
                     child: const Text('取消'),
+                  ),
+                if (!running &&
+                    (result?.dbError?.contains('火蚁聚合文件夹') ?? false))
+                  TextButton(
+                    onPressed: PublicFolder.requestAllFilesAccess,
+                    child: const Text('去开启全部文件访问权限'),
                   ),
                 if (!running)
                   TextButton(
