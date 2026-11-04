@@ -431,6 +431,15 @@ jobs:
       # The trade-off is one extra Flutter SDK install on the gate's runner;
       # the pub get below still has to run because the release build needs the
       # resolved package config and the regenerated plugin registrant.
+      # Chaquopy builds the embedded Python environment at compile time:
+      # android/app/build.gradle.kts pins version 3.11 and installs pip
+      # requirements into the APK. The runner image does not ship Python
+      # 3.11, so install it explicitly; without it the Gradle task
+      # installReleasePythonRequirements fails with "Couldn't find Python 3.11".
+      - name: Set up Python 3.11 for Chaquopy
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
       - name: Compile release APK (ARM64 only)
         # Single architecture: arm64-v8a only. Chaquopy requires
         # ndk.abiFilters, which AGP rejects whenever per-ABI splits are
