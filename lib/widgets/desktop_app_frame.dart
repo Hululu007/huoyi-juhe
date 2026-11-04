@@ -45,6 +45,9 @@ class DesktopAppFrame extends StatelessWidget {
                   onDestinationSelected: _select,
                   backgroundColor: theme.colorScheme.surface,
                   minWidth: 76,
+                  // 矮窗口（512 高）下 6 个目的地加首尾会超出：目的地改滚动，
+                  // 首尾仍钉住，不再溢出。
+                  scrollable: true,
                   trailingAtBottom: true,
                   trailing: Padding(
                     padding: const EdgeInsets.only(bottom: 12),

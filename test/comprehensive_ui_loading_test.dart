@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fqapp/models/media_item.dart';
 import 'package:fqapp/pages/detail_page.dart';
 import 'package:fqapp/pages/home_page.dart';
@@ -85,6 +86,9 @@ void main() {
   testWidgets('U04 hidden kept-alive home stops pagination and resumes once', (
     tester,
   ) async {
+    // 与首页切分类测试同因：注册表与门禁的偏好读取不种 mock 值会挂住，
+    // 首载被成人推荐的 10 秒兜底拖住，分页压根不会启动。
+    SharedPreferences.setMockInitialValues({});
     final offsets = <int>[];
     final selected = ValueNotifier(0);
     addTearDown(() async {

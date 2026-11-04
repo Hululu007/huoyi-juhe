@@ -32,7 +32,7 @@ void main() {
       expect(ids, [_id]);
       expect(keywordCalls, 0);
       expect(find.text('精确漫剧'), findsOneWidget);
-      expect(find.byType(ChoiceChip), findsNWidgets(6));
+      expect(find.byType(ChoiceChip), findsNWidgets(7));
       expect(find.text('加载更多'), findsNothing);
       expect(find.text('没有更多了'), findsNothing);
       await tester.tap(find.widgetWithText(ChoiceChip, '短剧'));

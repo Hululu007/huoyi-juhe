@@ -58,7 +58,9 @@ env:
   # this, so a package signed with the wrong key -- or not signed at all --
   # fails here instead of being published. The matching keystore is stored
   # as a repository secret.
-  RELEASE_SIGNER_SHA256: 'e8471cd8a935fd71fd8197355b5558d245449d5bc8294f60f88616f60451c550'
+  # Juhe now uses its own test key (reused from the locally test-signed
+  # round-9 build, so later CI builds can overwrite that install directly).
+  RELEASE_SIGNER_SHA256: '2d52a8afa747337409c334fa2a62ce0cf2921d46448a31e7a1fb62cc8ab39ad9'
   FQAPP_USE_MAVEN_MIRRORS: 'false'
   # workers.max / CMAKE_BUILD_PARALLEL_LEVEL stay at 2. Raising them to 4 was
   # measured and made things WORSE on the 4-vCPU / 16 GB runner: the release APK

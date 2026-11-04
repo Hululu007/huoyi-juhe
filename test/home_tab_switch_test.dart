@@ -3,11 +3,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fqapp/models/media_item.dart';
 import 'package:fqapp/pages/home_page.dart';
 import 'package:fqapp/pages/home_provider.dart';
 import 'package:fqapp/services/api_client.dart';
+import 'package:fqapp/widgets/home/drama_site_grid.dart';
 import 'package:fqapp/widgets/home/home_feed_states.dart';
 import 'package:fqapp/widgets/home/home_hero.dart';
 import 'package:fqapp/widgets/home/home_skeleton.dart';
@@ -51,6 +53,9 @@ void main() {
     Completer<void>? gate,
     int gatedTabType = 8,
   }) async {
+    // 注册表与午夜门禁在测试里读偏好：不种 mock 值时那次读取挂住，
+    // 首页首载会被成人推荐的 10 秒兜底拖住，骨架与计时断言全跟着错。
+    SharedPreferences.setMockInitialValues({});
     await tester.binding.setSurfaceSize(surface);
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
@@ -213,7 +218,24 @@ void main() {
     for (var frame = 0; frame < 30; frame++) {
       await tester.pump(const Duration(milliseconds: 16));
     }
-    expect(find.byType(HomeFeedLoading), findsNothing);
+    // 首页流自己的提示应当消失。短剧页默认还挂一个番茄站格子，
+    // 它的目录走真实 Rust 传输，测试环境里拿不到结果、提示会
+    // 一直挂着，那是格子自己的加载态，不算首页流没加载完：
+    // 格子提示在 DramaSiteGrid 内，流提示不在，只数后者。
+    bool insideGrid(Element element) {
+      var inside = false;
+      element.visitAncestorElements((ancestor) {
+        if (ancestor.widget is DramaSiteGrid) inside = true;
+        return true;
+      });
+      return inside;
+    }
+
+    final feedHints = find
+        .byType(HomeFeedLoading)
+        .evaluate()
+        .where((element) => !insideGrid(element));
+    expect(feedHints, isEmpty, reason: '首页流加载完后自己的提示应当消失');
     expect(tester.takeException(), isNull);
   });
 

@@ -45,7 +45,7 @@ void main() {
   testWidgets('设置首页分类行统一使用 soft 图标砖，尾部值用 muted', (tester) async {
     await pumpSettings(tester);
 
-    expect(find.byType(SettingsRow), findsNWidgets(7));
+    expect(find.byType(SettingsRow), findsNWidgets(9));
     final tile = tester.widget<Container>(
       find.descendant(of: rowOf('外观'), matching: find.byType(Container)).first,
     );

@@ -265,7 +265,7 @@ void main() {
         tester
             .widgetList<ChoiceChip>(find.byType(ChoiceChip))
             .map((chip) => (chip.label as Text).data),
-        ['综合', '小说', '短剧', '漫剧', '漫画', '听书'],
+        ['综合', '小说', '短剧', '漫剧', '漫画', '听书', '站源'],
       );
       expect(_visibleKinds(tester), [
         'book',
@@ -657,7 +657,7 @@ void main() {
     ]);
     await tester.pumpAndSettle();
     expect(find.text('搜索历史'), findsOneWidget);
-    expect(find.byType(ChoiceChip), findsNWidgets(6));
+    expect(find.byType(ChoiceChip), findsNWidgets(7));
     await tester.tap(find.text('测试'));
     await tester.pump();
     expect(pending, hasLength(2));

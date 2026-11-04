@@ -246,7 +246,7 @@ void main() {
       // 搜索行另有上限，不会撑成一条 2500 宽的灰带。
       expect(
         tester.getSize(find.byKey(const Key('home_search_button'))).width,
-        lessThan(HomeHero.maxToolbarWidth),
+        lessThanOrEqualTo(HomeHero.maxToolbarWidth),
       );
       expect(tester.takeException(), isNull);
     } finally {

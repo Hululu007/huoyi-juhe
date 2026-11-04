@@ -101,9 +101,11 @@ void main() {
       registry.custom.where((entry) => entry.extra['builtin'] == true).length,
       146,
     );
+    // 内置 jar 视频站现归午夜页，不再进 visibleDramaSites；此处改验一个
+    // 内置短剧站仍可见，意图不变：删一站不影响其他站的可见性。
     expect(
       registry.visibleDramaSites().any(
-        (site) => site.id == 'jar:zakatv:ZakaHuangguo',
+        (site) => site.id == 'original',
       ),
       isTrue,
     );
