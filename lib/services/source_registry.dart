@@ -91,6 +91,43 @@ ContentType contentTypeForLegadoSource(LegadoSource source) {
   }
 }
 
+/// py 蜘蛛内容自动分类：只看源码里的取流标记，显式选型优先。
+/// 调用方只在 contentType == mixed（未指定）时用它：
+/// novel:// 独占 → 小说；pics:// 独占 → 漫画；纯音频标记 → 听书；
+/// 带视频标记、多种标记混用、无标记 → null（保持 mixed）。
+/// 混站（视频+小说同蜘蛛、视频地址走接口无字面量）可能误判为小说，
+/// 此时用站源管理的改类型手动纠正一次即可（显式选型不再被覆盖）。
+ContentType? detectPyContentType(String source) {
+  final lower = source.toLowerCase();
+  final hasNovel = source.contains('novel://');
+  final hasPics = source.contains('pics://');
+  final hasVideo = lower.contains('.m3u8') ||
+      lower.contains('.mp4') ||
+      lower.contains('.flv') ||
+      lower.contains('.mkv') ||
+      lower.contains('.avi') ||
+      lower.contains('.mov');
+  final hasAudio = lower.contains('.mp3') ||
+      lower.contains('.m4a') ||
+      lower.contains('.aac') ||
+      lower.contains('.flac') ||
+      lower.contains('.ogg') ||
+      lower.contains('.wav') ||
+      lower.contains('audio_url') ||
+      lower.contains('audiourl') ||
+      lower.contains('audio/mpeg');
+  if (hasNovel && !hasPics && !hasVideo && !hasAudio) {
+    return ContentType.novel;
+  }
+  if (hasPics && !hasNovel && !hasVideo && !hasAudio) {
+    return ContentType.comic;
+  }
+  if (hasAudio && !hasNovel && !hasPics && !hasVideo) {
+    return ContentType.audio;
+  }
+  return null;
+}
+
 class SourceEntry {
   const SourceEntry({
     required this.id,
@@ -236,6 +273,61 @@ class SourceRegistry {
     } catch (_) {}
     _loaded = true;
     _registerCustomSites();
+    await _autoClassifyMixedPy();
+  }
+
+  /// 存量 mixed py 站的一次性自动分类：读已导入文件跑检测，
+  /// 命中小说/漫画/听书就改类型并持久化；未命中也打标记，
+  /// 避免每次启动重复读文件。文件读不到时不动、不打标记，
+  /// 下次启动再试。整体 fail-soft，绝不打断 load。
+  Future<void> _autoClassifyMixedPy() async {
+    try {
+      var touched = false;
+      var typeChanged = false;
+      final next = <SourceEntry>[];
+      for (final entry in _custom) {
+        if (entry.kind != SourceKind.pyImport ||
+            entry.contentType != ContentType.mixed ||
+            entry.extra['typeDetected'] == true) {
+          next.add(entry);
+          continue;
+        }
+        final path = entry.extra['path'];
+        String? text;
+        if (path is String && path.isNotEmpty) {
+          try {
+            text = await File(path).readAsString();
+          } catch (_) {}
+        }
+        if (text == null) {
+          next.add(entry);
+          continue;
+        }
+        final detected = detectPyContentType(text);
+        final extra = Map<String, dynamic>.from(entry.extra)
+          ..['typeDetected'] = true;
+        if (detected != null) {
+          extra['contentType'] = detected.key;
+          typeChanged = true;
+        }
+        touched = true;
+        next.add(
+          SourceEntry(
+            id: entry.id,
+            name: entry.name,
+            kind: entry.kind,
+            address: entry.address,
+            detail: entry.detail,
+            enabled: entry.enabled,
+            extra: extra,
+          ),
+        );
+      }
+      if (!touched) return;
+      _custom = next;
+      if (typeChanged) _registerCustomSites();
+      await _persist();
+    } catch (_) {}
   }
 
   /// 把 ZakaTV jar 内置站补进登记表，幂等：已有的不动（开关状态保留），
@@ -664,6 +756,9 @@ class SourceRegistry {
     }
     final file = File('${dir.path}/$fileName');
     await file.writeAsString(text);
+    final effectiveType = contentType == ContentType.mixed
+        ? (detectPyContentType(text) ?? contentType)
+        : contentType;
     var detail = 'Python 蜘蛛 · 已导入';
     final validation = await PyBridge.validate(text);
     if (validation == null) {
@@ -680,7 +775,8 @@ class SourceRegistry {
       extra: {
         'path': file.path,
         'ext': '',
-        'contentType': contentType.key,
+        'contentType': effectiveType.key,
+        if (contentType == ContentType.mixed) 'typeDetected': true,
         if (oneClick) 'oneClick': true,
         'downloadPath': ?downloadPath,
       },
@@ -730,6 +826,14 @@ class SourceRegistry {
     }
     await File(path).writeAsString(text);
     final extra = Map<String, Object?>.from(old.extra);
+    final wasAuto = old.extra['typeDetected'] == true;
+    if (old.contentType == ContentType.mixed || wasAuto) {
+      final detected = detectPyContentType(text);
+      if (detected != null) {
+        extra['contentType'] = detected.key;
+      }
+      extra['typeDetected'] = true;
+    }
     if (downloadPath != null) {
       extra['downloadPath'] = downloadPath;
     }
@@ -966,7 +1070,8 @@ class SourceRegistry {
             address: entry.address,
             detail: entry.detail,
             enabled: entry.enabled,
-            extra: {...entry.extra, 'contentType': type.key},
+            extra: {...entry.extra, 'contentType': type.key}
+              ..remove('typeDetected'),
           )
         else
           entry,
