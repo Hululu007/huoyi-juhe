@@ -102,7 +102,8 @@ jobs:
         working-directory: app
         run: |
           git fetch --tags --force origin '+refs/tags/v*:refs/tags/v*' \
-            || git fetch --tags --force origin
+            || git fetch --tags --force origin \
+            || true # private repo + persist-credentials:false: fetch cannot auth; degrade loudly below
           count="$(git tag --list 'v*' | wc -l)"
           if [ "$count" -eq 0 ]; then
             # Not fatal: the gate downstream degrades to "no tag to compare
