@@ -354,6 +354,9 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
     final custom = registry.custom
         .where((entry) => entry.extra['builtin'] != true)
         .toList();
+    final bookSources = custom.where(isBookSourceEntry).toList();
+    final videoSources =
+        custom.where((entry) => !isBookSourceEntry(entry)).toList();
     return Scaffold(
       appBar: AppBar(title: const Text('站源管理')),
       body: _loading
@@ -363,10 +366,14 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
                 _groupTitle('内置短剧'),
                 for (final entry in builtin)
                   _builtinTile(entry),
-                _groupTitle('自定义'),
-                if (custom.isEmpty)
-                  const ListTile(title: Text('暂无自定义站源')),
-                for (final entry in custom) _customTile(entry),
+                _groupTitle('影视源'),
+                if (videoSources.isEmpty)
+                  const ListTile(title: Text('暂无影视源')),
+                for (final entry in videoSources) _customTile(entry),
+                _groupTitle('书源'),
+                if (bookSources.isEmpty)
+                  const ListTile(title: Text('暂无书源')),
+                for (final entry in bookSources) _customTile(entry),
                 _groupTitle('jar 内置'),
                 if (builtinJar.isEmpty)
                   const ListTile(title: Text('暂无 jar 内置站源')),
@@ -374,7 +381,7 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
                 _groupTitle('内容源'),
                 const ListTile(
                   title: Text('小说 / 听书 / 漫画内容源'),
-                  subtitle: Text('上方自定义里的导入源按类型区分，阅读区与换源按类型过滤'),
+                  subtitle: Text('书源与影视源分开列出，阅读区与换源按类型过滤'),
                 ),
                 const SizedBox(height: 24),
                 Padding(

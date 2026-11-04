@@ -1,6 +1,17 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fqapp/services/source_registry.dart';
 
+SourceEntry _entry(String id, {String? contentType, SourceKind? kind}) {
+  final extra = <String, dynamic>{};
+  if (contentType != null) extra['contentType'] = contentType;
+  return SourceEntry(
+    id: id,
+    name: id,
+    kind: kind ?? SourceKind.legadoImport,
+    extra: extra,
+  );
+}
+
 void main() {
   test('空输入不认', () {
     expect(classifyBookSourceInput(''), BookSourceImportKind.invalid);
@@ -50,6 +61,28 @@ void main() {
     expect(
       classifyBookSourceInput('legado://import'),
       BookSourceImportKind.invalid,
+    );
+  });
+
+  test('书源与影视源只按内容类型分', () {
+    expect(isBookSourceEntry(_entry('n', contentType: 'novel')), isTrue);
+    expect(isBookSourceEntry(_entry('c', contentType: 'comic')), isTrue);
+    expect(isBookSourceEntry(_entry('a', contentType: 'audio')), isTrue);
+    expect(isBookSourceEntry(_entry('v', contentType: 'video')), isFalse);
+    expect(isBookSourceEntry(_entry('m', contentType: 'mixed')), isFalse);
+    expect(isBookSourceEntry(_entry('d')), isFalse);
+    // 导入方式不影响分界：py 小说源归书源，Legado 视频源归影视源。
+    expect(
+      isBookSourceEntry(
+        _entry('py-novel', contentType: 'novel', kind: SourceKind.pyImport),
+      ),
+      isTrue,
+    );
+    expect(
+      isBookSourceEntry(
+        _entry('legado-video', contentType: 'video'),
+      ),
+      isFalse,
     );
   });
 }

@@ -145,6 +145,14 @@ BookSourceImportKind classifyBookSourceInput(String input) {
   return BookSourceImportKind.invalid;
 }
 
+/// 书源与影视源的分界（只看内容类型，不看导入方式）：小说 / 漫画 / 听书
+/// 是书源，影视与未分类（综合）是影视源。站源管理按此分两组列出，不再
+/// 混在一个「自定义」里；py 小说源归书源、Legado 视频源归影视源。
+bool isBookSourceEntry(SourceEntry entry) =>
+    entry.contentType == ContentType.novel ||
+    entry.contentType == ContentType.comic ||
+    entry.contentType == ContentType.audio;
+
 class SourceEntry {
   const SourceEntry({
     required this.id,
