@@ -293,7 +293,7 @@ List<SourceEntry> adultRecommendSources(List<SourceEntry> entries) => [
 ];
 
 /// 成人推荐卡：沿用站内条目字段，source 打 `engine:` 前缀，走站内详情链路
-/// （首页点卡按此前缀分流，不进番茄详情页）。
+/// （首页点卡按此前缀分流，不进番茄详情页）。聚合页的听书也走同一映射。
 MediaItem adultRecommendItem(DramaSiteItem item, SourceEntry entry) =>
     MediaItem(
       id: item.id,
@@ -302,7 +302,11 @@ MediaItem adultRecommendItem(DramaSiteItem item, SourceEntry entry) =>
       author: '',
       badge: '',
       ep: item.remark,
-      kind: entry.contentType == ContentType.comic ? 'manga' : 'book',
+      kind: switch (entry.contentType) {
+        ContentType.comic => 'manga',
+        ContentType.audio => 'audio',
+        _ => 'book',
+      },
       seriesId: item.id,
       source: 'engine:${entry.id}',
     );

@@ -73,5 +73,11 @@ void main() {
     );
     expect(novel.kind, 'book');
     expect(novel.source, 'engine:n1');
+    final audio = adultRecommendItem(
+      item,
+      _entry('a1', name: '🔞成人听书源', contentType: 'audio'),
+    );
+    expect(audio.kind, 'audio');
+    expect(audio.source, 'engine:a1');
   });
 }

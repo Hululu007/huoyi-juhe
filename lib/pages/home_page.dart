@@ -32,6 +32,7 @@ import '../widgets/home/home_shelf.dart';
 import '../widgets/home/home_skeleton.dart';
 import '../widgets/home/home_tab_bar.dart';
 import '../widgets/tab_swipe_area.dart';
+import 'adult_novels_page.dart';
 import 'cached_book_reader.dart';
 import 'detail_page.dart';
 import 'rank_page.dart';
@@ -392,6 +393,10 @@ class _HomePageState extends ConsumerState<HomePage> {
                             state.tabIndex < homeCategories.length &&
                             homeCategories[state.tabIndex].label == '短剧')
                           _dramaCategoryStrip(),
+                        if (state.tabIndex >= 0 &&
+                            state.tabIndex < homeCategories.length &&
+                            homeCategories[state.tabIndex].label == '小说')
+                          const AdultNovelsEntrySliver(),
                         ...content,
                       ],
                     ),
