@@ -384,6 +384,7 @@ class HomeNotifier extends Notifier<HomeState> {
   final SearchTabsLoader _searchLoader;
   final CategorySearchLoader _mangaSearchLoader;
   final CategorySearchLoader _manjuSearchLoader;
+  final Future<List<MediaItem>> Function()? _adultRecommendationsLoader;
 
   /// 拉一页首页流，带上顶栏选中下标——上游按 `tab_index` 决定回哪个分类
   /// 的区块。测试注入的加载器在构造期已适配成同一形状（多余参数被忽略）。
@@ -436,9 +437,13 @@ class HomeNotifier extends Notifier<HomeState> {
     CategorySearchLoader? mangaSearchLoader,
     CategorySearchLoader? manjuSearchLoader,
     HomeFeedCache? feedCache,
+    // 成人推荐的测试注入点：缺省走真实的 _adultRecommendations
+    //（读登记表与午夜门禁，引擎客户端在测试环境不可用）。
+    Future<List<MediaItem>> Function()? adultRecommendationsLoader,
     this.initialTabIndex = 0,
     this.usesLocalTabs = false,
   }) : _feedCache = feedCache ?? HomeFeedCache.instance,
+       _adultRecommendationsLoader = adultRecommendationsLoader,
        // 注入的 loader 只认 `tabType`；生产路径要额外带上顶栏下标，所以
        // 缺省时直接用带下标的那个（见 [HomepageLoaderWithIndex]）；注入的
        // 测试加载器只认 `tabType`，这里补一层适配，多余的下标参数丢弃。
@@ -944,7 +949,9 @@ class HomeNotifier extends Notifier<HomeState> {
   Future<_FetchedFeed> _loadAllInitial() async {
     // 成人推荐与小说推荐流并行取：门禁未开或取不到源时为空；整体 10 秒
     // 封顶——登记或门禁读取万一拖住，也不挡主链路出首屏。
-    final adultFuture = _adultRecommendations().timeout(
+    final adultFuture = (_adultRecommendationsLoader?.call() ??
+            _adultRecommendations())
+        .timeout(
       const Duration(seconds: 10),
       onTimeout: () => const <MediaItem>[],
     );
@@ -964,19 +971,23 @@ class HomeNotifier extends Notifier<HomeState> {
         hasMore: page.items.isNotEmpty || page.nextOffset != null,
       );
     }
-    return _loadAllInterleaved(recommendation);
+    return _loadAllInterleaved(recommendation, adultFuture);
   }
 
   /// Degraded path for [loadAll]: the recommendation stream is unavailable, so
   /// mix whatever the other sources returned.
+  /// 成人卡与主链路一样只在首屏前置：[adultFuture] 是 _loadAllInitial 里
+  /// 已启动的那一份，不重复取；翻页不走这里，不会每页重复前置。
   Future<_FetchedFeed> _loadAllInterleaved(
     _Attempt<_FetchedFeed> recommendation,
+    Future<List<MediaItem>> adultFuture,
   ) => _assembleAllSources(
     recommendationFuture: Future.value(recommendation),
     videoFuture: _attempt(_searchLoader('短剧')),
     manjuFuture: _attempt(_loadAllManju()),
     mangaFuture: _attempt(_mangaSearchLoader()),
     audioFuture: _attempt(_searchLoader('听书')),
+    adultFuture: adultFuture,
     previous: null,
   );
 
@@ -991,6 +1002,7 @@ class HomeNotifier extends Notifier<HomeState> {
     required Future<_Attempt<_AllManjuGroup>> manjuFuture,
     required Future<_Attempt<List<SearchTab>>> mangaFuture,
     required Future<_Attempt<List<SearchTab>>> audioFuture,
+    required Future<List<MediaItem>> adultFuture,
     required _TabFeed? previous,
   }) async {
     final initial = previous == null;
@@ -1001,6 +1013,12 @@ class HomeNotifier extends Notifier<HomeState> {
     final manju = await manjuFuture;
     final manga = await mangaFuture;
     final audio = await audioFuture;
+    List<MediaItem> adultItems = const [];
+    try {
+      adultItems = await adultFuture;
+    } catch (_) {
+      adultItems = const [];
+    }
     if (recommendation.value == null &&
         video.value == null &&
         manju.value == null &&
@@ -1035,7 +1053,8 @@ class HomeNotifier extends Notifier<HomeState> {
       if (audio.value != null) _searchItems(audio.value!, '听书', 'audio'),
     ];
     final recommendationPage = recommendation.value;
-    final items = _interleave(groups);
+    // 成人卡与主链路一样放最前面；翻页传的是空 future，这里不产生重复。
+    final items = [...adultItems, ..._interleave(groups)];
     // 翻页时推荐源失败、其余兜底源也没产出，不能当成一页空「成功」——否则
     // loadMore 的成功状态会让流尾把加载失败谎报成「已显示全部内容」。
     if (!initial && items.isEmpty && recommendationPage == null) {
@@ -1245,6 +1264,8 @@ class HomeNotifier extends Notifier<HomeState> {
           ? Future.value(const _Attempt<List<SearchTab>>.value([]))
           : _attempt(_mangaSearchLoader(offset: mangaOffset)),
       audioFuture: _attempt(_searchLoader('听书', page: audioPage)),
+      // 翻页不重复前置成人卡：成人卡只在首屏出现一次。
+      adultFuture: Future.value(const <MediaItem>[]),
       previous: feed,
     );
   }
