@@ -680,6 +680,71 @@ class SourceRegistry {
     return entry;
   }
 
+  /// 换域名重生成用的就地更新：只改 py 站，不新建站。
+  /// 先校验源码再覆写原文件：校验不过时原文件与登记一字不动；
+  /// 校验过（或当前包无桥时）才覆写 extra['path'] 指向的文件，
+  /// 并把新下载路径、模板代号、新域名记进 extra。
+  /// 站号（entry.id）不变，故本地库里该站的新旧数据天然共用
+  /// 同一个站身份（py 站按登记编号归一），不重复建站。
+  Future<SourceEntry> updatePyImportContent({
+    required String id,
+    required String source,
+    String? downloadPath,
+    String? templateCode,
+    String? siteOrigin,
+  }) async {
+    await load();
+    final index = _custom.indexWhere((entry) => entry.id == id);
+    if (index < 0) {
+      throw StateError('找不到要更新的站点');
+    }
+    final old = _custom[index];
+    if (old.kind != SourceKind.pyImport) {
+      throw StateError('只有 py 站能就地更新');
+    }
+    final text = source.trim();
+    if (text.isEmpty) {
+      throw StateError('蜘蛛源码不能为空');
+    }
+    final path = old.extra['path'];
+    if (path is! String || path.isEmpty) {
+      throw StateError('该站没有已导入的 py 文件路径，无法就地更新');
+    }
+    var detail = 'Python 蜘蛛 · 已导入';
+    final validation = await PyBridge.validate(text);
+    if (validation == null) {
+      detail = 'Python 蜘蛛 · 已导入，当前安装包无 Python 桥，暂不可播放';
+    } else if (!validation.ok) {
+      throw StateError('新源码校验未通过：${validation.error}，旧站未动');
+    }
+    await File(path).writeAsString(text);
+    final extra = Map<String, Object?>.from(old.extra);
+    if (downloadPath != null) {
+      extra['downloadPath'] = downloadPath;
+    }
+    if (templateCode != null) {
+      extra['templateCode'] = templateCode;
+    }
+    if (siteOrigin != null) {
+      extra['siteOrigin'] = siteOrigin;
+    }
+    final updated = SourceEntry(
+      id: old.id,
+      name: old.name,
+      kind: old.kind,
+      address: old.address,
+      detail: detail,
+      extra: extra,
+    );
+    _custom = [
+      for (var i = 0; i < _custom.length; i++)
+        if (i == index) updated else _custom[i],
+    ];
+    _registerCustomSites();
+    await _persist();
+    return updated;
+  }
+
   Future<SourceEntry> addJarImport(
     String name,
     String jarUrl,

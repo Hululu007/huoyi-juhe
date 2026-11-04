@@ -176,6 +176,157 @@ class _OneClickPyPageState extends State<OneClickPyPage> {
     }
   }
 
+  Future<void> _openDomainRegen() async {
+    await SourceRegistry.instance.load();
+    final pyEntries = [
+      for (final entry in SourceRegistry.instance.custom)
+        if (entry.kind == SourceKind.pyImport) entry,
+    ];
+    if (!mounted) {
+      return;
+    }
+    if (pyEntries.isEmpty) {
+      setState(() {
+        _error = '还没有已导入的 py 站，先生成或导入一个 py 站再换域名';
+      });
+      return;
+    }
+    final domainController = TextEditingController();
+    SourceEntry? picked = pyEntries.first;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('换域名重生成'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<SourceEntry>(
+                  initialValue: picked,
+                  decoration: const InputDecoration(
+                    labelText: '旧站（就地更新，不新建站）',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: [
+                    for (final entry in pyEntries)
+                      DropdownMenuItem<SourceEntry>(
+                        value: entry,
+                        child: Text(entry.name),
+                      ),
+                  ],
+                  onChanged: (value) => setDialogState(() => picked = value),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: domainController,
+                  decoration: const InputDecoration(
+                    labelText: '新域名',
+                    hintText: '站点新首页地址',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Text(
+                    '按新域名匹配已知模板重生成并实测四项，通过才更新；匹配不上走试套，试套不上不导入，旧站不动。',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('开始重生成'),
+            ),
+          ],
+        ),
+      ),
+    );
+    final newDomain = domainController.text.trim();
+    domainController.dispose();
+    final oldEntry = picked;
+    if (confirmed != true || oldEntry == null || newDomain.isEmpty) {
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+      _result = null;
+      _pySource = null;
+    });
+    try {
+      final result = await regenerateSiteDomain(
+        oldEntry: oldEntry,
+        newDomain: newDomain,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _busy = false;
+        _pySource = result.pySource;
+        _identification = result.identification;
+      });
+      await _loadHistory();
+      if (!mounted) {
+        return;
+      }
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('换域名重生成完成'),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('旧站：${result.displayName}（已就地更新，未新建站）'),
+                Text('新域名：${result.identification.origin}'),
+                Text(
+                  '匹配模板：${result.identification.template.code} '
+                  '${result.identification.template.name}',
+                ),
+                const SizedBox(height: 8),
+                const Text('交付门自检：'),
+                for (final step in RegenDeliveryCheck.orderedSteps)
+                  Text(
+                    '${result.check.steps[step] == true ? '✓' : '✗'} $step',
+                  ),
+                if (result.templateChangedNote != null) ...[
+                  const SizedBox(height: 8),
+                  Text(result.templateChangedNote!),
+                ],
+                const SizedBox(height: 8),
+                const Text('本地库里该站新旧数据共用同一个站身份，不重复建站。'),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('知道了'),
+            ),
+          ],
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _busy = false;
+        _error = error is StateError ? error.message : error.toString();
+      });
+    }
+  }
+
   Future<void> _openHistory() async {
     await showModalBottomSheet<void>(
       context: context,
@@ -706,6 +857,18 @@ class _OneClickPyPageState extends State<OneClickPyPage> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Text('生成并导入'),
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton(
+            onPressed: _busy ? null : _openDomainRegen,
+            child: const Text('换域名重生成'),
+          ),
+          const Padding(
+            padding: EdgeInsets.only(top: 4),
+            child: Text(
+              '网站换了域名、模板没换时用：选一个已导入的 py 站，输入新域名，按新域名匹配模板重生成并实测，通过后就地更新旧站，不新建站。',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
           ),
           const SizedBox(height: 12),
           OutlinedButton(

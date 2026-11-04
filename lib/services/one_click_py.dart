@@ -1,9 +1,13 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'engine_site_content.dart';
 import 'platform_channel.dart';
+import 'py_bridge.dart';
 import 'source_registry.dart';
 
 enum OneClickLevel { auto, assisted }
@@ -1685,6 +1689,452 @@ Future<OneClickGenerateResult> generateAndImport({
       displayName: displayName,
       pySource: py,
       downloadPath: downloadPath,
+    );
+  } finally {
+    if (client == null) {
+      httpClient.close();
+    }
+  }
+}
+
+/// 换域名重生成：交付门自检逐项结果。
+class RegenDeliveryCheck {
+  const RegenDeliveryCheck({
+    required this.passed,
+    required this.steps,
+    this.failedStep = '',
+    this.note = '',
+  });
+
+  static const stepCategories = '分类首页';
+  static const stepDetail = '详情';
+  static const stepSearch = '搜索';
+  static const stepPlayback = '取流';
+
+  static const orderedSteps = [
+    stepCategories,
+    stepDetail,
+    stepSearch,
+    stepPlayback,
+  ];
+
+  final bool passed;
+
+  /// 四项各自是否通过；未跑到的记 false，调用方按 failedStep 区分
+  /// “未通过”与“未跑到”。
+  final Map<String, bool> steps;
+  final String failedStep;
+  final String note;
+
+  static RegenDeliveryCheck allPassed() => const RegenDeliveryCheck(
+    passed: true,
+    steps: {
+      stepCategories: true,
+      stepDetail: true,
+      stepSearch: true,
+      stepPlayback: true,
+    },
+  );
+
+  /// 在 [step] 处失败：passedBefore 列出的步骤记通过，
+  /// 本步与之后记 false；未传 passedBefore 时按交付门顺序
+  /// 自动把本步之前的步骤记通过。
+  static RegenDeliveryCheck failed(
+    String step, {
+    String note = '',
+    List<String> passedBefore = const [],
+  }) {
+    final before = passedBefore.isNotEmpty
+        ? passedBefore
+        : (() {
+            final index = orderedSteps.indexOf(step);
+            if (index < 0) {
+              return <String>[];
+            }
+            return orderedSteps.sublist(0, index);
+          })();
+    return RegenDeliveryCheck(
+      passed: false,
+      steps: {
+        for (final name in orderedSteps) name: before.contains(name),
+      },
+      failedStep: step,
+      note: note,
+    );
+  }
+
+  static RegenDeliveryCheck notVerified({String note = ''}) =>
+      RegenDeliveryCheck(
+        passed: false,
+        steps: {
+          stepCategories: false,
+          stepDetail: false,
+          stepSearch: false,
+          stepPlayback: false,
+        },
+        failedStep: '未实测',
+        note: note,
+      );
+}
+
+/// 换域名重生成：自检输入。pySource 是按新域名新生成的源码，
+/// identification 是新域名的识别结果，homeHtml 是新域名首页。
+class RegenVerifyInput {
+  const RegenVerifyInput({
+    required this.pySource,
+    required this.identification,
+    required this.homeHtml,
+  });
+
+  final String pySource;
+  final OneClickIdentification identification;
+  final String homeHtml;
+}
+
+typedef RegenVerifier =
+    Future<RegenDeliveryCheck> Function(
+      RegenVerifyInput input,
+      http.Client client,
+    );
+
+typedef RegenUpdateSite =
+    Future<SourceEntry> Function({
+      required String id,
+      required String source,
+      String? downloadPath,
+      String? templateCode,
+      String? siteOrigin,
+    });
+
+Future<SourceEntry> _defaultRegenUpdateSite({
+  required String id,
+  required String source,
+  String? downloadPath,
+  String? templateCode,
+  String? siteOrigin,
+}) {
+  return SourceRegistry.instance.updatePyImportContent(
+    id: id,
+    source: source,
+    downloadPath: downloadPath,
+    templateCode: templateCode,
+    siteOrigin: siteOrigin,
+  );
+}
+
+class RegenResult {
+  const RegenResult({
+    required this.entry,
+    required this.identification,
+    required this.displayName,
+    required this.pySource,
+    required this.check,
+    this.downloadPath,
+    this.templateChangedNote,
+  });
+
+  final SourceEntry entry;
+  final OneClickIdentification identification;
+  final String displayName;
+  final String pySource;
+  final RegenDeliveryCheck check;
+  final String? downloadPath;
+
+  /// 旧站登记的模板与新域名匹配到的模板不一致时的提示；
+  /// 一致或旧站未记模板时为空。
+  final String? templateChangedNote;
+}
+
+OneClickContent? _contentFromEntryKey(String? key) => switch (key) {
+  'video' => OneClickContent.video,
+  'novel' => OneClickContent.novel,
+  'comic' => OneClickContent.comic,
+  'audio' => OneClickContent.audio,
+  _ => null,
+};
+
+String _regenKeyword(String title, String fallback) {
+  final text = title.trim().isEmpty ? fallback.trim() : title.trim();
+  final cjk = RegExp('[一-鿿]')
+      .allMatches(text)
+      .map((match) => match.group(0)!)
+      .join();
+  if (cjk.length >= 2) {
+    return cjk.substring(0, 2);
+  }
+  final word = text.split(RegExp(r'\s+')).firstWhere(
+    (part) => part.isNotEmpty,
+    orElse: () => '',
+  );
+  if (word.isEmpty) {
+    return '';
+  }
+  return word.length > 12 ? word.substring(0, 12) : word;
+}
+
+/// 设备端桥自检：把新生成的 py 写临时文件，用桥客户端
+/// 真跑分类首页、详情、搜索、取流四步，取流地址再验首块魔数。
+/// 临时文件用后即删，旧站文件全程不动。
+Future<RegenDeliveryCheck> _verifyRegenByBridge(
+  RegenVerifyInput input,
+  http.Client client,
+) async {
+  var step = RegenDeliveryCheck.stepCategories;
+  final passedBefore = <String>[];
+  File? tempFile;
+  try {
+    final directory = await getApplicationSupportDirectory();
+    tempFile = File(
+      '${directory.path}/regen_check_${DateTime.now().millisecondsSinceEpoch}.py',
+    );
+    await tempFile.writeAsString(input.pySource);
+    final spider = PySiteContentClient(tempFile.path);
+    final categories = await spider.categories();
+    if (categories.isEmpty) {
+      return RegenDeliveryCheck.failed(step);
+    }
+    final page = await spider.catalog(categories.first.id, 1);
+    if (page.items.isEmpty) {
+      return RegenDeliveryCheck.failed(step);
+    }
+    passedBefore.add(step);
+    step = RegenDeliveryCheck.stepDetail;
+    final first = page.items.first;
+    final detail = await spider.detail(first.id);
+    if (detail.episodes.isEmpty) {
+      return RegenDeliveryCheck.failed(
+        step,
+        passedBefore: passedBefore,
+      );
+    }
+    passedBefore.add(step);
+    step = RegenDeliveryCheck.stepSearch;
+    final keyword = _regenKeyword(first.title, input.identification.siteName);
+    if (keyword.isEmpty) {
+      return RegenDeliveryCheck.failed(
+        step,
+        passedBefore: passedBefore,
+        note: '无可用搜索关键词',
+      );
+    }
+    final found = await spider.search(keyword);
+    if (found.isEmpty) {
+      return RegenDeliveryCheck.failed(step, passedBefore: passedBefore);
+    }
+    passedBefore.add(step);
+    step = RegenDeliveryCheck.stepPlayback;
+    final source = await spider.playSource(detail.episodes.first);
+    if (source.url.isEmpty) {
+      return RegenDeliveryCheck.failed(step, passedBefore: passedBefore);
+    }
+    final ok = await _trialMediaOk(
+      client,
+      source.url,
+      '${input.identification.origin}/',
+    );
+    if (!ok) {
+      return RegenDeliveryCheck.failed(
+        step,
+        passedBefore: passedBefore,
+        note: '取流地址首块校验未通过',
+      );
+    }
+    return RegenDeliveryCheck.allPassed();
+  } catch (error) {
+    return RegenDeliveryCheck.failed(
+      step,
+      passedBefore: passedBefore,
+      note: error.toString(),
+    );
+  } finally {
+    try {
+      await tempFile?.delete();
+    } catch (_) {}
+  }
+}
+
+/// 试套模板的 Dart 端自检：复用试套验证器，把失败步骤
+/// 映射到交付门四项。
+Future<RegenDeliveryCheck> _verifyRegenByTrialCandidate(
+  RegenVerifyInput input,
+  http.Client client,
+) async {
+  final attempt = await _verifyTrialCandidate(
+    code: input.identification.template.code,
+    identification: input.identification,
+    homeHtml: input.homeHtml,
+    client: client,
+  );
+  if (attempt.passed) {
+    return RegenDeliveryCheck.allPassed();
+  }
+  final failed = attempt.failedStep;
+  var step = RegenDeliveryCheck.stepCategories;
+  if (failed.contains('详情') || failed.contains('目录')) {
+    step = RegenDeliveryCheck.stepDetail;
+  } else if (failed.contains('搜索')) {
+    step = RegenDeliveryCheck.stepSearch;
+  } else if (failed.contains('取流')) {
+    step = RegenDeliveryCheck.stepPlayback;
+  } else if (!failed.contains('分类')) {
+    return RegenDeliveryCheck.notVerified(note: attempt.summary);
+  }
+  return RegenDeliveryCheck.failed(step, note: attempt.summary);
+}
+
+/// 默认自检：设备有 Python 桥时用桥真跑新 py；无桥时
+/// 试套覆盖的模板走 Dart 端试套验证器；其余模板无自检路径，
+/// 如实报未实测，不导入。
+Future<RegenDeliveryCheck> _defaultRegenVerifier(
+  RegenVerifyInput input,
+  http.Client client,
+) async {
+  try {
+    final status = await PyBridge.status();
+    if (status.available) {
+      return await _verifyRegenByBridge(input, client);
+    }
+  } catch (_) {}
+  const trialCovered = {'T1', 'T3', 'T5', 'T6', 'T9'};
+  if (trialCovered.contains(input.identification.template.code)) {
+    return _verifyRegenByTrialCandidate(input, client);
+  }
+  return RegenDeliveryCheck.notVerified(
+    note: '该模板在当前环境无自检路径（无 Python 桥），'
+        '详情、搜索、取流无法实测，未导入',
+  );
+}
+
+/// 换域名重生成：网站换了域名、模板没换时，输入新域名
+/// 自动重生成 py。
+///
+/// 流程：新域名识别（模板识别标志匹配已知模板）→ 命中后复用
+/// 该模板整套提取逻辑、只把基址换成新域名 → 生成新 py →
+/// 结构自检 → 交付门实测（分类首页、详情、搜索、取流）→
+/// 通过后就地更新旧站。
+///
+/// 两层如实规则：
+/// 1. 过盾与指纹分两层：模板级的（UA、请求头、过盾方式）是
+///    模板常量，直接复用；域绑定的（接口地址、Cookie、token、
+///    签名域）一律从新域名重探，旧站的一个字都不复制，探不到
+///    走试套或如实报错，不硬编。
+/// 2. 匹配不上已知模板的不硬套：走现有试套用流程；试套也不过
+///    的如实报试套不上，不导入、不记历史。
+///
+/// 合并规则：就地更新旧站条目，站号不变，不新建站；py 站在
+/// 本地库按登记编号归一，故新旧数据天然共用一个站身份。
+Future<RegenResult> regenerateSiteDomain({
+  required SourceEntry oldEntry,
+  required String newDomain,
+  http.Client? client,
+  OneClickDownloadSink? downloadSink,
+  OneClickHistoryStore? historyStore,
+  RegenVerifier? verifyRegenerated,
+  RegenUpdateSite? updateSite,
+}) async {
+  if (oldEntry.kind != SourceKind.pyImport) {
+    throw StateError('只有 py 站能换域名重生成，jar、采集、书源站不在此流程内');
+  }
+  final url = normalizeSiteUrl(newDomain);
+  final uri = Uri.parse(url);
+  final origin = '${uri.scheme}://${uri.host}';
+  final store = historyStore ?? OneClickHistoryStore();
+  final history = await store.load();
+  final httpClient = client ?? http.Client();
+  try {
+    var identification = await identifySite(
+      url,
+      client: httpClient,
+      history: history,
+    );
+    if (identification.trialMode) {
+      final outcome = await runTrialFit(
+        identification: identification,
+        client: httpClient,
+      );
+      final winner = outcome.winner;
+      if (winner == null) {
+        final reasons = [
+          for (final attempt in outcome.attempts)
+            '${attempt.code}：${attempt.failedStep}',
+        ].join('；');
+        throw OneClickUnsupported(
+          '试套不上：新域名未命中已知模板，已按 T1、T3、T5、T6、T9 顺序试套，'
+          '均未通过交付门自检（$reasons），旧站未动，未导入任何站点，请走完整流程。',
+          needsFullFlow: true,
+        );
+      }
+      identification = winner;
+    }
+    final oldBaseName = oldEntry.name.startsWith('🔞')
+        ? oldEntry.name.substring(1)
+        : oldEntry.name;
+    final py = buildOneClickPy(
+      identification,
+      siteName: oldBaseName,
+      contentOverride: _contentFromEntryKey(
+        oldEntry.extra['contentType'] as String?,
+      ),
+    );
+    final checkError = OneClickStructureCheck.check(py);
+    if (checkError != null) {
+      throw StateError('生成自检未通过：$checkError，旧站未动');
+    }
+    var homeHtml = identification.homeHtml;
+    if (homeHtml.isEmpty) {
+      homeHtml = await _trialFetch(httpClient, origin, '$origin/');
+    }
+    final check = await (verifyRegenerated ?? _defaultRegenVerifier)(
+      RegenVerifyInput(
+        pySource: py,
+        identification: identification,
+        homeHtml: homeHtml,
+      ),
+      httpClient,
+    );
+    if (!check.passed) {
+      throw StateError(
+        '换域名自检未通过：${check.failedStep.isEmpty ? '交付门' : check.failedStep}'
+        '${check.note.isEmpty ? '' : '（${check.note}）'}，旧站未动，未导入',
+      );
+    }
+    final downloadPath =
+        await (downloadSink ?? const PlatformOneClickDownloadSink())
+            .saveText(fileName: '${identification.siteKey}.py', text: py);
+    final oldTemplate = oldEntry.extra['templateCode'] as String?;
+    final templateChangedNote =
+        oldTemplate != null && oldTemplate != identification.template.code
+        ? '旧站登记的模板是 $oldTemplate，新域名匹配到 '
+              '${identification.template.code}（${identification.template.name}），'
+              '已按新匹配模板生成并通过自检，请核对是否为同一站换了模板。'
+        : null;
+    final updateFn = updateSite ?? _defaultRegenUpdateSite;
+    final entry = await updateFn(
+      id: oldEntry.id,
+      source: py,
+      downloadPath: downloadPath,
+      templateCode: identification.template.code,
+      siteOrigin: origin,
+    );
+    try {
+      await store.add(
+        OneClickHistoryEntry(
+          name: oldBaseName,
+          url: url,
+          templateCode: identification.template.code,
+          apiLinks: identification.apiLinks,
+          updatedAt: DateTime.now().millisecondsSinceEpoch,
+        ),
+      );
+    } catch (_) {}
+    return RegenResult(
+      entry: entry,
+      identification: identification,
+      displayName: oldEntry.name,
+      pySource: py,
+      check: check,
+      downloadPath: downloadPath,
+      templateChangedNote: templateChangedNote,
     );
   } finally {
     if (client == null) {
