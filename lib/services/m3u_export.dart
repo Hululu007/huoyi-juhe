@@ -8,7 +8,7 @@ import 'one_click_py.dart';
 import 'source_registry.dart';
 
 const _callTimeout = Duration(seconds: 30);
-const _maxPagesPerCategory = 100;
+const _maxPagesPerCategory = 20;
 
 class M3uExportCancellation {
   var cancelled = false;

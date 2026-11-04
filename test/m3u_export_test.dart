@@ -960,4 +960,64 @@ void main() {
       expect(before.localPath, '/no/such/file.m3u8');
     });
   });
+
+  group('预爬取 20 页封顶', () {
+    test('每分类最多爬 20 页，第 21 页不请求并记截断', () async {
+      final pages = <String, List<DramaSiteItem>>{};
+      final plays = <String, String>{};
+      for (var n = 1; n <= 25; n++) {
+        pages['1/$n'] = [_item('p$n', '片$n')];
+        plays['\u0001p$n'] = 'https://cdn.example.com/p$n.m3u8';
+      }
+      final client = _FakePyClient(
+        categoryList: const [DramaSiteCategory('1', '电影')],
+        pages: pages,
+        details: const {},
+        plays: plays,
+      );
+      final sink = _FakeM3uSink();
+      final result = await exportSiteM3u(
+        siteId: 'test_site',
+        siteName: '测试站',
+        client: client,
+        downloadSink: sink,
+        gateOpen: true,
+      );
+      expect(result.successCount, 20);
+      expect(result.truncatedCategories, ['电影']);
+      expect(client.requestedPages.length, 20);
+      expect(client.requestedPages.last, '1/20');
+      expect(sink.savedText, contains('https://cdn.example.com/p20.m3u8'));
+      expect(
+        sink.savedText,
+        isNot(contains('https://cdn.example.com/p21.m3u8')),
+      );
+    });
+
+    test('不足 20 页按实际页数爬完，不记截断', () async {
+      final client = _FakePyClient(
+        categoryList: const [DramaSiteCategory('1', '电影')],
+        pages: {
+          '1/1': [_item('p1', '片一')],
+          '1/2': [_item('p2', '片二')],
+        },
+        details: const {},
+        plays: {
+          '\u0001p1': 'https://cdn.example.com/p1.m3u8',
+          '\u0001p2': 'https://cdn.example.com/p2.m3u8',
+        },
+      );
+      final sink = _FakeM3uSink();
+      final result = await exportSiteM3u(
+        siteId: 'test_site',
+        siteName: '测试站',
+        client: client,
+        downloadSink: sink,
+        gateOpen: true,
+      );
+      expect(result.successCount, 2);
+      expect(result.truncatedCategories, isEmpty);
+      expect(client.requestedPages, ['1/1', '1/2', '1/3']);
+    });
+  });
 }

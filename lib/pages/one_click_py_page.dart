@@ -503,7 +503,7 @@ class _OneClickPyPageState extends State<OneClickPyPage> {
               }
               if (result!.truncatedCategories.isNotEmpty) {
                 lines.add(
-                  '以下分类达到 100 页上限，可能未爬全：'
+                  '以下分类达到 20 页上限，可能未爬全：'
                   '${result!.truncatedCategories.join('、')}',
                 );
               }
