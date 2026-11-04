@@ -101,8 +101,9 @@ android {
             cmake {
                 // shortplay_tempo 是 issue #129 的 WSOLA 时伸缩库，必须一起打包；
                 // 漏在这里 Gradle 不会编译它，运行期 System.loadLibrary 会抛
-                // UnsatisfiedLinkError。
-                targets += listOf("shortplay_crypto", "shortplay_tempo")
+                // UnsatisfiedLinkError。huoyi_quickjs 同理：JS 蜘蛛引擎的库，
+                // QuickJSBridge 在引擎装配时就加载它，漏掉会在启动时直接闪退。
+                targets += listOf("shortplay_crypto", "shortplay_tempo", "huoyi_quickjs")
             }
         }
     }

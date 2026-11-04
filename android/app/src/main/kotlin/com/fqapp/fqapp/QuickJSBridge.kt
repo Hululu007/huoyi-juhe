@@ -19,8 +19,23 @@ class QuickJSBridge {
     private val mainHandler = Handler(Looper.getMainLooper())
 
     companion object {
-        init {
-            System.loadLibrary("huoyi_quickjs")
+        // 库缺失时不许炸启动：QuickJSBridge 在引擎装配时就实例化，
+        // 这里抛 UnsatisfiedLinkError 会直接闪退。改为惰性加载：
+        // 库在才能调 nativeEval，缺失时 eval 回 quickjs_unavailable、
+        // status 如实报不可用，绝不在启动时抛。
+        @Volatile
+        private var nativeLoaded: Boolean? = null
+
+        private fun ensureNativeLoaded(): Boolean {
+            nativeLoaded?.let { return it }
+            val loaded = try {
+                System.loadLibrary("huoyi_quickjs")
+                true
+            } catch (error: Throwable) {
+                false
+            }
+            nativeLoaded = loaded
+            return loaded
         }
 
         private val httpClient: OkHttpClient by lazy {
@@ -159,8 +174,14 @@ class QuickJSBridge {
                         val timeout = call.argument<Int>("timeoutMs") ?: 10000
                         executor.execute {
                             try {
-                                val value = nativeEval(script, timeout)
-                                mainHandler.post { result.success(value) }
+                                if (!ensureNativeLoaded()) {
+                                    mainHandler.post {
+                                        result.error("quickjs_unavailable", "JS 引擎不可用", null)
+                                    }
+                                } else {
+                                    val value = nativeEval(script, timeout)
+                                    mainHandler.post { result.success(value) }
+                                }
                             } catch (error: Throwable) {
                                 val message = error.message ?: error.toString()
                                 mainHandler.post { result.error("quickjs_error", message, null) }
@@ -168,7 +189,13 @@ class QuickJSBridge {
                         }
                     }
                 }
-                "status" -> result.success("{\"available\":true,\"engine\":\"QuickJS 2024-01-13\"}")
+                "status" -> result.success(
+                    if (ensureNativeLoaded()) {
+                        "{\"available\":true,\"engine\":\"QuickJS 2024-01-13\"}"
+                    } else {
+                        "{\"available\":false,\"engine\":\"\"}"
+                    }
+                )
                 else -> result.notImplemented()
             }
         }
