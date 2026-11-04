@@ -5,7 +5,6 @@ import 'package:fqapp/services/drama_sites.dart';
 import 'package:fqapp/services/local_db_site_content.dart';
 import 'package:fqapp/services/m3u_export.dart';
 import 'package:fqapp/services/m3u_export_db.dart';
-import 'package:fqapp/services/one_click_py.dart';
 import 'package:fqapp/services/site_identity.dart';
 
 class _FakeClient extends DramaSiteContentClient {
@@ -45,15 +44,6 @@ class _FakeClient extends DramaSiteContentClient {
       url: 'https://cdn.example.com/${episode.videoId}.m3u8',
     );
   }
-}
-
-class _FakeM3uSink implements OneClickDownloadSink {
-  @override
-  Future<String> saveText({
-    required String fileName,
-    required String text,
-  }) async =>
-      '/storage/emulated/0/Download/$fileName';
 }
 
 void main() {
@@ -152,20 +142,17 @@ void main() {
   group('双入口同站合一', () {
     test('内置红果与采集站同域导出，库里只有一批记录、一组分类', () async {
       final db = MemoryM3uExportDb();
-      final sink = _FakeM3uSink();
-      await exportSiteM3u(
+      await exportSiteToLocalDb(
         siteId: 'hongguo',
         siteName: '红果',
         client: _FakeClient('v1'),
-        downloadSink: sink,
         dbSink: db,
         gateOpen: true,
       );
-      await exportSiteM3u(
+      await exportSiteToLocalDb(
         siteId: 'custom_1',
         siteName: '红果采集',
         client: _FakeClient('v2'),
-        downloadSink: sink,
         dbSink: db,
         gateOpen: true,
         siteAddress: 'https://hongguoduanju.com/api.php',
@@ -191,20 +178,17 @@ void main() {
 
     test('不同主机不合并，镜像不并入红果', () async {
       final db = MemoryM3uExportDb();
-      final sink = _FakeM3uSink();
-      await exportSiteM3u(
+      await exportSiteToLocalDb(
         siteId: 'hongguo',
         siteName: '红果',
         client: _FakeClient('v1'),
-        downloadSink: sink,
         dbSink: db,
         gateOpen: true,
       );
-      await exportSiteM3u(
+      await exportSiteToLocalDb(
         siteId: 'hgtvmirror',
         siteName: '红果镜像',
         client: _FakeClient('v9'),
-        downloadSink: sink,
         dbSink: db,
         gateOpen: true,
       );

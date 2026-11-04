@@ -5,7 +5,6 @@ import 'package:fqapp/services/drama_sites.dart';
 import 'package:fqapp/services/local_db_site_content.dart';
 import 'package:fqapp/services/m3u_export.dart';
 import 'package:fqapp/services/m3u_export_db.dart';
-import 'package:fqapp/services/one_click_py.dart';
 
 /// 层级假客户端：父分类电影下挂子分类动作，子分类带扩展字段。
 class _HierarchicalClient extends DramaSiteContentClient {
@@ -53,23 +52,13 @@ class _HierarchicalClient extends DramaSiteContentClient {
   }
 }
 
-class _FakeM3uSink implements OneClickDownloadSink {
-  @override
-  Future<String> saveText({
-    required String fileName,
-    required String text,
-  }) async =>
-      '/storage/emulated/0/Download/$fileName';
-}
-
 void main() {
   test('层级与字段往返：导出不压平，本地库读回原样', () async {
     final db = MemoryM3uExportDb();
-    final result = await exportSiteM3u(
+    final result = await exportSiteToLocalDb(
       siteId: 'test_site',
       siteName: '测试站',
       client: _HierarchicalClient(),
-      downloadSink: _FakeM3uSink(),
       dbSink: db,
       gateOpen: true,
     );

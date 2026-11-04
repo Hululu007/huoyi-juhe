@@ -7,7 +7,6 @@ import 'package:fqapp/services/drama_sites.dart';
 import 'package:fqapp/services/m3u_export.dart';
 import 'package:fqapp/services/m3u_export_db.dart';
 import 'package:fqapp/services/m3u_export_download.dart';
-import 'package:fqapp/services/one_click_py.dart';
 import 'package:fqapp/services/source_registry.dart';
 
 class _FakePyClient extends DramaSiteContentClient {
@@ -46,21 +45,6 @@ class _FakePyClient extends DramaSiteContentClient {
     final url = plays[episode.videoId];
     if (url == null) throw StateError('取流失败');
     return DramaPlaySource(url: url);
-  }
-}
-
-class _FakeM3uSink implements OneClickDownloadSink {
-  String? savedFileName;
-  String? savedText;
-
-  @override
-  Future<String> saveText({
-    required String fileName,
-    required String text,
-  }) async {
-    savedFileName = fileName;
-    savedText = text;
-    return '/storage/emulated/0/Download/$fileName';
   }
 }
 
@@ -156,14 +140,6 @@ void main() {
     });
   });
 
-  group('文件名', () {
-    test('非法字符改下划线，全非法时回落 site', () {
-      expect(m3uFileNameForSite('甲站/乙：丙'), '甲站_乙：丙.m3u');
-      expect(m3uFileNameForSite('///'), 'site.m3u');
-      expect(m3uFileNameForSite('  '), 'site.m3u');
-    });
-  });
-
   group('导出流程', () {
     test('全部分类 1:1，翻页到空页为止', () async {
       final client = _FakePyClient(
@@ -184,26 +160,28 @@ void main() {
           '\u0001v4': 'https://cdn.example.com/v4.m3u8',
         },
       );
-      final sink = _FakeM3uSink();
-      final result = await exportSiteM3u(
+      final db = MemoryM3uExportDb();
+      final result = await exportSiteToLocalDb(
         siteId: 'test_site',
         siteName: '测试站',
         client: client,
-        downloadSink: sink,
+        dbSink: db,
         gateOpen: true,
       );
       expect(result.successCount, 4);
       expect(result.skippedCount, 0);
       expect(result.categoriesTotal, 2);
       expect(result.emptyCategories, isEmpty);
-      expect(result.downloadPath, '/storage/emulated/0/Download/测试站.m3u');
-      expect(sink.savedFileName, '测试站.m3u');
-      final text = sink.savedText!;
-      expect(text.startsWith('#EXTM3U\n'), isTrue);
+      expect(result.dbVideoCount, 4);
+      final rows = await db.listVideos(gateOpen: true);
+      expect(rows.length, 4);
       for (final title in ['片一', '片二', '片三', '剧一']) {
-        expect(text, contains('#EXTINF:-1,$title\n'));
+        expect(rows.map((row) => row.title), contains(title));
       }
-      expect(text, contains('https://cdn.example.com/v4.m3u8'));
+      expect(
+        rows.map((row) => row.url),
+        contains('https://cdn.example.com/v4.m3u8'),
+      );
     });
 
     test('只收 m3u8：mp4 与取流失败跳过，详情兜底能救回', () async {
@@ -239,20 +217,22 @@ void main() {
           '线路\u0001ep1': 'https://cdn.example.com/ep1.m3u8',
         },
       );
-      final sink = _FakeM3uSink();
-      final result = await exportSiteM3u(
+      final db = MemoryM3uExportDb();
+      final result = await exportSiteToLocalDb(
         siteId: 'test_site',
         siteName: '测试站',
         client: client,
-        downloadSink: sink,
+        dbSink: db,
         gateOpen: true,
       );
       expect(result.successCount, 2);
       expect(result.skippedCount, 3);
-      expect(sink.savedText, contains('https://cdn.example.com/ep1.m3u8'));
-      expect(sink.savedText, contains('https://cdn.example.com/q.m3u8?sign=1'));
-      expect(sink.savedText, isNot(contains('a.mp4')));
-      expect(sink.savedText, isNot(contains('novel://')));
+      final rows = await db.listVideos(gateOpen: true);
+      final urls = rows.map((row) => row.url);
+      expect(urls, contains('https://cdn.example.com/ep1.m3u8'));
+      expect(urls, contains('https://cdn.example.com/q.m3u8?sign=1'));
+      expect(urls, isNot(contains('https://cdn.example.com/a.mp4')));
+      expect(urls, isNot(contains('novel://')));
     });
 
     test('重复页停，不无限翻页', () async {
@@ -265,18 +245,17 @@ void main() {
         details: const {},
         plays: {'\u0001v1': 'https://cdn.example.com/v1.m3u8'},
       );
-      final result = await exportSiteM3u(
+      final result = await exportSiteToLocalDb(
         siteId: 'test_site',
         siteName: '测试站',
         client: client,
-        downloadSink: _FakeM3uSink(),
         gateOpen: true,
       );
       expect(result.successCount, 1);
       expect(client.requestedPages, ['1/1', '1/2']);
     });
 
-    test('空分类记入无可用分类，标题换行清洗', () async {
+    test('空分类记入无可用分类，库里标题保持原样', () async {
       final client = _FakePyClient(
         categoryList: const [
           DramaSiteCategory('1', '空分类'),
@@ -288,23 +267,24 @@ void main() {
         details: const {},
         plays: {'\u0001v1': 'https://cdn.example.com/v1.m3u8'},
       );
-      final sink = _FakeM3uSink();
-      final result = await exportSiteM3u(
+      final db = MemoryM3uExportDb();
+      final result = await exportSiteToLocalDb(
         siteId: 'test_site',
         siteName: '测试站',
         client: client,
-        downloadSink: sink,
+        dbSink: db,
         gateOpen: true,
       );
       expect(result.successCount, 1);
       expect(result.emptyCategories, ['空分类']);
-      expect(sink.savedText, contains('#EXTINF:-1,片一 第二行\n'));
+      final rows = await db.listVideos(gateOpen: true);
+      expect(rows.single.title, '片一\n第二行');
     });
 
     test('取消后不保存', () async {
-      final cancellation = M3uExportCancellation()..cancel();
-      final sink = _FakeM3uSink();
-      final result = await exportSiteM3u(
+      final cancellation = LocalDbExportCancellation()..cancel();
+      final db = MemoryM3uExportDb();
+      final result = await exportSiteToLocalDb(
         siteId: 'test_site',
         siteName: '测试站',
         client: _FakePyClient(
@@ -313,20 +293,20 @@ void main() {
           details: const {},
           plays: const {},
         ),
-        downloadSink: sink,
+        dbSink: db,
         gateOpen: true,
         cancellation: cancellation,
       );
       expect(result.cancelled, isTrue);
-      expect(result.downloadPath, isNull);
-      expect(sink.savedText, isNull);
+      expect(result.dbVideoCount, 0);
+      expect(await db.listVideos(gateOpen: true), isEmpty);
     });
   });
 
   group('午夜门禁', () {
     test('午夜未开时成人站导出直接抛错', () async {
       await expectLater(
-        exportSiteM3u(
+        exportSiteToLocalDb(
           siteId: 'test_site',
           siteName: '🔞测试站',
           client: _FakePyClient(
@@ -335,7 +315,6 @@ void main() {
             details: const {},
             plays: const {},
           ),
-          downloadSink: _FakeM3uSink(),
           gateOpen: false,
         ),
         throwsStateError,
@@ -367,11 +346,11 @@ void main() {
         ),
       ];
       expect(
-        [for (final e in filterM3uExportSites(entries, false)) e.name],
+        [for (final e in filterLocalDbExportSites(entries, false)) e.name],
         ['普通站'],
       );
       expect(
-        [for (final e in filterM3uExportSites(entries, true)) e.name],
+        [for (final e in filterLocalDbExportSites(entries, true)) e.name],
         ['普通站', '🔞成人站'],
       );
     });
@@ -417,7 +396,7 @@ void main() {
         ),
       ];
       expect(
-        [for (final e in filterM3uExportSites(entries, true)) e.name],
+        [for (final e in filterLocalDbExportSites(entries, true)) e.name],
         ['采集站', 'JS 站', '规则站', '书源站'],
       );
     });
@@ -429,7 +408,7 @@ void main() {
         DramaSite('fanguo', '饭果'),
         DramaSite('🔞adult', '🔞成人站'),
       ];
-      final open = m3uExportBuiltinTargets(sites, (_) => true, true);
+      final open = localDbExportBuiltinTargets(sites, (_) => true, true);
       expect(
         [for (final t in open) t.siteId],
         ['hongguo', 'fanguo', '🔞adult'],
@@ -442,12 +421,12 @@ void main() {
         open.firstWhere((t) => t.siteId == 'fanguo').allowNonM3u8,
         isFalse,
       );
-      final closed = m3uExportBuiltinTargets(sites, (_) => true, false);
+      final closed = localDbExportBuiltinTargets(sites, (_) => true, false);
       expect(
         [for (final t in closed) t.siteId],
         ['hongguo', 'fanguo'],
       );
-      final disabled = m3uExportBuiltinTargets(
+      final disabled = localDbExportBuiltinTargets(
         sites,
         (id) => id != 'fanguo',
         true,
@@ -488,13 +467,13 @@ void main() {
       final entries = [jarReady, jarBroken, jarAdult];
       expect(
         [
-          for (final e in filterM3uExportSites(entries, true)) e.name,
+          for (final e in filterLocalDbExportSites(entries, true)) e.name,
         ],
         ['jar 站', '🔞jar 成人站'],
       );
       expect(
         [
-          for (final e in filterM3uExportSites(
+          for (final e in filterLocalDbExportSites(
             entries,
             true,
             includeJar: false,
@@ -505,7 +484,7 @@ void main() {
       );
       expect(
         [
-          for (final e in filterM3uExportSites(entries, false)) e.name,
+          for (final e in filterLocalDbExportSites(entries, false)) e.name,
         ],
         ['jar 站'],
       );
@@ -538,19 +517,23 @@ void main() {
           '\u0001m3u8': 'https://cdn.example.com/b.m3u8',
         },
       );
-      final sink = _FakeM3uSink();
-      final result = await exportSiteM3u(
+      final db = MemoryM3uExportDb();
+      final result = await exportSiteToLocalDb(
         siteId: 'test_site',
         siteName: '红果',
         client: client,
-        downloadSink: sink,
+        dbSink: db,
         gateOpen: true,
         allowNonM3u8: true,
       );
       expect(result.successCount, 2);
       expect(result.nonM3u8Count, 1);
       expect(result.skippedCount, 0);
-      expect(sink.savedText, contains('https://cdn.example.com/a.mp4'));
+      final rows = await db.listVideos(gateOpen: true);
+      expect(
+        rows.map((row) => row.url),
+        contains('https://cdn.example.com/a.mp4'),
+      );
     });
 
     test('跨分类同视频去重，不重复写行', () async {
@@ -566,22 +549,24 @@ void main() {
         details: const {},
         plays: {'\u0001v1': 'https://cdn.example.com/v1.m3u8'},
       );
-      final sink = _FakeM3uSink();
-      final result = await exportSiteM3u(
+      final db = MemoryM3uExportDb();
+      final result = await exportSiteToLocalDb(
         siteId: 'test_site',
         siteName: '红果',
         client: client,
-        downloadSink: sink,
+        dbSink: db,
         gateOpen: true,
         allowNonM3u8: true,
       );
       expect(result.successCount, 1);
       expect(result.duplicateCount, 1);
-      expect('https://cdn.example.com/v1.m3u8'.allMatches(sink.savedText!).length, 1);
+      final rows = await db.listVideos(gateOpen: true);
+      expect(rows.length, 1);
+      expect(rows.single.url, 'https://cdn.example.com/v1.m3u8');
     });
   });
 
-  group('本地数据库（一次爬取、两份产出）', () {
+  group('本地数据库（爬取数据只进库）', () {
     test('导出同时写库：标题、地址、封面、简介、站点、分类齐全', () async {
       final client = _FakePyClient(
         categoryList: const [DramaSiteCategory('1', '电影')],
@@ -612,20 +597,17 @@ void main() {
           '\u0001v2': 'https://cdn.example.com/v2.m3u8',
         },
       );
-      final sink = _FakeM3uSink();
       final db = MemoryM3uExportDb();
-      final result = await exportSiteM3u(
+      final result = await exportSiteToLocalDb(
         siteId: 'test_site',
         siteName: '测试站',
         client: client,
-        downloadSink: sink,
         dbSink: db,
         gateOpen: true,
       );
       expect(result.successCount, 2);
       expect(result.dbVideoCount, 2);
       expect(result.dbError, isNull);
-      expect(sink.savedText, contains('https://cdn.example.com/v1.m3u8'));
       final rows = await db.listVideos(gateOpen: true);
       expect(rows.length, 2);
       final withDetail = rows.firstWhere((row) => row.videoId == 'v1');
@@ -660,20 +642,18 @@ void main() {
         plays: plays,
       );
       final db = MemoryM3uExportDb();
-      await exportSiteM3u(
+      await exportSiteToLocalDb(
         siteId: 'test_site',
         siteName: '测试站',
         client: client,
-        downloadSink: _FakeM3uSink(),
         dbSink: db,
         gateOpen: true,
       );
       plays['\u0001v1'] = 'https://cdn.example.com/new.m3u8';
-      await exportSiteM3u(
+      await exportSiteToLocalDb(
         siteId: 'test_site',
         siteName: '测试站',
         client: client,
-        downloadSink: _FakeM3uSink(),
         dbSink: db,
         gateOpen: true,
       );
@@ -723,7 +703,7 @@ void main() {
       );
     });
 
-    test('数据库写失败不丢 m3u，结果里带警告', () async {
+    test('数据库写失败则无产出，结果里带警告', () async {
       final client = _FakePyClient(
         categoryList: const [DramaSiteCategory('1', '电影')],
         pages: {
@@ -732,19 +712,16 @@ void main() {
         details: const {},
         plays: {'\u0001v1': 'https://cdn.example.com/v1.m3u8'},
       );
-      final sink = _FakeM3uSink();
-      final result = await exportSiteM3u(
+      final result = await exportSiteToLocalDb(
         siteId: 'test_site',
         siteName: '测试站',
         client: client,
-        downloadSink: sink,
         dbSink: _ThrowingDbSink(),
         gateOpen: true,
       );
       expect(result.successCount, 1);
       expect(result.dbVideoCount, 0);
       expect(result.dbError, contains('数据库写失败'));
-      expect(sink.savedText, contains('https://cdn.example.com/v1.m3u8'));
     });
   });
 
@@ -782,15 +759,13 @@ void main() {
       );
     }
 
-    test('整站范围：全部视频走本地路径，m3u 与 db 一致', () async {
+    test('整站范围：全部视频走本地路径，库里双轨齐全', () async {
       final downloader = _FakeDownloader();
-      final sink = _FakeM3uSink();
       final db = MemoryM3uExportDb();
-      final result = await exportSiteM3u(
+      final result = await exportSiteToLocalDb(
         siteId: 'test_site',
         siteName: '测试站',
         client: twoCategoryClient(),
-        downloadSink: sink,
         dbSink: db,
         downloadOptions: optionsFor(downloader, M3uExportDownloadScope.site),
         gateOpen: true,
@@ -798,12 +773,6 @@ void main() {
       expect(result.downloadedCount, 2);
       expect(result.downloadFailedCount, 0);
       expect(downloader.downloadedUrls.length, 2);
-      expect(sink.savedText, contains('/local/video_1.m3u8'));
-      expect(sink.savedText, contains('/local/video_2.m3u8'));
-      expect(
-        sink.savedText,
-        contains('#ONLINE-URL:https://cdn.example.com/v1.m3u8'),
-      );
       final rows = await db.listVideos(gateOpen: true);
       expect(rows.length, 2);
       expect(
@@ -818,12 +787,12 @@ void main() {
 
     test('按分类范围：只下选中分类，其他分类仍用在线地址', () async {
       final downloader = _FakeDownloader();
-      final sink = _FakeM3uSink();
-      final result = await exportSiteM3u(
+      final db = MemoryM3uExportDb();
+      final result = await exportSiteToLocalDb(
         siteId: 'test_site',
         siteName: '测试站',
         client: twoCategoryClient(),
-        downloadSink: sink,
+        dbSink: db,
         downloadOptions: optionsFor(
           downloader,
           M3uExportDownloadScope.category,
@@ -836,17 +805,20 @@ void main() {
         downloader.downloadedUrls,
         ['https://cdn.example.com/v2.m3u8'],
       );
-      expect(sink.savedText, contains('https://cdn.example.com/v1.m3u8'));
-      expect(sink.savedText, contains('/local/video_1.m3u8'));
+      final rows = await db.listVideos(gateOpen: true);
+      final online = rows.firstWhere((row) => row.videoId == 'v1');
+      expect(online.url, 'https://cdn.example.com/v1.m3u8');
+      expect(online.localPath, isEmpty);
+      final local = rows.firstWhere((row) => row.videoId == 'v2');
+      expect(local.localPath, startsWith('/local/'));
     });
 
     test('按单视频范围：只下选中视频', () async {
       final downloader = _FakeDownloader();
-      final result = await exportSiteM3u(
+      final result = await exportSiteToLocalDb(
         siteId: 'test_site',
         siteName: '测试站',
         client: twoCategoryClient(),
-        downloadSink: _FakeM3uSink(),
         downloadOptions: optionsFor(
           downloader,
           M3uExportDownloadScope.video,
@@ -874,13 +846,11 @@ void main() {
           '\u0001v2': 'https://cdn.example.com/fail.m3u8',
         },
       );
-      final sink = _FakeM3uSink();
       final db = MemoryM3uExportDb();
-      final result = await exportSiteM3u(
+      final result = await exportSiteToLocalDb(
         siteId: 'test_site',
         siteName: '测试站',
         client: client,
-        downloadSink: sink,
         dbSink: db,
         downloadOptions: optionsFor(downloader, M3uExportDownloadScope.site),
         gateOpen: true,
@@ -888,7 +858,6 @@ void main() {
       expect(result.downloadedCount, 1);
       expect(result.downloadFailedCount, 1);
       expect(result.successCount, 2);
-      expect(sink.savedText, contains('https://cdn.example.com/fail.m3u8'));
       final rows = await db.listVideos(gateOpen: true);
       final failed = rows.firstWhere((row) => row.videoId == 'v2');
       expect(failed.url, 'https://cdn.example.com/fail.m3u8');
@@ -1057,23 +1026,22 @@ void main() {
         details: const {},
         plays: plays,
       );
-      final sink = _FakeM3uSink();
-      final result = await exportSiteM3u(
+      final db = MemoryM3uExportDb();
+      final result = await exportSiteToLocalDb(
         siteId: 'test_site',
         siteName: '测试站',
         client: client,
-        downloadSink: sink,
+        dbSink: db,
         gateOpen: true,
       );
       expect(result.successCount, 20);
       expect(result.truncatedCategories, ['电影']);
       expect(client.requestedPages.length, 20);
       expect(client.requestedPages.last, '1/20');
-      expect(sink.savedText, contains('https://cdn.example.com/p20.m3u8'));
-      expect(
-        sink.savedText,
-        isNot(contains('https://cdn.example.com/p21.m3u8')),
-      );
+      final rows = await db.listVideos(gateOpen: true);
+      final urls = rows.map((row) => row.url);
+      expect(urls, contains('https://cdn.example.com/p20.m3u8'));
+      expect(urls, isNot(contains('https://cdn.example.com/p21.m3u8')));
     });
 
     test('不足 20 页按实际页数爬完，不记截断', () async {
@@ -1089,12 +1057,10 @@ void main() {
           '\u0001p2': 'https://cdn.example.com/p2.m3u8',
         },
       );
-      final sink = _FakeM3uSink();
-      final result = await exportSiteM3u(
+      final result = await exportSiteToLocalDb(
         siteId: 'test_site',
         siteName: '测试站',
         client: client,
-        downloadSink: sink,
         gateOpen: true,
       );
       expect(result.successCount, 2);

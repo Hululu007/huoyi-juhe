@@ -16,8 +16,8 @@ import '../services/site_identity.dart';
 import '../services/source_registry.dart';
 import 'source_management_page.dart';
 
-class _M3uExportTarget {
-  const _M3uExportTarget({
+class _LocalDbExportTarget {
+  const _LocalDbExportTarget({
     required this.siteId,
     required this.label,
     required this.subtitle,
@@ -395,11 +395,11 @@ class _OneClickPyPageState extends State<OneClickPyPage> {
     _filterController.clear();
   }
 
-  Future<void> _exportM3u() async {
+  Future<void> _exportToLocalDb() async {
     await SourceRegistry.instance.load();
     await MidnightGate.ensureLoaded();
     final gateOpen = MidnightGate.activated.value;
-    final entries = filterM3uExportSites(
+    final entries = filterLocalDbExportSites(
       SourceRegistry.instance.custom,
       gateOpen,
       includeJar: JarBridge.supported,
@@ -416,13 +416,13 @@ class _OneClickPyPageState extends State<OneClickPyPage> {
     // 选站列表按归一键去重：同一站点多入口只列一行（内置行在前，
     // 后来的同站登记行被折掉），导出时不再对同一站重复爬第二份。
     final targets = dedupeByCanonicalKey(
-      <_M3uExportTarget>[
-        for (final builtin in m3uExportBuiltinTargets(
+      <_LocalDbExportTarget>[
+        for (final builtin in localDbExportBuiltinTargets(
           dramaSites,
           SourceRegistry.instance.isBuiltinEnabled,
           gateOpen,
         ))
-          _M3uExportTarget(
+          _LocalDbExportTarget(
             siteId: builtin.siteId,
             label: builtin.label,
             subtitle: builtin.siteId == 'hongguo'
@@ -433,7 +433,7 @@ class _OneClickPyPageState extends State<OneClickPyPage> {
                 SourceRegistry.instance.clientFor(builtin.siteId),
           ),
         for (final entry in entries)
-          _M3uExportTarget(
+          _LocalDbExportTarget(
             siteId: entry.id,
             label: entry.name,
             subtitle: subtitleFor(entry.kind),
@@ -451,10 +451,10 @@ class _OneClickPyPageState extends State<OneClickPyPage> {
       ),
     );
     if (!mounted) return;
-    final picked = await showDialog<_M3uExportTarget>(
+    final picked = await showDialog<_LocalDbExportTarget>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('选一个站点导出 m3u'),
+        title: const Text('选一个站点导出到本地库'),
         content: SizedBox(
           width: double.maxFinite,
           child: ListView.builder(
@@ -483,7 +483,7 @@ class _OneClickPyPageState extends State<OneClickPyPage> {
     }
     final (downloadOptions, aborted) = await _pickDownloadOptions(client);
     if (aborted) return;
-    await _runM3uExport(picked, client, gateOpen, downloadOptions);
+    await _runLocalDbExport(picked, client, gateOpen, downloadOptions);
   }
 
   Future<(M3uExportDownloadOptions?, bool)> _pickDownloadOptions(
@@ -607,15 +607,15 @@ class _OneClickPyPageState extends State<OneClickPyPage> {
     );
   }
 
-  Future<void> _runM3uExport(
-    _M3uExportTarget target,
+  Future<void> _runLocalDbExport(
+    _LocalDbExportTarget target,
     DramaSiteContentClient client,
     bool gateOpen,
     M3uExportDownloadOptions? downloadOptions,
   ) async {
-    final cancellation = M3uExportCancellation();
-    M3uExportProgress? progress;
-    M3uExportResult? result;
+    final cancellation = LocalDbExportCancellation();
+    LocalDbExportProgress? progress;
+    LocalDbExportResult? result;
     Object? error;
     var started = false;
     await showDialog<void>(
@@ -628,7 +628,7 @@ class _OneClickPyPageState extends State<OneClickPyPage> {
               started = true;
               Future(() async {
                 try {
-                  result = await exportSiteM3u(
+                  result = await exportSiteToLocalDb(
                     siteId: target.siteId,
                     siteName: target.label,
                     client: client,
@@ -673,7 +673,7 @@ class _OneClickPyPageState extends State<OneClickPyPage> {
             } else if (error != null) {
               lines.add('导出失败：$error');
             } else if (result!.cancelled) {
-              lines.add('已取消，未保存文件。');
+              lines.add('已取消，未写入本地库。');
             } else {
               lines.add(
                 '成功 ${result!.successCount} 条，跳过 ${result!.skippedCount} 条。',
@@ -689,7 +689,7 @@ class _OneClickPyPageState extends State<OneClickPyPage> {
               }
               if (result!.emptyCategories.isNotEmpty) {
                 lines.add(
-                  '以下分类没有可用 m3u8：${result!.emptyCategories.join('、')}',
+                  '以下分类没有可用地址：${result!.emptyCategories.join('、')}',
                 );
               }
               if (result!.truncatedCategories.isNotEmpty) {
@@ -698,12 +698,11 @@ class _OneClickPyPageState extends State<OneClickPyPage> {
                   '${result!.truncatedCategories.join('、')}',
                 );
               }
-              lines.add('已保存到下载文件夹：${result!.downloadPath}');
               if (result!.dbError != null) {
-                lines.add('数据库同步失败：${result!.dbError}（m3u 文件已保存）。');
+                lines.add('本地库写入失败：${result!.dbError}。');
               } else {
                 lines.add(
-                  '已同步写入本地数据库 ${result!.dbVideoCount} 条'
+                  '已写入本地库 ${result!.dbVideoCount} 条'
                   '（存放在手机根目录“火蚁聚合”文件夹）。',
                 );
               }
@@ -722,7 +721,7 @@ class _OneClickPyPageState extends State<OneClickPyPage> {
               }
             }
             return AlertDialog(
-              title: Text('导出 m3u：${target.label}'),
+              title: Text('导出到本地库：${target.label}'),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -872,13 +871,13 @@ class _OneClickPyPageState extends State<OneClickPyPage> {
           ),
           const SizedBox(height: 12),
           OutlinedButton(
-            onPressed: _exportM3u,
-            child: const Text('导出 m3u'),
+            onPressed: _exportToLocalDb,
+            child: const Text('导出到本地库'),
           ),
           const Padding(
             padding: EdgeInsets.only(top: 4),
             child: Text(
-              '选红果或一个已导入的 py/jar 站，把全部分类视频的可播地址导出到下载文件夹。py/jar 站只收 m3u8，红果站写解析到的直链并注明非 m3u8 条数；取不到的跳过并报数；午夜未开时成人站不显示。',
+              '选红果或一个已导入的 py/jar 站，把全部分类视频的可播地址存入本地库（手机根目录“火蚁聚合”文件夹）。py/jar 站只收 m3u8，红果站写解析到的直链并注明非 m3u8 条数；取不到的跳过并报数；午夜未开时成人站不显示。',
               style: TextStyle(fontSize: 12, color: Colors.grey),
             ),
           ),

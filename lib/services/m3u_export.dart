@@ -5,14 +5,13 @@ import 'drama_sites.dart';
 import 'm3u_export_db.dart';
 import 'm3u_export_download.dart';
 import 'midnight_gate.dart';
-import 'one_click_py.dart';
 import 'site_identity.dart';
 import 'source_registry.dart';
 
 const _callTimeout = Duration(seconds: 30);
 const _maxPagesPerCategory = 20;
 
-class M3uExportCancellation {
+class LocalDbExportCancellation {
   var cancelled = false;
 
   void cancel() {
@@ -20,8 +19,8 @@ class M3uExportCancellation {
   }
 }
 
-class M3uExportProgress {
-  const M3uExportProgress({
+class LocalDbExportProgress {
+  const LocalDbExportProgress({
     required this.categoryName,
     required this.categoriesDone,
     required this.categoriesTotal,
@@ -42,10 +41,9 @@ class M3uExportProgress {
   final int downloadTotal;
 }
 
-class M3uExportResult {
-  const M3uExportResult({
+class LocalDbExportResult {
+  const LocalDbExportResult({
     required this.siteName,
-    required this.downloadPath,
     required this.categoriesTotal,
     required this.emptyCategories,
     required this.truncatedCategories,
@@ -62,7 +60,6 @@ class M3uExportResult {
   });
 
   final String siteName;
-  final String? downloadPath;
   final int categoriesTotal;
   final List<String> emptyCategories;
   final List<String> truncatedCategories;
@@ -101,20 +98,7 @@ bool isHttpPlayableUrl(String url) {
   return uri.host.isNotEmpty;
 }
 
-String m3uFileNameForSite(String siteName) {
-  var base = siteName
-      .replaceAll(RegExp(r'[\/\\:*?"<>|\x00-\x1F]'), '_')
-      .trim()
-      .replaceAll(RegExp(r'^_+|_+$'), '');
-  if (base.isEmpty) base = 'site';
-  return '$base.m3u';
-}
-
-String _cleanTitle(String title) {
-  return title.replaceAll(RegExp(r'[\r\n]'), ' ').trim();
-}
-
-List<SourceEntry> filterM3uExportSites(
+List<SourceEntry> filterLocalDbExportSites(
   List<SourceEntry> entries,
   bool gateOpen, {
   bool includeJar = true,
@@ -155,8 +139,8 @@ List<SourceEntry> filterM3uExportSites(
 /// 内置影视站的导出目标：全部内置短剧站都可导出进本地库，
 /// 只有番茄短剧除外——它走原生番茄接口，没有蜘蛛客户端，
 /// 导出链（分类、列表、详情、取流）接不上。
-class M3uExportBuiltinTarget {
-  const M3uExportBuiltinTarget({
+class LocalDbExportBuiltinTarget {
+  const LocalDbExportBuiltinTarget({
     required this.siteId,
     required this.label,
     required this.allowNonM3u8,
@@ -169,7 +153,7 @@ class M3uExportBuiltinTarget {
   final bool allowNonM3u8;
 }
 
-List<M3uExportBuiltinTarget> m3uExportBuiltinTargets(
+List<LocalDbExportBuiltinTarget> localDbExportBuiltinTargets(
   List<DramaSite> sites,
   bool Function(String siteId) isEnabled,
   bool gateOpen,
@@ -179,7 +163,7 @@ List<M3uExportBuiltinTarget> m3uExportBuiltinTargets(
       if (site.id != 'original' &&
           isEnabled(site.id) &&
           (gateOpen || !MidnightGate.isAdultName(site.name)))
-        M3uExportBuiltinTarget(
+        LocalDbExportBuiltinTarget(
           siteId: site.id,
           label: site.name,
           allowNonM3u8: site.id == 'hongguo',
@@ -307,17 +291,16 @@ Future<_ResolvedVideo?> _resolveVideo(
   return null;
 }
 
-Future<M3uExportResult> exportSiteM3u({
+Future<LocalDbExportResult> exportSiteToLocalDb({
   required String siteId,
   required String siteName,
   required DramaSiteContentClient client,
-  OneClickDownloadSink? downloadSink,
   M3uExportDbSink? dbSink,
   M3uExportDownloadOptions? downloadOptions,
   required bool gateOpen,
   bool allowNonM3u8 = false,
-  void Function(M3uExportProgress)? onProgress,
-  M3uExportCancellation? cancellation,
+  void Function(LocalDbExportProgress)? onProgress,
+  LocalDbExportCancellation? cancellation,
 
   /// 登记条目的地址与它是不是内容站地址（见 site_identity 的
   /// 适用范围）：同站多入口导出时，db 记录按归一键写同一批，
@@ -335,7 +318,6 @@ Future<M3uExportResult> exportSiteM3u({
   );
   final fetchDetail = dbSink != null;
   final categories = await client.categories();
-  final lines = <String>['#EXTM3U'];
 
   /// 去重边界：只认条目编号与站点身份，不认播放链接。
   /// 不同条目、不同分类、不同站点共用同一个播放链接时全部保留，
@@ -401,6 +383,8 @@ Future<M3uExportResult> exportSiteM3u({
           if (downloadOptions != null &&
               downloadOptions.appliesTo(category.id, item.id)) {
             try {
+              // 目录名保留 m3u_export_downloads：已下载文件的本地路径
+              // 已写入库，改名会断掉库里的 localPath，不改。
               downloadBase ??= Directory(
                 '${(await downloadOptions.directoryResolver()).path}'
                 '/m3u_export_downloads/${sanitizeDownloadStem(siteName)}',
@@ -414,7 +398,7 @@ Future<M3uExportResult> exportSiteM3u({
                 targetDir: targetDir,
                 onProgress: (done, total) {
                   onProgress?.call(
-                    M3uExportProgress(
+                    LocalDbExportProgress(
                       categoryName: category.name,
                       categoriesDone: ci,
                       categoriesTotal: categories.length,
@@ -438,11 +422,6 @@ Future<M3uExportResult> exportSiteM3u({
             }
           }
           if (cancelled) break;
-          lines.add('#EXTINF:-1,${_cleanTitle(item.title)}');
-          if (downloadedThis) {
-            lines.add('#ONLINE-URL:${resolved.url}');
-          }
-          lines.add(finalUrl);
           success++;
           categorySuccess++;
           if (!isExportableM3u8(resolved.url)) nonM3u8++;
@@ -470,7 +449,7 @@ Future<M3uExportResult> exportSiteM3u({
           }
         }
         onProgress?.call(
-          M3uExportProgress(
+          LocalDbExportProgress(
             categoryName: category.name,
             categoriesDone: ci,
             categoriesTotal: categories.length,
@@ -489,7 +468,7 @@ Future<M3uExportResult> exportSiteM3u({
       emptyCategories.add(category.name);
     }
     onProgress?.call(
-      M3uExportProgress(
+      LocalDbExportProgress(
         categoryName: category.name,
         categoriesDone: ci + 1,
         categoriesTotal: categories.length,
@@ -498,15 +477,9 @@ Future<M3uExportResult> exportSiteM3u({
       ),
     );
   }
-  String? downloadPath;
   var dbVideoCount = 0;
   String? dbError;
   if (!cancelled) {
-    downloadPath = await (downloadSink ?? const PlatformOneClickDownloadSink())
-        .saveText(
-      fileName: m3uFileNameForSite(siteName),
-      text: '${lines.join('\n')}\n',
-    );
     if (dbSink != null) {
       try {
         final now = DateTime.now().millisecondsSinceEpoch;
@@ -536,9 +509,8 @@ Future<M3uExportResult> exportSiteM3u({
       }
     }
   }
-  return M3uExportResult(
+  return LocalDbExportResult(
     siteName: siteName,
-    downloadPath: downloadPath,
     categoriesTotal: categories.length,
     emptyCategories: emptyCategories,
     truncatedCategories: truncatedCategories,
