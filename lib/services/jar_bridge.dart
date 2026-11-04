@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -114,6 +115,37 @@ class JarBridge {
       throw JarBridgeFailure('jar 桥未就绪：当前安装包未包含 jar 桥通道');
     }
   }
+
+  /// 内置 jar 站的 asset 落盘：asset 不是文件路径，原生桥接只能吃本地路径，
+  /// 这里把 asset 拷到应用目录的 `builtin_jars/<configId>.jar`；已存在且 MD5
+  /// 对得上时复用，对不上重拷自愈。原生侧 ensureJar 还会再验一次 MD5。
+  static Future<String> resolveBuiltinJarAsset({
+    required String assetPath,
+    required String configId,
+    required String md5,
+    Future<ByteData> Function(String assetPath)? assetLoader,
+  }) async {
+    final directory = await getApplicationSupportDirectory();
+    final dir = Directory('${directory.path}/builtin_jars');
+    if (!await dir.exists()) await dir.create(recursive: true);
+    final target = File('${dir.path}/$configId.jar');
+    final expected = md5.trim().toLowerCase();
+    if (await target.exists()) {
+      if (expected.isEmpty) return target.path;
+      try {
+        final current = md5Hex(await target.readAsBytes());
+        if (current == expected) return target.path;
+      } catch (_) {}
+    }
+    final loader = assetLoader ?? rootBundle.load;
+    final bytes = await loader(assetPath);
+    await target.writeAsBytes(
+      bytes.buffer.asUint8List(bytes.offsetInBytes, bytes.lengthInBytes),
+    );
+    return target.path;
+  }
+
+  static String md5Hex(List<int> bytes) => md5.convert(bytes).toString();
 
   static Future<List<JarClassInfo>> enumerate(String jarPath) async {
     if (!supported) {

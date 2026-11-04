@@ -1,0 +1,195 @@
+// ZakaTV jar 内置站点表，从火蚁TV树移植（lib/zakatv_builtin.dart）。
+//
+// jar 文件与 YouTube 配置随安装包走 assets，站名、类名、ext 与原树一致；
+// 成人站名保留 🔞 前缀，午夜门禁按既有名字规则分流，不另立规则。
+// 被排除的 4 站见 zakatvExcludedSites，恢复须用户另行下令。
+
+const String zakatvJarAsset = 'assets/jars/zakatv.jar';
+const String zakatvJarMd5 = '2a8679b05d1d65659ed10b5f002ccda5';
+const String zakatvJarId = 'zakatv';
+const String youtubeJarAsset = 'assets/jars/youtube.jar';
+const String youtubeJarMd5 = 'd294ce251d3b2aa8528efff12cc4bf19';
+const String youtubeJarId = 'youtube';
+const String youtubeConfigAsset = 'assets/youtube3.json';
+const String youtubeSpiderClass = 'com.github.catvod.spider.YouTube';
+
+class ZakatvBuiltinSite {
+  const ZakatvBuiltinSite(this.key, this.name, this.className, this.ext,
+      {this.contentTypeKey = 'video'});
+  final String key;
+  final String name;
+  final String className;
+  final String ext;
+  final String contentTypeKey;
+}
+
+const List<ZakatvBuiltinSite> zakatvBuiltinSites = [
+  ZakatvBuiltinSite('ZakaMjv011', '🔞mjv011', 'com.github.catvod.spider.ZakaMjv011Amns2', ''),
+  ZakatvBuiltinSite('ZakaHuangguo', '🔞黄果', 'com.github.catvod.spider.ZakaHuangguoAmns', ''),
+  ZakatvBuiltinSite('ZakaHl365', '🔞黑料不打烊', 'com.github.catvod.spider.ZakaHl365Amns', ''),
+  ZakatvBuiltinSite('ZakaLnkl', '🔞lnkl', 'com.github.catvod.spider.ZakaLnklAmns', ''),
+  ZakatvBuiltinSite('ZakaHuangdou', '🔞黄豆短剧', 'com.github.catvod.spider.ZakaHuangdouAmns', ''),
+  ZakatvBuiltinSite('ZakaSex8', '🔞sex8┃视频', 'com.github.catvod.spider.ZakaSex8Amns', ''),
+  ZakatvBuiltinSite('ZakaHgdjV', '🔞黄果短剧┃视频', 'com.github.catvod.spider.ZakaHgdjVAmns', ''),
+  ZakatvBuiltinSite('ZakaKm2', '🔞新快猫', 'com.github.catvod.spider.ZakaKm2Amns', ''),
+  ZakatvBuiltinSite('ZakaCucumber', '🔞黄瓜视频', 'com.github.catvod.spider.ZakaCucumberAmns', ''),
+  ZakatvBuiltinSite('ZakaHaijiao', '🔞海角社区', 'com.github.catvod.spider.ZakaHaijiaoAmns', ''),
+  ZakatvBuiltinSite('ZakaMd', '🔞麻豆', 'com.github.catvod.spider.ZakaMdAmns', ''),
+  ZakatvBuiltinSite('ZakaUtube', '🔞Utube', 'com.github.catvod.spider.ZakaUtubeAmns', ''),
+  ZakatvBuiltinSite('ZakaXj', '🔞香蕉视频', 'com.github.catvod.spider.ZakaXjAmns', ''),
+  ZakatvBuiltinSite('ZakaAv91', '🔞av91', 'com.github.catvod.spider.ZakaAv91Amns', ''),
+  ZakatvBuiltinSite('ZakaLxs', '🔞撸先生', 'com.github.catvod.spider.ZakaLxsAmns', ''),
+  ZakatvBuiltinSite('ZakaJavrate', '🛡️鉴黄师┃原生', 'com.github.catvod.spider.ZakaJavrateAmns', ''),
+  ZakatvBuiltinSite('zakajavverse', '🆕🔞JAV Verse┃资料库+双线路', 'com.github.catvod.spider.ZakaJavverseAmns', ''),
+  ZakatvBuiltinSite('zakaxszav', '🆕🔞XSZAV┃无码·中文字幕', 'com.github.catvod.spider.ZakaXszavAmns', ''),
+  ZakatvBuiltinSite('zakav01', '🆕🔞AV01┃无码破解·多码率', 'com.github.catvod.spider.ZakaAv01Amns', ''),
+  ZakatvBuiltinSite('zakaaiye', '🆕🔞爱液视频┃官方App接口', 'com.github.catvod.spider.ZakaAiyeAmns', ''),
+  ZakatvBuiltinSite('zakahysxs', '🆕🔞H有声小说┃AES解密直取', 'com.github.catvod.spider.ZakaHysxsAmns', ''),
+  ZakatvBuiltinSite('zakapuapua', '🔞PUA独家爆料┃多域直取', 'com.github.catvod.spider.ZakaPuapuaAmns', ''),
+  ZakatvBuiltinSite('zaketxfans', '🆕🔞糖心Fans┃设备登录+AES协议', 'com.github.catvod.spider.ZakaTxfansAmns', ''),
+  ZakatvBuiltinSite('zakajuyin', '🆕🔞巨婴云播┃静态站整页包壳', 'com.github.catvod.spider.ZakaJuyinAmns', ''),
+  ZakatvBuiltinSite('zaka99jj', '🆕🔞久久热┃KVS直取384P', 'com.github.catvod.spider.Zaka99jjAmns', ''),
+  ZakatvBuiltinSite('zakadayday', '🆕🔞天天A片┃CF盾绕行上游', 'com.github.catvod.spider.ZakaDaydayAmns', ''),
+  ZakatvBuiltinSite('dsav', '🆕🔞DSAV影视┃加密网关直取', 'com.github.catvod.spider.ZakaDsavAmns', ''),
+  ZakatvBuiltinSite('kuaihuo', '🆕🔞快活影院┃静态站直取', 'com.github.catvod.spider.ZakaKuaihuoAmns', ''),
+  ZakatvBuiltinSite('zakans', '🆕🔞ns视频┃签到破VIP看正片', 'com.github.catvod.spider.ZakaNsAmns', ''),
+  ZakatvBuiltinSite('jack20', '🆕🔞後宮電影院┃xvideos聚合', 'com.github.catvod.spider.ZakaJack20Amns', ''),
+  ZakatvBuiltinSite('coolinet', '🆕🔞酷愛成人網┃WP全站直取', 'com.github.catvod.spider.ZakaCoolAmns', ''),
+  ZakatvBuiltinSite('gqck', '🆕🔞高清仓库┃免登直取', 'com.github.catvod.spider.ZakaGqckAmns', ''),
+  ZakatvBuiltinSite('zaka115', '☁️115网盘┃扫码离线', 'com.github.catvod.spider.Zaka115Amns', ''),
+  ZakatvBuiltinSite('zakajavpk', '🔞JAVPK┃磁力自动离线', 'com.github.catvod.spider.ZakaJavpkAmns', ''),
+  ZakatvBuiltinSite('ZakaPektino', '🐦 推特涩涩┃PeKtino', 'com.github.catvod.spider.ZakaPektinoAmns', ''),
+  ZakatvBuiltinSite('wuyetv', '🕛 午夜TV┃百万精选', 'com.github.catvod.spider.ZakaWyAmns', ''),
+  ZakatvBuiltinSite('bhbox', '📦 笔盒┃海量精选', 'com.github.catvod.spider.ZakaBhAmns', ''),
+  ZakatvBuiltinSite('zakaqmdj', '🔞七猫短剧┃VIP破解', 'com.github.catvod.spider.ZakaQmdjAmns', ''),
+  ZakatvBuiltinSite('ZakaHxc', '🔞含羞草┃VIP破解', 'com.github.catvod.spider.ZakaHxcAmns', ''),
+  ZakatvBuiltinSite('ZakaUu', '🔞Uu视频┃多线路', 'com.github.catvod.spider.ZakaUuAmns', ''),
+  ZakatvBuiltinSite('zaka520av', '🔞520AV影城', 'com.github.catvod.spider.Zaka520avAmns', ''),
+  ZakatvBuiltinSite('ZakaHjw', '🔞海角网┃hj2', 'com.github.catvod.spider.ZakaHjwAmns', ''),
+  ZakatvBuiltinSite('ZakaHj1', '🔞海角社区┃hj1', 'com.github.catvod.spider.ZakaHj1Amns', ''),
+  ZakatvBuiltinSite('ZakaJav380', '🆕🔞JAV380┃無碼', 'com.github.catvod.spider.ZakaJav380Amns', ''),
+  ZakatvBuiltinSite('ZakaJavher', '🆕🔞JavHer┃JAV庫', 'com.github.catvod.spider.ZakaJavherAmns', ''),
+  ZakatvBuiltinSite('zakaaoxx69', '🔞AOXX69┃亞洲綜合', 'com.github.catvod.spider.ZakaAoxx69Amns', ''),
+  ZakatvBuiltinSite('zakajavmap', '🔞JAVMAP┃日本AV大全', 'com.github.catvod.spider.ZakaJavmapAmns', ''),
+  ZakatvBuiltinSite('zakapigav', '🔞PIGAV┃朱古力', 'com.github.catvod.spider.ZakaPigavAmns', ''),
+  ZakatvBuiltinSite('zakasihucdn', '🔞四虎┃免盾CDN', 'com.github.catvod.spider.ZakaSihuCdnAmns', ''),
+  ZakatvBuiltinSite('zakasihu', '🔞四虎┃4hu', 'com.github.catvod.spider.ZakaSihuAmns', ''),
+  ZakatvBuiltinSite('av18avmcg', '🆕🔞18AV主站┃本地代理', 'com.github.catvod.spider.Zaka18avMcgAmns', ''),
+  ZakatvBuiltinSite('zakaxx9', '🆕🔞XX9┃金币站', 'com.github.catvod.spider.ZakaXx9Amns', ''),
+  ZakatvBuiltinSite('Zaka69vj', '🆕🔞69VJ┃xvideos片库', 'com.github.catvod.spider.Zaka69vjAmns', ''),
+  ZakatvBuiltinSite('ZakaAvbebe', '🆕🔞Avbebe┃H動畫里番', 'com.github.catvod.spider.ZakaAvbebeAmns', ''),
+  ZakatvBuiltinSite('ZakaAvcnn', '🆕🔞AVCNN┃番号女优', 'com.github.catvod.spider.ZakaAvcnnAmns', ''),
+  ZakatvBuiltinSite('ZakaAvple', '🆕🔞AVPle┃免盾直取', 'com.github.catvod.spider.ZakaAvpleAmns', ''),
+  ZakatvBuiltinSite('ZakaJavwine', '🆕🔞JAV.WINE┃日系高清', 'com.github.catvod.spider.ZakaJavwineAmns', ''),
+  ZakatvBuiltinSite('ZakaNjav', '🆕🔞nJAV┃中字无码', 'com.github.catvod.spider.ZakaNjavAmns', ''),
+  ZakatvBuiltinSite('ZakaJavhd', '🆕🔞JavHD中文字幕┃日本管', 'com.github.catvod.spider.ZakaJavhdAmns', ''),
+  ZakatvBuiltinSite('ZakaBaoyu', '🆕🔞鲍鱼盒子┃App直连', 'com.github.catvod.spider.ZakaBaoyuAmns', ''),
+  ZakatvBuiltinSite('ZakaQysq', '🆕🔞妻友社区┃阅妹阁模块', 'com.github.catvod.spider.ZakaQysqAmns', ''),
+  ZakatvBuiltinSite('ZakaHgdj', '🔞黄果短剧┃AI成人短剧', 'com.github.catvod.spider.ZakaHgdjAmns', ''),
+  ZakatvBuiltinSite('ZakaHgdjApp', '🆕🔞黄果短剧App┃App网关', 'com.github.catvod.spider.ZakaHgdjAppAmns', ''),
+  ZakatvBuiltinSite('zakaseku', '🔞阅妹阁┃App原版62站', 'com.github.catvod.spider.ZakaSekuAmns', ''),
+  ZakatvBuiltinSite('zakakp14', '🔞看片站群┃App挖出14站', 'com.github.catvod.spider.ZakaYueMGeAmns', ''),
+  ZakatvBuiltinSite('zaka-yue2', '🔞阅妹阁模块2┃JavDB+51吃瓜', 'com.github.catvod.spider.ZakaYueMGe2Amns', ''),
+  ZakatvBuiltinSite('zakafq', '🔞番茄视频┃免登入直取', 'com.github.catvod.spider.ZakaFqAmns', ''),
+  ZakatvBuiltinSite('zakawnzs', '🔞WNZS┃网络杀手', 'com.github.catvod.spider.ZakaWnzsAmns', ''),
+  ZakatvBuiltinSite('zakatudou', '🔞土豆视频┃原生', 'com.github.catvod.spider.ZakaTudouAmns', ''),
+  ZakatvBuiltinSite('zakaxjh5', '🍌香蕉视频H5┃免登入', 'com.github.catvod.spider.ZakaXjH5Amns', ''),
+  ZakatvBuiltinSite('zakaykf', '🔞快播至臻版┃下载页直取', 'com.github.catvod.spider.ZakaYkfAmns', ''),
+  ZakatvBuiltinSite('zakaxj', '🍌香蕉视频┃免登入直取', 'com.github.catvod.spider.ZakaXjAmns', ''),
+  ZakatvBuiltinSite('zakakfz', '🔞K站┃密钥直取', 'com.github.catvod.spider.ZakaKfzAmns', ''),
+  ZakatvBuiltinSite('ZakaMissav', '🔞MissAV官方┃过盾', 'com.github.catvod.spider.ZakaMissavAmns', '{"base":"https://tv506.ystv.top","miss":"https://missav.ws286.ystv.top"}'),
+  ZakatvBuiltinSite('ZakaJavRank', '🏆JAV排行榜┃1769部战力榜', 'com.github.catvod.spider.ZakaJavRankAmns', '{"site":"https://javrank849.ystv.top","miss":"https://missav.ws286.ystv.top"}'),
+  ZakatvBuiltinSite('ZakaHddj', '🔞黄豆短剧┃AI短剧+漫剧', 'com.github.catvod.spider.ZakaHddjAmns', ''),
+  ZakatvBuiltinSite('ZakaCrdj', '🔞91成人短剧┃全站', 'com.github.catvod.spider.ZakaCrdjAmns', ''),
+  ZakatvBuiltinSite('ZakaJm', '🔞JAV目錄┃免登录直取', 'com.github.catvod.spider.ZakaJmAmns', ''),
+  ZakatvBuiltinSite('ZakaCn', '🔞中文秘密资源┃国产+有码', 'com.github.catvod.spider.ZakaCnAmns', ''),
+  ZakatvBuiltinSite('ZakaBnzb', '🔞百年直播┃129平台', 'com.github.catvod.spider.ZakaBnzbAmns', '{"host":"http://api.vipmisss.com:81/xcdsw"}'),
+  ZakatvBuiltinSite('ZakaGetav', '👑帝皇影视┃4.5万部', 'com.github.catvod.spider.ZakaGetavAmns', '{"host":"https://getav.me","static":"https://static.worldstatic.com","brand":"👑帝皇影视","tg":"https://t.me/+3t5XRPPo9mlkZDRl"}'),
+  ZakatvBuiltinSite('Zaka69ck', '👑帝皇影视┃黄色仓库', 'com.github.catvod.spider.Zaka69ckAmns', '{"brand":"👑帝皇影视","tg":"https://t.me/+3t5XRPPo9mlkZDRl"}'),
+  ZakatvBuiltinSite('ZakaHsck', '👑帝皇影视┃黄色仓库②', 'com.github.catvod.spider.ZakaHsckAmns', '{"brand":"👑帝皇影视","tg":"https://t.me/+3t5XRPPo9mlkZDRl"}'),
+  ZakatvBuiltinSite('ZakaSe8', '🖼八色套图┃1.4万套', 'com.github.catvod.spider.ZakaSe8Amns', '{"host":"https://8se.me","cdn":"https://img.xchina.io","brand":"🖼 八色套图","relays":"https://tv506.ystv.top"}'),
+  ZakatvBuiltinSite('ZakaMissavOff', '🔞MissAV官方┃原生', 'com.github.catvod.spider.ZakaMissavOffAmns', '{"host":"https://missav.live","relay":"https://tv506.ystv.top","flare":"http://192.168.31.2:8191/v1"}'),
+  ZakatvBuiltinSite('ZakaMirror', '🔞MissAV镜像┃免代理', 'com.github.catvod.spider.ZakaMirrorAmns', '{"host":"https://www.thisav.my"}'),
+  ZakatvBuiltinSite('ZakaAdult', '📁成人资源中心', 'com.github.catvod.spider.ZakaAdultResAmns', '{"base":"https://tv506.ystv.top","miss":"https://missav.ws286.ystv.top"}'),
+  ZakatvBuiltinSite('Zaka123av', '🎬123AV┃原生', 'com.github.catvod.spider.Zaka123avAmns', ''),
+  ZakatvBuiltinSite('ZakaDsd', '🎬懂色帝┃原生', 'com.github.catvod.spider.ZakaDsdAmns', ''),
+  ZakatvBuiltinSite('ZakaWhos', '🔍whos识图┃原生', 'com.github.catvod.spider.ZakaWhosAmns', ''),
+  ZakatvBuiltinSite('ZakaLissav', '🔞麻豆视频┃LissAV', 'com.github.catvod.spider.ZakaLissavAmns', '{"section":"asian"}'),
+  ZakatvBuiltinSite('ZakaLissavCn', '🔞麻豆视频┃国产区', 'com.github.catvod.spider.ZakaLissavAmns', '{"section":"domestic"}'),
+  ZakatvBuiltinSite('ZakaJable', '🔞Jable┃JAD免代理', 'com.github.catvod.spider.ZakaJableAmns', ''),
+  ZakatvBuiltinSite('ZakaXhamster', '🔞xHamster┃XH免代理', 'com.github.catvod.spider.ZakaXhamsterAmns', ''),
+  ZakatvBuiltinSite('ZakaRou', '🔞肉视频┃ROU免代理', 'com.github.catvod.spider.ZakaRouAmns', ''),
+  ZakatvBuiltinSite('Zaka321av', '🔞321AV┃中文字幕', 'com.github.catvod.spider.Zaka321avAmns', ''),
+  ZakatvBuiltinSite('ZakaPb', '🔞好色TV┃PB免代理', 'com.github.catvod.spider.ZakaPbAmns', ''),
+  ZakatvBuiltinSite('rouav', '🔞rouAV┃PB免代理', 'com.github.catvod.spider.ZakaRouavAmns', ''),
+  ZakatvBuiltinSite('av18av', '🔞18AV┃本地代理', 'com.github.catvod.spider.Zaka18avAmns', ''),
+  ZakatvBuiltinSite('dage', '🔞大哥视频┃清单转写', 'com.github.catvod.spider.ZakaDageAmns', ''),
+  ZakatvBuiltinSite('ZakaSupjav', '🔞SupJav┃中继免盾', 'com.github.catvod.spider.ZakaSupjavAmns', '{"relay":"https://py.fzcrym.link:1314"}'),
+  ZakatvBuiltinSite('ZakaPornhub', '🔞Pornhub┃免代理', 'com.github.catvod.spider.ZakaPornhubAmns', ''),
+  ZakatvBuiltinSite('ZakaRohu', '🔞YouTube成人版┃wyll', 'com.github.catvod.spider.ZakaRohuAmns', ''),
+  ZakatvBuiltinSite('sporn', '🔞SuperPorn┃欧美免代理', 'com.github.catvod.spider.ZakaKvsAmns', '{"site":"sporn"}'),
+  ZakatvBuiltinSite('yporn', '🔞YESPORN┃欧美免代理', 'com.github.catvod.spider.ZakaKvsAmns', '{"site":"yporn"}'),
+  ZakatvBuiltinSite('okxxx', '🔞OKXXX┃欧美免代理', 'com.github.catvod.spider.ZakaKvsAmns', '{"site":"okxxx"}'),
+  ZakatvBuiltinSite('591av', '🔞591AV┃亚洲素人', 'com.github.catvod.spider.ZakaKvsAmns', '{"site":"591av"}'),
+  ZakatvBuiltinSite('avjoy', '🔞AVJOY┃欧美免代理', 'com.github.catvod.spider.ZakaAvjoyAmns', ''),
+  ZakatvBuiltinSite('hanime', '🔞Hanime1┃里番H动漫', 'com.github.catvod.spider.ZakaHmAmns', ''),
+  ZakatvBuiltinSite('xvideo', '🔞XVIDEOS┃欧美免代理', 'com.github.catvod.spider.ZakaXvAmns', ''),
+  ZakatvBuiltinSite('ptt01', '🔞PTT01┃三级稀缺', 'com.github.catvod.spider.ZakaPttAmns', ''),
+  ZakatvBuiltinSite('cporn', '🔞CartoonPorno┃欧美卡通', 'com.github.catvod.spider.ZakaKvsAmns', '{"site":"cporn"}'),
+  ZakatvBuiltinSite('xanimu', '🔞Xanimu┃里番动漫', 'com.github.catvod.spider.ZakaXanimuAmns', ''),
+  ZakatvBuiltinSite('xx01', '🔞XX01┃无码流出', 'com.github.catvod.spider.ZakaXx01Amns', ''),
+  ZakatvBuiltinSite('netflav', '🔞Netflav┃帝皇影视', 'com.github.catvod.spider.ZakaNetflavAmns', ''),
+  ZakatvBuiltinSite('goodav', '🔞正妹AV┃原生', 'com.github.catvod.spider.ZakaGoodavAmns', ''),
+  ZakatvBuiltinSite('av6k', '🔞AV6K┃原生', 'com.github.catvod.spider.ZakaAv6kAmns', ''),
+  ZakatvBuiltinSite('jav', '🔞J-AV┃原生', 'com.github.catvod.spider.ZakaJavAmns', ''),
+  ZakatvBuiltinSite('jav777', '🔞JAV777┃原生', 'com.github.catvod.spider.ZakaJav777Amns', ''),
+  ZakatvBuiltinSite('airav', '🔞AirAV┃原生', 'com.github.catvod.spider.ZakaAiravAmns', '{"relay":"https://py.fzcrym.link:1314"}'),
+  ZakatvBuiltinSite('zaka93', '👑93站合一', 'com.github.catvod.spider.Zaka93Amns', ''),
+  ZakatvBuiltinSite('go2av', '🔞GO2AV┃帝皇影视', 'com.github.catvod.spider.ZakaGo2avAmns', ''),
+  ZakatvBuiltinSite('mmtv7', '🔞7MMTV┃帝皇影视', 'com.github.catvod.spider.Zaka7mmAmns', ''),
+  ZakatvBuiltinSite('zggjav', '🔞GGJAV┃帝皇影视', 'com.github.catvod.spider.ZakaGgjavAmns', ''),
+  ZakatvBuiltinSite('avbigplat', '🔞AV大平台┃蝴蝶', 'com.github.catvod.spider.Zaka9SexAmns', ''),
+  ZakatvBuiltinSite('xhy11', '🔞小黄鸭┃xhy11', 'com.github.catvod.spider.ZakaXhyAmns', '{"host":"https://www.xhy11.cc","brand":"👑帝皇影视","tg":"https://t.me/+3t5XRPPo9mlkZDRl"}'),
+  ZakatvBuiltinSite('pj5ti', '🔞蜜桃社┃pj5ti', 'com.github.catvod.spider.ZakaPj5tiAmns', ''),
+  ZakatvBuiltinSite('MyConfig', '⚙️配置┃中心', 'com.github.catvod.spider.AAConfigAmns', ''),
+  ZakatvBuiltinSite('ZakaTg', 'tg频道', 'com.github.catvod.spider.ZakaTgAmns', '{"mirror":"https://tg.i-c-a.su","size":50,"block":100,"channels":[{"name":"超清AV","user":"cctv_av"},{"name":"那些极品姐姐","user":"zfjp1024"},{"name":"麻豆 girl","user":"madougirl"},{"name":"黄果漫剧","user":"hgmanju"},{"name":"海角 AV","user":"hjgc0"},{"name":"无码 91","user":"wmav91"},{"name":"收藏 AV","user":"shoucangav"}],"relay":"https://tv506.ystv.top/api/tg"}'),
+  ZakatvBuiltinSite('push_agent', '🛴推送┃播放', 'com.github.catvod.spider.PushAmns', ''),
+  ZakatvBuiltinSite('MyAll', '📁资源┃中心', 'com.github.catvod.spider.MyAllAmns', ''),
+  ZakatvBuiltinSite('zakajavdb', '🔞JAVDB┃磁力自动离线', 'com.github.catvod.spider.ZakaJavdbAmns', ''),
+  ZakatvBuiltinSite('hongguo', '🍎红果短剧·听书┃官方直采+自建朗读', 'com.github.catvod.spider.ZakaHongguoAmns', '{"host":"https://hongguoduanju.com"}'),
+  ZakatvBuiltinSite('ZakaLiveTv', '📡电视直播┃110台', 'com.github.catvod.spider.ZakaLiveTvAmns', ''),
+  ZakatvBuiltinSite('thdh', '🔞探花短视频┃thdh', 'com.github.catvod.spider.ZakaThdhApp', '{"host":"https://thdhhaj.xyz","brand":"🔞 探花短视频","tg":"https://t.me/+3t5XRPPo9mlkZDRl"}'),
+  ZakatvBuiltinSite('qishe', '🔞妻社┃qishe', 'com.github.catvod.spider.ZakaQiSheAmns', '{"host":"https://qs.qsh52693.org.cn","brand":"🔞 妻社","tg":"https://t.me/+3t5XRPPo9mlkZDRl"}'),
+  ZakatvBuiltinSite('ZakaHjApp', '🔞海角社区┃App版', 'com.github.catvod.spider.ZakaHjAppAmns', '{"brand":"🔞 海角社区App","tg":"https://t.me/+3t5XRPPo9mlkZDRl"}'),
+  ZakatvBuiltinSite('Zaka17rip', '🔞17rip┃底部导航分类', 'com.github.catvod.spider.Zaka17ripAmns', '{"brand":"🔞 17rip","tg":"https://t.me/+3t5XRPPo9mlkZDRl"}'),
+  ZakatvBuiltinSite('ZakaJavPlay', '🔞JavPlay┃免登录720', 'com.github.catvod.spider.ZakaJa6playAmns', ''),
+  ZakatvBuiltinSite('ZakaJavguru', '🔞JavGuru┃六线自动切', 'com.github.catvod.spider.ZakaJavguruAmns', ''),
+  ZakatvBuiltinSite('Zaka52av', '🔞52AV┃華語論壇', 'com.github.catvod.spider.Zaka52avAmns', ''),
+  ZakatvBuiltinSite('missavt', '🔞MissAVt┃原生', 'com.github.catvod.spider.ZakaMissavtAmns', ''),
+  ZakatvBuiltinSite('hgkpz', '🔞黄瓜┃黄瓜看片', 'com.github.catvod.spider.ZakaHgkpzAmns', ''),
+  ZakatvBuiltinSite('Wukong', '🔞悟空传媒', 'com.github.catvod.spider.Wukong', ''),
+  ZakatvBuiltinSite('Chengren91', '🔞91成人', 'com.github.catvod.spider.Chengren91', ''),
+  ZakatvBuiltinSite('go_tingshu', '听书', 'com.github.catvod.spider.TingShu', '{}', contentTypeKey: 'audio'),
+];
+
+class ZakatvExcludedSite {
+  const ZakatvExcludedSite(this.key, this.name, this.reason);
+  final String key;
+  final String name;
+  final String reason;
+}
+
+const List<ZakatvExcludedSite> zakatvExcludedSites = [
+  ZakatvExcludedSite('zakahzai747', '🔞盒子AI视频┃747专线', '盒子AI 747 专线：同盒子AI，服务端死亡未进成品'),
+  ZakatvExcludedSite('zakahzai', '🔞盒子AI视频┃原生', '盒子AI：服务端 register 全 404，2026-10-24 修复批已摘，服务端死亡未进成品'),
+  ZakatvExcludedSite('ZakaXme', '🔞樱桃破解┃站群直连', '樱桃：服务端 register 500，2026-10-24 修复批已摘，服务端死亡未进成品'),
+  ZakatvExcludedSite('zakajavbus', '🔞JAVBUS┃磁力自动离线', 'JavBus：全是磁力、App 内无磁力播放，2026-10-31 摘除令'),
+];
+
+/// YouTube 站走独立 youtube.jar，ext 在使用时从 youtube3.json 现取（84KB，不进登记表）。
+const ZakatvBuiltinSite youtubeBuiltinSite = ZakatvBuiltinSite(
+  'youtube',
+  'YouTube',
+  youtubeSpiderClass,
+  '',
+);

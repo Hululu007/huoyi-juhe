@@ -347,7 +347,12 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
   Widget build(BuildContext context) {
     final registry = SourceRegistry.instance;
     final builtin = registry.builtinEntries();
-    final custom = registry.custom;
+    final builtinJar = registry.custom
+        .where((entry) => entry.extra['builtin'] == true)
+        .toList();
+    final custom = registry.custom
+        .where((entry) => entry.extra['builtin'] != true)
+        .toList();
     return Scaffold(
       appBar: AppBar(title: const Text('站源管理')),
       body: _loading
@@ -361,6 +366,10 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
                 if (custom.isEmpty)
                   const ListTile(title: Text('暂无自定义站源')),
                 for (final entry in custom) _customTile(entry),
+                _groupTitle('jar 内置'),
+                if (builtinJar.isEmpty)
+                  const ListTile(title: Text('暂无 jar 内置站源')),
+                for (final entry in builtinJar) _customTile(entry),
                 _groupTitle('内置影视'),
                 const ListTile(
                   title: Text('暂无内置影视站源'),

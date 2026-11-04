@@ -99,6 +99,9 @@ flutter:
 
   assets:
     - assets/config/config.json
+    - assets/jars/zakatv.jar
+    - assets/jars/youtube.jar
+    - assets/youtube3.json
     - assets/live/
     - assets/config/filter.json
     - assets/config/device_pool.example.json

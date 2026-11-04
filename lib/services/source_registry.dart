@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -10,6 +11,7 @@ import 'drama_site_content.dart';
 import 'drama_sites.dart';
 import 'engine_site_content.dart';
 import 'jar_bridge.dart';
+import 'zakatv_builtin.dart';
 import 'js_bridge.dart';
 import 'py_bridge.dart';
 import 'legado_content.dart';
@@ -174,9 +176,11 @@ class SourceRegistry {
 
   static const _customKey = 'juhe_custom_sources';
   static const _disabledKey = 'juhe_disabled_builtin_sites';
+  static const _deletedBuiltinKey = 'juhe_deleted_builtin_jar';
 
   List<SourceEntry> _custom = const [];
   Set<String> _disabledBuiltin = {};
+  Set<String> _deletedBuiltin = {};
   bool _loaded = false;
 
   List<SourceEntry> get custom => List.unmodifiable(_custom);
@@ -206,9 +210,74 @@ class SourceRegistry {
           };
         }
       }
+      final deletedRaw = preferences.getString(_deletedBuiltinKey);
+      if (deletedRaw != null && deletedRaw.isNotEmpty) {
+        final decoded = jsonDecode(deletedRaw);
+        if (decoded is List) {
+          _deletedBuiltin = {
+            for (final entry in decoded)
+              if (entry is String) entry,
+          };
+        }
+      }
     } catch (_) {}
     _loaded = true;
     _registerCustomSites();
+  }
+
+  /// 把 ZakaTV jar 内置站补进登记表，幂等：已有的不动（开关状态保留），
+  /// 用户删过的（墓碑）不再复活。jar 文件本身不进登记表，播放时由
+  /// clientFor 按 asset 标记现取现拷。
+  Future<void> ensureBuiltinJarSites() async {
+    await load();
+    final existing = {for (final entry in _custom) entry.id};
+    var added = false;
+    void addBuiltin(
+      ZakatvBuiltinSite site,
+      String jarId,
+      String jarAsset,
+      String jarMd5, {
+      bool youtubeConfig = false,
+    }) {
+      final id = JarSiteSpec.siteIdFor(jarId, site.key);
+      if (existing.contains(id) || _deletedBuiltin.contains(id)) return;
+      existing.add(id);
+      _custom = [
+        ..._custom,
+        SourceEntry(
+          id: id,
+          name: site.name,
+          kind: SourceKind.jarImport,
+          address: jarAsset,
+          detail: 'ZakaTV jar 内置 · ${site.className}',
+          extra: {
+            'configId': jarId,
+            'className': site.className,
+            'jarUrl': 'asset:$jarAsset',
+            'md5': jarMd5,
+            'ext': site.ext,
+            'contentType': site.contentTypeKey,
+            'builtin': true,
+            if (youtubeConfig) 'youtubeConfig': true,
+          },
+        ),
+      ];
+      added = true;
+    }
+
+    for (final site in zakatvBuiltinSites) {
+      addBuiltin(site, zakatvJarId, zakatvJarAsset, zakatvJarMd5);
+    }
+    addBuiltin(
+      youtubeBuiltinSite,
+      youtubeJarId,
+      youtubeJarAsset,
+      youtubeJarMd5,
+      youtubeConfig: true,
+    );
+    if (!added) return;
+    _registerCustomSites();
+    await _persist();
   }
 
   void _registerCustomSites() {
@@ -236,6 +305,10 @@ class SourceRegistry {
       await preferences.setString(
         _disabledKey,
         jsonEncode(_disabledBuiltin.toList()),
+      );
+      await preferences.setString(
+        _deletedBuiltinKey,
+        jsonEncode(_deletedBuiltin.toList()),
       );
     } catch (_) {}
   }
@@ -300,6 +373,24 @@ class SourceRegistry {
       hash = ((hash << 5) - hash + code) & 0x7fffffff;
     }
     return 'custom_$hash';
+  }
+
+  static String _sanitizeFileBase(String raw) {
+    final cleaned = raw
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9_]+'), '_')
+        .replaceAll(RegExp(r'_+'), '_')
+        .replaceAll(RegExp(r'^_+|_+$'), '');
+    return cleaned.isEmpty ? 'site' : cleaned;
+  }
+
+  static Future<void> _deleteQuietly(String path) async {
+    try {
+      final file = File(path);
+      if (await file.exists()) {
+        await file.delete();
+      }
+    } catch (_) {}
   }
 
   Future<SourceEntry> addCustomMaccms(
@@ -537,6 +628,9 @@ class SourceRegistry {
     String name,
     String source, {
     ContentType contentType = ContentType.mixed,
+    String? fileBaseName,
+    bool oneClick = false,
+    String? downloadPath,
   }) async {
     await load();
     final text = source.trim();
@@ -547,7 +641,14 @@ class SourceRegistry {
     final directory = await getApplicationSupportDirectory();
     final dir = Directory('${directory.path}/imported_py');
     if (!await dir.exists()) await dir.create(recursive: true);
-    final file = File('${dir.path}/$id.py');
+    var base = _sanitizeFileBase(fileBaseName ?? id);
+    var fileName = '$base.py';
+    var counter = 2;
+    while (await File('${dir.path}/$fileName').exists()) {
+      fileName = '${base}_$counter.py';
+      counter++;
+    }
+    final file = File('${dir.path}/$fileName');
     await file.writeAsString(text);
     var detail = 'Python 蜘蛛 · 已导入';
     final validation = await PyBridge.validate(text);
@@ -558,14 +659,16 @@ class SourceRegistry {
     }
     final entry = SourceEntry(
       id: id,
-      name: name.trim().isEmpty ? '$id.py' : name.trim(),
+      name: name.trim().isEmpty ? fileName : name.trim(),
       kind: SourceKind.pyImport,
-      address: '$id.py',
+      address: fileName,
       detail: detail,
       extra: {
         'path': file.path,
         'ext': '',
         'contentType': contentType.key,
+        if (oneClick) 'oneClick': true,
+        'downloadPath': ?downloadPath,
       },
     );
     _custom = [..._custom, entry];
@@ -745,11 +848,18 @@ class SourceRegistry {
       for (final entry in _custom)
         if (entry.id != id && entry.extra['remoteConfigId'] != id) entry,
     ];
+    if (removed?.extra['builtin'] == true) {
+      // 内置 jar 站删后记墓碑，下次补齐不再复活；下载文件夹原文件不在此处处理。
+      _deletedBuiltin.add(id);
+    }
     _registerCustomSites();
     await _persist();
     if (removed?.kind == SourceKind.pyImport) {
       final path = removed?.extra['path'] as String? ?? '';
       if (path.isNotEmpty) unawaited(PyBridge.dispose(path));
+      if (removed?.extra['oneClick'] == true && path.isNotEmpty) {
+        unawaited(_deleteQuietly(path));
+      }
     }
     if (removed?.kind == SourceKind.jarImport) {
       unawaited(JarBridge.release(id));
@@ -825,10 +935,25 @@ class SourceRegistry {
       }
       if (custom.kind == SourceKind.jarImport) {
         final className = custom.extra['className'] as String? ?? '';
-        final jarUrl = custom.extra['jarUrl'] as String? ?? '';
+        var jarUrl = custom.extra['jarUrl'] as String? ?? '';
         final configId = custom.extra['configId'] as String? ?? '';
         if (className.isEmpty || jarUrl.isEmpty || configId.isEmpty) {
           return null;
+        }
+        if (jarUrl.startsWith('asset:')) {
+          // 内置 jar 站：asset 不是文件路径，播放时现拷到应用目录再走本地路径。
+          jarUrl = await JarBridge.resolveBuiltinJarAsset(
+            assetPath: jarUrl.substring('asset:'.length),
+            configId: configId,
+            md5: custom.extra['md5'] as String? ?? '',
+          );
+        }
+        var ext = custom.extra['ext'] as String? ?? '';
+        if (custom.extra['youtubeConfig'] == true) {
+          // YouTube 站的 ext 是 84KB 的 youtube3.json，使用时现取，不进登记表。
+          try {
+            ext = await rootBundle.loadString(youtubeConfigAsset);
+          } catch (_) {}
         }
         return JarSiteContentClient(
           JarSiteSpec(
@@ -838,7 +963,7 @@ class SourceRegistry {
             className: className,
             jarUrl: jarUrl,
             jarMd5: custom.extra['md5'] as String? ?? '',
-            ext: custom.extra['ext'] as String? ?? '',
+            ext: ext,
           ),
         );
       }
