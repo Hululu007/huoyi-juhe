@@ -83,34 +83,15 @@ void main() {
     });
   });
 
-  group('category entry (alx.xml i_y)', () {
-    testWidgets('renders beside the search bar and reports taps', (
-      tester,
-    ) async {
-      var taps = 0;
-      await pump(tester, HomeHero(onSearch: () {}, onCategory: () => taps++));
-
-      // 文案与图标在搜索行右侧（`i_y`：14dp 图标 + 14sp「分类」）。
-      expect(find.text(HomeHero.categoryLabel), findsOneWidget);
-      expect(
-        tester.getTopRight(find.byKey(const Key('home_category_button'))).dx,
-        greaterThan(
-          tester.getTopRight(find.byKey(const Key('home_search_button'))).dx,
-        ),
-      );
-
-      await tester.tap(find.byKey(const Key('home_category_button')));
-      await tester.pump();
-      expect(taps, 1);
-    });
-
-    testWidgets('takes no space without a callback (i_y gone)', (tester) async {
+  group('search row has no midnight entry', () {
+    testWidgets('no midnight pill beside the search bar', (tester) async {
       await pump(
         tester,
         const HomeHero(onSearch: _Noop._),
       );
 
-      expect(find.text(HomeHero.categoryLabel), findsNothing);
+      expect(find.text('午夜区'), findsNothing);
+      expect(find.byKey(const Key('home_category_button')), findsNothing);
     });
   });
 

@@ -5,8 +5,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../services/midnight_gate.dart';
 import '../widgets/home/home_design.dart';
 import '../widgets/settings/settings_widgets.dart';
+import 'midnight_page.dart';
 
 /// About page styled after PiliPlus: centered logo/name header, a short
 /// intro paragraph, then grouped card rows (version, updates, licenses,
@@ -207,8 +209,92 @@ class _AboutInfoCard extends StatelessWidget {
           onTap: () =>
               _launchExternalUrl(context, 'https://github.com/ch6vip/fqapp'),
         ),
+        SettingsRow(
+          icon: LucideIcons.message_circle,
+          iconTile: true,
+          title: '问题反馈',
+          subtitle: '遇到问题？点此反馈',
+          onTap: () => _askMidnightPasscode(context),
+        ),
       ],
     );
+  }
+}
+
+/// 伪装入口：问题反馈行点开是验证框，口令和进门密码两道都对了
+/// 才激活午夜区并打开它；哪道错了只在该框里报错，不激活、不打开。
+Future<void> _askMidnightPasscode(BuildContext context) async {
+  var passcodeError = '';
+  var passwordError = '';
+  final passcodeController = TextEditingController();
+  final passwordController = TextEditingController();
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (dialogContext, setDialogState) {
+        void submit() {
+          final passOk =
+              MidnightGate.checkPasscode(passcodeController.text);
+          final passwordOk =
+              MidnightGate.checkEntryPassword(passwordController.text);
+          if (passOk && passwordOk) {
+            Navigator.of(dialogContext).pop(true);
+          } else {
+            setDialogState(() {
+              passcodeError = passOk ? '' : '口令不正确';
+              passwordError = passwordOk ? '' : '密码不正确';
+            });
+          }
+        }
+
+        return AlertDialog(
+          title: const Text('请输入口令和密码'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: passcodeController,
+                obscureText: true,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  hintText: '口令',
+                  errorText: passcodeError.isEmpty ? null : passcodeError,
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: passwordController,
+                obscureText: true,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  hintText: '密码',
+                  errorText: passwordError.isEmpty ? null : passwordError,
+                ),
+                onSubmitted: (_) => submit(),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('取消'),
+            ),
+            FilledButton(onPressed: submit, child: const Text('确认')),
+          ],
+        );
+      },
+    ),
+  );
+  passcodeController.dispose();
+  passwordController.dispose();
+  if (ok == true && context.mounted) {
+    await MidnightGate.save(true);
+    if (context.mounted) {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const MidnightPage()),
+      );
+    }
   }
 }
 

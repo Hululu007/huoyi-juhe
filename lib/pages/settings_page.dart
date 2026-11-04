@@ -22,7 +22,6 @@ import 'api_service_page.dart';
 import 'cached_books_page.dart';
 import 'cached_dramas_page.dart';
 import 'library_backup_page.dart';
-import 'midnight_page.dart';
 import 'one_click_py_page.dart';
 import 'settings_category_page.dart';
 import 'source_management_page.dart';
@@ -127,38 +126,6 @@ class SettingsPage extends StatelessWidget {
               MaterialPageRoute(
                 builder: (_) => const OneClickPyPage(),
               ),
-            ),
-          ),
-        ],
-      ),
-      SettingsCategory(
-        icon: LucideIcons.moon,
-        title: '午夜区',
-        subtitle: '成人站源与成人直播源的开关',
-        items: [
-          SettingsItem(
-            icon: LucideIcons.moon,
-            title: '开启午夜区',
-            subtitle: '关闭后成人站源与成人直播源不再出现',
-            trailingBuilder: (context) => ValueListenableBuilder<bool>(
-              valueListenable: MidnightGate.activated,
-              builder: (context, value, _) => SettingsSwitch(
-                value: value,
-                semanticLabel: '开启午夜区',
-                onChanged: (v) => unawaited(MidnightGate.save(v)),
-              ),
-            ),
-            onTap: (context, setState) {
-              unawaited(MidnightGate.save(!MidnightGate.activated.value));
-            },
-          ),
-          SettingsItem(
-            icon: LucideIcons.moon_star,
-            title: '打开午夜区',
-            subtitle: '午夜区内的站点切换与成人直播源',
-            onTap: (context, _) => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const MidnightPage()),
             ),
           ),
         ],

@@ -110,12 +110,9 @@ class _MidnightPageState extends State<MidnightPage> {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 24),
-              FilledButton(
-                onPressed: () async {
-                  await MidnightGate.save(true);
-                  if (mounted) setState(() => _activated = true);
-                },
-                child: const Text('开启午夜区'),
+              OutlinedButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('返回'),
               ),
             ],
           ),
@@ -148,7 +145,7 @@ class _MidnightPageState extends State<MidnightPage> {
             tooltip: '关闭午夜区',
             onPressed: () async {
               await MidnightGate.save(false);
-              if (mounted) setState(() => _activated = false);
+              if (context.mounted) Navigator.of(context).pop();
             },
           ),
         ],

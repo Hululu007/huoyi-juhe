@@ -34,4 +34,13 @@ class MidnightGate {
   }
 
   static bool isAdultName(String name) => name.startsWith('🔞');
+
+  static const passcode = '888888';
+
+  static bool checkPasscode(String input) => input.trim() == passcode;
+
+  static const entryPassword = '123456';
+
+  static bool checkEntryPassword(String input) =>
+      input.trim() == entryPassword;
 }

@@ -32,7 +32,6 @@ import '../widgets/home/home_skeleton.dart';
 import '../widgets/home/home_tab_bar.dart';
 import '../widgets/tab_swipe_area.dart';
 import 'cached_book_reader.dart';
-import 'midnight_page.dart';
 import 'detail_page.dart';
 import 'rank_page.dart';
 import 'search_page.dart';
@@ -416,7 +415,6 @@ class _HomePageState extends ConsumerState<HomePage> {
             ? dramaSiteById(_dramaSiteId).name
             : null,
         onSiteTap: _openSiteList,
-        onCategory: _openCategory,
         cueLoader: widget.cueLoader,
       ),
     ),
@@ -894,15 +892,6 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
-  /// 官方搜索行右上角的「分类」入口（`alx.xml` `i_y`）。官方点它走
-  /// `turnToCategoryTab` → `//category` 路由（`BookCategoryActivity` →
-  /// `KmpCategoryFragment`）；这里打开同结构的分类页。
-  void _openCategory() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const MidnightPage()),
-    );
-  }
 
   /// The rank board. Its catalogue (and the rank id the entries endpoint needs)
   /// only exist inside the novel homepage response the app already fetches.

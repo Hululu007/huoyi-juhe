@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../models/media_item.dart';
-import '../../pages/midnight_page.dart';
 import '../../services/drama_site_content.dart';
 import '../../services/drama_site_play.dart';
 import '../../services/drama_sites.dart';
@@ -85,7 +84,7 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
       barrierLabel: '筛选',
       barrierColor: Colors.black54,
       transitionDuration: const Duration(milliseconds: 250),
-      pageBuilder: (context, _, __) {
+      pageBuilder: (context, _, _) {
         final width = MediaQuery.sizeOf(context).width * 0.85;
         return Align(
           alignment: Alignment.centerRight,
@@ -267,14 +266,6 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
           child: Column(
             children: [
               const Text('该站属于午夜区，午夜区未开启时不显示'),
-              const SizedBox(height: 12),
-              FilledButton(
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const MidnightPage()),
-                ),
-                child: const Text('打开午夜区'),
-              ),
             ],
           ),
         ),
