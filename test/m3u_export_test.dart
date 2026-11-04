@@ -376,6 +376,88 @@ void main() {
       );
     });
 
+    test('筛选放开到全部影视站：采集/JS/规则/书源视频站进，非视频内容类型不进', () {
+      final entries = [
+        const SourceEntry(
+          id: 'maccms1',
+          name: '采集站',
+          kind: SourceKind.customMaccms,
+          address: 'https://example.test',
+          extra: {'contentType': 'video'},
+        ),
+        const SourceEntry(
+          id: 'js1',
+          name: 'JS 站',
+          kind: SourceKind.jsImport,
+          extra: {'path': '/tmp/x.js', 'contentType': 'video'},
+        ),
+        const SourceEntry(
+          id: 'xbpq1',
+          name: '规则站',
+          kind: SourceKind.xbpqImport,
+          extra: {'path': '/tmp/x.json', 'contentType': 'mixed'},
+        ),
+        const SourceEntry(
+          id: 'legado1',
+          name: '书源站',
+          kind: SourceKind.legadoImport,
+          extra: {'path': '/tmp/x.json', 'contentType': 'video'},
+        ),
+        const SourceEntry(
+          id: 'js_novel',
+          name: 'JS 小说站',
+          kind: SourceKind.jsImport,
+          extra: {'path': '/tmp/n.js', 'contentType': 'novel'},
+        ),
+        const SourceEntry(
+          id: 'maccms_noaddr',
+          name: '无地址采集站',
+          kind: SourceKind.customMaccms,
+          extra: {'contentType': 'video'},
+        ),
+      ];
+      expect(
+        [for (final e in filterM3uExportSites(entries, true)) e.name],
+        ['采集站', 'JS 站', '规则站', '书源站'],
+      );
+    });
+
+    test('内置站导出目标：除番茄短剧外全进，午夜未开滤成人站，红果放行非 m3u8', () {
+      const sites = [
+        DramaSite('original', '番茄短剧'),
+        DramaSite('hongguo', '红果'),
+        DramaSite('fanguo', '饭果'),
+        DramaSite('🔞adult', '🔞成人站'),
+      ];
+      final open = m3uExportBuiltinTargets(sites, (_) => true, true);
+      expect(
+        [for (final t in open) t.siteId],
+        ['hongguo', 'fanguo', '🔞adult'],
+      );
+      expect(
+        open.firstWhere((t) => t.siteId == 'hongguo').allowNonM3u8,
+        isTrue,
+      );
+      expect(
+        open.firstWhere((t) => t.siteId == 'fanguo').allowNonM3u8,
+        isFalse,
+      );
+      final closed = m3uExportBuiltinTargets(sites, (_) => true, false);
+      expect(
+        [for (final t in closed) t.siteId],
+        ['hongguo', 'fanguo'],
+      );
+      final disabled = m3uExportBuiltinTargets(
+        sites,
+        (id) => id != 'fanguo',
+        true,
+      );
+      expect(
+        [for (final t in disabled) t.siteId],
+        ['hongguo', '🔞adult'],
+      );
+    });
+
     test('jar 站筛选：配齐三件才进，includeJar 关时不进', () {
       const jarReady = SourceEntry(
         id: 'jar_ok',

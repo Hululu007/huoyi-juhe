@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'drama_site_content.dart';
+import 'drama_sites.dart';
 import 'm3u_export_db.dart';
 import 'm3u_export_download.dart';
 import 'midnight_gate.dart';
@@ -123,16 +124,65 @@ List<SourceEntry> filterM3uExportSites(
         (entry.extra['jarUrl'] as String? ?? '').isNotEmpty;
   }
 
+  bool isVideoEntry(SourceEntry entry) {
+    return entry.contentType == ContentType.video ||
+        entry.contentType == ContentType.mixed;
+  }
+
+  bool hasLocalCopy(SourceEntry entry) {
+    return (entry.extra['path'] as String? ?? '').isNotEmpty;
+  }
+
   return [
     for (final entry in entries)
       if (entry.enabled &&
+          isVideoEntry(entry) &&
           (gateOpen || !MidnightGate.isAdultName(entry.name)) &&
-          ((entry.kind == SourceKind.pyImport &&
-                  (entry.extra['path'] as String? ?? '').isNotEmpty) ||
+          ((entry.kind == SourceKind.pyImport && hasLocalCopy(entry)) ||
               (includeJar &&
                   entry.kind == SourceKind.jarImport &&
-                  jarReady(entry))))
+                  jarReady(entry)) ||
+              (entry.kind == SourceKind.customMaccms &&
+                  entry.address.isNotEmpty) ||
+              (entry.kind == SourceKind.jsImport && hasLocalCopy(entry)) ||
+              (entry.kind == SourceKind.xbpqImport && hasLocalCopy(entry)) ||
+              (entry.kind == SourceKind.legadoImport && hasLocalCopy(entry))))
         entry,
+  ];
+}
+
+/// 内置影视站的导出目标：全部内置短剧站都可导出进本地库，
+/// 只有番茄短剧除外——它走原生番茄接口，没有蜘蛛客户端，
+/// 导出链（分类、列表、详情、取流）接不上。
+class M3uExportBuiltinTarget {
+  const M3uExportBuiltinTarget({
+    required this.siteId,
+    required this.label,
+    required this.allowNonM3u8,
+  });
+
+  final String siteId;
+  final String label;
+
+  /// 红果走网页线 + 360p 兜底，会出非 m3u8 直链，故放行。
+  final bool allowNonM3u8;
+}
+
+List<M3uExportBuiltinTarget> m3uExportBuiltinTargets(
+  List<DramaSite> sites,
+  bool Function(String siteId) isEnabled,
+  bool gateOpen,
+) {
+  return [
+    for (final site in sites)
+      if (site.id != 'original' &&
+          isEnabled(site.id) &&
+          (gateOpen || !MidnightGate.isAdultName(site.name)))
+        M3uExportBuiltinTarget(
+          siteId: site.id,
+          label: site.name,
+          allowNonM3u8: site.id == 'hongguo',
+        ),
   ];
 }
 

@@ -244,19 +244,36 @@ class _OneClickPyPageState extends State<OneClickPyPage> {
       gateOpen,
       includeJar: JarBridge.supported,
     );
+    String subtitleFor(SourceKind kind) => switch (kind) {
+      SourceKind.jarImport => 'jar 站',
+      SourceKind.pyImport => 'py 站',
+      SourceKind.customMaccms => '采集站',
+      SourceKind.jsImport => 'JS 站',
+      SourceKind.xbpqImport => '规则站',
+      SourceKind.legadoImport => '书源站',
+      _ => '登记站',
+    };
     final targets = <_M3uExportTarget>[
-      _M3uExportTarget(
-        siteId: 'hongguo',
-        label: '红果',
-        subtitle: '网页线 + 360p 兜底，非 m3u8 直链会注明条数',
-        allowNonM3u8: true,
-        resolveClient: () async => HongguoContentClient(),
-      ),
+      for (final builtin in m3uExportBuiltinTargets(
+        dramaSites,
+        SourceRegistry.instance.isBuiltinEnabled,
+        gateOpen,
+      ))
+        _M3uExportTarget(
+          siteId: builtin.siteId,
+          label: builtin.label,
+          subtitle: builtin.siteId == 'hongguo'
+              ? '网页线 + 360p 兜底，非 m3u8 直链会注明条数'
+              : '内置站',
+          allowNonM3u8: builtin.allowNonM3u8,
+          resolveClient: () =>
+              SourceRegistry.instance.clientFor(builtin.siteId),
+        ),
       for (final entry in entries)
         _M3uExportTarget(
           siteId: entry.id,
           label: entry.name,
-          subtitle: entry.kind == SourceKind.jarImport ? 'jar 站' : 'py 站',
+          subtitle: subtitleFor(entry.kind),
           allowNonM3u8: false,
           resolveClient: () => SourceRegistry.instance.clientFor(entry.id),
         ),
