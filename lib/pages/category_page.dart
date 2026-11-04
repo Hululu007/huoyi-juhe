@@ -320,7 +320,7 @@ class _TopBar extends StatelessWidget {
       height: 48,
       child: Row(
         children: [
-          // 桌面壳层顶栏已经有「← 什锦铺」，这里再放一个返回键就是两个
+          // 桌面壳层顶栏已经有「← 火蚁聚合」，这里再放一个返回键就是两个
           // 箭头上下叠着。手机上保留官方形态。
           if (isWindowsDesktop)
             const SizedBox(width: 16)

@@ -90,7 +90,7 @@ class DesktopPlatform with WindowListener {
           min(440, available.height),
         ),
         center: true,
-        title: '什锦铺',
+        title: '火蚁聚合',
       ),
       () async {
         await windowManager.show();

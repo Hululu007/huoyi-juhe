@@ -42,7 +42,7 @@ class AboutPage extends StatelessWidget {
           const _AboutHeading(),
           const SizedBox(height: 16),
           Text(
-            '什锦铺把小说、短剧、漫剧、漫画和听书聚到一起。'
+            '火蚁聚合把小说、短剧、漫剧、漫画和听书聚到一起。'
             '所有签名与解密都在你的手机本地完成，不依赖第三方服务。',
             style: theme.textTheme.bodyMedium?.copyWith(
               color: palette.muted,
@@ -130,7 +130,7 @@ class _AboutHeading extends StatelessWidget {
     return Column(
       children: [
         Text(
-          '什锦铺',
+          '火蚁聚合',
           textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: 22,
@@ -194,9 +194,9 @@ class _AboutInfoCard extends StatelessWidget {
           subtitle: 'GPL-3.0 与第三方组件许可',
           onTap: () => showLicensePage(
             context: context,
-            applicationName: '什锦铺',
+            applicationName: '火蚁聚合',
             applicationVersion: AboutPage.versionText,
-            applicationLegalese: '什锦铺基于 GPL-3.0 协议开源，第三方组件遵循其各自的许可协议。',
+            applicationLegalese: '火蚁聚合基于 GPL-3.0 协议开源，第三方组件遵循其各自的许可协议。',
           ),
         ),
         SettingsRow(

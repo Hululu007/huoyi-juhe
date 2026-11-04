@@ -131,7 +131,7 @@ class DesktopAppFrame extends StatelessWidget {
                           ),
                           const SizedBox(width: 8),
                           const Text(
-                            '什锦铺',
+                            '火蚁聚合',
                             style: TextStyle(
                               fontWeight: FontWeight.w700,
                               fontSize: 17,
