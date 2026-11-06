@@ -535,15 +535,9 @@ pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
         info.push_str(&format!("{k}: {v}"));
     }
     let mut performers: Vec<String> = Vec::new();
-    let perf_re = Regex::new(
-        "/zh/[a-z0-9-]+_avperformer/\\d+/[^'\"]+['\"]\\s*>(.*?)</a>",
-    )
-    .unwrap();
+    let perf_re = Regex::new("/zh/[a-z0-9-]+_avperformer/\\d+/[^'\"]+['\"]\\s*>(.*?)</a>").unwrap();
     for cap in perf_re.captures_iter(&html) {
-        let name = cap
-            .get(1)
-            .map(|m| plain(m.as_str()))
-            .unwrap_or_default();
+        let name = cap.get(1).map(|m| plain(m.as_str())).unwrap_or_default();
         if name.is_empty() || performers.contains(&name) {
             continue;
         }
@@ -659,7 +653,9 @@ pub(crate) async fn play(video_id: &str) -> ApiResult<Value> {
             src = format!("https:{rest}");
         }
         if src.contains(".m3u8") {
-            return Ok(json!({"url": src, "header": {"User-Agent": UA, "Referer": format!("{host}/zh/")}}));
+            return Ok(
+                json!({"url": src, "header": {"User-Agent": UA, "Referer": format!("{host}/zh/")}}),
+            );
         }
         last_err = "播放页未返回 m3u8".into();
     }
@@ -709,14 +705,8 @@ mod tests {
     #[test]
     fn pick_source_prefers_q() {
         let html = "src: '//cdn.example.com/a_720.m3u8' size: 720, src: '//cdn.example.com/a_1080.m3u8' size: 1080";
-        assert_eq!(
-            pick_source(html, "1080"),
-            "//cdn.example.com/a_1080.m3u8"
-        );
-        assert_eq!(
-            pick_source(html, "480"),
-            "//cdn.example.com/a_720.m3u8"
-        );
+        assert_eq!(pick_source(html, "1080"), "//cdn.example.com/a_1080.m3u8");
+        assert_eq!(pick_source(html, "480"), "//cdn.example.com/a_720.m3u8");
     }
 
     #[test]
@@ -736,8 +726,10 @@ mod tests {
         assert_eq!(cards.len(), 1);
         assert_eq!(cards[0]["id"], "/zh/censored_content/340538/SDNM-546.html");
         assert_eq!(cards[0]["title"], "SDNM-546 玉井晴香");
-        assert_eq!(cards[0]["cover"], "https://stimg1.example.com/s/censored/425218_SDNM-546.jpg");
+        assert_eq!(
+            cards[0]["cover"],
+            "https://stimg1.example.com/s/censored/425218_SDNM-546.jpg"
+        );
         assert_eq!(cards[0]["remark"], "2026-11-05");
     }
 }
-

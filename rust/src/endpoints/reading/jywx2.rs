@@ -33,29 +33,21 @@ const CATEGORIES: [(&str, &str); 11] = [
 
 static TAG_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"<[^>]+>").unwrap());
 static WS_RUN_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s+").unwrap());
-static FU_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"FU1\("([^"]+)"\)"#).unwrap());
+static FU_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"FU1\("([^"]+)"\)"#).unwrap());
 static ROW_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?s)<a href="/artdetail-([^"]+)/" class="art-item-row">(.*?)</a>"#)
-        .unwrap()
+    Regex::new(r#"(?s)<a href="/artdetail-([^"]+)/" class="art-item-row">(.*?)</a>"#).unwrap()
 });
-static COL_NAME_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"col-name">([^<]*)"#).unwrap());
-static COL_TIME_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"col-time">([^<]*)"#).unwrap());
-static HOME_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"<a href="/artdetail-([^"]+)/">([^<]+)</a>"#).unwrap()
-});
-static TITLE_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?s)<h1 class="read-title">(.*?)</h1>"#).unwrap()
-});
-static BODY_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?s)<div id="read-content">(.*?)</div>\s*<div"#).unwrap()
-});
+static COL_NAME_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"col-name">([^<]*)"#).unwrap());
+static COL_TIME_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"col-time">([^<]*)"#).unwrap());
+static HOME_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"<a href="/artdetail-([^"]+)/">([^<]+)</a>"#).unwrap());
+static TITLE_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?s)<h1 class="read-title">(.*?)</h1>"#).unwrap());
+static BODY_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?s)<div id="read-content">(.*?)</div>\s*<div"#).unwrap());
 static BODY_FALLBACK_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"(?s)<div id="read-content">(.*)"#).unwrap());
-static TOKEN_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"artdetail-([^/]+)/?").unwrap());
+static TOKEN_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"artdetail-([^/]+)/?").unwrap());
 
 fn fu_unpack(raw: &str) -> String {
     let Some(cap) = FU_RE.captures(raw) else {
@@ -252,12 +244,7 @@ pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
 }
 
 pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
-    let token = series_id
-        .split('$')
-        .last()
-        .unwrap_or("")
-        .trim()
-        .to_string();
+    let token = series_id.split('$').last().unwrap_or("").trim().to_string();
     if token.is_empty() {
         return Err(ApiError::BadRequest("missing id parameter".into()));
     }

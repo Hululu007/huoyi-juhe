@@ -381,11 +381,7 @@ pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
         } else {
             format!("第{n}集")
         };
-        episodes.push(episode_json(
-            &format!("{series_id}:{n}"),
-            &label,
-            series_id,
-        ));
+        episodes.push(episode_json(&format!("{series_id}:{n}"), &label, series_id));
     }
     episodes.sort_by_key(|e| {
         str_of(&e["video_id"])
@@ -453,7 +449,9 @@ pub(crate) async fn play(video_id: &str) -> ApiResult<Value> {
     };
     let url = format!("{HOST}/player/drama/{series_id}/ep/{ep}");
     let data = fetch_json(&url).await?;
-    let can_watch = get(&data, "canWatch").map(|v| v.as_bool().unwrap_or(false)).unwrap_or(false);
+    let can_watch = get(&data, "canWatch")
+        .map(|v| v.as_bool().unwrap_or(false))
+        .unwrap_or(false);
     let src = text_of(&data, &["src"]);
     if !can_watch || src.is_empty() {
         return Err(ApiError::Internal(format!(
@@ -503,9 +501,15 @@ mod tests {
             .as_str()
             .unwrap()
             .starts_with("https://duanju.one/storage/covers/"));
-        assert_eq!(items[0]["remark"], "部分付费 · 35 集 · 更新于 1天前 · 凌辱 / 剧情");
+        assert_eq!(
+            items[0]["remark"],
+            "部分付费 · 35 集 · 更新于 1天前 · 凌辱 / 剧情"
+        );
         assert_eq!(items[1]["id"], "5sisters-with-me-QR3POPJM");
-        assert_eq!(items[1]["remark"], "免费 · 10 集 · 更新于 2天前 · 小编推荐 / 幻想");
+        assert_eq!(
+            items[1]["remark"],
+            "免费 · 10 集 · 更新于 2天前 · 小编推荐 / 幻想"
+        );
     }
 
     #[test]
@@ -520,7 +524,10 @@ mod tests {
         assert_eq!(catalog_url("all", 1), "https://duanju.one/");
         assert_eq!(catalog_url("all", 2), "https://duanju.one/?page=2");
         assert_eq!(catalog_url("free", 1), "https://duanju.one/?filter=free");
-        assert_eq!(catalog_url("free", 8), "https://duanju.one/?filter=free&page=8");
+        assert_eq!(
+            catalog_url("free", 8),
+            "https://duanju.one/?filter=free&page=8"
+        );
         assert_eq!(catalog_url("vip", 1), "https://duanju.one/?filter=vip");
         assert_eq!(
             catalog_url("completed", 2),
@@ -541,12 +548,7 @@ mod tests {
         assert_eq!(tags_of(DETAIL_HTML), vec!["凌辱", "剧情"]);
         let eps: Vec<(i64, bool)> = ep_anchor_re()
             .captures_iter(DETAIL_HTML)
-            .map(|c| {
-                (
-                    c[2].parse::<i64>().unwrap(),
-                    c[1].contains("episode-paid"),
-                )
-            })
+            .map(|c| (c[2].parse::<i64>().unwrap(), c[1].contains("episode-paid")))
             .collect();
         assert_eq!(eps, vec![(1, false), (11, true), (35, true)]);
     }
@@ -582,8 +584,7 @@ mod tests {
             bare_url(&text_of(&free, &["src"])),
             "https://cdn.duanju.one/2026/10/5sisterwithme/ep-005.mp4"
         );
-        let locked: Value =
-            serde_json::from_str(r#"{"canWatch":false,"src":null}"#).unwrap();
+        let locked: Value = serde_json::from_str(r#"{"canWatch":false,"src":null}"#).unwrap();
         assert!(!get(&locked, "canWatch").unwrap().as_bool().unwrap());
         assert!(text_of(&locked, &["src"]).is_empty());
         let _ = arr_of(&free);

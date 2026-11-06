@@ -102,8 +102,9 @@ fn pct_encode_query(s: &str) -> String {
     let mut out = String::new();
     for b in s.as_bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~'
-            | b'/' => out.push(*b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
+                out.push(*b as char)
+            }
             _ => out.push_str(&format!("%{b:02X}")),
         }
     }
@@ -167,12 +168,18 @@ fn first_digits(id: &str) -> String {
 }
 
 pub(crate) async fn categories() -> ApiResult<Value> {
-    Ok(json!({"categories": CATEGORIES.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}))
+    Ok(
+        json!({"categories": CATEGORIES.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}),
+    )
 }
 
 pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
     let page = if page < 1 { 1 } else { page };
-    let tid = if category_id.is_empty() { "0" } else { category_id };
+    let tid = if category_id.is_empty() {
+        "0"
+    } else {
+        category_id
+    };
     let url = format!("{BASE_URL}/manga/library?type={tid}&complete=1&page={page}&orderby=1");
     let items = parse_list(&fetch(&url).await);
     let has_more = !items.is_empty();
@@ -295,7 +302,8 @@ mod tests {
 
     #[test]
     fn parse_list_skips_empty_titles() {
-        let page = r#"<a href="/manga/11">漫A</a><a href="/manga/12"></a><a href="/manga/11">漫A</a>"#;
+        let page =
+            r#"<a href="/manga/11">漫A</a><a href="/manga/12"></a><a href="/manga/11">漫A</a>"#;
         let items = parse_list(page);
         assert_eq!(items.len(), 1);
         assert_eq!(items[0]["id"], "11");

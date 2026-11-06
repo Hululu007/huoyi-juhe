@@ -41,28 +41,19 @@ const CATEGORIES: [(&str, &str); 19] = [
 ];
 
 static TAG_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"<[^>]+>").unwrap());
-static SCRIPT_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?s)<script[^>]*>.*?</script>").unwrap());
-static STYLE_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?s)<style[^>]*>.*?</style>").unwrap());
-static BR_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)<br\s*/?>").unwrap());
-static CLOSE_P_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)</p\s*>").unwrap());
-static SPACE_RUN_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"[ \t]+").unwrap());
+static SCRIPT_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?s)<script[^>]*>.*?</script>").unwrap());
+static STYLE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?s)<style[^>]*>.*?</style>").unwrap());
+static BR_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)<br\s*/?>").unwrap());
+static CLOSE_P_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)</p\s*>").unwrap());
+static SPACE_RUN_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"[ \t]+").unwrap());
 static WS_RUN_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s+").unwrap());
-static LINK_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"href="/article/(\d+)/"[^>]*>([^<]+)</a>"#).unwrap()
-});
-static FOOT_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?s)<div class="art-item-foot">.*?<span>([^<]+)</span>"#).unwrap()
-});
-static TITLE_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?s)<title>(.*?)</title>").unwrap());
-static ARTICLE_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?s)<article class="article">(.*?)</article>"#).unwrap()
-});
+static LINK_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"href="/article/(\d+)/"[^>]*>([^<]+)</a>"#).unwrap());
+static FOOT_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?s)<div class="art-item-foot">.*?<span>([^<]+)</span>"#).unwrap());
+static TITLE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?s)<title>(.*?)</title>").unwrap());
+static ARTICLE_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?s)<article class="article">(.*?)</article>"#).unwrap());
 
 async fn fetch(url: &str) -> String {
     let resp = match client() {

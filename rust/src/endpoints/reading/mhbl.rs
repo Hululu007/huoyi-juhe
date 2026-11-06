@@ -21,11 +21,7 @@ const BASE_URL: &str = "https://xn--uns.mhbl.buzz";
 const PREFIX: &str = "https://xn--uns.mhbl.buzz/acg/index.php";
 const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 
-const CATEGORIES: [(&str, &str); 3] = [
-    ("50", "完本"),
-    ("51", "同人志"),
-    ("52", "韩漫"),
-];
+const CATEGORIES: [(&str, &str); 3] = [("50", "完本"), ("51", "同人志"), ("52", "韩漫")];
 
 static HTTP: OnceLock<Option<reqwest::Client>> = OnceLock::new();
 
@@ -115,8 +111,9 @@ fn pct_encode_query(s: &str) -> String {
     let mut out = String::new();
     for b in s.as_bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~'
-            | b'/' => out.push(*b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
+                out.push(*b as char)
+            }
             _ => out.push_str(&format!("%{b:02X}")),
         }
     }
@@ -144,12 +141,11 @@ fn parse_list(page: &str) -> Vec<Value> {
     let mut seen: HashSet<String> = HashSet::new();
     let mut items = Vec::new();
     for block in page.split("<div class=\"card h-100\">").skip(1) {
-        let vid = match must_re(r#"href="/acg/index\.php/book/detail/id/(\d+)\.html""#)
-            .captures(block)
-        {
-            Some(caps) => caps[1].to_string(),
-            None => continue,
-        };
+        let vid =
+            match must_re(r#"href="/acg/index\.php/book/detail/id/(\d+)\.html""#).captures(block) {
+                Some(caps) => caps[1].to_string(),
+                None => continue,
+            };
         if !seen.insert(vid.clone()) {
             continue;
         }
@@ -162,8 +158,7 @@ fn parse_list(page: &str) -> Vec<Value> {
             None => String::new(),
         };
         let title = if title.is_empty() { vid.clone() } else { title };
-        let remark = match must_re(r#"<p class="card-subtitle[^>]*>([^<]+)</p>"#).captures(block)
-        {
+        let remark = match must_re(r#"<p class="card-subtitle[^>]*>([^<]+)</p>"#).captures(block) {
             Some(caps) => clean_collapse(&caps[1]),
             None => String::new(),
         };
@@ -189,7 +184,9 @@ fn parse_images(page: &str) -> Vec<String> {
 }
 
 pub(crate) async fn categories() -> ApiResult<Value> {
-    Ok(json!({"categories": CATEGORIES.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}))
+    Ok(
+        json!({"categories": CATEGORIES.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}),
+    )
 }
 
 pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
@@ -212,8 +209,7 @@ pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
 pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
     let vid = series_id.split(',').next().unwrap_or("").trim().to_string();
     let page = fetch(&format!("{PREFIX}/book/detail/id/{vid}.html")).await;
-    let mut title = match must_re(r#"<div class="card-header[^>]*>([^<]+)</div>"#).captures(&page)
-    {
+    let mut title = match must_re(r#"<div class="card-header[^>]*>([^<]+)</div>"#).captures(&page) {
         Some(caps) => clean_collapse(&caps[1]),
         None => String::new(),
     };
@@ -262,10 +258,7 @@ pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
 }
 
 pub(crate) async fn search(query: &str) -> ApiResult<Value> {
-    let url = format!(
-        "{PREFIX}/book/search/wd/{}.html",
-        pct_encode_query(query)
-    );
+    let url = format!("{PREFIX}/book/search/wd/{}.html", pct_encode_query(query));
     let items = parse_list(&fetch(&url).await);
     Ok(json!({"items": items}))
 }
@@ -326,7 +319,8 @@ mod tests {
 
     #[test]
     fn parse_images_skips_thumbnails() {
-        let page = "x //img.904174.xyz/a/1.jpg y //img.904174.xyz/t/2.jpg z //img.904174.xyz/a/1.jpg";
+        let page =
+            "x //img.904174.xyz/a/1.jpg y //img.904174.xyz/t/2.jpg z //img.904174.xyz/a/1.jpg";
         let imgs = parse_images(page);
         assert_eq!(imgs, vec!["https://img.904174.xyz/a/1.jpg"]);
     }

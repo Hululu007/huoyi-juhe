@@ -23,7 +23,9 @@ use serde_json::{json, Value};
 use crate::crypto::{aes_cbc_decrypt, aes_cbc_encrypt, pkcs7_pad, pkcs7_unpad};
 use crate::error::{ApiError, ApiResult};
 
-use super::{arr_of, category_json, client, episode_json, get, int_of, item_json, text_of, with_query};
+use super::{
+    arr_of, category_json, client, episode_json, get, int_of, item_json, text_of, with_query,
+};
 
 const PORTAL: &str = "https://portal.instruno.com/public2/json";
 const SITE: &str = "https://www.4hu.tv";
@@ -53,7 +55,10 @@ fn headers(referer: &str) -> Vec<(String, String)> {
             "Accept".to_string(),
             "application/json,text/plain,*/*".to_string(),
         ),
-        ("Accept-Language".to_string(), "zh-CN,zh;q=0.9,en;q=0.8".to_string()),
+        (
+            "Accept-Language".to_string(),
+            "zh-CN,zh;q=0.9,en;q=0.8".to_string(),
+        ),
         ("Referer".to_string(), referer.to_string()),
     ]
 }
@@ -66,9 +71,7 @@ fn decrypt_envelope(body: &Value) -> ApiResult<Value> {
     }
     let raw = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(data.trim())
-        .or_else(|_| {
-            base64::engine::general_purpose::URL_SAFE.decode(data.trim())
-        })
+        .or_else(|_| base64::engine::general_purpose::URL_SAFE.decode(data.trim()))
         .map_err(|_| ApiError::Internal("四虎响应 base64 解码失败".into()))?;
     let plain = aes_cbc_decrypt(&raw, KEY, IV);
     let unpadded = pkcs7_unpad(&plain, 16);
@@ -287,11 +290,7 @@ pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
             "l" => "/latest.json",
             _ => "/top/top.json",
         };
-        let data = fetch_json(
-            &format!("{PORTAL}{path}"),
-            "https://portal.instruno.com",
-        )
-        .await?;
+        let data = fetch_json(&format!("{PORTAL}{path}"), "https://portal.instruno.com").await?;
         let items = if let Some(a) = get(&data, "latest").and_then(arr_of) {
             list_from(a)
         } else if let Some(a) = get(&data, "data").and_then(arr_of) {
@@ -314,7 +313,11 @@ pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
         None => Vec::new(),
     };
     let last_page = int_of(&data, &["last_page"]);
-    let has_more = if last_page > 0 { page < last_page } else { false };
+    let has_more = if last_page > 0 {
+        page < last_page
+    } else {
+        false
+    };
     Ok(json!({"items": items, "has_more": has_more}))
 }
 
@@ -333,10 +336,7 @@ fn pick_detail_obj(data: &Value) -> Option<Value> {
 }
 
 pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
-    let num: String = series_id
-        .chars()
-        .filter(|c| c.is_ascii_digit())
-        .collect();
+    let num: String = series_id.chars().filter(|c| c.is_ascii_digit()).collect();
     let num: i64 = num.parse().unwrap_or(0);
     if num <= 0 {
         return Ok(json!({
@@ -444,11 +444,7 @@ pub(crate) async fn search(query: &str) -> ApiResult<Value> {
     for host in [SITE, "https://portal.instruno.com"] {
         let url = with_query(
             &format!("{host}/api/v2/search"),
-            &[
-                ("keyword", &keyword),
-                ("classid", "0"),
-                ("page", "1"),
-            ],
+            &[("keyword", &keyword), ("classid", "0"), ("page", "1")],
         );
         match fetch_json(&url, host).await {
             Ok(data) => {
@@ -503,7 +499,8 @@ mod tests {
 
     #[test]
     fn top_list_flattens() {
-        let data = json!({"day": [{"id": 1, "title": "a"}], "week": [{"id": 2, "title": "b"}], "n": 3});
+        let data =
+            json!({"day": [{"id": 1, "title": "a"}], "week": [{"id": 2, "title": "b"}], "n": 3});
         let items = top_list(&data);
         assert_eq!(items.len(), 2);
     }

@@ -214,10 +214,7 @@ async fn video_models() -> ApiResult<Vec<Value>> {
 }
 
 fn find_model(models: &[Value], tid: &str) -> Option<Value> {
-    models
-        .iter()
-        .find(|m| text_of(m, &["tid"]) == tid)
-        .cloned()
+    models.iter().find(|m| text_of(m, &["tid"]) == tid).cloned()
 }
 
 fn album_card(v: &Value) -> Option<Value> {
@@ -275,7 +272,9 @@ async fn album_list(body: Value, page: i64) -> ApiResult<Vec<Value>> {
 }
 
 pub(crate) async fn categories() -> ApiResult<Value> {
-    Ok(json!({"categories": CATS.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}))
+    Ok(
+        json!({"categories": CATS.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}),
+    )
 }
 
 pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
@@ -314,7 +313,12 @@ pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
                 } else {
                     format!("{hits}人气")
                 };
-                items.push(item_json(&format!("dir:host:{host_id}"), &name, &img, &remark));
+                items.push(item_json(
+                    &format!("dir:host:{host_id}"),
+                    &name,
+                    &img,
+                    &remark,
+                ));
             }
         }
         let has_more = items.len() == 10;
@@ -339,7 +343,8 @@ pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
         "audio:other" => "other",
         _ => "",
     };
-    let body = json!({"v": "radio_album_list", "type": "new", "category": category, "child_category": ""});
+    let body =
+        json!({"v": "radio_album_list", "type": "new", "category": category, "child_category": ""});
     let items = album_list(body, page).await?;
     let has_more = items.len() == 10;
     Ok(json!({"items": items, "has_more": has_more}))
@@ -369,7 +374,9 @@ pub(crate) async fn detail(id: &str) -> ApiResult<Value> {
     if let Some(tid) = id.strip_prefix("v:") {
         let models = video_models().await?;
         let Some(m) = find_model(&models, tid) else {
-            return Ok(json!({"id": id, "title": "", "cover": "", "synopsis": "", "extra": {}, "episodes": []}));
+            return Ok(
+                json!({"id": id, "title": "", "cover": "", "synopsis": "", "extra": {}, "episodes": []}),
+            );
         };
         let title = text_of(&m, &["subject"]);
         let cover = arr_of(get(&m, "images").unwrap_or(&Value::Null))

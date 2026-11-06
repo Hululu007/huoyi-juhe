@@ -36,7 +36,10 @@ fn headers() -> Vec<(String, String)> {
             "Accept".to_string(),
             "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8".to_string(),
         ),
-        ("Accept-Language".to_string(), "en-US,en;q=0.9,zh-CN;q=0.8".to_string()),
+        (
+            "Accept-Language".to_string(),
+            "en-US,en;q=0.9,zh-CN;q=0.8".to_string(),
+        ),
         ("Referer".to_string(), format!("{HOST}/")),
     ]
 }
@@ -236,8 +239,7 @@ pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
     let title = unesc(&title);
     let re_og_img = Regex::new("property=\"og:image\"[^>]*content=\"([^\"]*)\"").unwrap();
     let cover = first(&re_og_img, &html);
-    let re_og_desc =
-        Regex::new("property=\"og:description\"[^>]*content=\"([^\"]*)\"").unwrap();
+    let re_og_desc = Regex::new("property=\"og:description\"[^>]*content=\"([^\"]*)\"").unwrap();
     let synopsis = unesc(&first(&re_og_desc, &html));
     let (hls, mp4) = streams(&html);
     if hls.is_empty() && mp4.is_empty() {
@@ -303,7 +305,8 @@ mod tests {
 
     #[test]
     fn streams_split_groups() {
-        let html = "a https://cdn/x/master.m3u8 b https://cdn/x/720.mp4 c https://cdn/x/master.m3u8";
+        let html =
+            "a https://cdn/x/master.m3u8 b https://cdn/x/720.mp4 c https://cdn/x/master.m3u8";
         let (hls, mp4) = streams(html);
         assert_eq!(hls.len(), 1);
         assert_eq!(mp4.len(), 1);

@@ -11,10 +11,10 @@ use base64::Engine as _;
 use once_cell::sync::Lazy;
 use rand::Rng;
 use serde_json::{json, Value};
-use std::future::Future;
-use std::pin::Pin;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Mutex;
 
 use crate::error::{ApiError, ApiResult};

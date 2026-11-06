@@ -360,7 +360,7 @@ extension _ReaderPageChapterLoading on _ReaderPageState {
       if (mounted && !widget.localOnly) {
         try {
           await _ensureCatalog();
-          if (superseded()) return _latestChapterText(chapter);
+          if (superseded()) return await _latestChapterText(chapter);
           if (mounted) {
             await _diskCache.write(
               bookId: widget.bookId,

@@ -28,8 +28,14 @@ const CATS: &[(&str, &str)] = &[
     ("13-%E6%80%AA%E7%89%A9%E6%97%A0%E5%B0%BD/", "怪物"),
     ("7-%E8%A7%A6%E6%89%8B%E6%97%A0%E5%B0%BD/", "触手"),
     ("6-%E4%B9%B1%E4%BC%A6%E6%97%A0%E5%B0%BD/", "乱伦"),
-    ("10-%E5%A5%B3%E5%B7%A8%E4%BA%BA%E6%97%A0%E5%B0%BD/", "女巨人"),
-    ("4-%E6%AF%9B%E8%8C%B8%E8%8C%B8%E7%9A%84%E6%97%A0%E5%B0%BD/", "毛茸茸"),
+    (
+        "10-%E5%A5%B3%E5%B7%A8%E4%BA%BA%E6%97%A0%E5%B0%BD/",
+        "女巨人",
+    ),
+    (
+        "4-%E6%AF%9B%E8%8C%B8%E8%8C%B8%E7%9A%84%E6%97%A0%E5%B0%BD/",
+        "毛茸茸",
+    ),
     ("5519%E6%97%A0%E5%B0%BD%E7%9A%84/", "无尽合集"),
     ("22%E6%B8%B8%E6%88%8F/", "游戏"),
     ("23%E7%94%B5%E5%BD%B1/", "电影"),
@@ -39,7 +45,10 @@ const CATS: &[(&str, &str)] = &[
     ("16704-%E9%AD%85%E9%AD%94/", "魅魔"),
     ("14975%E9%BE%99/", "龙"),
     ("47418%E5%A4%96%E6%98%9F%E4%BA%BA/", "外星人"),
-    ("24-%E9%83%A8%E7%94%B5%E8%A7%86%E8%8A%82%E7%9B%AE/26-pokemon/", "Pokemon"),
+    (
+        "24-%E9%83%A8%E7%94%B5%E8%A7%86%E8%8A%82%E7%9B%AE/26-pokemon/",
+        "Pokemon",
+    ),
     ("614-naruto-2/", "Naruto"),
     ("9478-%E9%A9%AC-hentai/", "马 Hentai"),
     ("4875-%E8%A7%86%E9%A2%91%E6%BC%94%E5%91%98/", "视频演员"),
@@ -53,7 +62,10 @@ fn headers() -> Vec<(String, String)> {
             "Accept".to_string(),
             "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8".to_string(),
         ),
-        ("Accept-Language".to_string(), "zh-CN,zh;q=0.9,en;q=0.8".to_string()),
+        (
+            "Accept-Language".to_string(),
+            "zh-CN,zh;q=0.9,en;q=0.8".to_string(),
+        ),
         ("Cookie".to_string(), "x-index-auth=authed".to_string()),
         ("Referer".to_string(), format!("{HOST}/")),
     ]
@@ -185,18 +197,32 @@ fn pic_of(segment: &str) -> String {
 }
 
 /// 与 Java 的 appendCards 一致。
+/// Rust 的 regex 不支持 look-ahead，改用开标签定位 + 切片，不用 (?=...)。
 fn append_cards(html: &str, limit: usize) -> Vec<Value> {
-    let re_card = Regex::new(
-        "<div class=\"video-block[^\"]*\"(.*?)(?=<div class=\"video-block|</main>|<footer|</body>)",
-    )
-    .unwrap();
+    let re_open = Regex::new("<div class=\"video-block[^\"]*\">").unwrap();
+    let opens: Vec<(usize, usize)> = re_open
+        .find_iter(html)
+        .map(|m| (m.start(), m.end()))
+        .collect();
     let mut items = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
-    for cap in re_card.captures_iter(html) {
+    for (idx, &(_, open_end)) in opens.iter().enumerate() {
         if items.len() >= limit {
             break;
         }
-        let segment = cap.get(1).map(|m| m.as_str()).unwrap_or("");
+        let seg_end = if idx + 1 < opens.len() {
+            opens[idx + 1].0
+        } else {
+            let tail = &html[open_end..];
+            let mut end = tail.len();
+            for marker in ["</main>", "<footer", "</body>"] {
+                if let Some(p) = tail.find(marker) {
+                    end = end.min(p);
+                }
+            }
+            open_end + end
+        };
+        let segment = &html[open_end..seg_end];
         let link = pick_link(segment);
         if link.is_empty() || !seen.insert(link.clone()) {
             continue;
@@ -357,7 +383,8 @@ mod tests {
 
     #[test]
     fn streams_filter_trailer() {
-        let html = "a https://cdn/t/trailer.mp4 b https://cdn/v/a_high.mp4 c https://cdn/v/a_high.mp4";
+        let html =
+            "a https://cdn/t/trailer.mp4 b https://cdn/v/a_high.mp4 c https://cdn/v/a_high.mp4";
         let list = streams(html);
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].0, "高清");

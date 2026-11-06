@@ -31,25 +31,18 @@ const CATEGORIES: [(&str, &str); 11] = [
 ];
 
 static TAG_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"<[^>]+>").unwrap());
-static SCRIPT_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?s)<script[^>]*>.*?</script>").unwrap());
-static STYLE_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?s)<style[^>]*>.*?</style>").unwrap());
-static BR_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)<br\s*/?>").unwrap());
-static CLOSE_P_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)</p\s*>").unwrap());
-static SPACE_RUN_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"[ \t]+").unwrap());
+static SCRIPT_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?s)<script[^>]*>.*?</script>").unwrap());
+static STYLE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?s)<style[^>]*>.*?</style>").unwrap());
+static BR_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)<br\s*/?>").unwrap());
+static CLOSE_P_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)</p\s*>").unwrap());
+static SPACE_RUN_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"[ \t]+").unwrap());
 static WS_RUN_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s+").unwrap());
 static ROW_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"<a href="/artdetail-(\d+)\.html" class="list-group-item">([^<]+)<span class="article-date"[^>]*>([^<]+)</span>"#).unwrap()
 });
-static TITLE_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?s)<title>(.*?)</title>").unwrap());
-static BODY_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?s)<div class="art-content"[^>]*>(.*?)</div>"#).unwrap()
-});
+static TITLE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?s)<title>(.*?)</title>").unwrap());
+static BODY_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?s)<div class="art-content"[^>]*>(.*?)</div>"#).unwrap());
 
 async fn fetch(url: &str) -> String {
     let resp = match client() {
@@ -110,12 +103,7 @@ fn parse_list(page: &str) -> Vec<Value> {
         if !seen.insert(vid.clone()) {
             continue;
         }
-        items.push(item_json(
-            &vid,
-            &clean(&cap[2]),
-            "",
-            &clean(&cap[3]),
-        ));
+        items.push(item_json(&vid, &clean(&cap[2]), "", &clean(&cap[3])));
     }
     items
 }

@@ -100,8 +100,7 @@ async fn fetch_json(url: &str) -> ApiResult<Value> {
         .text()
         .await
         .map_err(|e| ApiError::Internal(e.to_string()))?;
-    serde_json::from_str(&text)
-        .map_err(|e| ApiError::Internal(format!("女帝 JSON 解析失败: {e}")))
+    serde_json::from_str(&text).map_err(|e| ApiError::Internal(format!("女帝 JSON 解析失败: {e}")))
 }
 
 /// 带重试的接口调用：站间歇性 502/超时，最多试 3 次，每次间隔 1 秒。
@@ -338,11 +337,7 @@ pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
     if let Some(id) = category_id.strip_prefix("topic:") {
         let body = api_json(&with_query(
             "/topic.html",
-            &[
-                ("topic_id", id),
-                ("pageNo", &page_s),
-                ("pageSize", "10"),
-            ],
+            &[("topic_id", id), ("pageNo", &page_s), ("pageSize", "10")],
         ))
         .await?;
         let items: Vec<Value> = data_rows(&body).iter().map(card).collect();
@@ -415,9 +410,7 @@ pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
         let more = has_more(&sbody, page, &items);
         return Ok(json!({"items": items, "has_more": more}));
     }
-    Err(ApiError::BadRequest(format!(
-        "女帝未知分类 {category_id}"
-    )))
+    Err(ApiError::BadRequest(format!("女帝未知分类 {category_id}")))
 }
 
 fn names_of(rows: Option<&Vec<Value>>) -> Vec<String> {
@@ -555,10 +548,7 @@ mod tests {
         assert_eq!(list_total(&body), 12);
         let data = get(&body, "data").unwrap();
         assert_eq!(text_of(data, &["title"]), "奥田咲");
-        assert_eq!(
-            cover_of(data),
-            "https://38.33.15.127:108/ny/1_sp.jpg"
-        );
+        assert_eq!(cover_of(data), "https://38.33.15.127:108/ny/1_sp.jpg");
     }
 
     #[test]
@@ -586,7 +576,10 @@ mod tests {
         assert!(play_list.contains("_try.mp4/chunklist.m3u8"));
         assert!(play_list.contains("play=0"));
         assert!(play_list.contains("a1.ylqvoy.cn"));
-        assert_eq!(cover_of(&body), "https://38.33.15.127:108/app_images/ch_image/gcjp25050404_sp.jpg");
+        assert_eq!(
+            cover_of(&body),
+            "https://38.33.15.127:108/app_images/ch_image/gcjp25050404_sp.jpg"
+        );
         let is_vip = get(&body, "user")
             .and_then(|u| get(u, "is_vip"))
             .map(|v| v.as_i64().unwrap_or(0) == 1)

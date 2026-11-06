@@ -149,21 +149,15 @@ fn novel_url(title: &str, content: &str) -> String {
     format!("novel://{payload}")
 }
 
-static BOOK_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"href="book-(\d+)\.html""#).unwrap());
-static NAME_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"<a class="name" href="book-\d+\.html">([^<]+)</a>"#).unwrap()
-});
+static BOOK_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"href="book-(\d+)\.html""#).unwrap());
+static NAME_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"<a class="name" href="book-\d+\.html">([^<]+)</a>"#).unwrap());
 static CHAPTER_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"class="chapter">([^<]+)</a>"#).unwrap());
-static WORDS_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"字数：(\d+)").unwrap());
-static AUTHOR_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"作者：([^<\s]+)").unwrap());
-static PAGE_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"page=(\d+)").unwrap());
-static DIGITS_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(\d+)").unwrap());
+static WORDS_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"字数：(\d+)").unwrap());
+static AUTHOR_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"作者：([^<\s]+)").unwrap());
+static PAGE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"page=(\d+)").unwrap());
+static DIGITS_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(\d+)").unwrap());
 
 /// py _list_from_category：返回（条目，是否有下一页）。
 async fn list_from_category(tid: &str, page: i64) -> (Vec<Value>, bool) {
@@ -245,14 +239,11 @@ pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
     if book.is_empty() {
         return Err(ApiError::Internal("aabook 未返回详情".into()));
     }
-    static TITLE_RE: Lazy<Regex> =
-        Lazy::new(|| Regex::new(r"<h2>([^<]+)</h2>").unwrap());
-    static STATUS_RE: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r#"<span class="status[^>]*>([^<]+)"#).unwrap()
-    });
-    static LINK_RE: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r#"href="(read-\d+\.html)"[^>]*>([^<]+)</a>"#).unwrap()
-    });
+    static TITLE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"<h2>([^<]+)</h2>").unwrap());
+    static STATUS_RE: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r#"<span class="status[^>]*>([^<]+)"#).unwrap());
+    static LINK_RE: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r#"href="(read-\d+\.html)"[^>]*>([^<]+)</a>"#).unwrap());
     let title = TITLE_RE
         .captures(&book)
         .and_then(|cap| cap.get(1))
@@ -329,15 +320,12 @@ pub(crate) async fn search(query: &str) -> ApiResult<Value> {
         percent_encode_segment(query)
     );
     let html = fetch(&url, &[]).await;
-    static MID_RE: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r#"href="book-(\d+)\.html" class="name""#).unwrap()
-    });
-    static SNAME_RE: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r#"class="name"[^>]*>([^<]+)</a>"#).unwrap()
-    });
-    static SSTATUS_RE: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r#"<span class="status[^>]*>([^<]+)</span>"#).unwrap()
-    });
+    static MID_RE: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r#"href="book-(\d+)\.html" class="name""#).unwrap());
+    static SNAME_RE: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r#"class="name"[^>]*>([^<]+)</a>"#).unwrap());
+    static SSTATUS_RE: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r#"<span class="status[^>]*>([^<]+)</span>"#).unwrap());
     let mut items = Vec::new();
     for block in html.split("<li>").skip(1) {
         let Some(bid) = MID_RE
@@ -373,10 +361,8 @@ async fn chapter_text(rid: &str) -> (String, String) {
     static TOKEN_RE: Lazy<Regex> = Lazy::new(|| {
         Regex::new(r#"_getcontent\.php\?id="\+chapid\+"&v=([A-Za-z0-9_\-]+)"#).unwrap()
     });
-    static PARA_RE: Lazy<Regex> =
-        Lazy::new(|| Regex::new(r"(?s)<p>(.*?)</p>").unwrap());
-    static TITLE_RE: Lazy<Regex> =
-        Lazy::new(|| Regex::new(r"<title>([^<]*)</title>").unwrap());
+    static PARA_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?s)<p>(.*?)</p>").unwrap());
+    static TITLE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"<title>([^<]*)</title>").unwrap());
     let read_url = format!("{MOBILE_URL}read-{rid}.html");
     for _ in 0..2 {
         let page = fetch(&read_url, &[]).await;
@@ -395,7 +381,12 @@ async fn chapter_text(rid: &str) -> (String, String) {
             ],
         )
         .await;
-        if !gc.chars().take(200).collect::<String>().contains("aabook_readfile") {
+        if !gc
+            .chars()
+            .take(200)
+            .collect::<String>()
+            .contains("aabook_readfile")
+        {
             continue;
         }
         let lines: Vec<String> = PARA_RE
@@ -447,10 +438,7 @@ mod tests {
 
     #[test]
     fn clean_strips_tags_and_entities() {
-        assert_eq!(
-            clean("<b>甲&nbsp;&amp;乙</b> "),
-            "甲 &乙"
-        );
+        assert_eq!(clean("<b>甲&nbsp;&amp;乙</b> "), "甲 &乙");
     }
 
     #[test]

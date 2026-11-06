@@ -172,8 +172,7 @@ pub(crate) async fn categories() -> ApiResult<Value> {
         category_json("new", "🔥最新上架"),
         category_json("hot", "🔥熱門播放"),
     ];
-    if let Ok(rows) = wp_arr("/categories?per_page=100&orderby=count&order=desc").await
-    {
+    if let Ok(rows) = wp_arr("/categories?per_page=100&orderby=count&order=desc").await {
         for row in rows {
             let id = int_of(&row, &["id"]);
             let name = clean_text(&text_of(&row, &["name"]));
@@ -202,8 +201,7 @@ pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
 
 /// 与 Java 的 postLink 一致：取文章的原文链接。
 async fn post_link(id: i64) -> ApiResult<String> {
-    let body =
-        wp_json(&format!("/posts/{id}?_fields=link")).await?;
+    let body = wp_json(&format!("/posts/{id}?_fields=link")).await?;
     let link = text_of(&body, &["link"]);
     if link.is_empty() {
         Ok(format!("{BASE_URL}/?p={id}"))
@@ -217,8 +215,7 @@ pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
         .trim()
         .parse()
         .map_err(|_| ApiError::Internal("69VJ 详情 id 无法识别".to_string()))?;
-    let post =
-        wp_json(&format!("/posts/{id}?_embed=wp:featuredmedia")).await?;
+    let post = wp_json(&format!("/posts/{id}?_embed=wp:featuredmedia")).await?;
     let title = post_title(&post);
     if title.is_empty() {
         return Err(ApiError::Internal("69VJ 未返回视频资料".into()));
@@ -233,10 +230,8 @@ pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
     let mut episodes: Vec<Value> = Vec::new();
     if let Ok(link) = post_link(id).await {
         if let Ok(html) = get_text(&link, BASE_URL).await {
-            let iframe = Regex::new(
-                "<iframe[^>]+src=\"(https?://[^\"]*embedframe/[^\"]+)\"",
-            )
-            .unwrap();
+            let iframe =
+                Regex::new("<iframe[^>]+src=\"(https?://[^\"]*embedframe/[^\"]+)\"").unwrap();
             if let Some(cap) = iframe.captures(&html) {
                 let src = cap[1].to_string();
                 if !src.is_empty() {
@@ -264,8 +259,7 @@ pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
 }
 
 pub(crate) async fn search(query: &str) -> ApiResult<Value> {
-    let encoded: String =
-        url::form_urlencoded::byte_serialize(query.trim().as_bytes()).collect();
+    let encoded: String = url::form_urlencoded::byte_serialize(query.trim().as_bytes()).collect();
     let items = posts(&format!("per_page=20&page=1&search={encoded}")).await?;
     Ok(json!({"items": items}))
 }
@@ -279,8 +273,7 @@ fn mirror(url: &str) -> String {
 
 /// 与 Java 的 edgeUrl 一致：经 tv506 代理中转。
 fn edge_url(url: &str) -> String {
-    let encoded: String =
-        url::form_urlencoded::byte_serialize(url.as_bytes()).collect();
+    let encoded: String = url::form_urlencoded::byte_serialize(url.as_bytes()).collect();
     format!("{PROXY_BASE}/api/v1/proxy?url={encoded}")
 }
 
@@ -403,6 +396,8 @@ mod tests {
 
     #[test]
     fn edge_url_encodes() {
-        assert!(edge_url("https://a.b/c?d=e").starts_with("https://tv506.ystv.top/api/v1/proxy?url="));
+        assert!(
+            edge_url("https://a.b/c?d=e").starts_with("https://tv506.ystv.top/api/v1/proxy?url=")
+        );
     }
 }

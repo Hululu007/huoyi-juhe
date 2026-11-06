@@ -42,7 +42,10 @@ fn headers(referer: &str) -> Vec<(String, String)> {
             "Accept".to_string(),
             "text/html,application/xhtml+xml,*/*;q=0.8".to_string(),
         ),
-        ("Accept-Language".to_string(), "zh-CN,zh;q=0.9,en;q=0.8".to_string()),
+        (
+            "Accept-Language".to_string(),
+            "zh-CN,zh;q=0.9,en;q=0.8".to_string(),
+        ),
         ("Referer".to_string(), referer.to_string()),
     ]
 }
@@ -129,10 +132,7 @@ fn pic(segment: &str) -> String {
     for cap in re_img.captures_iter(segment) {
         let raw = cap.get(1).map(|m| m.as_str()).unwrap_or("");
         let url = abs_url(raw);
-        if url.starts_with("http")
-            && !url.contains("favicon")
-            && !url.contains("logo")
-        {
+        if url.starts_with("http") && !url.contains("favicon") && !url.contains("logo") {
             return url;
         }
     }
@@ -165,7 +165,11 @@ fn append_cards(html: &str, limit: usize) -> Vec<Value> {
         let title = card_title(segment, &link);
         let cover = pic(segment);
         let date = first(&re_date, segment);
-        let remark = if date.is_empty() { "GO2AV".to_string() } else { date };
+        let remark = if date.is_empty() {
+            "GO2AV".to_string()
+        } else {
+            date
+        };
         items.push(item_json(&link, &title, &cover, &remark));
     }
     items
@@ -322,7 +326,12 @@ pub(crate) async fn play(video_id: &str) -> ApiResult<Value> {
 pub(crate) async fn search(query: &str) -> ApiResult<Value> {
     let url = with_query(
         &format!("{HOST}/plus/search.php"),
-        &[("mobile", "1"), ("kwtype", "0"), ("q", query), ("page", "1")],
+        &[
+            ("mobile", "1"),
+            ("kwtype", "0"),
+            ("q", query),
+            ("page", "1"),
+        ],
     );
     let html = fetch_text(&url, &format!("{HOST}/")).await?;
     let items = append_cards(&html, 40);
@@ -353,10 +362,7 @@ mod tests {
 
     #[test]
     fn category_template_lookup() {
-        assert_eq!(
-            category_template("ch"),
-            "/a/ch/list_5_%d.html"
-        );
+        assert_eq!(category_template("ch"), "/a/ch/list_5_%d.html");
         assert_eq!(category_template("nope"), "/index.php");
     }
 }

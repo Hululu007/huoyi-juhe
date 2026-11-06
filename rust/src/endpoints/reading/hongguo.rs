@@ -36,7 +36,8 @@ use crate::endpoints::drama::{
 };
 use crate::error::{ApiError, ApiResult};
 
-const APP_UA: &str = "com.phoenix.read/74332 (Linux; U; Android 16; zh_CN; 25053RT47C; Build/BP2A.250605.031.A3)";
+const APP_UA: &str =
+    "com.phoenix.read/74332 (Linux; U; Android 16; zh_CN; 25053RT47C; Build/BP2A.250605.031.A3)";
 const BOOKMALL_TAB_URL: &str =
     "https://api5-normal-sinfonlineb.fqnovel.com/reading/bookapi/bookmall/tab/v";
 const AUDIO_DETAIL_URL: &str =
@@ -48,11 +49,11 @@ const DIRECTORY_URL: &str =
 const PLAYURL_URL: &str =
     "https://api5-normal-sinfonlineb.fqnovel.com/reading/bookapi/audio/playurl/";
 const MEDUSA_CONFIG_KEY: &[u8] = b"\xf1Y3vvn\xa9\x8d4\xf3\x1b\x05z\x9d[\xe4";
-const MEDUSA_CONFIG_IV: [u8; 16] =
-    *b"\x1f\xe1\t\xa4\x12R\x83\xf4\x18\xde\x9e\x05\x1a\x96\x9e\x12";
+const MEDUSA_CONFIG_IV: [u8; 16] = *b"\x1f\xe1\t\xa4\x12R\x83\xf4\x18\xde\x9e\x05\x1a\x96\x9e\x12";
 const MEDUSA_SIGN_KEY: &[u8] = b"\x8e\xbd\xfa8\x06\xec\xc5\xce\xe7\x94#\xe6\x02\x9e\xd8%@\xbc\"\x18\xbb~\xae\xf7\x1c\xb6\x91\xf7\xaa\x8a\xa2\xf5";
 const MEDUSA_MAGIC: &[u8] = b"\xf7\xe8_\xfa\xd7\xd7\xdc;\xd6*\xc8pW\xcfa\x18";
-const MEDUSA_VERSION: &[u8] = b"\x03\x00\x00\x00\xf7\xe8\x5f\xfa\xd7\xd7\xdc\x3b\xd6\x2a\xc8\x70\x57\xcf\x61\x18";
+const MEDUSA_VERSION: &[u8] =
+    b"\x03\x00\x00\x00\xf7\xe8\x5f\xfa\xd7\xd7\xdc\x3b\xd6\x2a\xc8\x70\x57\xcf\x61\x18";
 
 static NONCE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -65,7 +66,9 @@ fn random_device_id() -> String {
         .unwrap_or(0);
     let mut x = nanos
         ^ (std::process::id() as u64) << 32
-        ^ NONCE_COUNTER.fetch_add(1, Ordering::Relaxed).wrapping_mul(0x9e3779b97f4a7c15);
+        ^ NONCE_COUNTER
+            .fetch_add(1, Ordering::Relaxed)
+            .wrapping_mul(0x9e3779b97f4a7c15);
     x ^= x >> 30;
     x = x.wrapping_mul(0xbf58476d1ce4e5b9);
     x ^= x >> 27;
@@ -107,8 +110,7 @@ static SCAN_CACHE: Lazy<Mutex<Option<(Vec<Value>, HashMap<String, String>)>>> =
 /// 无 rand 依赖的伪随机：时间 + 进程 + 计数器过 splitmix64。
 static TEST_NEXT_U64_QUEUE: std::sync::Mutex<std::collections::VecDeque<u64>> =
     std::sync::Mutex::new(std::collections::VecDeque::new());
-static TEST_NOW_SECS_OVERRIDE: std::sync::Mutex<Option<i64>> =
-    std::sync::Mutex::new(None);
+static TEST_NOW_SECS_OVERRIDE: std::sync::Mutex<Option<i64>> = std::sync::Mutex::new(None);
 static TEST_PRINT_PROTO: std::sync::Mutex<bool> = std::sync::Mutex::new(false);
 
 fn next_u64() -> u64 {
@@ -123,7 +125,9 @@ fn next_u64() -> u64 {
         .unwrap_or(0);
     let mut x = nanos
         ^ (std::process::id() as u64).rotate_left(32)
-        ^ NONCE_COUNTER.fetch_add(1, Ordering::Relaxed).wrapping_mul(0x9e3779b97f4a7c15);
+        ^ NONCE_COUNTER
+            .fetch_add(1, Ordering::Relaxed)
+            .wrapping_mul(0x9e3779b97f4a7c15);
     x ^= x >> 30;
     x = x.wrapping_mul(0xbf58476d1ce4e5b9);
     x ^= x >> 27;
@@ -215,10 +219,7 @@ fn url_encode(params: &[(String, String)]) -> String {
 }
 
 /// py _get_params_encrypturl：devices 覆盖同名参数，追加 ts 与 _rticket。
-fn params_encrypturl(
-    url: &str,
-    params: &[(String, String)],
-) -> (String, Vec<(String, String)>) {
+fn params_encrypturl(url: &str, params: &[(String, String)]) -> (String, Vec<(String, String)>) {
     let mut result = params.to_vec();
     let (device_id, install_id) = current_devices();
     let dev_pairs = [
@@ -371,8 +372,7 @@ fn encrypt_helios(khronos: i64, rand_value: u32) -> String {
         .iter()
         .flat_map(|b| format!("{b:02x}").into_bytes())
         .collect();
-    let mut table: Vec<u64> =
-        vec![u64::from_le_bytes(keys[0..8].try_into().unwrap())];
+    let mut table: Vec<u64> = vec![u64::from_le_bytes(keys[0..8].try_into().unwrap())];
     let mut words: Vec<u64> = (0..4)
         .map(|i| u64::from_le_bytes(keys[i * 8..i * 8 + 8].try_into().unwrap()))
         .collect();
@@ -412,8 +412,8 @@ fn encrypt_helios(khronos: i64, rand_value: u32) -> String {
 /// 标准 SM3（py 用库 SM3，与标准一致；含 abc 向量自测见 tests）。
 fn sm3(data: &[u8]) -> [u8; 32] {
     const IV: [u32; 8] = [
-        0x7380166f, 0x4914b2b9, 0x172442d7, 0xda8a0600, 0xa96f30bc, 0x163138aa,
-        0xe38dee4d, 0xb0fb0e4e,
+        0x7380166f, 0x4914b2b9, 0x172442d7, 0xda8a0600, 0xa96f30bc, 0x163138aa, 0xe38dee4d,
+        0xb0fb0e4e,
     ];
     fn t(j: usize) -> u32 {
         if j < 16 {
@@ -725,8 +725,7 @@ fn xmxor(data: &[u8], key: &[u8]) -> Vec<u8> {
     let data0 = value[0];
     value[0] = (!last_flag).wrapping_add(value[0]);
     value[1] = (value[0] ^ value[value.len() - 1] ^ 254).wrapping_add(value[1]);
-    value[2] = value[2]
-        .wrapping_add(last_flag.wrapping_sub(data0) ^ rl8(value[1], 3) ^ 2);
+    value[2] = value[2].wrapping_add(last_flag.wrapping_sub(data0) ^ rl8(value[1], 3) ^ 2);
     let n = value.len();
     for index in 0..n.saturating_sub(4) {
         let temp = rl8(value[index + 2], 3) ^ value[index + 1] ^ ((index + 3) as u8);
@@ -773,9 +772,7 @@ const BRANCH0_INIT: [u32; 8] = [
     0x7aba4fc8, 0x67166507, 0x6403fa00, 0x340f512f, 0x3aab4d10, 0xb31d643a, 0xab4fabed, 0x804b3850,
 ];
 
-const BRANCH1_TT1A: [u32; 5] = [
-    0x808a9c79, 0xf079807e, 0xbadf79c5, 0xa785d3ff, 0x82d8438c,
-];
+const BRANCH1_TT1A: [u32; 5] = [0x808a9c79, 0xf079807e, 0xbadf79c5, 0xa785d3ff, 0x82d8438c];
 
 const BRANCH1_ORDERS: [u8; 48] = [
     0x05, 0x07, 0x01, 0x02, 0x04, 0x00, 0x06, 0x03, 0x00, 0x05, 0x02, 0x04, 0x01, 0x03, 0x07, 0x06,
@@ -784,14 +781,20 @@ const BRANCH1_ORDERS: [u8; 48] = [
 ];
 
 const BRANCH1_TT1B: [u64; 11] = [
-    0x87aeea5dab37cd6b, 0x7ff48becb4f54087, 0xb0724c06706bbd5d, 0x1fe5dfb1143e328d,
-    0x1a2331d00af4f1f2, 0xcaff7131bb1e71ba, 0x33385e1042752218, 0xff01ed65d4a441fb,
-    0x0adb1ec8828c80e8, 0x62475d12f4e06fe7, 0x00bd0b238da4fe72,
+    0x87aeea5dab37cd6b,
+    0x7ff48becb4f54087,
+    0xb0724c06706bbd5d,
+    0x1fe5dfb1143e328d,
+    0x1a2331d00af4f1f2,
+    0xcaff7131bb1e71ba,
+    0x33385e1042752218,
+    0xff01ed65d4a441fb,
+    0x0adb1ec8828c80e8,
+    0x62475d12f4e06fe7,
+    0x00bd0b238da4fe72,
 ];
 
-const BRANCH2_T001: [u32; 5] = [
-    0x8980f29b, 0xeb549c7f, 0xb08726db, 0xd40cb5e6, 0xe8f559e4,
-];
+const BRANCH2_T001: [u32; 5] = [0x8980f29b, 0xeb549c7f, 0xb08726db, 0xd40cb5e6, 0xe8f559e4];
 
 const BRANCH2_ORDERS: [u8; 320] = [
     0x0f, 0x07, 0x04, 0x00, 0x09, 0x08, 0x03, 0x0a, 0x06, 0x0b, 0x05, 0x0d, 0x0e, 0x01, 0x0c, 0x02,
@@ -827,13 +830,9 @@ const MD5_SV2: [u32; 64] = [
     0x40a25632, 0x3df5a9a5, 0xbab37d80, 0x454286dc, 0x3f5d4e78, 0x03d7b75d, 0xb1fe4af7, 0xa5ab26a3,
 ];
 
-const MD5_START: [u32; 4] = [
-    0x79e0f2fb, 0xc8b52570, 0xebc2f8cd, 0x7c104d93,
-];
+const MD5_START: [u32; 4] = [0x79e0f2fb, 0xc8b52570, 0xebc2f8cd, 0x7c104d93];
 
-const MD5_END: [u32; 4] = [
-    0x19be4866, 0xe85986b4, 0xe19b326e, 0x71d1d7d4,
-];
+const MD5_END: [u32; 4] = [0x19be4866, 0xe85986b4, 0xe19b326e, 0x71d1d7d4];
 
 const AES_S_BOX: [u8; 1024] = [
     0xfa, 0x7d, 0x08, 0x6b, 0x9c, 0x59, 0xb3, 0x4b, 0x04, 0x5f, 0x39, 0xd0, 0x38, 0x4a, 0x91, 0x99,
@@ -2106,10 +2105,7 @@ fn branch_0(
     ts_bytes: &[u8],
 ) -> Vec<u8> {
     let iv_v1 = BRANCH0_TT01[iv_v0];
-    let count_v1 = iv_v1
-        .wrapping_add(khronos as u32)
-        .wrapping_add(1)
-        & 0xff;
+    let count_v1 = iv_v1.wrapping_add(khronos as u32).wrapping_add(1) & 0xff;
     let count_v2_full = iv_v1.wrapping_add(khronos as u32);
     let mut tt03 = [0u32; 64];
     for i in 0..64 {
@@ -2156,17 +2152,112 @@ fn branch_0(
         di0 = di1;
     }
     let v_j = match iv_v0 {
-        5 => branch0_xor(&init_value, iv_v1, &di, &tt03, 100, 2, 0, 3, 5, 4, 6, 7, 2, 1, 5),
-        4 => branch0_xor(&init_value, iv_v1, &di, &tt03, 96, 0, 5, 6, 7, 3, 1, 2, 5, 4, 4),
-        3 => branch0_xor(&init_value, iv_v1, &di, &tt03, 99, 3, 6, 2, 4, 5, 1, 0, 0, 7, 6),
-        2 => branch0_xor(&init_value, iv_v1, &di, &tt03, 96, 7, 6, 2, 1, 4, 0, 5, 4, 3, 5),
-        1 => branch0_xor(&init_value, iv_v1, &di, &tt03, 96, 0, 6, 7, 5, 3, 2, 1, 5, 4, 4),
-        _ => branch0_xor(&init_value, iv_v1, &di, &tt03, 101, 5, 7, 6, 3, 2, 1, 0, 5, 4, 3),
+        5 => branch0_xor(
+            &init_value,
+            iv_v1,
+            &di,
+            &tt03,
+            100,
+            2,
+            0,
+            3,
+            5,
+            4,
+            6,
+            7,
+            2,
+            1,
+            5,
+        ),
+        4 => branch0_xor(
+            &init_value,
+            iv_v1,
+            &di,
+            &tt03,
+            96,
+            0,
+            5,
+            6,
+            7,
+            3,
+            1,
+            2,
+            5,
+            4,
+            4,
+        ),
+        3 => branch0_xor(
+            &init_value,
+            iv_v1,
+            &di,
+            &tt03,
+            99,
+            3,
+            6,
+            2,
+            4,
+            5,
+            1,
+            0,
+            0,
+            7,
+            6,
+        ),
+        2 => branch0_xor(
+            &init_value,
+            iv_v1,
+            &di,
+            &tt03,
+            96,
+            7,
+            6,
+            2,
+            1,
+            4,
+            0,
+            5,
+            4,
+            3,
+            5,
+        ),
+        1 => branch0_xor(
+            &init_value,
+            iv_v1,
+            &di,
+            &tt03,
+            96,
+            0,
+            6,
+            7,
+            5,
+            3,
+            2,
+            1,
+            5,
+            4,
+            4,
+        ),
+        _ => branch0_xor(
+            &init_value,
+            iv_v1,
+            &di,
+            &tt03,
+            101,
+            5,
+            7,
+            6,
+            3,
+            2,
+            1,
+            0,
+            5,
+            4,
+            3,
+        ),
     };
     let mut ret = [0u8; 32];
     for i in 0..8 {
-        ret[i * 4..i * 4 + 4]
-            .copy_from_slice(&v_j[i].wrapping_add(init_value[i]).to_be_bytes());
+        ret[i * 4..i * 4 + 4].copy_from_slice(&v_j[i].wrapping_add(init_value[i]).to_be_bytes());
     }
     let first = bxor_bytes(&ret[..16], &ret[16..]);
     let sum = sum_md5(&first);
@@ -2299,10 +2390,7 @@ fn branch_1(
     ts_bytes: &[u8],
 ) -> Vec<u8> {
     let tt1a = BRANCH1_TT1A[iv_v0];
-    let c_v1 = ror64(
-        khronos as u64,
-        ((tt1a as i64 + khronos) & 0xff) as u64,
-    );
+    let c_v1 = ror64(khronos as u64, ((tt1a as i64 + khronos) & 0xff) as u64);
     let order1 = &BRANCH1_ORDERS[iv_v0 * 8..iv_v0 * 8 + 8];
     let rot = ((tt1a as i64 + khronos + 1) & 63) as u64;
     let mut tt2 = [0u64; 11];
@@ -2333,7 +2421,9 @@ fn branch_1(
     swap_v0(&mut src, &src_xor, &tt2, &table_f, order1, None);
     let mut data = [0u64; 8];
     data[7] = 416;
-    let src_xor2 = [src[4], src[3], src[2], src[1], src[0], src[7], src[6], src[5]];
+    let src_xor2 = [
+        src[4], src[3], src[2], src[1], src[0], src[7], src[6], src[5],
+    ];
     let first = src;
     swap_v0(&mut data, &src_xor2, &tt2, &table_f, order1, Some(&first));
     let mut ret = [0u8; 32];
@@ -2383,28 +2473,36 @@ fn md5_i(x: u64, y: u64, z: u64) -> u64 {
 /// 故用 u64 跑全程（py 亦不逐轮压 32 位，仅 I 自带掩码、末尾压 32 位）。
 fn md5_ff(a: u64, b: u64, c: u64, d: u64, m: u64, s: u32, t: u64) -> u64 {
     b.wrapping_add(lcs64(
-        a.wrapping_add(md5_f(b, c, d)).wrapping_add(m).wrapping_add(t),
+        a.wrapping_add(md5_f(b, c, d))
+            .wrapping_add(m)
+            .wrapping_add(t),
         s,
     ))
 }
 
 fn md5_gg(a: u64, b: u64, c: u64, d: u64, m: u64, s: u32, t: u64) -> u64 {
     b.wrapping_add(lcs64(
-        a.wrapping_add(md5_g(b, c, d)).wrapping_add(m).wrapping_add(t),
+        a.wrapping_add(md5_g(b, c, d))
+            .wrapping_add(m)
+            .wrapping_add(t),
         s,
     ))
 }
 
 fn md5_hh(a: u64, b: u64, c: u64, d: u64, m: u64, s: u32, t: u64) -> u64 {
     b.wrapping_add(lcs64(
-        a.wrapping_add(md5_h(b, c, d)).wrapping_add(m).wrapping_add(t),
+        a.wrapping_add(md5_h(b, c, d))
+            .wrapping_add(m)
+            .wrapping_add(t),
         s,
     ))
 }
 
 fn md5_ii(a: u64, b: u64, c: u64, d: u64, m: u64, s: u32, t: u64) -> u64 {
     b.wrapping_add(lcs64(
-        a.wrapping_add(md5_i(b, c, d)).wrapping_add(m).wrapping_add(t),
+        a.wrapping_add(md5_i(b, c, d))
+            .wrapping_add(m)
+            .wrapping_add(t),
         s,
     ))
 }
@@ -2434,8 +2532,8 @@ fn md5sum_v3(msg: &[u8], count_v2: u32, orders: &[u8], count_v1: u32) -> Vec<u8>
     );
     let mut m = [0u64; 16];
     for i in 0..16 {
-        m[i] = u32::from_le_bytes([msg[i * 4], msg[i * 4 + 1], msg[i * 4 + 2], msg[i * 4 + 3]])
-            as u64;
+        m[i] =
+            u32::from_le_bytes([msg[i * 4], msg[i * 4 + 1], msg[i * 4 + 2], msg[i * 4 + 3]]) as u64;
     }
     let o1 = &orders[..16];
     let o2 = &orders[16..32];
@@ -2478,7 +2576,15 @@ fn md5sum_v3(msg: &[u8], count_v2: u32, orders: &[u8], count_v1: u32) -> Vec<u8>
     for k in 0..16 {
         let (na, nb, nc, nd) = match k % 4 {
             0 => (
-                md5_gg(a, b, c, d, m[o2[k] as usize], gg_s[k % 4], sv[16 + k] as u64),
+                md5_gg(
+                    a,
+                    b,
+                    c,
+                    d,
+                    m[o2[k] as usize],
+                    gg_s[k % 4],
+                    sv[16 + k] as u64,
+                ),
                 b,
                 c,
                 d,
@@ -2487,17 +2593,41 @@ fn md5sum_v3(msg: &[u8], count_v2: u32, orders: &[u8], count_v1: u32) -> Vec<u8>
                 a,
                 b,
                 c,
-                md5_gg(d, a, b, c, m[o2[k] as usize], gg_s[k % 4], sv[16 + k] as u64),
+                md5_gg(
+                    d,
+                    a,
+                    b,
+                    c,
+                    m[o2[k] as usize],
+                    gg_s[k % 4],
+                    sv[16 + k] as u64,
+                ),
             ),
             2 => (
                 a,
                 b,
-                md5_gg(c, d, a, b, m[o2[k] as usize], gg_s[k % 4], sv[16 + k] as u64),
+                md5_gg(
+                    c,
+                    d,
+                    a,
+                    b,
+                    m[o2[k] as usize],
+                    gg_s[k % 4],
+                    sv[16 + k] as u64,
+                ),
                 d,
             ),
             _ => (
                 a,
-                md5_gg(b, c, d, a, m[o2[k] as usize], gg_s[k % 4], sv[16 + k] as u64),
+                md5_gg(
+                    b,
+                    c,
+                    d,
+                    a,
+                    m[o2[k] as usize],
+                    gg_s[k % 4],
+                    sv[16 + k] as u64,
+                ),
                 c,
                 d,
             ),
@@ -2511,7 +2641,15 @@ fn md5sum_v3(msg: &[u8], count_v2: u32, orders: &[u8], count_v1: u32) -> Vec<u8>
     for k in 0..16 {
         let (na, nb, nc, nd) = match k % 4 {
             0 => (
-                md5_hh(a, b, c, d, m[o3[k] as usize], hh_s[k % 4], sv[32 + k] as u64),
+                md5_hh(
+                    a,
+                    b,
+                    c,
+                    d,
+                    m[o3[k] as usize],
+                    hh_s[k % 4],
+                    sv[32 + k] as u64,
+                ),
                 b,
                 c,
                 d,
@@ -2520,17 +2658,41 @@ fn md5sum_v3(msg: &[u8], count_v2: u32, orders: &[u8], count_v1: u32) -> Vec<u8>
                 a,
                 b,
                 c,
-                md5_hh(d, a, b, c, m[o3[k] as usize], hh_s[k % 4], sv[32 + k] as u64),
+                md5_hh(
+                    d,
+                    a,
+                    b,
+                    c,
+                    m[o3[k] as usize],
+                    hh_s[k % 4],
+                    sv[32 + k] as u64,
+                ),
             ),
             2 => (
                 a,
                 b,
-                md5_hh(c, d, a, b, m[o3[k] as usize], hh_s[k % 4], sv[32 + k] as u64),
+                md5_hh(
+                    c,
+                    d,
+                    a,
+                    b,
+                    m[o3[k] as usize],
+                    hh_s[k % 4],
+                    sv[32 + k] as u64,
+                ),
                 d,
             ),
             _ => (
                 a,
-                md5_hh(b, c, d, a, m[o3[k] as usize], hh_s[k % 4], sv[32 + k] as u64),
+                md5_hh(
+                    b,
+                    c,
+                    d,
+                    a,
+                    m[o3[k] as usize],
+                    hh_s[k % 4],
+                    sv[32 + k] as u64,
+                ),
                 c,
                 d,
             ),
@@ -2544,7 +2706,15 @@ fn md5sum_v3(msg: &[u8], count_v2: u32, orders: &[u8], count_v1: u32) -> Vec<u8>
     for k in 0..16 {
         let (na, nb, nc, nd) = match k % 4 {
             0 => (
-                md5_ii(a, b, c, d, m[o4[k] as usize], ii_s[k % 4], sv[48 + k] as u64),
+                md5_ii(
+                    a,
+                    b,
+                    c,
+                    d,
+                    m[o4[k] as usize],
+                    ii_s[k % 4],
+                    sv[48 + k] as u64,
+                ),
                 b,
                 c,
                 d,
@@ -2553,17 +2723,41 @@ fn md5sum_v3(msg: &[u8], count_v2: u32, orders: &[u8], count_v1: u32) -> Vec<u8>
                 a,
                 b,
                 c,
-                md5_ii(d, a, b, c, m[o4[k] as usize], ii_s[k % 4], sv[48 + k] as u64),
+                md5_ii(
+                    d,
+                    a,
+                    b,
+                    c,
+                    m[o4[k] as usize],
+                    ii_s[k % 4],
+                    sv[48 + k] as u64,
+                ),
             ),
             2 => (
                 a,
                 b,
-                md5_ii(c, d, a, b, m[o4[k] as usize], ii_s[k % 4], sv[48 + k] as u64),
+                md5_ii(
+                    c,
+                    d,
+                    a,
+                    b,
+                    m[o4[k] as usize],
+                    ii_s[k % 4],
+                    sv[48 + k] as u64,
+                ),
                 d,
             ),
             _ => (
                 a,
-                md5_ii(b, c, d, a, m[o4[k] as usize], ii_s[k % 4], sv[48 + k] as u64),
+                md5_ii(
+                    b,
+                    c,
+                    d,
+                    a,
+                    m[o4[k] as usize],
+                    ii_s[k % 4],
+                    sv[48 + k] as u64,
+                ),
                 c,
                 d,
             ),
@@ -2589,13 +2783,7 @@ fn md5sum_v3(msg: &[u8], count_v2: u32, orders: &[u8], count_v1: u32) -> Vec<u8>
 
 /// py branch_2：注意 `iv & 15 - 2` 在 py 里是 `iv & (15 - 2)` =
 /// `iv & 13`（减法优先级高于按位与），不是 `(iv & 15) - 2`。
-fn branch_2(
-    iv: u32,
-    khronos: i64,
-    query_sm3: &[u8],
-    body_md5: &[u8],
-    ts_bytes: &[u8],
-) -> Vec<u8> {
+fn branch_2(iv: u32, khronos: i64, query_sm3: &[u8], body_md5: &[u8], ts_bytes: &[u8]) -> Vec<u8> {
     let n0 = (iv & 13).wrapping_mul(86);
     let iv_v0 = (((n0 >> 15) & 0xff) + ((n0 >> 8) & 0xff)) as usize;
     let n1 = BRANCH2_T001[iv_v0];
@@ -2645,19 +2833,9 @@ fn hash_f13(
 /// khronos 低 2 位，S 盒取全局表对应 256 字节段，密钥扩展 12 字，
 /// 块加密为初轮 con2 + 两轮（Sub/Shift/轮1加 ShiftCon+Mix）+ 末轮
 /// 4-7 字（与 py 的 [4:] 首 4 字一致）。
-const AES_R_CON: [[usize; 4]; 4] = [
-    [1, 0, 2, 3],
-    [1, 3, 0, 2],
-    [0, 1, 3, 2],
-    [1, 0, 2, 3],
-];
+const AES_R_CON: [[usize; 4]; 4] = [[1, 0, 2, 3], [1, 3, 0, 2], [0, 1, 3, 2], [1, 0, 2, 3]];
 
-const AES_R_CON2: [[usize; 4]; 4] = [
-    [1, 0, 2, 3],
-    [2, 0, 3, 1],
-    [0, 1, 3, 2],
-    [1, 0, 2, 3],
-];
+const AES_R_CON2: [[usize; 4]; 4] = [[1, 0, 2, 3], [2, 0, 3, 1], [0, 1, 3, 2], [1, 0, 2, 3]];
 
 const AES_R_ORDERS: [[usize; 16]; 4] = [
     [0, 9, 14, 11, 4, 13, 2, 7, 8, 1, 6, 15, 12, 5, 10, 3],
@@ -2684,8 +2862,7 @@ fn aes_v3_expand_key(aes_key: &[u8], word_size: usize) -> [u8; 48] {
     let mut rounds: u32 = 8;
     for i in 4..12 {
         let idx = 4 * (i - 1);
-        let (mut k0, mut k1, mut k2, mut k3) =
-            (mk[idx], mk[idx + 1], mk[idx + 2], mk[idx + 3]);
+        let (mut k0, mut k1, mut k2, mut k3) = (mk[idx], mk[idx + 1], mk[idx + 2], mk[idx + 3]);
         if i & 3 == 0 {
             let k00 = (init_value >> (rounds & 24)) ^ aes_v3_sbox(word_size, k1) as u32;
             k1 = aes_v3_sbox(word_size, k2);
@@ -2841,16 +3018,9 @@ fn aes_v3_encrypt_block(
 /// py AES_V3.encrypt：sum_data 得 32 字节明文 → CBC（iv 起）加密两块 →
 /// key 前 31 字节位翻原 data → 回 key 末字节 + 改后 data。
 /// py 的 decrypt 未被任何调用使用（且 inv_s_box 全零），故不移植。
-fn aes_v3_encrypt(
-    data: &[u8],
-    iv: &[u8; 16],
-    aes_key: &[u8],
-    khronos: i64,
-) -> ApiResult<Vec<u8>> {
+fn aes_v3_encrypt(data: &[u8], iv: &[u8; 16], aes_key: &[u8], khronos: i64) -> ApiResult<Vec<u8>> {
     if data.len() < 248 || aes_key.len() < 16 {
-        return Err(ApiError::Internal(
-            "红果 AES_V3 输入过短".to_string(),
-        ));
+        return Err(ApiError::Internal("红果 AES_V3 输入过短".to_string()));
     }
     let word_size = (khronos & 3) as usize;
     let con2 = &AES_R_CON2[word_size];
@@ -3037,14 +3207,12 @@ fn sixgod(
     let mut headers: Vec<(String, String)> = vec![
         ("x-ladon".to_string(), {
             use base64::Engine as _;
-            base64::engine::general_purpose::STANDARD
-                .encode((khronos as u32).to_be_bytes())
+            base64::engine::general_purpose::STANDARD.encode((khronos as u32).to_be_bytes())
         }),
         ("x-khronos".to_string(), khronos.to_string()),
         ("x-argus".to_string(), {
             use base64::Engine as _;
-            base64::engine::general_purpose::STANDARD
-                .encode((khronos as u32).to_le_bytes())
+            base64::engine::general_purpose::STANDARD.encode((khronos as u32).to_le_bytes())
         }),
         ("x-gorgon".to_string(), gorgon),
         ("x-helios".to_string(), helios),
@@ -3156,10 +3324,12 @@ async fn hg_register_device() -> Option<(String, String)> {
         "header": header,
         "_gen_time": ms
     });
-    let url = format!(
-        "https://log.snssdk.com/service/2/device_register/?req_id={req_id}&_rticket={ms}"
-    );
-    let resp = client().ok()?.post(&url).header("User-Agent", REGISTER_UA)
+    let url =
+        format!("https://log.snssdk.com/service/2/device_register/?req_id={req_id}&_rticket={ms}");
+    let resp = client()
+        .ok()?
+        .post(&url)
+        .header("User-Agent", REGISTER_UA)
         .header("Accept", "application/json")
         .header("Content-Type", "application/json")
         .json(&body)
@@ -3288,9 +3458,7 @@ async fn signed_get(url: &str, extra: &[(&str, &str)]) -> ApiResult<Value> {
         .unwrap_or(json!(0));
     let ok = code == json!(0) || code == json!("0");
     if !ok {
-        return Err(ApiError::Internal(format!(
-            "红果接口返回异常 code={code}"
-        )));
+        return Err(ApiError::Internal(format!("红果接口返回异常 code={code}")));
     }
     Ok(body)
 }
@@ -3342,9 +3510,7 @@ async fn signed_post(url: &str, payload: &Value) -> ApiResult<Value> {
         .unwrap_or(json!(0));
     let ok = code == json!(0) || code == json!("0");
     if !ok {
-        return Err(ApiError::Internal(format!(
-            "红果接口返回异常 code={code}"
-        )));
+        return Err(ApiError::Internal(format!("红果接口返回异常 code={code}")));
     }
     Ok(body)
 }
@@ -3485,9 +3651,7 @@ fn b64_decode(input: &str) -> ApiResult<Vec<u8>> {
     };
     base64::engine::general_purpose::STANDARD
         .decode(&padded)
-        .or_else(|_| {
-            base64::engine::general_purpose::URL_SAFE.decode(&padded)
-        })
+        .or_else(|_| base64::engine::general_purpose::URL_SAFE.decode(&padded))
         .map_err(|_| ApiError::Internal("红果 spade base64 解码失败".to_string()))
 }
 
@@ -3497,18 +3661,14 @@ fn b64_decode(input: &str) -> ApiResult<Vec<u8>> {
 fn derive_content_key(spade: &str) -> ApiResult<[u8; 16]> {
     let raw = b64_decode(spade)?;
     if raw.len() < 3 {
-        return Err(ApiError::Internal(
-            "红果 spade 过短".to_string(),
-        ));
+        return Err(ApiError::Internal("红果 spade 过短".to_string()));
     }
     let mut v8 = raw.len() as i64 - (raw[0] ^ raw[1] ^ raw[2]) as i64 + 47;
     if v8 <= 0 || 1 + v8 > raw.len() as i64 {
         v8 = raw.len() as i64 - 1;
     }
     if v8 < 33 {
-        return Err(ApiError::Internal(
-            "红果 spade v8 不足".to_string(),
-        ));
+        return Err(ApiError::Internal("红果 spade v8 不足".to_string()));
     }
     let mut value = raw[1..1 + v8 as usize].to_vec();
     let (mut va, mut vb) = (85u8, 246u8);
@@ -3524,16 +3684,12 @@ fn derive_content_key(spade: &str) -> ApiResult<[u8; 16]> {
             .wrapping_sub(21)
             .wrapping_sub((index as u32).count_ones() as u8);
     }
-    let hex_str = String::from_utf8(value[1..33].to_vec()).map_err(|_| {
-        ApiError::Internal("红果 spade 密钥非 ascii".to_string())
-    })?;
-    let key = hex::decode(&hex_str).map_err(|_| {
-        ApiError::Internal("红果 spade 密钥非 hex".to_string())
-    })?;
+    let hex_str = String::from_utf8(value[1..33].to_vec())
+        .map_err(|_| ApiError::Internal("红果 spade 密钥非 ascii".to_string()))?;
+    let key = hex::decode(&hex_str)
+        .map_err(|_| ApiError::Internal("红果 spade 密钥非 hex".to_string()))?;
     if key.len() != 16 {
-        return Err(ApiError::Internal(
-            "红果 spade 密钥非 16 字节".to_string(),
-        ));
+        return Err(ApiError::Internal("红果 spade 密钥非 16 字节".to_string()));
     }
     let mut out = [0u8; 16];
     out.copy_from_slice(&key);
@@ -3651,18 +3807,9 @@ fn parse_track(moov: &[u8], track_offset: usize) -> Option<TrackInfo> {
     if stsz_body.len() < 12 || stsc_body.len() < 8 || saiz_body.len() < 5 {
         return None;
     }
-    let sample_count = u32::from_be_bytes([
-        stsz_body[8],
-        stsz_body[9],
-        stsz_body[10],
-        stsz_body[11],
-    ]) as usize;
-    let default_size = u32::from_be_bytes([
-        stsz_body[4],
-        stsz_body[5],
-        stsz_body[6],
-        stsz_body[7],
-    ]);
+    let sample_count =
+        u32::from_be_bytes([stsz_body[8], stsz_body[9], stsz_body[10], stsz_body[11]]) as usize;
+    let default_size = u32::from_be_bytes([stsz_body[4], stsz_body[5], stsz_body[6], stsz_body[7]]);
     let mut sizes = Vec::with_capacity(sample_count);
     if default_size != 0 {
         sizes.resize(sample_count, default_size);
@@ -3680,12 +3827,8 @@ fn parse_track(moov: &[u8], track_offset: usize) -> Option<TrackInfo> {
             ]));
         }
     }
-    let chunk_count = u32::from_be_bytes([
-        stco_body[4],
-        stco_body[5],
-        stco_body[6],
-        stco_body[7],
-    ]) as usize;
+    let chunk_count =
+        u32::from_be_bytes([stco_body[4], stco_body[5], stco_body[6], stco_body[7]]) as usize;
     let width = if co64 { 8 } else { 4 };
     let mut chunks = Vec::with_capacity(chunk_count);
     for i in 0..chunk_count {
@@ -3714,12 +3857,8 @@ fn parse_track(moov: &[u8], track_offset: usize) -> Option<TrackInfo> {
         };
         chunks.push(v);
     }
-    let entry_count = u32::from_be_bytes([
-        stsc_body[4],
-        stsc_body[5],
-        stsc_body[6],
-        stsc_body[7],
-    ]) as usize;
+    let entry_count =
+        u32::from_be_bytes([stsc_body[4], stsc_body[5], stsc_body[6], stsc_body[7]]) as usize;
     let mut chunk_samples = vec![0usize; chunk_count];
     for e in 0..entry_count {
         let base = 8 + e * 12;
@@ -3789,7 +3928,13 @@ fn parse_track(moov: &[u8], track_offset: usize) -> Option<TrackInfo> {
         0
     };
     let saio_cursor = if saio_flags & 1 != 0 { 12 } else { 4 };
-    let saio_width = if saio_body.is_empty() { 4 } else if saio_body[0] == 1 { 8 } else { 4 };
+    let saio_width = if saio_body.is_empty() {
+        4
+    } else if saio_body[0] == 1 {
+        8
+    } else {
+        4
+    };
     if saio_body.len() < saio_cursor + 4 + saio_width {
         return None;
     }
@@ -3832,7 +3977,7 @@ fn parse_track(moov: &[u8], track_offset: usize) -> Option<TrackInfo> {
 
 /// py _aes_ctr_decrypt：AES-128 CTR，计数器作大端 u128 逐块 +1。
 fn aes_ctr_decrypt(data: &mut [u8], key: &[u8; 16], iv: &[u8; 16]) {
-    use aes::cipher::{BlockEncrypt, KeyInit, generic_array::GenericArray};
+    use aes::cipher::{generic_array::GenericArray, BlockEncrypt, KeyInit};
     let cipher = aes::Aes128::new(GenericArray::from_slice(key));
     let mut counter = u128::from_be_bytes(*iv);
     for chunk in data.chunks_mut(16) {
@@ -3887,12 +4032,8 @@ fn replace_sinf(data: &mut Vec<u8>) {
     let mut pos = 0usize;
     while pos + 8 <= data.len() {
         if &data[pos + 4..pos + 8] == b"sinf" {
-            let size = u32::from_be_bytes([
-                data[pos],
-                data[pos + 1],
-                data[pos + 2],
-                data[pos + 3],
-            ]) as usize;
+            let size = u32::from_be_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]])
+                as usize;
             let end = pos + size;
             if size >= 8 && size < 50000 && end <= data.len() {
                 data[pos + 4..pos + 8].copy_from_slice(b"free");
@@ -3913,12 +4054,8 @@ fn replace_box_type(data: &mut Vec<u8>, name: &[u8; 4]) {
     let mut pos = 0usize;
     while pos + 8 <= data.len() {
         if &data[pos + 4..pos + 8] == name {
-            let size = u32::from_be_bytes([
-                data[pos],
-                data[pos + 1],
-                data[pos + 2],
-                data[pos + 3],
-            ]) as usize;
+            let size = u32::from_be_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]])
+                as usize;
             let end = pos + size;
             if size >= 8 && end <= data.len() {
                 data[pos + 4..pos + 8].copy_from_slice(b"free");
@@ -3946,22 +4083,16 @@ fn rewrite_moov(data: &[u8]) -> Vec<u8> {
 /// 数为 0 报错，末尾 moov 区换成 _rewrite_moov 结果。
 fn decrypt_mp4_cenc(data: &[u8], key: &[u8; 16]) -> ApiResult<Vec<u8>> {
     if data.len() < 16 {
-        return Err(ApiError::Internal(
-            "红果 CENC 文件过短".to_string(),
-        ));
+        return Err(ApiError::Internal("红果 CENC 文件过短".to_string()));
     }
     let (moov_offset, moov_size) = find_box(data, b"moov", 0);
     if moov_offset < 0 || moov_size < 8 {
-        return Err(ApiError::Internal(
-            "红果 CENC 未找到 moov".to_string(),
-        ));
+        return Err(ApiError::Internal("红果 CENC 未找到 moov".to_string()));
     }
     let moov_offset = moov_offset as usize;
     let moov_end = moov_offset + moov_size;
     if moov_end > data.len() {
-        return Err(ApiError::Internal(
-            "红果 CENC moov 超出文件".to_string(),
-        ));
+        return Err(ApiError::Internal("红果 CENC moov 超出文件".to_string()));
     }
     let moov = data[moov_offset..moov_end].to_vec();
     let mut result = data.to_vec();
@@ -3975,11 +4106,7 @@ fn decrypt_mp4_cenc(data: &[u8], key: &[u8; 16]) -> ApiResult<Vec<u8>> {
         let track_offset = track_offset as usize;
         let next = track_offset + track_size.max(8);
         if let Some(info) = parse_track(&moov, track_offset) {
-            let aux_size: usize = info
-                .aux_sizes
-                .iter()
-                .map(|&s| (s as usize).max(8))
-                .sum();
+            let aux_size: usize = info.aux_sizes.iter().map(|&s| (s as usize).max(8)).sum();
             let aux_offset = info.aux_offset as usize;
             if info.sizes.is_empty() || aux_offset + aux_size > data.len() {
                 track = next;
@@ -3997,14 +4124,10 @@ fn decrypt_mp4_cenc(data: &[u8], key: &[u8; 16]) -> ApiResult<Vec<u8>> {
                     }
                     let size = info.sizes[sample_index] as usize;
                     if current + size > data.len() {
-                        return Err(ApiError::Internal(
-                            "红果 CENC 样本超出文件".to_string(),
-                        ));
+                        return Err(ApiError::Internal("红果 CENC 样本超出文件".to_string()));
                     }
                     if sample_index >= info.aux_sizes.len() {
-                        return Err(ApiError::Internal(
-                            "红果 CENC aux 不足".to_string(),
-                        ));
+                        return Err(ApiError::Internal("红果 CENC aux 不足".to_string()));
                     }
                     let entry_size = (info.aux_sizes[sample_index] as usize).max(8);
                     let mut iv = [0u8; 16];
@@ -4023,9 +4146,7 @@ fn decrypt_mp4_cenc(data: &[u8], key: &[u8; 16]) -> ApiResult<Vec<u8>> {
         track = next;
     }
     if decrypted_samples == 0 {
-        return Err(ApiError::Internal(
-            "红果 CENC 未解密任何样本".to_string(),
-        ));
+        return Err(ApiError::Internal("红果 CENC 未解密任何样本".to_string()));
     }
     let rewritten = rewrite_moov(&moov);
     result[moov_offset..moov_end].copy_from_slice(&rewritten);
@@ -4046,11 +4167,7 @@ fn sample_table(moov: &[u8], moov_start: usize) -> ApiResult<Vec<(u64, u32, [u8;
         let track_offset = track_offset as usize;
         let next = track_offset + track_size.max(8);
         if let Some(info) = parse_track(moov, track_offset) {
-            let aux_size: usize = info
-                .aux_sizes
-                .iter()
-                .map(|&s| (s as usize).max(8))
-                .sum();
+            let aux_size: usize = info.aux_sizes.iter().map(|&s| (s as usize).max(8)).sum();
             let aux_local = info.aux_offset as i64 - moov_start as i64;
             if aux_local < 0 || aux_local as usize + aux_size > moov.len() {
                 return Err(ApiError::Internal(
@@ -4069,9 +4186,7 @@ fn sample_table(moov: &[u8], moov_start: usize) -> ApiResult<Vec<(u64, u32, [u8;
                     }
                     let size = info.sizes[sample_index];
                     if sample_index >= info.aux_sizes.len() {
-                        return Err(ApiError::Internal(
-                            "红果 CENC aux 不足".to_string(),
-                        ));
+                        return Err(ApiError::Internal("红果 CENC aux 不足".to_string()));
                     }
                     let entry_size = (info.aux_sizes[sample_index] as usize).max(8);
                     let mut iv = [0u8; 16];
@@ -4089,9 +4204,7 @@ fn sample_table(moov: &[u8], moov_start: usize) -> ApiResult<Vec<(u64, u32, [u8;
         track = next;
     }
     if table.is_empty() {
-        return Err(ApiError::Internal(
-            "红果 CENC 样本表为空".to_string(),
-        ));
+        return Err(ApiError::Internal("红果 CENC 样本表为空".to_string()));
     }
     table.sort();
     Ok(table)
@@ -4113,11 +4226,7 @@ static AUDIO_DL_CLIENT: Lazy<Option<reqwest::Client>> = Lazy::new(|| {
 /// py _audio_session_bytes：签名 POST playurl 取 main_url +
 /// encryption_key → derive 密钥 → 120 秒下载整文件 → CENC 解密
 /// → 入 3 条缓存回字节。
-pub(crate) async fn hg_audio_bytes(
-    book: &str,
-    item: &str,
-    tone: &str,
-) -> ApiResult<Vec<u8>> {
+pub(crate) async fn hg_audio_bytes(book: &str, item: &str, tone: &str) -> ApiResult<Vec<u8>> {
     let key = (book.to_string(), item.to_string(), tone.to_string());
     if let Ok(guard) = AUDIO_CACHE.lock() {
         for (k, v) in guard.iter() {
@@ -4259,9 +4368,7 @@ async fn audio_tone_id(book_id: &str, detail: &Value) -> ApiResult<i64> {
             }
         }
     }
-    Err(ApiError::Internal(format!(
-        "红果听书 {book_id} 取不到音色"
-    )))
+    Err(ApiError::Internal(format!("红果听书 {book_id} 取不到音色")))
 }
 
 /// py _book_directory：目录分页（count=500，最多 40 页，offset 取
@@ -4282,7 +4389,10 @@ async fn book_directory(book_id: &str) -> ApiResult<Vec<Value>> {
         )
         .await?;
         let data = resp.get("data").cloned().unwrap_or(Value::Null);
-        let page_items = get(&data, "item_data_list").and_then(arr_of).cloned().unwrap_or_default();
+        let page_items = get(&data, "item_data_list")
+            .and_then(arr_of)
+            .cloned()
+            .unwrap_or_default();
         if page_items.is_empty() {
             break;
         }
@@ -4399,9 +4509,7 @@ pub(crate) async fn play(video_id: &str) -> ApiResult<Value> {
     let marker = if let Some(rest) = video_id.strip_prefix("hg_audio:") {
         let parts: Vec<&str> = rest.split(':').collect();
         if parts.len() < 3 {
-            return Err(ApiError::BadRequest(
-                "红果听书参数不对".to_string(),
-            ));
+            return Err(ApiError::BadRequest("红果听书参数不对".to_string()));
         }
         video_id.to_string()
     } else if video_id.contains("hg_audio.mp4") {
@@ -4413,15 +4521,11 @@ pub(crate) async fn play(video_id: &str) -> ApiResult<Value> {
         let item = params.get("item").cloned().unwrap_or_default();
         let tone = params.get("tone").cloned().unwrap_or_default();
         if book.is_empty() || item.is_empty() || tone.is_empty() {
-            return Err(ApiError::BadRequest(
-                "红果听书参数不对".to_string(),
-            ));
+            return Err(ApiError::BadRequest("红果听书参数不对".to_string()));
         }
         format!("hg_audio:{book}:{item}:{tone}")
     } else {
-        return Err(ApiError::BadRequest(
-            "红果听书参数不对".to_string(),
-        ));
+        return Err(ApiError::BadRequest("红果听书参数不对".to_string()));
     };
     Ok(json!({ "url": marker, "header": {} }))
 }
@@ -4456,10 +4560,8 @@ mod tests {
 
     #[test]
     fn hash_f13_branch_2_vector() {
-        let q = hex::decode(
-            "3a36963bbdf05b259afaad54a9983992ac76346e7a56611d17befe96b81f7e10",
-        )
-        .unwrap();
+        let q = hex::decode("3a36963bbdf05b259afaad54a9983992ac76346e7a56611d17befe96b81f7e10")
+            .unwrap();
         let b = hex::decode("301251acb61102bf3ce58237e5dabb2f").unwrap();
         let t = hex::decode("b01b0567").unwrap();
         assert_eq!(
@@ -4470,10 +4572,8 @@ mod tests {
 
     #[test]
     fn hash_f13_branch_1_vector() {
-        let q = hex::decode(
-            "2e87d494473e31662aa53ea6c88696f74581895a8ae0daa86ed9f59e1f6b8682",
-        )
-        .unwrap();
+        let q = hex::decode("2e87d494473e31662aa53ea6c88696f74581895a8ae0daa86ed9f59e1f6b8682")
+            .unwrap();
         let b = hex::decode("d6ed8ba2adae5a938c5a3757bcccf4dd").unwrap();
         let t = hex::decode("b11b0567").unwrap();
         assert_eq!(
@@ -4484,10 +4584,8 @@ mod tests {
 
     #[test]
     fn hash_f13_branch_0_vector() {
-        let q = hex::decode(
-            "956b457c8df6b6ef62e8041cbd43f51e170be4a45c8c68f8c6233ec8b2a0063e",
-        )
-        .unwrap();
+        let q = hex::decode("956b457c8df6b6ef62e8041cbd43f51e170be4a45c8c68f8c6233ec8b2a0063e")
+            .unwrap();
         let b = hex::decode("0039fc0a2fa335c82bfd08f6a068ee1c").unwrap();
         let t = hex::decode("b41b0567").unwrap();
         assert_eq!(
@@ -4498,10 +4596,8 @@ mod tests {
 
     #[test]
     fn hash_f13_deterministic() {
-        let q = hex::decode(
-            "3a36963bbdf05b259afaad54a9983992ac76346e7a56611d17befe96b81f7e10",
-        )
-        .unwrap();
+        let q = hex::decode("3a36963bbdf05b259afaad54a9983992ac76346e7a56611d17befe96b81f7e10")
+            .unwrap();
         let b = hex::decode("301251acb61102bf3ce58237e5dabb2f").unwrap();
         let t = hex::decode("b01b0567").unwrap();
         assert_eq!(
@@ -4530,9 +4626,7 @@ mod tests {
 
     #[test]
     fn derive_content_key_vector() {
-        let key =
-            derive_content_key("g6AT5luhEuhZoRLqX6YR6EGlDupfuibDXbomwVu9JcOlvw==")
-                .unwrap();
+        let key = derive_content_key("g6AT5luhEuhZoRLqX6YR6EGlDupfuibDXbomwVu9JcOlvw==").unwrap();
         assert_eq!(hex::encode(key), "00112233445566778899aabbccddeeff");
     }
 
@@ -4615,8 +4709,7 @@ mod tests {
     async fn diag_signed_tab_raw() {
         ensure_registered().await;
         let params = params_74332(&[("tab_type", "5")]);
-        let (signs, signed_url) = sixgod(BOOKMALL_TAB_URL, &params, None, "")
-            .expect("sixgod");
+        let (signs, signed_url) = sixgod(BOOKMALL_TAB_URL, &params, None, "").expect("sixgod");
         let mut header_map = reqwest::header::HeaderMap::new();
         let mut push = |k: &str, v: &str| {
             if let (Ok(name), Ok(val)) = (

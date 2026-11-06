@@ -18,11 +18,7 @@ const BASE_URL: &str = "https://kmh001.com";
 const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const MIN_LEN: usize = 1000;
 
-const CATEGORIES: [(&str, &str); 3] = [
-    ("", "最新"),
-    ("ongoing", "连载中"),
-    ("complete", "已完结"),
-];
+const CATEGORIES: [(&str, &str); 3] = [("", "最新"), ("ongoing", "连载中"), ("complete", "已完结")];
 
 static HTTP: OnceLock<Option<reqwest::Client>> = OnceLock::new();
 
@@ -99,8 +95,9 @@ fn pct_encode_query(s: &str) -> String {
     let mut out = String::new();
     for b in s.as_bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~'
-            | b'/' => out.push(*b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
+                out.push(*b as char)
+            }
             _ => out.push_str(&format!("%{b:02X}")),
         }
     }
@@ -207,7 +204,9 @@ fn first_hex24(id: &str) -> String {
 }
 
 pub(crate) async fn categories() -> ApiResult<Value> {
-    Ok(json!({"categories": CATEGORIES.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}))
+    Ok(
+        json!({"categories": CATEGORIES.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}),
+    )
 }
 
 pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
@@ -267,9 +266,7 @@ pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
     eps.sort_by_key(|(ordinal, _, _)| *ordinal);
     let episodes: Vec<Value> = eps
         .iter()
-        .map(|(_, sub, chapter_id)| {
-            episode_json(&format!("kmh001:{cid}:{chapter_id}"), sub, &cid)
-        })
+        .map(|(_, sub, chapter_id)| episode_json(&format!("kmh001:{cid}:{chapter_id}"), sub, &cid))
         .collect();
     let extra = if author.is_empty() {
         json!({})

@@ -365,10 +365,7 @@ fn short_cards(resp: &Value) -> Vec<Value> {
         if id.is_empty() {
             continue;
         }
-        let url = play_url2(
-            &text_of(v, &["source_240"]),
-            &text_of(v, &["preview_url"]),
-        );
+        let url = play_url2(&text_of(v, &["source_240"]), &text_of(v, &["preview_url"]));
         if url.is_empty() {
             continue;
         }
@@ -453,7 +450,9 @@ async fn call(path: &str, params: &[(&str, &str)]) -> ApiResult<Value> {
         // 则按原字符串解析 JSON。
         let parsed: Option<Value> = {
             let mut v: Option<Value> = None;
-            if let Ok(raw) = base64::engine::general_purpose::STANDARD.decode(text.trim().as_bytes()) {
+            if let Ok(raw) =
+                base64::engine::general_purpose::STANDARD.decode(text.trim().as_bytes())
+            {
                 if !raw.is_empty() && raw.len() % 16 == 0 {
                     let plain = crate::crypto::aes_cbc_decrypt(&raw, AES_KEY, AES_IV);
                     let unpadded = crate::crypto::pkcs7_unpad(&plain, 16);
@@ -502,7 +501,9 @@ async fn call(path: &str, params: &[(&str, &str)]) -> ApiResult<Value> {
     if last_err.is_empty() {
         last_err = "no triple worked".to_string();
     }
-    Err(ApiError::Internal(format!("haijiao call failed: {last_err}")))
+    Err(ApiError::Internal(format!(
+        "haijiao call failed: {last_err}"
+    )))
 }
 
 async fn list_for(category_id: &str, page: i64) -> ApiResult<Vec<Value>> {
@@ -561,7 +562,9 @@ async fn list_for(category_id: &str, page: i64) -> ApiResult<Vec<Value>> {
 }
 
 pub(crate) async fn categories() -> ApiResult<Value> {
-    Ok(json!({"categories": CATS.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}))
+    Ok(
+        json!({"categories": CATS.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}),
+    )
 }
 
 pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
@@ -652,7 +655,12 @@ pub(crate) async fn search(query: &str) -> ApiResult<Value> {
     }
     let resp = match call(
         "/api.php/api/mv/search",
-        &[("word", query), ("type", "1"), ("page", "1"), ("limit", "30")],
+        &[
+            ("word", query),
+            ("type", "1"),
+            ("page", "1"),
+            ("limit", "30"),
+        ],
     )
     .await
     {
@@ -749,7 +757,8 @@ mod tests {
     fn video_card_aff_empty_dropped() {
         let v: Value = serde_json::from_str(r#"{"aff":"","id":"1","title":"t"}"#).unwrap();
         assert!(video_card(&v).is_none());
-        let v2: Value = serde_json::from_str(r#"{"id":"1","title":"t","duration":65,"play_ct":5}"#).unwrap();
+        let v2: Value =
+            serde_json::from_str(r#"{"id":"1","title":"t","duration":65,"play_ct":5}"#).unwrap();
         let c = video_card(&v2).unwrap();
         assert_eq!(c["remark"], "01:05 · 5次播放");
     }

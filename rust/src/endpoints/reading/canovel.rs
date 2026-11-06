@@ -31,16 +31,12 @@ static LIST_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"<h2 class="post-title entry-title">\s*<a href="https://canovel\.com/article/(\d+)"[^>]*>(.*?)</a>"#).unwrap()
 });
 static TITLE_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?s)<h1[^>]*class="post-title entry-title"[^>]*>(.*?)</h1>"#)
-        .unwrap()
+    Regex::new(r#"(?s)<h1[^>]*class="post-title entry-title"[^>]*>(.*?)</h1>"#).unwrap()
 });
 static TAG_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"<[^>]+>").unwrap());
-static BR_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)<br\s*/?>").unwrap());
-static CLOSE_P_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)</p\s*>").unwrap());
-static DIGITS_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(\d+)").unwrap());
+static BR_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)<br\s*/?>").unwrap());
+static CLOSE_P_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)</p\s*>").unwrap());
+static DIGITS_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(\d+)").unwrap());
 
 fn unescape(s: &str) -> String {
     if !s.contains('&') {
@@ -268,10 +264,7 @@ pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
     let url = if category_id.is_empty() {
         format!("{BASE_URL}/")
     } else {
-        let path = format!(
-            "/article/category/{}",
-            percent_encode_segment(category_id)
-        );
+        let path = format!("/article/category/{}", percent_encode_segment(category_id));
         if page > 1 {
             format!("{BASE_URL}{path}/page/{page}")
         } else {

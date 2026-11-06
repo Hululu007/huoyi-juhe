@@ -45,11 +45,7 @@ const CATS: &[(&str, &str, &str)] = &[
         "素人自拍",
         "/main/amateur?order=recommended&page=%d",
     ),
-    (
-        "europe",
-        "歐美",
-        "/main/europe?order=recommended&page=%d",
-    ),
+    ("europe", "歐美", "/main/europe?order=recommended&page=%d"),
     (
         "cartoon",
         "H漫畫",
@@ -65,7 +61,10 @@ fn headers(referer: &str) -> Vec<(String, String)> {
             "Accept".to_string(),
             "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8".to_string(),
         ),
-        ("Accept-Language".to_string(), "zh-TW,zh;q=0.9,en;q=0.8".to_string()),
+        (
+            "Accept-Language".to_string(),
+            "zh-TW,zh;q=0.9,en;q=0.8".to_string(),
+        ),
         ("Referer".to_string(), referer.to_string()),
     ]
 }
@@ -142,10 +141,9 @@ fn decode_lines(raw: &str) -> String {
 
 /// 与 Java 的 cardTitle 一致：item_title → img alt → GGJAV。
 fn card_title(segment: &str) -> String {
-    let re_title = Regex::new(
-        "<div[^>]*class=[\"']item_title[\"'][^>]*>\\s*<a[^>]*>([^<]{1,300})</a>",
-    )
-    .unwrap();
+    let re_title =
+        Regex::new("<div[^>]*class=[\"']item_title[\"'][^>]*>\\s*<a[^>]*>([^<]{1,300})</a>")
+            .unwrap();
     let t = unesc(&first(&re_title, segment));
     if t.chars().count() > 1 {
         return t;
@@ -286,9 +284,17 @@ fn unpack_js(html: &str) -> String {
 
 fn unquote_js_string(raw: &str) -> String {
     let s = raw.trim();
-    let s = s.strip_prefix('\'').or_else(|| s.strip_prefix('"')).unwrap_or(s);
-    let s = s.strip_suffix('\'').or_else(|| s.strip_suffix('"')).unwrap_or(s);
-    s.replace("\\'", "'").replace("\\\"", "\"").replace("\\\\", "\\")
+    let s = s
+        .strip_prefix('\'')
+        .or_else(|| s.strip_prefix('"'))
+        .unwrap_or(s);
+    let s = s
+        .strip_suffix('\'')
+        .or_else(|| s.strip_suffix('"'))
+        .unwrap_or(s);
+    s.replace("\\'", "'")
+        .replace("\\\"", "\"")
+        .replace("\\\\", "\\")
 }
 
 /// 与 Java 的 fromMv 一致：取 mv 页，解包后取 hls2/3/4，空则扫 m3u8。
@@ -300,11 +306,7 @@ async fn from_mv(url: &str) -> String {
         return String::new();
     }
     let unpacked = unpack_js(&html);
-    let text = if unpacked.len() > 100 {
-        unpacked
-    } else {
-        html
-    };
+    let text = if unpacked.len() > 100 { unpacked } else { html };
     let re_hls = Regex::new("\"hls[234]?\":\"([^\"]+)\"").unwrap();
     let url = unesc(&first(&re_hls, &text));
     if !url.is_empty() {

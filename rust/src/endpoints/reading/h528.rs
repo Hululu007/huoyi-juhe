@@ -31,22 +31,16 @@ const CATEGORIES: [(&str, &str); 12] = [
 ];
 
 static LIST_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"<h3><a href="[^"]+/post/(\d+)\.html"[^>]*>(.*?)</a></h3>"#)
-        .unwrap()
+    Regex::new(r#"<h3><a href="[^"]+/post/(\d+)\.html"[^>]*>(.*?)</a></h3>"#).unwrap()
 });
-static TITLE_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?s)<div class="post"[^>]*>\s*<h2>(.*?)</h2>"#).unwrap()
-});
-static BODY_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?s)<div class="entry"[^>]*>(.*?)</div>"#).unwrap()
-});
+static TITLE_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?s)<div class="post"[^>]*>\s*<h2>(.*?)</h2>"#).unwrap());
+static BODY_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?s)<div class="entry"[^>]*>(.*?)</div>"#).unwrap());
 static TAG_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"<[^>]+>").unwrap());
-static BR_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)<br\s*/?>").unwrap());
-static CLOSE_P_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)</p\s*>").unwrap());
-static DIGITS_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(\d+)").unwrap());
+static BR_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)<br\s*/?>").unwrap());
+static CLOSE_P_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)</p\s*>").unwrap());
+static DIGITS_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(\d+)").unwrap());
 
 fn unescape(s: &str) -> String {
     if !s.contains('&') {
@@ -233,10 +227,7 @@ pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
     let url = if category_id.is_empty() {
         format!("{BASE_URL}/")
     } else {
-        let path = format!(
-            "/post/category/{}",
-            percent_encode_segment(category_id)
-        );
+        let path = format!("/post/category/{}", percent_encode_segment(category_id));
         if page > 1 {
             format!("{BASE_URL}{path}/page/{page}")
         } else {

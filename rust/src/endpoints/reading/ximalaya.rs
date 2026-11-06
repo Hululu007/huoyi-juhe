@@ -46,18 +46,14 @@ const CATEGORIES: [(&str, &str); 10] = [
     ("15", "广播剧"),
 ];
 
-static CACHE: Lazy<Mutex<HashMap<String, Value>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
-static DEV_HINT: Lazy<Mutex<HashMap<String, String>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
-static BRACKET_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"【[^】]*】|\[[^\]]*\]|（[^）]*）|\([^)]*\)").unwrap()
-});
+static CACHE: Lazy<Mutex<HashMap<String, Value>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+static DEV_HINT: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+static BRACKET_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"【[^】]*】|\[[^\]]*\]|（[^）]*）|\([^)]*\)").unwrap());
 static PUNCT_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"[丨|｜·、,，.。:：!！?？\"'“”/\\-]+"#).unwrap());
 static KW_DROP_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)vip|免费|多人有声剧|有声剧|有声书|演播|出品|独家|完结|全集|首发")
-        .unwrap()
+    Regex::new(r"(?i)vip|免费|多人有声剧|有声剧|有声书|演播|出品|独家|完结|全集|首发").unwrap()
 });
 static WS_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s+").unwrap());
 
@@ -114,7 +110,10 @@ async fn fetch_once(url: &str, mobile: bool) -> ApiResult<Value> {
             .header("Accept", "application/json, text/plain, */*")
             .header("Accept-Language", "zh-CN,zh;q=0.9");
     }
-    let resp = req.send().await.map_err(|e| ApiError::Internal(e.to_string()))?;
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
     let status = resp.status().as_u16();
     if status != 200 {
         return Err(ApiError::Internal(format!("喜马拉雅请求 HTTP {status}")));
@@ -179,7 +178,11 @@ async fn feed(cid: &str, pg: i64, size: i64, sort: &str) -> Vec<Value> {
             let title = format!("{paid}{}", text_of(a, &["albumTitle"]));
             let cover = fix_img(&text_of(a, &["albumCoverPath"]));
             let count = text_of(a, &["albumTrackCount"]);
-            let count = if count.is_empty() { "?".to_string() } else { count };
+            let count = if count.is_empty() {
+                "?".to_string()
+            } else {
+                count
+            };
             out.push(item_json(
                 &text_of(a, &["albumId"]),
                 &title,
@@ -192,7 +195,9 @@ async fn feed(cid: &str, pg: i64, size: i64, sort: &str) -> Vec<Value> {
 }
 
 pub(crate) async fn categories() -> ApiResult<Value> {
-    Ok(json!({"categories": CATEGORIES.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}))
+    Ok(
+        json!({"categories": CATEGORIES.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}),
+    )
 }
 
 pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
@@ -265,9 +270,8 @@ async fn fetch_page_tracks(
     size: i64,
     dev: &str,
 ) -> (Option<Vec<Value>>, i64) {
-    let url = format!(
-        "{MOBILE}/mobile/others/ca/album/track/{aid}/true/{page}/{size}?device={dev}"
-    );
+    let url =
+        format!("{MOBILE}/mobile/others/ca/album/track/{aid}/true/{page}/{size}?device={dev}");
     let d = match get_json(&url, true).await {
         Ok(v) => v,
         Err(_) => return (None, 0),
@@ -355,9 +359,7 @@ async fn album_meta(aid: &str) -> AlbumMeta {
         paid: false,
         nick: String::new(),
     };
-    let url = format!(
-        "{HOST}/m-revision/page/album/queryAlbumPage/{aid}?page=1&pageSize=30"
-    );
+    let url = format!("{HOST}/m-revision/page/album/queryAlbumPage/{aid}?page=1&pageSize=30");
     if let Ok(v) = get_json(&url, false).await {
         let d = get(&v, "data").cloned().unwrap_or(Value::Null);
         let info = get(&d, "albumDetailInfo")
@@ -434,11 +436,7 @@ async fn free_alt(title: &str) -> Option<String> {
             .and_then(arr_of)
             .cloned()
     })?;
-    for d in docs
-        .iter()
-        .filter(|d| !truthy(get(d, "isPaid")))
-        .take(6)
-    {
+    for d in docs.iter().filter(|d| !truthy(get(d, "isPaid"))).take(6) {
         if let Some(src) = web_free_url(&text_of(d, &["id"])).await {
             return Some(src);
         }
@@ -467,10 +465,7 @@ async fn alt_album(title: &str, self_id: &str) -> Option<(String, Vec<Track>, St
     let mut tried = 0;
     for a in &docs {
         let aid = text_of(a, &["albumId"]);
-        if aid.is_empty()
-            || aid == self_id
-            || truthy(get(a, "isPaid"))
-        {
+        if aid.is_empty() || aid == self_id || truthy(get(a, "isPaid")) {
             continue;
         }
         let at = text_of(a, &["title"]);
@@ -500,11 +495,7 @@ async fn alt_album(title: &str, self_id: &str) -> Option<(String, Vec<Track>, St
 }
 
 fn track_label(t: &Track) -> String {
-    let title: String = WS_RE
-        .replace_all(&t.title, " ")
-        .chars()
-        .take(38)
-        .collect();
+    let title: String = WS_RE.replace_all(&t.title, " ").chars().take(38).collect();
     format!("第{}集 {title}", t.idx + 1)
 }
 
@@ -516,7 +507,10 @@ pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
     let mut content = meta.intro.clone();
     if !list.is_empty() {
         if live >= list.len() {
-            content.push_str(&format!("\n【共 {} 集，音源全部已解析，直接点就听】", list.len()));
+            content.push_str(&format!(
+                "\n【共 {} 集，音源全部已解析，直接点就听】",
+                list.len()
+            ));
         } else if live == 0 {
             content.push_str(&format!("\n【共 {} 集，播放时自动解析音源】", list.len()));
         } else {
@@ -534,13 +528,7 @@ pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
     }
     let mut episodes: Vec<Value> = list
         .iter()
-        .map(|t| {
-            episode_json(
-                &format!("{}_{}_{}", aid, t.idx, t.id),
-                &track_label(t),
-                aid,
-            )
-        })
+        .map(|t| episode_json(&format!("{}_{}_{}", aid, t.idx, t.id), &track_label(t), aid))
         .collect();
     if !list.is_empty() && live < list.len() {
         if let Some((at, alt_tracks, alt_aid)) = alt_album(&meta.title, aid).await {
@@ -678,10 +666,7 @@ mod tests {
 
     #[test]
     fn fix_img_rules() {
-        assert_eq!(
-            fix_img("http://a.com/x.jpg"),
-            "https://a.com/x.jpg"
-        );
+        assert_eq!(fix_img("http://a.com/x.jpg"), "https://a.com/x.jpg");
         assert_eq!(fix_img("//a.com/x.jpg"), "https://a.com/x.jpg");
         assert_eq!(
             fix_img("/group1/x.jpg"),

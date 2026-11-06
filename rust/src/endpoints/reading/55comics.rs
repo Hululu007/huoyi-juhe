@@ -98,8 +98,9 @@ fn pct_encode_query(s: &str) -> String {
     let mut out = String::new();
     for b in s.as_bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~'
-            | b'/' => out.push(*b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
+                out.push(*b as char)
+            }
             _ => out.push_str(&format!("%{b:02X}")),
         }
     }
@@ -178,9 +179,8 @@ async fn chapter_images(cid: &str) -> Vec<String> {
             }
         }
     }
-    let img_re = must_re(
-        r#"<img[^>]*data-original="([^"]+)"[^>]*class="[^"]*img-responsive-mw[^"]*""#,
-    );
+    let img_re =
+        must_re(r#"<img[^>]*data-original="([^"]+)"[^>]*class="[^"]*img-responsive-mw[^"]*""#);
     let mut seen: HashSet<String> = HashSet::new();
     let mut imgs = Vec::new();
     for n in 1..=total {
@@ -200,7 +200,9 @@ async fn chapter_images(cid: &str) -> Vec<String> {
 }
 
 pub(crate) async fn categories() -> ApiResult<Value> {
-    Ok(json!({"categories": CATEGORIES.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}))
+    Ok(
+        json!({"categories": CATEGORIES.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}),
+    )
 }
 
 pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
@@ -230,14 +232,13 @@ pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
         None => String::new(),
     };
     let title = if title.is_empty() { aid.clone() } else { title };
-    let cover = match must_re(
-        r#"<img[^>]*data-original="(https://img\.manhua18h\.com/comic/[^"]+)""#,
-    )
-    .captures(&page)
-    {
-        Some(caps) => caps[1].to_string(),
-        None => String::new(),
-    };
+    let cover =
+        match must_re(r#"<img[^>]*data-original="(https://img\.manhua18h\.com/comic/[^"]+)""#)
+            .captures(&page)
+        {
+            Some(caps) => caps[1].to_string(),
+            None => String::new(),
+        };
     let ch_re = must_re(r#"<a[^>]*href="/chapter/(\d+)\.html"[^>]*>(.*?)</a>"#);
     let mut seen: HashSet<String> = HashSet::new();
     let mut chs: Vec<(String, String)> = Vec::new();

@@ -274,10 +274,7 @@ fn js_parse_number(s: &str) -> f64 {
     if t == "-Infinity" {
         return f64::NEG_INFINITY;
     }
-    if let Some(hex) = t
-        .strip_prefix("0x")
-        .or_else(|| t.strip_prefix("0X"))
-    {
+    if let Some(hex) = t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
         if let Ok(v) = i64::from_str_radix(hex, 16) {
             return v as f64;
         }
@@ -545,11 +542,7 @@ impl JsParser {
             let right = self.parse_multiplicative()?;
             left = if op == '+' {
                 if matches!(left, JsVal::Str(_)) || matches!(right, JsVal::Str(_)) {
-                    JsVal::Str(format!(
-                        "{}{}",
-                        left.to_js_string(),
-                        right.to_js_string()
-                    ))
+                    JsVal::Str(format!("{}{}", left.to_js_string(), right.to_js_string()))
                 } else {
                     JsVal::Num(left.to_number() + right.to_number())
                 }
@@ -668,10 +661,7 @@ impl JsParser {
                 "indexOf" => {
                     let args = self.parse_args()?;
                     let s = val.to_js_string();
-                    let pat = args
-                        .first()
-                        .map(|v| v.to_js_string())
-                        .unwrap_or_default();
+                    let pat = args.first().map(|v| v.to_js_string()).unwrap_or_default();
                     let from = args.get(1).map(|v| v.to_number()).unwrap_or(0.0);
                     val = JsVal::Num(utf16_index_of(&s, &pat, from));
                 }
@@ -864,10 +854,7 @@ impl JsParser {
                     }
                     "eval" => {
                         let args = self.parse_args()?;
-                        let code = args
-                            .first()
-                            .map(|v| v.to_js_string())
-                            .unwrap_or_default();
+                        let code = args.first().map(|v| v.to_js_string()).unwrap_or_default();
                         let mut sub = JsParser::new(&code);
                         let v = sub.parse_expr()?;
                         sub.skip_ws();
@@ -897,27 +884,20 @@ impl JsParser {
                             "abs" => Ok(JsVal::Num(n.abs())),
                             "sqrt" => Ok(JsVal::Num(n.sqrt())),
                             "pow" => {
-                                let b = args
-                                    .get(1)
-                                    .map(|v| v.to_number())
-                                    .unwrap_or(0.0);
+                                let b = args.get(1).map(|v| v.to_number()).unwrap_or(0.0);
                                 Ok(JsVal::Num(n.powf(b)))
                             }
                             "max" => Ok(JsVal::Num(
-                                args
-                                    .iter()
+                                args.iter()
                                     .map(|v| v.to_number())
                                     .fold(f64::NEG_INFINITY, f64::max),
                             )),
                             "min" => Ok(JsVal::Num(
-                                args
-                                    .iter()
+                                args.iter()
                                     .map(|v| v.to_number())
                                     .fold(f64::INFINITY, f64::min),
                             )),
-                            other => {
-                                Err(format!("JS 求值：不支持的 Math.{other}"))
-                            }
+                            other => Err(format!("JS 求值：不支持的 Math.{other}")),
                         }
                     }
                     "String" => {
@@ -932,9 +912,7 @@ impl JsParser {
                                 let args = self.parse_args()?;
                                 Ok(JsVal::Str(from_char_codes(&args)))
                             }
-                            other => {
-                                Err(format!("JS 求值：不支持的 String.{other}"))
-                            }
+                            other => Err(format!("JS 求值：不支持的 String.{other}")),
                         }
                     }
                     other => Err(format!("JS 求值：不支持的标识符 {other}")),
@@ -1067,11 +1045,8 @@ fn eval_js(expr: &str) -> Result<JsVal, String> {
 
 /// 章节页里取 DATA 密文 T 与 window[…] 最后一条赋值求出的 N。
 fn extract_nonce(page: &str) -> ApiResult<(String, String)> {
-    let t = cap(
-        &must_re(r"(?s)DATA[^=]*=\s*'(.*?)',"),
-        page,
-    )
-    .ok_or_else(|| ApiError::Internal("腾讯章节页未找到 DATA 密文".into()))?;
+    let t = cap(&must_re(r"(?s)DATA[^=]*=\s*'(.*?)',"), page)
+        .ok_or_else(|| ApiError::Internal("腾讯章节页未找到 DATA 密文".into()))?;
     let assigns: Vec<String> = must_re(r"(?s)window\[.*?\] *=(.*?);")
         .captures_iter(page)
         .filter_map(|c| c.get(1).map(|m| m.as_str().to_string()))
@@ -1084,9 +1059,7 @@ fn extract_nonce(page: &str) -> ApiResult<(String, String)> {
         .to_js_string();
     let ok = n.len() == 32 && n.chars().all(|c| c.is_ascii_hexdigit());
     if !ok {
-        return Err(ApiError::Internal(
-            "腾讯章节 JS 求值未得有效 N".into(),
-        ));
+        return Err(ApiError::Internal("腾讯章节 JS 求值未得有效 N".into()));
     }
     Ok((t, n))
 }
@@ -1140,26 +1113,20 @@ fn parse_cards(page: &str) -> Vec<Value> {
     ) {
         for li in must_re(r"(?s)<li>(.*?)</li>").captures_iter(&ul) {
             let block = &li[1];
-            let Some(id) = cap(
-                &must_re(r"/Comic/comicInfo/id/(\d+)"),
-                block,
-            ) else {
+            let Some(id) = cap(&must_re(r"/Comic/comicInfo/id/(\d+)"), block) else {
                 continue;
             };
             if !seen.insert(id.clone()) {
                 continue;
             }
-            let title = cap(
-                &must_re(r#"title="([^"]+)" class="mod_book_cover"#),
-                block,
-            )
-            .or_else(|| {
-                cap(
-                    &must_re(r#"(?s)<h4 class="mod_book_name">.*?<a[^>]*>([^<]+)</a>"#),
-                    block,
-                )
-            })
-            .unwrap_or_default();
+            let title = cap(&must_re(r#"title="([^"]+)" class="mod_book_cover"#), block)
+                .or_else(|| {
+                    cap(
+                        &must_re(r#"(?s)<h4 class="mod_book_name">.*?<a[^>]*>([^<]+)</a>"#),
+                        block,
+                    )
+                })
+                .unwrap_or_default();
             if title.is_empty() {
                 continue;
             }
@@ -1187,9 +1154,7 @@ fn parse_cards(page: &str) -> Vec<Value> {
         &must_re(r#"(?s)<ul class="[^"]*ret-search-list[^"]*">(.*?)</ul>"#),
         page,
     ) {
-        for li in must_re(r#"(?s)<li class="ret-search-item[^"]*">(.*?)</li>"#)
-            .captures_iter(&ul)
-        {
+        for li in must_re(r#"(?s)<li class="ret-search-item[^"]*">(.*?)</li>"#).captures_iter(&ul) {
             let block = &li[1];
             let Some(id) = cap(&must_re(r"/Comic/comicInfo/id/(\d+)"), block) else {
                 continue;
@@ -1225,10 +1190,8 @@ fn parse_cards(page: &str) -> Vec<Value> {
         }
     }
     // 移动排行：a.comic-link。
-    for a in must_re(
-        r#"(?s)<a class="comic-link" href="/comic/index/id/(\d+)">(.*?)</a>"#,
-    )
-    .captures_iter(page)
+    for a in must_re(r#"(?s)<a class="comic-link" href="/comic/index/id/(\d+)">(.*?)</a>"#)
+        .captures_iter(page)
     {
         let id = a[1].to_string();
         if !seen.insert(id.clone()) {
@@ -1277,12 +1240,9 @@ fn parse_detail(series_id: &str, page: &str) -> Value {
     )
     .map(|t| clean_collapse(&t))
     .unwrap_or_default();
-    let author = cap(
-        &must_re(r"作者：<em[^>]*>([^<]+)"),
-        page,
-    )
-    .map(|t| clean_collapse(&t))
-    .unwrap_or_default();
+    let author = cap(&must_re(r"作者：<em[^>]*>([^<]+)"), page)
+        .map(|t| clean_collapse(&t))
+        .unwrap_or_default();
     let status = cap(
         &must_re(r#"<label class="works-intro-status">([^<]+)</label>"#),
         page,
@@ -1297,19 +1257,14 @@ fn parse_detail(series_id: &str, page: &str) -> Value {
     for (i, &start) in starts.iter().enumerate() {
         let end = starts.get(i + 1).copied().unwrap_or(page.len());
         let seg = &page[start..end];
-        let Some(caps) =
-            must_re(r#"/ComicView/index/id/(\d+)/cid/(\d+)"#).captures(seg)
-        else {
+        let Some(caps) = must_re(r#"/ComicView/index/id/(\d+)/cid/(\d+)"#).captures(seg) else {
             continue;
         };
         let comic_id = caps[1].to_string();
         let cid = caps[2].to_string();
-        let name = cap(
-            &must_re(r#"(?s)<a[^>]*>([^<]+)</a>"#),
-            seg,
-        )
-        .map(|t| clean_collapse(&t))
-        .unwrap_or_default();
+        let name = cap(&must_re(r#"(?s)<a[^>]*>([^<]+)</a>"#), seg)
+            .map(|t| clean_collapse(&t))
+            .unwrap_or_default();
         if name.is_empty() {
             continue;
         }
@@ -1345,7 +1300,9 @@ fn parse_detail(series_id: &str, page: &str) -> Value {
 }
 
 pub(crate) async fn categories() -> ApiResult<Value> {
-    Ok(json!({"categories": CATEGORIES.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}))
+    Ok(
+        json!({"categories": CATEGORIES.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}),
+    )
 }
 
 pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
@@ -1442,22 +1399,15 @@ pub(crate) async fn play(video_id: &str) -> ApiResult<Value> {
 mod tests {
     use super::*;
 
-    const CHAPTER1: &str = include_str!(
-        "../../../../../mycomic_re/probe/tx_chapter.bin"
-    );
+    const CHAPTER1: &str = include_str!("../../../../../mycomic_re/probe/tx_chapter.bin");
     const CHAPTER3: &str = include_str!("../../../../../mycomic_re/probe/tx_cid3.html");
     const CHAPTER1B: &str = include_str!("../../../../../mycomic_re/probe/tx_cid2b.html");
-    const CHAPTER_LIVE: &str =
-        include_str!("../../../../../mycomic_re/probe/tx_live_cid2.html");
+    const CHAPTER_LIVE: &str = include_str!("../../../../../mycomic_re/probe/tx_live_cid2.html");
     const DETAIL: &str = include_str!("../../../../../mycomic_re/probe/tx_detail.bin");
-    const SEARCH: &str = include_str!(
-        "../../../../../mycomic_re/probe/tengxun_search.bin"
-    );
+    const SEARCH: &str = include_str!("../../../../../mycomic_re/probe/tengxun_search.bin");
     const RANK: &str = include_str!("../../../../../mycomic_re/probe/tx_rank.bin");
-    const THEME101: &str =
-        include_str!("../../../../../mycomic_re/probe/tx_theme101.html");
-    const IMAGES1: &str =
-        include_str!("../../../../../mycomic_re/probe/tx_images.json");
+    const THEME101: &str = include_str!("../../../../../mycomic_re/probe/tx_theme101.html");
+    const IMAGES1: &str = include_str!("../../../../../mycomic_re/probe/tx_images.json");
 
     fn eval_str(expr: &str) -> String {
         eval_js(expr).unwrap().to_js_string()
@@ -1484,7 +1434,10 @@ mod tests {
         assert_eq!(eval_str("parseInt('42px')"), "42");
         assert_eq!(eval_str("+eval(\"9 * 0\")"), "0");
         assert_eq!(eval_str("(9 * 0).toString()"), "0");
-        assert_eq!(eval_str("\"a\" + (+eval(\"9 * 0\")).toString() + \"b\""), "a0b");
+        assert_eq!(
+            eval_str("\"a\" + (+eval(\"9 * 0\")).toString() + \"b\""),
+            "a0b"
+        );
     }
 
     #[test]
@@ -1526,7 +1479,10 @@ mod tests {
         let expr = "('a' + (document.bar).toString())";
         assert_eq!(eval_str(&preprocess_js(expr)), "a0");
         // 回归：eval 字符串里的 window 不是成员访问，不应触发替换。
-        assert_eq!(eval_str("(+eval(\"1 * (!window.Array) + 1\")).toString()"), "1");
+        assert_eq!(
+            eval_str("(+eval(\"1 * (!window.Array) + 1\")).toString()"),
+            "1"
+        );
     }
 
     #[test]
@@ -1564,8 +1520,7 @@ mod tests {
             imgs1[0],
             "https://manhua.acimg.cn/manhua_detail/0/03_14_08_a3f264f57dcc99251a8d1e9030b018e97_114823300.jpg/0"
         );
-        let expected: Vec<String> =
-            serde_json::from_str(IMAGES1).unwrap();
+        let expected: Vec<String> = serde_json::from_str(IMAGES1).unwrap();
         assert_eq!(imgs1, expected);
 
         let (t3, n3) = extract_nonce(CHAPTER3).unwrap();
@@ -1586,7 +1541,10 @@ mod tests {
     fn detail_parses_truncated_sample() {
         let d = parse_detail("649513", DETAIL);
         assert_eq!(d["title"], "斗罗大陆 II 绝世唐门");
-        assert!(d["cover"].as_str().unwrap().starts_with("https://manhua.acimg.cn/vertical/"));
+        assert!(d["cover"]
+            .as_str()
+            .unwrap()
+            .starts_with("https://manhua.acimg.cn/vertical/"));
         assert!(d["synopsis"].as_str().unwrap().contains("唐门"));
         assert_eq!(d["extra"]["author"], "神漫君");
         assert_eq!(d["extra"]["status"], "连载中");
@@ -1662,10 +1620,7 @@ mod tests {
         let found = search("斗罗大陆").await.unwrap();
         let items = found["items"].as_array().unwrap();
         assert!(!items.is_empty(), "搜索无结果");
-        assert!(
-            items.iter().any(|i| i["id"] == "649513"),
-            "搜索应含 649513"
-        );
+        assert!(items.iter().any(|i| i["id"] == "649513"), "搜索应含 649513");
 
         let d = detail("649513").await.unwrap();
         assert_eq!(d["title"], "斗罗大陆 II 绝世唐门");

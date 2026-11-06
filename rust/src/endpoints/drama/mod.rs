@@ -16,7 +16,7 @@
 //! remark、episodes 的 video_id/title/series_id），Dart 侧只做直译，不
 //! 再做字段归一。
 
-mod yaguo;
+mod abjav;
 mod ai2026;
 mod ai4k;
 mod aidj;
@@ -26,6 +26,7 @@ mod airav;
 mod aisxpc;
 mod aiye;
 mod aoxx69;
+mod asextv;
 #[path = "123av.rs"]
 mod av123;
 mod av18av;
@@ -36,6 +37,7 @@ mod av6k;
 mod av91;
 mod avbigplat;
 mod avcnn;
+mod avhwa;
 mod avjoy;
 mod avtoday;
 mod avyanjiuyuan;
@@ -72,6 +74,7 @@ mod hddj;
 mod hduanju;
 mod heitaoduanju;
 mod henhenlu;
+mod herexxx;
 mod hgai;
 mod hgaidj;
 mod hgdj;
@@ -83,9 +86,9 @@ mod hjapp;
 mod hjw;
 mod hl365;
 mod hohoj;
+mod hongluo;
 mod hongxing;
 mod hongyan;
-mod hongluo;
 mod hsck;
 mod huai;
 mod huangduanju;
@@ -94,17 +97,24 @@ mod huangguo;
 mod huangguotv;
 mod jable;
 mod jack20;
+mod japanwhores;
 mod jav;
 mod jav188;
 mod jav777;
+mod javdino;
+mod javfun;
 mod javgg;
 mod javguru;
 mod javhd;
+mod javhdtube;
 mod javher;
 mod javmap;
+mod javmit;
 mod javplay;
 mod javrate;
+mod javsiri;
 mod javtiful;
+mod javtsunami;
 mod javwine;
 mod javzw;
 mod jin18;
@@ -115,8 +125,10 @@ mod jj99;
 mod jm;
 mod jptt;
 mod juyin;
+mod kissjav;
 mod klxq;
 mod km2;
+mod koreanporn;
 mod kuaihuo;
 mod lissav;
 mod lissavcn;
@@ -134,6 +146,7 @@ mod mjv011;
 mod mmtv7;
 mod mose365;
 mod muzi;
+mod mythav;
 mod naihenda;
 mod netflav;
 mod nvdi;
@@ -143,16 +156,21 @@ mod pandatv;
 mod pb;
 mod pigav;
 mod pj5ti;
+mod porna91;
 mod porncgw;
 mod pornhub;
 mod ptt01;
 mod px8x;
 #[path = "17rip.rs"]
 mod rip17;
+mod roshy;
 mod rou;
 mod rouav;
+mod rouvideo;
 mod rscg91;
+mod senzuri;
 mod sex8;
+mod sexkbj;
 mod shaofu;
 mod shunvqu;
 mod shunvwang;
@@ -161,12 +179,14 @@ mod sihucdn;
 mod sporn;
 mod ssis;
 mod swagr;
+mod taiav;
 mod tanhua91;
 mod taose;
 mod thdh;
 mod theporny;
 mod tiktvod;
 mod tinyav;
+mod tokyomotion;
 mod topjav;
 mod toptv;
 mod tudou;
@@ -179,6 +199,7 @@ mod vjav;
 mod wnzs;
 mod wukong;
 mod wuyetv;
+mod x51;
 mod xanimu;
 mod xhamster;
 mod xhy11;
@@ -193,6 +214,7 @@ mod xszav;
 mod xvideo;
 mod xx01;
 mod xx9;
+mod yaguo;
 mod yiren;
 mod yunmeng;
 mod ywmm;
@@ -243,13 +265,9 @@ pub(crate) fn with_query(url: &str, params: &[(&str, &str)]) -> String {
         if i > 0 {
             out.push('&');
         }
-        out.push_str(
-            &url::form_urlencoded::byte_serialize(k.as_bytes()).collect::<String>(),
-        );
+        out.push_str(&url::form_urlencoded::byte_serialize(k.as_bytes()).collect::<String>());
         out.push('=');
-        out.push_str(
-            &url::form_urlencoded::byte_serialize(v.as_bytes()).collect::<String>(),
-        );
+        out.push_str(&url::form_urlencoded::byte_serialize(v.as_bytes()).collect::<String>());
     }
     out
 }
@@ -379,6 +397,7 @@ fn handle_categories<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, Api
             "591av" => av591::categories().await,
             "69vj" => vj69::categories().await,
             "99jj" => jj99::categories().await,
+            "abjav" => abjav::categories().await,
             "ai2026" => ai2026::categories().await,
             "ai4k" => ai4k::categories().await,
             "aidj" => aidj::categories().await,
@@ -388,12 +407,14 @@ fn handle_categories<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, Api
             "aisxpc" => aisxpc::categories().await,
             "aiye" => aiye::categories().await,
             "aoxx69" => aoxx69::categories().await,
+            "asextv" => asextv::categories().await,
             "av18av" => av18av::categories().await,
             "av18avmcg" => av18avmcg::categories().await,
             "av6k" => av6k::categories().await,
             "av91" => av91::categories().await,
             "avbigplat" => avbigplat::categories().await,
             "avcnn" => avcnn::categories().await,
+            "avhwa" => avhwa::categories().await,
             "avjoy" => avjoy::categories().await,
             "avtoday" => avtoday::categories().await,
             "avyanjiuyuan" => avyanjiuyuan::categories().await,
@@ -430,6 +451,7 @@ fn handle_categories<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, Api
             "hduanju" => hduanju::categories().await,
             "heitaoduanju" => heitaoduanju::categories().await,
             "henhenlu" => henhenlu::categories().await,
+            "herexxx" => herexxx::categories().await,
             "hgai" => hgai::categories().await,
             "hgaidj" => hgaidj::categories().await,
             "hgdj" => hgdj::categories().await,
@@ -452,17 +474,24 @@ fn handle_categories<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, Api
             "huangguotv" => huangguotv::categories().await,
             "jable" => jable::categories().await,
             "jack20" => jack20::categories().await,
+            "japanwhores" => japanwhores::categories().await,
             "jav" => jav::categories().await,
             "jav188" => jav188::categories().await,
             "jav777" => jav777::categories().await,
+            "javdino" => javdino::categories().await,
+            "javfun" => javfun::categories().await,
             "javgg" => javgg::categories().await,
             "javguru" => javguru::categories().await,
             "javhd" => javhd::categories().await,
+            "javhdtube" => javhdtube::categories().await,
             "javher" => javher::categories().await,
             "javmap" => javmap::categories().await,
+            "javmit" => javmit::categories().await,
             "javplay" => javplay::categories().await,
             "javrate" => javrate::categories().await,
+            "javsiri" => javsiri::categories().await,
             "javtiful" => javtiful::categories().await,
+            "javtsunami" => javtsunami::categories().await,
             "javwine" => javwine::categories().await,
             "javzw" => javzw::categories().await,
             "jin18" => jin18::categories().await,
@@ -471,8 +500,10 @@ fn handle_categories<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, Api
             "jm" => jm::categories().await,
             "jptt" => jptt::categories().await,
             "juyin" => juyin::categories().await,
+            "kissjav" => kissjav::categories().await,
             "klxq" => klxq::categories().await,
             "km2" => km2::categories().await,
+            "koreanporn" => koreanporn::categories().await,
             "kuaihuo" => kuaihuo::categories().await,
             "lissav" => lissav::categories().await,
             "lissavcn" => lissavcn::categories().await,
@@ -490,6 +521,7 @@ fn handle_categories<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, Api
             "mmtv7" => mmtv7::categories().await,
             "mose365" => mose365::categories().await,
             "muzi" => muzi::categories().await,
+            "mythav" => mythav::categories().await,
             "naihenda" => naihenda::categories().await,
             "netflav" => netflav::categories().await,
             "nvdi" => nvdi::categories().await,
@@ -499,14 +531,19 @@ fn handle_categories<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, Api
             "pb" => pb::categories().await,
             "pigav" => pigav::categories().await,
             "pj5ti" => pj5ti::categories().await,
+            "porna91" => porna91::categories().await,
             "porncgw" => porncgw::categories().await,
             "pornhub" => pornhub::categories().await,
             "ptt01" => ptt01::categories().await,
             "px8x" => px8x::categories().await,
+            "roshy" => roshy::categories().await,
             "rou" => rou::categories().await,
             "rouav" => rouav::categories().await,
+            "rouvideo" => rouvideo::categories().await,
             "rscg91" => rscg91::categories().await,
+            "senzuri" => senzuri::categories().await,
             "sex8" => sex8::categories().await,
+            "sexkbj" => sexkbj::categories().await,
             "shaofu" => shaofu::categories().await,
             "shunvqu" => shunvqu::categories().await,
             "shunvwang" => shunvwang::categories().await,
@@ -515,12 +552,14 @@ fn handle_categories<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, Api
             "sporn" => sporn::categories().await,
             "ssis" => ssis::categories().await,
             "swagr" => swagr::categories().await,
+            "taiav" => taiav::categories().await,
             "tanhua91" => tanhua91::categories().await,
             "taose" => taose::categories().await,
             "thdh" => thdh::categories().await,
             "theporny" => theporny::categories().await,
             "tiktvod" => tiktvod::categories().await,
             "tinyav" => tinyav::categories().await,
+            "tokyomotion" => tokyomotion::categories().await,
             "topjav" => topjav::categories().await,
             "toptv" => toptv::categories().await,
             "tudou" => tudou::categories().await,
@@ -531,6 +570,7 @@ fn handle_categories<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, Api
             "wnzs" => wnzs::categories().await,
             "wukong" => wukong::categories().await,
             "wuyetv" => wuyetv::categories().await,
+            "x51" => x51::categories().await,
             "xanimu" => xanimu::categories().await,
             "xhamster" => xhamster::categories().await,
             "xhy11" => xhy11::categories().await,
@@ -569,6 +609,7 @@ fn handle_catalog<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiRes
             "591av" => av591::catalog(&category_id, page).await,
             "69vj" => vj69::catalog(&category_id, page).await,
             "99jj" => jj99::catalog(&category_id, page).await,
+            "abjav" => abjav::catalog(&category_id, page).await,
             "ai2026" => ai2026::catalog(&category_id, page).await,
             "ai4k" => ai4k::catalog(&category_id, page).await,
             "aidj" => aidj::catalog(&category_id, page).await,
@@ -578,12 +619,14 @@ fn handle_catalog<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiRes
             "aisxpc" => aisxpc::catalog(&category_id, page).await,
             "aiye" => aiye::catalog(&category_id, page).await,
             "aoxx69" => aoxx69::catalog(&category_id, page).await,
+            "asextv" => asextv::catalog(&category_id, page).await,
             "av18av" => av18av::catalog(&category_id, page).await,
             "av18avmcg" => av18avmcg::catalog(&category_id, page).await,
             "av6k" => av6k::catalog(&category_id, page).await,
             "av91" => av91::catalog(&category_id, page).await,
             "avbigplat" => avbigplat::catalog(&category_id, page).await,
             "avcnn" => avcnn::catalog(&category_id, page).await,
+            "avhwa" => avhwa::catalog(&category_id, page).await,
             "avjoy" => avjoy::catalog(&category_id, page).await,
             "avtoday" => avtoday::catalog(&category_id, page).await,
             "avyanjiuyuan" => avyanjiuyuan::catalog(&category_id, page).await,
@@ -620,6 +663,7 @@ fn handle_catalog<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiRes
             "hduanju" => hduanju::catalog(&category_id, page).await,
             "heitaoduanju" => heitaoduanju::catalog(&category_id, page).await,
             "henhenlu" => henhenlu::catalog(&category_id, page).await,
+            "herexxx" => herexxx::catalog(&category_id, page).await,
             "hgai" => hgai::catalog(&category_id, page).await,
             "hgaidj" => hgaidj::catalog(&category_id, page).await,
             "hgdj" => hgdj::catalog(&category_id, page).await,
@@ -642,17 +686,24 @@ fn handle_catalog<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiRes
             "huangguotv" => huangguotv::catalog(&category_id, page).await,
             "jable" => jable::catalog(&category_id, page).await,
             "jack20" => jack20::catalog(&category_id, page).await,
+            "japanwhores" => japanwhores::catalog(&category_id, page).await,
             "jav" => jav::catalog(&category_id, page).await,
             "jav188" => jav188::catalog(&category_id, page).await,
             "jav777" => jav777::catalog(&category_id, page).await,
+            "javdino" => javdino::catalog(&category_id, page).await,
+            "javfun" => javfun::catalog(&category_id, page).await,
             "javgg" => javgg::catalog(&category_id, page).await,
             "javguru" => javguru::catalog(&category_id, page).await,
             "javhd" => javhd::catalog(&category_id, page).await,
+            "javhdtube" => javhdtube::catalog(&category_id, page).await,
             "javher" => javher::catalog(&category_id, page).await,
             "javmap" => javmap::catalog(&category_id, page).await,
+            "javmit" => javmit::catalog(&category_id, page).await,
             "javplay" => javplay::catalog(&category_id, page).await,
             "javrate" => javrate::catalog(&category_id, page).await,
+            "javsiri" => javsiri::catalog(&category_id, page).await,
             "javtiful" => javtiful::catalog(&category_id, page).await,
+            "javtsunami" => javtsunami::catalog(&category_id, page).await,
             "javwine" => javwine::catalog(&category_id, page).await,
             "javzw" => javzw::catalog(&category_id, page).await,
             "jin18" => jin18::catalog(&category_id, page).await,
@@ -661,8 +712,10 @@ fn handle_catalog<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiRes
             "jm" => jm::catalog(&category_id, page).await,
             "jptt" => jptt::catalog(&category_id, page).await,
             "juyin" => juyin::catalog(&category_id, page).await,
+            "kissjav" => kissjav::catalog(&category_id, page).await,
             "klxq" => klxq::catalog(&category_id, page).await,
             "km2" => km2::catalog(&category_id, page).await,
+            "koreanporn" => koreanporn::catalog(&category_id, page).await,
             "kuaihuo" => kuaihuo::catalog(&category_id, page).await,
             "lissav" => lissav::catalog(&category_id, page).await,
             "lissavcn" => lissavcn::catalog(&category_id, page).await,
@@ -680,6 +733,7 @@ fn handle_catalog<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiRes
             "mmtv7" => mmtv7::catalog(&category_id, page).await,
             "mose365" => mose365::catalog(&category_id, page).await,
             "muzi" => muzi::catalog(&category_id, page).await,
+            "mythav" => mythav::catalog(&category_id, page).await,
             "naihenda" => naihenda::catalog(&category_id, page).await,
             "netflav" => netflav::catalog(&category_id, page).await,
             "nvdi" => nvdi::catalog(&category_id, page).await,
@@ -689,14 +743,19 @@ fn handle_catalog<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiRes
             "pb" => pb::catalog(&category_id, page).await,
             "pigav" => pigav::catalog(&category_id, page).await,
             "pj5ti" => pj5ti::catalog(&category_id, page).await,
+            "porna91" => porna91::catalog(&category_id, page).await,
             "porncgw" => porncgw::catalog(&category_id, page).await,
             "pornhub" => pornhub::catalog(&category_id, page).await,
             "ptt01" => ptt01::catalog(&category_id, page).await,
             "px8x" => px8x::catalog(&category_id, page).await,
+            "roshy" => roshy::catalog(&category_id, page).await,
             "rou" => rou::catalog(&category_id, page).await,
             "rouav" => rouav::catalog(&category_id, page).await,
+            "rouvideo" => rouvideo::catalog(&category_id, page).await,
             "rscg91" => rscg91::catalog(&category_id, page).await,
+            "senzuri" => senzuri::catalog(&category_id, page).await,
             "sex8" => sex8::catalog(&category_id, page).await,
+            "sexkbj" => sexkbj::catalog(&category_id, page).await,
             "shaofu" => shaofu::catalog(&category_id, page).await,
             "shunvqu" => shunvqu::catalog(&category_id, page).await,
             "shunvwang" => shunvwang::catalog(&category_id, page).await,
@@ -705,12 +764,14 @@ fn handle_catalog<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiRes
             "sporn" => sporn::catalog(&category_id, page).await,
             "ssis" => ssis::catalog(&category_id, page).await,
             "swagr" => swagr::catalog(&category_id, page).await,
+            "taiav" => taiav::catalog(&category_id, page).await,
             "tanhua91" => tanhua91::catalog(&category_id, page).await,
             "taose" => taose::catalog(&category_id, page).await,
             "thdh" => thdh::catalog(&category_id, page).await,
             "theporny" => theporny::catalog(&category_id, page).await,
             "tiktvod" => tiktvod::catalog(&category_id, page).await,
             "tinyav" => tinyav::catalog(&category_id, page).await,
+            "tokyomotion" => tokyomotion::catalog(&category_id, page).await,
             "topjav" => topjav::catalog(&category_id, page).await,
             "toptv" => toptv::catalog(&category_id, page).await,
             "tudou" => tudou::catalog(&category_id, page).await,
@@ -721,6 +782,7 @@ fn handle_catalog<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiRes
             "wnzs" => wnzs::catalog(&category_id, page).await,
             "wukong" => wukong::catalog(&category_id, page).await,
             "wuyetv" => wuyetv::catalog(&category_id, page).await,
+            "x51" => x51::catalog(&category_id, page).await,
             "xanimu" => xanimu::catalog(&category_id, page).await,
             "xhamster" => xhamster::catalog(&category_id, page).await,
             "xhy11" => xhy11::catalog(&category_id, page).await,
@@ -761,6 +823,7 @@ fn handle_detail<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResu
             "591av" => av591::detail(&id).await,
             "69vj" => vj69::detail(&id).await,
             "99jj" => jj99::detail(&id).await,
+            "abjav" => abjav::detail(&id).await,
             "ai2026" => ai2026::detail(&id).await,
             "ai4k" => ai4k::detail(&id).await,
             "aidj" => aidj::detail(&id).await,
@@ -770,12 +833,14 @@ fn handle_detail<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResu
             "aisxpc" => aisxpc::detail(&id).await,
             "aiye" => aiye::detail(&id).await,
             "aoxx69" => aoxx69::detail(&id).await,
+            "asextv" => asextv::detail(&id).await,
             "av18av" => av18av::detail(&id).await,
             "av18avmcg" => av18avmcg::detail(&id).await,
             "av6k" => av6k::detail(&id).await,
             "av91" => av91::detail(&id).await,
             "avbigplat" => avbigplat::detail(&id).await,
             "avcnn" => avcnn::detail(&id).await,
+            "avhwa" => avhwa::detail(&id).await,
             "avjoy" => avjoy::detail(&id).await,
             "avtoday" => avtoday::detail(&id).await,
             "avyanjiuyuan" => avyanjiuyuan::detail(&id).await,
@@ -812,6 +877,7 @@ fn handle_detail<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResu
             "hduanju" => hduanju::detail(&id).await,
             "heitaoduanju" => heitaoduanju::detail(&id).await,
             "henhenlu" => henhenlu::detail(&id).await,
+            "herexxx" => herexxx::detail(&id).await,
             "hgai" => hgai::detail(&id).await,
             "hgaidj" => hgaidj::detail(&id).await,
             "hgdj" => hgdj::detail(&id).await,
@@ -834,17 +900,24 @@ fn handle_detail<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResu
             "huangguotv" => huangguotv::detail(&id).await,
             "jable" => jable::detail(&id).await,
             "jack20" => jack20::detail(&id).await,
+            "japanwhores" => japanwhores::detail(&id).await,
             "jav" => jav::detail(&id).await,
             "jav188" => jav188::detail(&id).await,
             "jav777" => jav777::detail(&id).await,
+            "javdino" => javdino::detail(&id).await,
+            "javfun" => javfun::detail(&id).await,
             "javgg" => javgg::detail(&id).await,
             "javguru" => javguru::detail(&id).await,
             "javhd" => javhd::detail(&id).await,
+            "javhdtube" => javhdtube::detail(&id).await,
             "javher" => javher::detail(&id).await,
             "javmap" => javmap::detail(&id).await,
+            "javmit" => javmit::detail(&id).await,
             "javplay" => javplay::detail(&id).await,
             "javrate" => javrate::detail(&id).await,
+            "javsiri" => javsiri::detail(&id).await,
             "javtiful" => javtiful::detail(&id).await,
+            "javtsunami" => javtsunami::detail(&id).await,
             "javwine" => javwine::detail(&id).await,
             "javzw" => javzw::detail(&id).await,
             "jin18" => jin18::detail(&id).await,
@@ -853,8 +926,10 @@ fn handle_detail<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResu
             "jm" => jm::detail(&id).await,
             "jptt" => jptt::detail(&id).await,
             "juyin" => juyin::detail(&id).await,
+            "kissjav" => kissjav::detail(&id).await,
             "klxq" => klxq::detail(&id).await,
             "km2" => km2::detail(&id).await,
+            "koreanporn" => koreanporn::detail(&id).await,
             "kuaihuo" => kuaihuo::detail(&id).await,
             "lissav" => lissav::detail(&id).await,
             "lissavcn" => lissavcn::detail(&id).await,
@@ -872,6 +947,7 @@ fn handle_detail<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResu
             "mmtv7" => mmtv7::detail(&id).await,
             "mose365" => mose365::detail(&id).await,
             "muzi" => muzi::detail(&id).await,
+            "mythav" => mythav::detail(&id).await,
             "naihenda" => naihenda::detail(&id).await,
             "netflav" => netflav::detail(&id).await,
             "nvdi" => nvdi::detail(&id).await,
@@ -881,14 +957,19 @@ fn handle_detail<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResu
             "pb" => pb::detail(&id).await,
             "pigav" => pigav::detail(&id).await,
             "pj5ti" => pj5ti::detail(&id).await,
+            "porna91" => porna91::detail(&id).await,
             "porncgw" => porncgw::detail(&id).await,
             "pornhub" => pornhub::detail(&id).await,
             "ptt01" => ptt01::detail(&id).await,
             "px8x" => px8x::detail(&id).await,
+            "roshy" => roshy::detail(&id).await,
             "rou" => rou::detail(&id).await,
             "rouav" => rouav::detail(&id).await,
+            "rouvideo" => rouvideo::detail(&id).await,
             "rscg91" => rscg91::detail(&id).await,
+            "senzuri" => senzuri::detail(&id).await,
             "sex8" => sex8::detail(&id).await,
+            "sexkbj" => sexkbj::detail(&id).await,
             "shaofu" => shaofu::detail(&id).await,
             "shunvqu" => shunvqu::detail(&id).await,
             "shunvwang" => shunvwang::detail(&id).await,
@@ -897,12 +978,14 @@ fn handle_detail<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResu
             "sporn" => sporn::detail(&id).await,
             "ssis" => ssis::detail(&id).await,
             "swagr" => swagr::detail(&id).await,
+            "taiav" => taiav::detail(&id).await,
             "tanhua91" => tanhua91::detail(&id).await,
             "taose" => taose::detail(&id).await,
             "thdh" => thdh::detail(&id).await,
             "theporny" => theporny::detail(&id).await,
             "tiktvod" => tiktvod::detail(&id).await,
             "tinyav" => tinyav::detail(&id).await,
+            "tokyomotion" => tokyomotion::detail(&id).await,
             "topjav" => topjav::detail(&id).await,
             "toptv" => toptv::detail(&id).await,
             "tudou" => tudou::detail(&id).await,
@@ -913,6 +996,7 @@ fn handle_detail<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResu
             "wnzs" => wnzs::detail(&id).await,
             "wukong" => wukong::detail(&id).await,
             "wuyetv" => wuyetv::detail(&id).await,
+            "x51" => x51::detail(&id).await,
             "xanimu" => xanimu::detail(&id).await,
             "xhamster" => xhamster::detail(&id).await,
             "xhy11" => xhy11::detail(&id).await,
@@ -953,6 +1037,7 @@ fn handle_search<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResu
             "591av" => av591::search(&query).await,
             "69vj" => vj69::search(&query).await,
             "99jj" => jj99::search(&query).await,
+            "abjav" => abjav::search(&query).await,
             "ai2026" => ai2026::search(&query).await,
             "ai4k" => ai4k::search(&query).await,
             "aidj" => aidj::search(&query).await,
@@ -962,12 +1047,14 @@ fn handle_search<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResu
             "aisxpc" => aisxpc::search(&query).await,
             "aiye" => aiye::search(&query).await,
             "aoxx69" => aoxx69::search(&query).await,
+            "asextv" => asextv::search(&query).await,
             "av18av" => av18av::search(&query).await,
             "av18avmcg" => av18avmcg::search(&query).await,
             "av6k" => av6k::search(&query).await,
             "av91" => av91::search(&query).await,
             "avbigplat" => avbigplat::search(&query).await,
             "avcnn" => avcnn::search(&query).await,
+            "avhwa" => avhwa::search(&query).await,
             "avjoy" => avjoy::search(&query).await,
             "avtoday" => avtoday::search(&query).await,
             "avyanjiuyuan" => avyanjiuyuan::search(&query).await,
@@ -1004,6 +1091,7 @@ fn handle_search<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResu
             "hduanju" => hduanju::search(&query).await,
             "heitaoduanju" => heitaoduanju::search(&query).await,
             "henhenlu" => henhenlu::search(&query).await,
+            "herexxx" => herexxx::search(&query).await,
             "hgai" => hgai::search(&query).await,
             "hgaidj" => hgaidj::search(&query).await,
             "hgdj" => hgdj::search(&query).await,
@@ -1026,17 +1114,24 @@ fn handle_search<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResu
             "huangguotv" => huangguotv::search(&query).await,
             "jable" => jable::search(&query).await,
             "jack20" => jack20::search(&query).await,
+            "japanwhores" => japanwhores::search(&query).await,
             "jav" => jav::search(&query).await,
             "jav188" => jav188::search(&query).await,
             "jav777" => jav777::search(&query).await,
+            "javdino" => javdino::search(&query).await,
+            "javfun" => javfun::search(&query).await,
             "javgg" => javgg::search(&query).await,
             "javguru" => javguru::search(&query).await,
             "javhd" => javhd::search(&query).await,
+            "javhdtube" => javhdtube::search(&query).await,
             "javher" => javher::search(&query).await,
             "javmap" => javmap::search(&query).await,
+            "javmit" => javmit::search(&query).await,
             "javplay" => javplay::search(&query).await,
             "javrate" => javrate::search(&query).await,
+            "javsiri" => javsiri::search(&query).await,
             "javtiful" => javtiful::search(&query).await,
+            "javtsunami" => javtsunami::search(&query).await,
             "javwine" => javwine::search(&query).await,
             "javzw" => javzw::search(&query).await,
             "jin18" => jin18::search(&query).await,
@@ -1045,8 +1140,10 @@ fn handle_search<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResu
             "jm" => jm::search(&query).await,
             "jptt" => jptt::search(&query).await,
             "juyin" => juyin::search(&query).await,
+            "kissjav" => kissjav::search(&query).await,
             "klxq" => klxq::search(&query).await,
             "km2" => km2::search(&query).await,
+            "koreanporn" => koreanporn::search(&query).await,
             "kuaihuo" => kuaihuo::search(&query).await,
             "lissav" => lissav::search(&query).await,
             "lissavcn" => lissavcn::search(&query).await,
@@ -1064,6 +1161,7 @@ fn handle_search<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResu
             "mmtv7" => mmtv7::search(&query).await,
             "mose365" => mose365::search(&query).await,
             "muzi" => muzi::search(&query).await,
+            "mythav" => mythav::search(&query).await,
             "naihenda" => naihenda::search(&query).await,
             "netflav" => netflav::search(&query).await,
             "nvdi" => nvdi::search(&query).await,
@@ -1073,14 +1171,19 @@ fn handle_search<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResu
             "pb" => pb::search(&query).await,
             "pigav" => pigav::search(&query).await,
             "pj5ti" => pj5ti::search(&query).await,
+            "porna91" => porna91::search(&query).await,
             "porncgw" => porncgw::search(&query).await,
             "pornhub" => pornhub::search(&query).await,
             "ptt01" => ptt01::search(&query).await,
             "px8x" => px8x::search(&query).await,
+            "roshy" => roshy::search(&query).await,
             "rou" => rou::search(&query).await,
             "rouav" => rouav::search(&query).await,
+            "rouvideo" => rouvideo::search(&query).await,
             "rscg91" => rscg91::search(&query).await,
+            "senzuri" => senzuri::search(&query).await,
             "sex8" => sex8::search(&query).await,
+            "sexkbj" => sexkbj::search(&query).await,
             "shaofu" => shaofu::search(&query).await,
             "shunvqu" => shunvqu::search(&query).await,
             "shunvwang" => shunvwang::search(&query).await,
@@ -1089,12 +1192,14 @@ fn handle_search<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResu
             "sporn" => sporn::search(&query).await,
             "ssis" => ssis::search(&query).await,
             "swagr" => swagr::search(&query).await,
+            "taiav" => taiav::search(&query).await,
             "tanhua91" => tanhua91::search(&query).await,
             "taose" => taose::search(&query).await,
             "thdh" => thdh::search(&query).await,
             "theporny" => theporny::search(&query).await,
             "tiktvod" => tiktvod::search(&query).await,
             "tinyav" => tinyav::search(&query).await,
+            "tokyomotion" => tokyomotion::search(&query).await,
             "topjav" => topjav::search(&query).await,
             "toptv" => toptv::search(&query).await,
             "tudou" => tudou::search(&query).await,
@@ -1105,6 +1210,7 @@ fn handle_search<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResu
             "wnzs" => wnzs::search(&query).await,
             "wukong" => wukong::search(&query).await,
             "wuyetv" => wuyetv::search(&query).await,
+            "x51" => x51::search(&query).await,
             "xanimu" => xanimu::search(&query).await,
             "xhamster" => xhamster::search(&query).await,
             "xhy11" => xhy11::search(&query).await,
@@ -1145,6 +1251,7 @@ fn handle_play<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResult
             "591av" => av591::play(&video_id).await,
             "69vj" => vj69::play(&video_id).await,
             "99jj" => jj99::play(&video_id).await,
+            "abjav" => abjav::play(&video_id).await,
             "ai2026" => ai2026::play(&video_id).await,
             "ai4k" => ai4k::play(&video_id).await,
             "aidj" => aidj::play(&video_id).await,
@@ -1154,12 +1261,14 @@ fn handle_play<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResult
             "aisxpc" => aisxpc::play(&video_id).await,
             "aiye" => aiye::play(&video_id).await,
             "aoxx69" => aoxx69::play(&video_id).await,
+            "asextv" => asextv::play(&video_id).await,
             "av18av" => av18av::play(&video_id).await,
             "av18avmcg" => av18avmcg::play(&video_id).await,
             "av6k" => av6k::play(&video_id).await,
             "av91" => av91::play(&video_id).await,
             "avbigplat" => avbigplat::play(&video_id).await,
             "avcnn" => avcnn::play(&video_id).await,
+            "avhwa" => avhwa::play(&video_id).await,
             "avjoy" => avjoy::play(&video_id).await,
             "avtoday" => avtoday::play(&video_id).await,
             "avyanjiuyuan" => avyanjiuyuan::play(&video_id).await,
@@ -1196,6 +1305,7 @@ fn handle_play<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResult
             "hduanju" => hduanju::play(&video_id).await,
             "heitaoduanju" => heitaoduanju::play(&video_id).await,
             "henhenlu" => henhenlu::play(&video_id).await,
+            "herexxx" => herexxx::play(&video_id).await,
             "hgai" => hgai::play(&video_id).await,
             "hgaidj" => hgaidj::play(&video_id).await,
             "hgdj" => hgdj::play(&video_id).await,
@@ -1218,17 +1328,24 @@ fn handle_play<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResult
             "huangguotv" => huangguotv::play(&video_id).await,
             "jable" => jable::play(&video_id).await,
             "jack20" => jack20::play(&video_id).await,
+            "japanwhores" => japanwhores::play(&video_id).await,
             "jav" => jav::play(&video_id).await,
             "jav188" => jav188::play(&video_id).await,
             "jav777" => jav777::play(&video_id).await,
+            "javdino" => javdino::play(&video_id).await,
+            "javfun" => javfun::play(&video_id).await,
             "javgg" => javgg::play(&video_id).await,
             "javguru" => javguru::play(&video_id).await,
             "javhd" => javhd::play(&video_id).await,
+            "javhdtube" => javhdtube::play(&video_id).await,
             "javher" => javher::play(&video_id).await,
             "javmap" => javmap::play(&video_id).await,
+            "javmit" => javmit::play(&video_id).await,
             "javplay" => javplay::play(&video_id).await,
             "javrate" => javrate::play(&video_id).await,
+            "javsiri" => javsiri::play(&video_id).await,
             "javtiful" => javtiful::play(&video_id).await,
+            "javtsunami" => javtsunami::play(&video_id).await,
             "javwine" => javwine::play(&video_id).await,
             "javzw" => javzw::play(&video_id).await,
             "jin18" => jin18::play(&video_id).await,
@@ -1237,8 +1354,10 @@ fn handle_play<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResult
             "jm" => jm::play(&video_id).await,
             "jptt" => jptt::play(&video_id).await,
             "juyin" => juyin::play(&video_id).await,
+            "kissjav" => kissjav::play(&video_id).await,
             "klxq" => klxq::play(&video_id).await,
             "km2" => km2::play(&video_id).await,
+            "koreanporn" => koreanporn::play(&video_id).await,
             "kuaihuo" => kuaihuo::play(&video_id).await,
             "lissav" => lissav::play(&video_id).await,
             "lissavcn" => lissavcn::play(&video_id).await,
@@ -1256,6 +1375,7 @@ fn handle_play<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResult
             "mmtv7" => mmtv7::play(&video_id).await,
             "mose365" => mose365::play(&video_id).await,
             "muzi" => muzi::play(&video_id).await,
+            "mythav" => mythav::play(&video_id).await,
             "naihenda" => naihenda::play(&video_id).await,
             "netflav" => netflav::play(&video_id).await,
             "nvdi" => nvdi::play(&video_id).await,
@@ -1265,14 +1385,19 @@ fn handle_play<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResult
             "pb" => pb::play(&video_id).await,
             "pigav" => pigav::play(&video_id).await,
             "pj5ti" => pj5ti::play(&video_id).await,
+            "porna91" => porna91::play(&video_id).await,
             "porncgw" => porncgw::play(&video_id).await,
             "pornhub" => pornhub::play(&video_id).await,
             "ptt01" => ptt01::play(&video_id).await,
             "px8x" => px8x::play(&video_id).await,
+            "roshy" => roshy::play(&video_id).await,
             "rou" => rou::play(&video_id).await,
             "rouav" => rouav::play(&video_id).await,
+            "rouvideo" => rouvideo::play(&video_id).await,
             "rscg91" => rscg91::play(&video_id).await,
+            "senzuri" => senzuri::play(&video_id).await,
             "sex8" => sex8::play(&video_id).await,
+            "sexkbj" => sexkbj::play(&video_id).await,
             "shaofu" => shaofu::play(&video_id).await,
             "shunvqu" => shunvqu::play(&video_id).await,
             "shunvwang" => shunvwang::play(&video_id).await,
@@ -1281,12 +1406,14 @@ fn handle_play<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResult
             "sporn" => sporn::play(&video_id).await,
             "ssis" => ssis::play(&video_id).await,
             "swagr" => swagr::play(&video_id).await,
+            "taiav" => taiav::play(&video_id).await,
             "tanhua91" => tanhua91::play(&video_id).await,
             "taose" => taose::play(&video_id).await,
             "thdh" => thdh::play(&video_id).await,
             "theporny" => theporny::play(&video_id).await,
             "tiktvod" => tiktvod::play(&video_id).await,
             "tinyav" => tinyav::play(&video_id).await,
+            "tokyomotion" => tokyomotion::play(&video_id).await,
             "topjav" => topjav::play(&video_id).await,
             "toptv" => toptv::play(&video_id).await,
             "tudou" => tudou::play(&video_id).await,
@@ -1297,6 +1424,7 @@ fn handle_play<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResult
             "wnzs" => wnzs::play(&video_id).await,
             "wukong" => wukong::play(&video_id).await,
             "wuyetv" => wuyetv::play(&video_id).await,
+            "x51" => x51::play(&video_id).await,
             "xanimu" => xanimu::play(&video_id).await,
             "xhamster" => xhamster::play(&video_id).await,
             "xhy11" => xhy11::play(&video_id).await,
@@ -1321,6 +1449,3 @@ fn handle_play<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResult
         }
     })
 }
-
-
-

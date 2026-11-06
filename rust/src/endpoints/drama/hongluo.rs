@@ -112,16 +112,12 @@ fn content_url_re() -> &'static Regex {
 
 fn og_image_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| {
-        Regex::new(r#"property="og:image" content="([^"]+)""#).unwrap()
-    })
+    RE.get_or_init(|| Regex::new(r#"property="og:image" content="([^"]+)""#).unwrap())
 }
 
 fn meta_desc_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| {
-        Regex::new(r#"name="description" content="([^"]*)""#).unwrap()
-    })
+    RE.get_or_init(|| Regex::new(r#"name="description" content="([^"]*)""#).unwrap())
 }
 
 fn h1_re() -> &'static Regex {
@@ -351,11 +347,7 @@ pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
         if !is_free {
             label.push_str("·VIP");
         }
-        episodes.push(episode_json(
-            &format!("{series_id}:{n}"),
-            &label,
-            series_id,
-        ));
+        episodes.push(episode_json(&format!("{series_id}:{n}"), &label, series_id));
     }
     episodes.sort_by_key(|e| {
         str_of(&e["video_id"])
@@ -490,7 +482,12 @@ mod tests {
     #[test]
     fn detail_fields_from_fixture() {
         assert_eq!(
-            h1_re().captures(SERIES_HTML).unwrap().get(1).unwrap().as_str(),
+            h1_re()
+                .captures(SERIES_HTML)
+                .unwrap()
+                .get(1)
+                .unwrap()
+                .as_str(),
             "乌鸦先生的硬币"
         );
         assert_eq!(
@@ -498,7 +495,12 @@ mod tests {
             "https://hongluo.co/api/assets/posters%2Fseries_zyb0082-zh-Hans-202610292144.jpg?v=5090719c1041"
         );
         assert_eq!(
-            genre_re().captures(SERIES_HTML).unwrap().get(1).unwrap().as_str(),
+            genre_re()
+                .captures(SERIES_HTML)
+                .unwrap()
+                .get(1)
+                .unwrap()
+                .as_str(),
             "奇幻異能"
         );
         let eps: Vec<(i64, String, bool, i64)> = ep_anchor_re()
@@ -529,10 +531,7 @@ mod tests {
             .and_then(|c| c.get(1))
             .map(|m| m.as_str().to_string())
             .unwrap();
-        assert_eq!(
-            src,
-            "https://hongluo.co/api/seo-video/ep_zyb0082_01.mp4"
-        );
+        assert_eq!(src, "https://hongluo.co/api/seo-video/ep_zyb0082_01.mp4");
         let fallback = content_url_re()
             .captures(EP1_HTML)
             .and_then(|c| c.get(1))

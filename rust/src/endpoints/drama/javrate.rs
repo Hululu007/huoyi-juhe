@@ -153,7 +153,9 @@ fn html_unescape(s: &str) -> String {
 
 fn clean_html(s: &str) -> String {
     let re_tag = Regex::new(r"<[^>]+>").unwrap();
-    html_unescape(re_tag.replace_all(s, "").as_ref()).trim().to_string()
+    html_unescape(re_tag.replace_all(s, "").as_ref())
+        .trim()
+        .to_string()
 }
 
 fn first_img(block: &str) -> String {
@@ -173,10 +175,14 @@ fn first_img(block: &str) -> String {
 
 async fn fetch_direct(url: &str, referer: Option<&str>) -> Option<String> {
     let mut req = match client() {
-        Ok(c) => c.get(url).header("User-Agent", UA_D).header(
-            "Accept",
-            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        ).header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8"),
+        Ok(c) => c
+            .get(url)
+            .header("User-Agent", UA_D)
+            .header(
+                "Accept",
+                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            )
+            .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8"),
         Err(_) => return None,
     };
     if let Some(r) = referer {
@@ -253,14 +259,10 @@ fn split_blocks(html: &str, pat: &str, cap: usize) -> Vec<String> {
 }
 
 fn cards(page_html: &str) -> Vec<Value> {
-    let re1 = Regex::new(
-        r##"<a href="(/movie/detail/([a-f0-9\-]+)\.html)"[^>]*title="([^"]*)""##,
-    )
-    .unwrap();
-    let re2 = Regex::new(
-        r##"(?s)<a href="(/movie/detail/([a-f0-9\-]+)\.html)"[^>]*>(.*?)</a>"##,
-    )
-    .unwrap();
+    let re1 = Regex::new(r##"<a href="(/movie/detail/([a-f0-9\-]+)\.html)"[^>]*title="([^"]*)""##)
+        .unwrap();
+    let re2 = Regex::new(r##"(?s)<a href="(/movie/detail/([a-f0-9\-]+)\.html)"[^>]*>(.*?)</a>"##)
+        .unwrap();
     let badge_pats = [
         Regex::new(r"mg[n]?-badge--?year[^>]*>([^<]+)").unwrap(),
         Regex::new(r"mg[n]?-badge--?type[^>]*>([^<]+)").unwrap(),
@@ -268,9 +270,16 @@ fn cards(page_html: &str) -> Vec<Value> {
     ];
     let re_actress = Regex::new(r"mg[n]?-actress[^>]*>\s*<a[^>]*>([^<]+)").unwrap();
     let mut out = Vec::new();
-    for block in split_blocks(page_html, r#"<div class="(?:mgn-item|mg-item mg-card)""#, 6000) {
+    for block in split_blocks(
+        page_html,
+        r#"<div class="(?:mgn-item|mg-item mg-card)""#,
+        6000,
+    ) {
         let (vod_id, title) = if let Some(cap) = re1.captures(&block) {
-            (cap[2].to_string(), html_unescape(&cap[3]).trim().to_string())
+            (
+                cap[2].to_string(),
+                html_unescape(&cap[3]).trim().to_string(),
+            )
         } else if let Some(cap) = re2.captures(&block) {
             (cap[2].to_string(), clean_html(&cap[3]))
         } else {
@@ -307,10 +316,8 @@ fn cards(page_html: &str) -> Vec<Value> {
 }
 
 fn actor_cards(page_html: &str) -> Vec<Value> {
-    let re = Regex::new(
-        r##"<a href="(/actor/detail/([a-f0-9\-]+)\.html)"[^>]*title="([^"]*)""##,
-    )
-    .unwrap();
+    let re = Regex::new(r##"<a href="(/actor/detail/([a-f0-9\-]+)\.html)"[^>]*title="([^"]*)""##)
+        .unwrap();
     let re_badge = Regex::new(r"mg[n]?-badge[^>]*>([^<]+)").unwrap();
     let mut out = Vec::new();
     for block in split_blocks(page_html, r#"<div class="actor-card"#, 8000) {
@@ -336,11 +343,7 @@ fn actor_cards(page_html: &str) -> Vec<Value> {
 }
 
 fn simple_cards(page_html: &str, link_pat: &str) -> Vec<Value> {
-    let mut blocks = split_blocks(
-        page_html,
-        r#"<div class="(?:movieset|issuer)[^"]*""#,
-        6000,
-    );
+    let mut blocks = split_blocks(page_html, r#"<div class="(?:movieset|issuer)[^"]*""#, 6000);
     if blocks.is_empty() {
         let re = Regex::new(&format!(r#"<a[^>]+href="{link_pat}""#)).unwrap();
         let starts: Vec<usize> = re.find_iter(page_html).map(|m| m.start()).collect();
@@ -492,7 +495,8 @@ async fn token(movie_id: &str, session_id: &str, api_secret: &str, guid_id: &str
     }
     let ts = now_secs();
     let sig_input = format!("{movie_id}|{ts}|{session_id}");
-    let sig = base64::engine::general_purpose::STANDARD.encode(hmac_sha256(api_secret.as_bytes(), sig_input.as_bytes()));
+    let sig = base64::engine::general_purpose::STANDARD
+        .encode(hmac_sha256(api_secret.as_bytes(), sig_input.as_bytes()));
     let body = json!({
         "sessionId": session_id,
         "movieId": movie_id,
@@ -504,15 +508,16 @@ async fn token(movie_id: &str, session_id: &str, api_secret: &str, guid_id: &str
     .to_string();
     let url = format!("{SITE}/api/token/generate");
     let resp = match client() {
-        Ok(c) => c
-            .post(&url)
-            .header("Content-Type", "application/json")
-            .header("Origin", SITE)
-            .header("Referer", format!("{SITE}/"))
-            .header("User-Agent", UA_D)
-            .body(body)
-            .send()
-            .await,
+        Ok(c) => {
+            c.post(&url)
+                .header("Content-Type", "application/json")
+                .header("Origin", SITE)
+                .header("Referer", format!("{SITE}/"))
+                .header("User-Agent", UA_D)
+                .body(body)
+                .send()
+                .await
+        }
         Err(_) => return String::new(),
     };
     let Ok(resp) = resp else {
@@ -532,7 +537,11 @@ async fn token(movie_id: &str, session_id: &str, api_secret: &str, guid_id: &str
     let expires = data.get("expires").and_then(|x| x.as_i64()).unwrap_or(0);
     let mut out = format!(
         "{SITE}/{}{}playlist.m3u8?token={}&expires={}",
-        if guid_id.is_empty() { String::new() } else { format!("{guid_id}/") },
+        if guid_id.is_empty() {
+            String::new()
+        } else {
+            format!("{guid_id}/")
+        },
         "",
         urlenc(tok),
         expires
@@ -611,7 +620,11 @@ async fn resolve_signed_url(detail_url: &str) -> String {
             signed = cap[1].to_string();
         }
         let signed = html_unescape(&signed).replace("\\/", "/");
-        if !movie_id.is_empty() && !api_secret.is_empty() && !session_id.is_empty() && !signed.is_empty() {
+        if !movie_id.is_empty()
+            && !api_secret.is_empty()
+            && !session_id.is_empty()
+            && !signed.is_empty()
+        {
             let tok = token(&movie_id, &session_id, &api_secret, &guid_id).await;
             if !tok.is_empty() {
                 return tok;
@@ -629,7 +642,9 @@ async fn resolve_signed_url(detail_url: &str) -> String {
 }
 
 pub(crate) async fn categories() -> ApiResult<Value> {
-    Ok(json!({"categories": CATS.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}))
+    Ok(
+        json!({"categories": CATS.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}),
+    )
 }
 
 pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
@@ -677,7 +692,11 @@ pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
         let has_more = items.len() >= 40;
         (items, has_more)
     } else if category_id == "/movie/new" || category_id == "/movie/subtitle" {
-        let sort = if category_id == "/movie/new" { "2" } else { "1" };
+        let sort = if category_id == "/movie/new" {
+            "2"
+        } else {
+            "1"
+        };
         let url = if page == 1 {
             format!("{SITE}{category_id}")
         } else {
@@ -711,10 +730,7 @@ pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
         let url = if page == 1 {
             format!("{SITE}{category_id}")
         } else {
-            format!(
-                "{SITE}{}/{page}-2-1/",
-                category_id.trim_end_matches('/')
-            )
+            format!("{SITE}{}/{page}-2-1/", category_id.trim_end_matches('/'))
         };
         let page_html = html(&url).await;
         let mut items = cards(&page_html);
@@ -748,7 +764,9 @@ pub(crate) async fn detail(id: &str) -> ApiResult<Value> {
     if id.contains("/actor/detail/") || id.contains("/actor/movie/") {
         let page_html = html(&detail_url).await;
         if page_html.is_empty() {
-            return Ok(json!({"id": id, "title": "", "cover": "", "synopsis": "", "extra": {}, "episodes": []}));
+            return Ok(
+                json!({"id": id, "title": "", "cover": "", "synopsis": "", "extra": {}, "episodes": []}),
+            );
         }
         let title = meta_name(&page_html, id);
         let mut episodes: Vec<Value> = Vec::new();
@@ -761,7 +779,11 @@ pub(crate) async fn detail(id: &str) -> ApiResult<Value> {
         }));
     }
     if id.contains("/moviesets/") || id.contains("/issuer/") || id.contains("/Issuer/") {
-        let base = detail_url.split('?').next().unwrap_or(&detail_url).to_string();
+        let base = detail_url
+            .split('?')
+            .next()
+            .unwrap_or(&detail_url)
+            .to_string();
         let page1 = html(&detail_url).await;
         let mut all_items: Vec<Value> = Vec::new();
         all_items.extend(cards(&page1));

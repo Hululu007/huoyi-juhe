@@ -40,8 +40,7 @@ const CATS: &[(&str, &str)] = &[
 
 /// 与 Java 的 URLEncoder 一致：空格成 %20，@ 与 / 不编码。
 fn enc_path(raw: &str) -> String {
-    let encoded: String =
-        url::form_urlencoded::byte_serialize(raw.as_bytes()).collect();
+    let encoded: String = url::form_urlencoded::byte_serialize(raw.as_bytes()).collect();
     encoded
         .replace('+', "%20")
         .replace("%40", "@")
@@ -60,7 +59,10 @@ fn headers(base: &str) -> Vec<(String, String)> {
             "Accept".to_string(),
             "application/json, text/plain, */*".to_string(),
         ),
-        ("Accept-Language".to_string(), "zh-CN,zh;q=0.9,en;q=0.8".to_string()),
+        (
+            "Accept-Language".to_string(),
+            "zh-CN,zh;q=0.9,en;q=0.8".to_string(),
+        ),
         ("Referer".to_string(), format!("{base}/")),
     ]
 }
@@ -132,7 +134,10 @@ fn clock(total: i64) -> String {
 
 /// 与 Java 的 strip 一致：去 HTML 标签与实体。
 fn strip_html(raw: &str) -> String {
-    let text = raw.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n");
+    let text = raw
+        .replace("<br>", "\n")
+        .replace("<br/>", "\n")
+        .replace("<br />", "\n");
     let tag = Regex::new("<[^>]+>").unwrap();
     let out = tag.replace_all(&text, "");
     let out = out
@@ -211,9 +216,7 @@ fn sort_of(tid: &str) -> &'static str {
 
 async fn channels() -> Vec<Value> {
     let mut out = Vec::new();
-    let Ok(resp) =
-        get_json("/api/v1/video-channels?start=0&count=60&sort=-updatedAt").await
-    else {
+    let Ok(resp) = get_json("/api/v1/video-channels?start=0&count=60&sort=-updatedAt").await else {
         return out;
     };
     let Some(rows) = get(&resp, "data").and_then(arr_of) else {
@@ -294,12 +297,13 @@ pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
 fn detail_episodes(data: &Value, series_id: &str) -> Vec<Value> {
     let mut episodes: Vec<Value> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
-    let mut push = |episodes: &mut Vec<Value>, seen: &mut HashSet<String>, title: String, url: String| {
-        if url.is_empty() || !seen.insert(url.clone()) {
-            return;
-        }
-        episodes.push(episode_json(&url, &title, series_id));
-    };
+    let mut push =
+        |episodes: &mut Vec<Value>, seen: &mut HashSet<String>, title: String, url: String| {
+            if url.is_empty() || !seen.insert(url.clone()) {
+                return;
+            }
+            episodes.push(episode_json(&url, &title, series_id));
+        };
     if let Some(playlists) = get(data, "streamingPlaylists").and_then(arr_of) {
         for pl in playlists {
             if let Some(files) = get(pl, "files").and_then(arr_of) {

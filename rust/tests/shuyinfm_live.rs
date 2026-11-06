@@ -42,8 +42,7 @@ async fn live_categories() {
     println!("categories: {}", cats.len());
     assert_eq!(cats.len(), 51, "category table must have 51 entries");
     assert!(
-        cats.iter()
-            .any(|c| c["id"] == "1" && c["name"] == "言情"),
+        cats.iter().any(|c| c["id"] == "1" && c["name"] == "言情"),
         "言情 (id 1) must be present"
     );
 }
@@ -56,16 +55,16 @@ async fn live_catalog_page1() {
     let handler = srv.handler("reading_catalog").expect("route");
     let value = handler(
         &srv.ctx,
-        &pairs(&[
-            ("site_id", "shuyinfm"),
-            ("category_id", "1"),
-            ("page", "1"),
-        ]),
+        &pairs(&[("site_id", "shuyinfm"), ("category_id", "1"), ("page", "1")]),
     )
     .await
     .expect("live catalog must succeed");
     let items = value["items"].as_array().expect("items");
-    println!("catalog page 1: {} items, has_more={}", items.len(), value["has_more"]);
+    println!(
+        "catalog page 1: {} items, has_more={}",
+        items.len(),
+        value["has_more"]
+    );
     for item in items.iter().take(3) {
         println!(
             "  - {} | {} | {}",

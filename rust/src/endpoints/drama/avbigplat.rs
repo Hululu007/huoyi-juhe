@@ -146,7 +146,8 @@ fn first_img(seg: &str) -> Option<String> {
         r#"(?:data-src|data-original|data-lazy-src|data-echo|src)="(https?://[^"]+?\.(?:jpe?g|png|webp|gif))""#,
     )
     .unwrap();
-    let out = re.captures_iter(seg)
+    let out = re
+        .captures_iter(seg)
         .filter_map(|c| {
             let u = c.get(1).unwrap().as_str();
             if u.contains("logo") {

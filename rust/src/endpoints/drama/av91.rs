@@ -124,7 +124,10 @@ fn json_escape(s: &str) -> String {
 async fn call(params: &[(&str, &str)]) -> ApiResult<Value> {
     let mut body = String::from("{");
     let mut pairs: Vec<(String, String)> = vec![
-        ("oauth_id".to_string(), "8X5CLgmXrHhDEsxG_1784029458860".to_string()),
+        (
+            "oauth_id".to_string(),
+            "8X5CLgmXrHhDEsxG_1784029458860".to_string(),
+        ),
         ("bundleId".to_string(), "com.pwa.jyav".to_string()),
         ("version".to_string(), "4.5.1".to_string()),
         ("oauth_type".to_string(), "pwa".to_string()),
@@ -146,12 +149,12 @@ async fn call(params: &[(&str, &str)]) -> ApiResult<Value> {
     body.push('}');
     let padded = crate::crypto::pkcs7_pad(body.as_bytes(), 16);
     let cipher = crate::crypto::aes_cbc_encrypt(&padded, AES_KEY, AES_IV);
-    let b64 = base64::Engine::encode(
-        &base64::engine::general_purpose::STANDARD,
-        cipher,
-    );
+    let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, cipher);
     let ts = (now_ms() / 1000).to_string();
-    let sign = md5_hex(sha256_hex(format!("client=pwa&data={b64}&timestamp={ts}{SIGN_SECRET}").as_bytes()).as_bytes());
+    let sign = md5_hex(
+        sha256_hex(format!("client=pwa&data={b64}&timestamp={ts}{SIGN_SECRET}").as_bytes())
+            .as_bytes(),
+    );
     let form = format!(
         "client=pwa&timestamp={ts}&data={}&sign={}",
         urlenc(&b64),
@@ -210,8 +213,8 @@ async fn call(params: &[(&str, &str)]) -> ApiResult<Value> {
     let Some(all) = all else {
         return Err(ApiError::Internal(format!("av91 call failed: {last_err}")));
     };
-    let v: Value = serde_json::from_slice(&all)
-        .map_err(|e| ApiError::Internal(format!("av91 json: {e}")))?;
+    let v: Value =
+        serde_json::from_slice(&all).map_err(|e| ApiError::Internal(format!("av91 json: {e}")))?;
     let data_s = text_of(&v, &["data"]);
     if data_s.is_empty() {
         return Ok(v);
@@ -241,7 +244,10 @@ fn pic(s: &str) -> String {
 }
 
 fn unwrap_cover(v: &Value) -> String {
-    let mut s = text_of(v, &["cover_horizontal", "cover_vertical", "cover_full", "cover"]);
+    let mut s = text_of(
+        v,
+        &["cover_horizontal", "cover_vertical", "cover_full", "cover"],
+    );
     if s.starts_with('{') {
         if let Ok(obj) = serde_json::from_str::<Value>(&s) {
             s = text_of(&obj, &["ori", "720", "360"]);
@@ -380,14 +386,23 @@ async fn detail_for_video(id: &str) -> ApiResult<Value> {
 }
 
 pub(crate) async fn categories() -> ApiResult<Value> {
-    Ok(json!({"categories": CATS.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}))
+    Ok(
+        json!({"categories": CATS.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}),
+    )
 }
 
 pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
     let page = if page < 1 { 1 } else { page };
     let page_s = page.to_string();
     let (items, limit): (Vec<Value>, i64) = if category_id == "daily" {
-        match call(&[("mod", "mv"), ("code", "playlist"), ("id", "1"), ("page", &page_s)]).await {
+        match call(&[
+            ("mod", "mv"),
+            ("code", "playlist"),
+            ("id", "1"),
+            ("page", &page_s),
+        ])
+        .await
+        {
             Ok(resp) => {
                 let data = get(&resp, "data").cloned().unwrap_or(Value::Null);
                 let mut out: Vec<Value> = Vec::new();
@@ -420,7 +435,14 @@ pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
             Err(_) => (Vec::new(), 20),
         }
     } else if let Some(id) = category_id.strip_prefix("construct:") {
-        match call(&[("mod", "element"), ("code", "getConstructById"), ("id", id), ("page", &page_s)]).await {
+        match call(&[
+            ("mod", "element"),
+            ("code", "getConstructById"),
+            ("id", id),
+            ("page", &page_s),
+        ])
+        .await
+        {
             Ok(resp) => (flatten_cards(&resp), 20),
             Err(_) => (Vec::new(), 20),
         }
@@ -522,7 +544,14 @@ pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
             Err(_) => (Vec::new(), 16),
         }
     } else {
-        match call(&[("mod", "element"), ("code", "getConstructById"), ("id", "3"), ("page", &page_s)]).await {
+        match call(&[
+            ("mod", "element"),
+            ("code", "getConstructById"),
+            ("id", "3"),
+            ("page", &page_s),
+        ])
+        .await
+        {
             Ok(resp) => (flatten_cards(&resp), 20),
             Err(_) => (Vec::new(), 20),
         }
@@ -534,7 +563,13 @@ pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
 
 pub(crate) async fn detail(id: &str) -> ApiResult<Value> {
     if let Some(tid) = id.strip_prefix("theme:") {
-        let resp = call(&[("mod", "element"), ("code", "getConstructById"), ("id", tid), ("page", "1")]).await?;
+        let resp = call(&[
+            ("mod", "element"),
+            ("code", "getConstructById"),
+            ("id", tid),
+            ("page", "1"),
+        ])
+        .await?;
         let items = flatten_cards(&resp);
         let mut episodes: Vec<Value> = Vec::new();
         for c in &items {
@@ -553,7 +588,13 @@ pub(crate) async fn detail(id: &str) -> ApiResult<Value> {
             Some((a, n)) => (a, n),
             None => (rest, ""),
         };
-        let resp = call(&[("mod", "mvactor"), ("code", "actorDetail"), ("id", aid), ("sort", "praise")]).await?;
+        let resp = call(&[
+            ("mod", "mvactor"),
+            ("code", "actorDetail"),
+            ("id", aid),
+            ("sort", "praise"),
+        ])
+        .await?;
         let items = flatten_cards(&resp);
         let mut episodes: Vec<Value> = Vec::new();
         for c in &items {
@@ -577,7 +618,11 @@ pub(crate) async fn detail(id: &str) -> ApiResult<Value> {
         title = format!("视频{vid}");
     }
     let paid = is_paid(&d);
-    let url = if paid { String::new() } else { play_url_from_detail(&d) };
+    let url = if paid {
+        String::new()
+    } else {
+        play_url_from_detail(&d)
+    };
     let mut episodes: Vec<Value> = Vec::new();
     if !url.is_empty() {
         episodes.push(episode_json(&url, "正片", id));
@@ -659,10 +704,8 @@ mod tests {
 
     #[test]
     fn play_url_hf() {
-        let v: Value = serde_json::from_str(
-            r#"{"preview_url":"https://hf-xyz9.cdn.com/x.m3u8"}"#,
-        )
-        .unwrap();
+        let v: Value =
+            serde_json::from_str(r#"{"preview_url":"https://hf-xyz9.cdn.com/x.m3u8"}"#).unwrap();
         assert_eq!(play_url_from_detail(&v), "https://hf-long.cdn.com/x.m3u8");
     }
 

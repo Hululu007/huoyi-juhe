@@ -341,8 +341,7 @@ pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
     if title.is_empty() {
         let url = format!("{HOST}/index.php/vod/detail/id/{vid}.html");
         if let Ok(html) = fetch_page(&url).await {
-            let re_info =
-                Regex::new("class=\"content-info[^\"]*\"[^>]*>(.*?)</div>").unwrap();
+            let re_info = Regex::new("class=\"content-info[^\"]*\"[^>]*>(.*?)</div>").unwrap();
             let info = first(&re_info, &html);
             let re_h2 = Regex::new("<h2[^>]*>(.*?)</h2>").unwrap();
             title = clean(&first(&re_h2, &info));
@@ -443,7 +442,10 @@ mod tests {
     fn player_aaaa_brace_match() {
         let html = "var player_aaaa={\"url\":\"https://x/y.m3u8\",\"from\":\"x\"};";
         let j = player_aaaa(html).unwrap();
-        assert_eq!(j.get("url").and_then(|v| v.as_str()), Some("https://x/y.m3u8"));
+        assert_eq!(
+            j.get("url").and_then(|v| v.as_str()),
+            Some("https://x/y.m3u8")
+        );
     }
 
     #[test]

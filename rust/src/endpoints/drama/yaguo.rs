@@ -13,7 +13,9 @@ use serde_json::{json, Value};
 
 use crate::error::{ApiError, ApiResult};
 
-use super::{arr_of, category_json, client, episode_json, get, int_of, item_json, text_of, with_query};
+use super::{
+    arr_of, category_json, client, episode_json, get, int_of, item_json, text_of, with_query,
+};
 
 const BASE_URL: &str = "https://app.whjzjx.cn";
 const LOGIN_URL: &str = "https://u.shytkjgs.com/user/v1/account/login";

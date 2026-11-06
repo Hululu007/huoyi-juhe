@@ -99,8 +99,9 @@ fn pct_encode_query(s: &str) -> String {
     let mut out = String::new();
     for b in s.as_bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~'
-            | b'/' => out.push(*b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
+                out.push(*b as char)
+            }
             _ => out.push_str(&format!("%{b:02X}")),
         }
     }
@@ -159,12 +160,18 @@ fn parse_list(page: &str) -> Vec<Value> {
 }
 
 pub(crate) async fn categories() -> ApiResult<Value> {
-    Ok(json!({"categories": CATEGORIES.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}))
+    Ok(
+        json!({"categories": CATEGORIES.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}),
+    )
 }
 
 pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
     let page = if page < 1 { 1 } else { page };
-    let tid = if category_id.is_empty() { "all" } else { category_id };
+    let tid = if category_id.is_empty() {
+        "all"
+    } else {
+        category_id
+    };
     let mut path = format!("/comics/all/ob/time/st/{tid}");
     if page > 1 {
         path.push_str(&format!("/page/{page}"));
@@ -213,9 +220,7 @@ pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
             }
         }
     }
-    let ch_re = must_re(
-        r#"(?s)<a[^>]*href="/comic/[^/]+/chapter-(\d+)\.html"[^>]*>(.*?)</a>"#,
-    );
+    let ch_re = must_re(r#"(?s)<a[^>]*href="/comic/[^/]+/chapter-(\d+)\.html"[^>]*>(.*?)</a>"#);
     let mut seen: HashSet<String> = HashSet::new();
     let mut eps: Vec<(String, String)> = Vec::new();
     for caps in ch_re.captures_iter(&page) {

@@ -17,8 +17,7 @@ use once_cell::sync::Lazy;
 use serde_json::{json, Value};
 
 use crate::endpoints::drama::{
-    arr_of, category_json, client, episode_json, get, int_of, item_json, text_of,
-    with_query,
+    arr_of, category_json, client, episode_json, get, int_of, item_json, text_of, with_query,
 };
 use crate::error::{ApiError, ApiResult};
 
@@ -171,7 +170,9 @@ async fn rank(section: &str, page: i64) -> ApiResult<(Vec<Value>, bool)> {
 }
 
 pub(crate) async fn categories() -> ApiResult<Value> {
-    Ok(json!({"categories": SECTIONS.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}))
+    Ok(
+        json!({"categories": SECTIONS.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}),
+    )
 }
 
 pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
@@ -266,9 +267,7 @@ pub(crate) async fn search(query: &str) -> ApiResult<Value> {
                 let title = text_of(it, &["title"]).to_lowercase();
                 let author = text_of(it, &["author"]).to_lowercase();
                 let teller = text_of(it, &["teller"]).to_lowercase();
-                title.contains(&needle)
-                    || author.contains(&needle)
-                    || teller.contains(&needle)
+                title.contains(&needle) || author.contains(&needle) || teller.contains(&needle)
             })
             .cloned()
             .collect();
@@ -323,10 +322,7 @@ mod tests {
 
     #[test]
     fn play_id_pipe_wins() {
-        assert_eq!(
-            parse_play_id("123|7").unwrap(),
-            ("123".to_string(), 7)
-        );
+        assert_eq!(parse_play_id("123|7").unwrap(), ("123".to_string(), 7));
         assert_eq!(parse_play_id("123$9").unwrap(), ("123".to_string(), 9));
         assert_eq!(parse_play_id("123$").unwrap(), ("123".to_string(), 1));
         assert!(parse_play_id("123").is_err());

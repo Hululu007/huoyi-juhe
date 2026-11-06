@@ -82,9 +82,8 @@ fn re_text_post() -> &'static Regex {
 }
 
 fn re_content_link() -> &'static Regex {
-    static RE: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r"/([^/]+)_content/(\d+)/([^/]+)\.html").unwrap()
-    });
+    static RE: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r"/([^/]+)_content/(\d+)/([^/]+)\.html").unwrap());
     &RE
 }
 
@@ -112,15 +111,17 @@ fn is_image(tid: &str) -> bool {
 
 async fn fetch(url: &str) -> String {
     let req = || {
-        client()
-            .map(|c| {
-                c.get(url)
-                    .header("User-Agent", UA)
-                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                    .header("Accept-Language", "zh-CN,zh;q=0.9")
-                    .header("Referer", format!("{HOST}/"))
-                    .header("Cookie", COOKIE)
-            })
+        client().map(|c| {
+            c.get(url)
+                .header("User-Agent", UA)
+                .header(
+                    "Accept",
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                )
+                .header("Accept-Language", "zh-CN,zh;q=0.9")
+                .header("Referer", format!("{HOST}/"))
+                .header("Cookie", COOKIE)
+        })
     };
     let Ok(reqb) = req() else {
         return String::new();
@@ -134,7 +135,9 @@ async fn fetch(url: &str) -> String {
     let Ok(text) = resp.text().await else {
         return String::new();
     };
-    if text.len() < 3000 && (text.contains("同意(enter)") || text.contains("IamOverEighteenYearsOld")) {
+    if text.len() < 3000
+        && (text.contains("同意(enter)") || text.contains("IamOverEighteenYearsOld"))
+    {
         // 重走年龄门再取一次。
         if let Ok(c) = client() {
             let _ = c
@@ -400,7 +403,9 @@ pub(crate) async fn detail(id: &str) -> ApiResult<Value> {
     let url = format!("{HOST}/zh/{ctype}_content/{num}/{slug}.html");
     let text = fetch(&url).await;
     if text.is_empty() {
-        return Ok(json!({"id": id, "title": "", "cover": "", "synopsis": "", "extra": {}, "episodes": []}));
+        return Ok(
+            json!({"id": id, "title": "", "cover": "", "synopsis": "", "extra": {}, "episodes": []}),
+        );
     }
     let title_re = Regex::new(r"(?s)<h1[^>]*>(.*?)</h1>").unwrap();
     let mut title = title_re
@@ -426,9 +431,10 @@ pub(crate) async fn detail(id: &str) -> ApiResult<Value> {
                 .join(" ");
         }
         if content.is_empty() {
-            let c2_re =
-                Regex::new(r"(?s)<span class='content_18h_wpcg'>([\s\S]*?)</span>\s*<div class='contents'")
-                    .unwrap();
+            let c2_re = Regex::new(
+                r"(?s)<span class='content_18h_wpcg'>([\s\S]*?)</span>\s*<div class='contents'",
+            )
+            .unwrap();
             if let Some(c) = c2_re.captures(&text).and_then(|c| c.get(1)) {
                 content = strip_tags(c.as_str())
                     .replace("&nbsp;", " ")
@@ -453,7 +459,9 @@ pub(crate) async fn detail(id: &str) -> ApiResult<Value> {
     if is_image(ctype) {
         let cover_re = Regex::new(r#""thumbnailUrl"\s*:\s*"([^"]+)""#).unwrap();
         let cover = first_group(&cover_re, &text);
-        let img_re = Regex::new(r#"(?i)src=['"]([^'"]*eemmhh02\.com/[^'"]+\.(?:jpg|png|webp))['"]"#).unwrap();
+        let img_re =
+            Regex::new(r#"(?i)src=['"]([^'"]*eemmhh02\.com/[^'"]+\.(?:jpg|png|webp))['"]"#)
+                .unwrap();
         let mut seen = std::collections::HashSet::new();
         let mut big: Vec<String> = Vec::new();
         for cap in img_re.captures_iter(&text) {
@@ -463,7 +471,9 @@ pub(crate) async fn detail(id: &str) -> ApiResult<Value> {
             }
         }
         if big.is_empty() {
-            return Ok(json!({"id": id, "title": title, "cover": cover, "synopsis": "", "extra": {}, "episodes": []}));
+            return Ok(
+                json!({"id": id, "title": title, "cover": cover, "synopsis": "", "extra": {}, "episodes": []}),
+            );
         }
         let pics = big.join("&&");
         let play_url = format!("查看$pics://{pics}");
@@ -497,9 +507,16 @@ pub(crate) async fn detail(id: &str) -> ApiResult<Value> {
     let aes_iv = first_group(&iv_re, &text);
     let mvarr = first_group(&mv_re, &text);
     let mut episodes: Vec<Value> = Vec::new();
-    if !xor_s.is_empty() && !base_s.is_empty() && !aes_key.is_empty() && !aes_iv.is_empty() && !mvarr.is_empty() {
+    if !xor_s.is_empty()
+        && !base_s.is_empty()
+        && !aes_key.is_empty()
+        && !aes_iv.is_empty()
+        && !mvarr.is_empty()
+    {
         if let (Ok(xor_key), Ok(base)) = (xor_s.parse::<i64>(), base_s.parse::<i64>()) {
-            let item_re = Regex::new(r"\['([^']*)','([^']*)','([^']*)','([^']*)','([^']*)','([^']*)'\]").unwrap();
+            let item_re =
+                Regex::new(r"\['([^']*)','([^']*)','([^']*)','([^']*)','([^']*)','([^']*)'\]")
+                    .unwrap();
             for cap in item_re.captures_iter(&mvarr) {
                 let enc = cap.get(2).map(|m| m.as_str()).unwrap_or("");
                 let prefix = cap.get(4).map(|m| m.as_str()).unwrap_or("");

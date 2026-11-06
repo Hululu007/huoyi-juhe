@@ -66,8 +66,7 @@ async fn get_text(url: &str) -> Option<String> {
 async fn probe_base() -> String {
     for base in BASES {
         if let Some(text) = get_text(&format!("{base}/")).await {
-            if text.contains('黄')
-                && text.contains('果')
+            if text.contains('黄') && text.contains('果')
                 || text.contains("hg-drama-card")
                 || text.contains("hg-web-detail")
             {
@@ -93,7 +92,11 @@ fn parse_list(html: &str) -> Vec<Value> {
         let end = starts.get(i + 1).copied().unwrap_or(html.len());
         let block = &html[start..end];
         let id_re = Regex::new(r"/video/(\d+)/?").unwrap();
-        let Some(id) = id_re.captures(block).and_then(|c| c.get(1)).map(|m| m.as_str().to_string()) else {
+        let Some(id) = id_re
+            .captures(block)
+            .and_then(|c| c.get(1))
+            .map(|m| m.as_str().to_string())
+        else {
             continue;
         };
         if !seen.insert(id.clone()) {
@@ -116,7 +119,8 @@ fn parse_list(html: &str) -> Vec<Value> {
                 }
             }
         }
-        let title_re = Regex::new(r#"(?s)<div class="hg-drama-card__title"><a[^>]*>(.*?)</a>"#).unwrap();
+        let title_re =
+            Regex::new(r#"(?s)<div class="hg-drama-card__title"><a[^>]*>(.*?)</a>"#).unwrap();
         let mut title = title_re
             .captures(block)
             .map(|c| strip_tags(c.get(1).unwrap().as_str()))
@@ -168,7 +172,8 @@ fn parse_list(html: &str) -> Vec<Value> {
 /// 首页 / 排行榜的 HTML 解析：先用 JSON-LD 式正则取 id/标题，再用
 /// `parseList` 补封面。
 fn html_items(html: &str) -> Vec<Value> {
-    let ld_re = Regex::new(r#""name":"([^"]+)","position":\d+,"url":"[^"]*/video/(\d+)/""#).unwrap();
+    let ld_re =
+        Regex::new(r#""name":"([^"]+)","position":\d+,"url":"[^"]*/video/(\d+)/""#).unwrap();
     let mut by_id: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     for cap in ld_re.captures_iter(html) {
         let name = cap.get(1).unwrap().as_str().to_string();
@@ -204,13 +209,13 @@ fn api_card(v: &Value) -> Option<Value> {
     }
     let cover = text_of(v, &["cover"]);
     let mut remarks: Vec<String> = Vec::new();
-    let score = get(v, "score")
-        .and_then(|s| s.as_f64())
-        .unwrap_or(0.0);
+    let score = get(v, "score").and_then(|s| s.as_f64()).unwrap_or(0.0);
     if score > 0.0 {
         remarks.push(format!("{score:.1}分"));
     }
-    let finished = get(v, "is_finished").and_then(|b| b.as_bool()).unwrap_or(false);
+    let finished = get(v, "is_finished")
+        .and_then(|b| b.as_bool())
+        .unwrap_or(false);
     let total = int_of(v, &["total_episodes"]);
     let count = int_of(v, &["episode_count"]);
     if finished && total > 0 {
@@ -237,7 +242,9 @@ fn api_card(v: &Value) -> Option<Value> {
 }
 
 pub(crate) async fn categories() -> ApiResult<Value> {
-    Ok(json!({"categories": CATS.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}))
+    Ok(
+        json!({"categories": CATS.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}),
+    )
 }
 
 pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
@@ -247,7 +254,11 @@ pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
         if page > 1 {
             return Ok(json!({"items": [], "has_more": false}));
         }
-        let path = if category_id.is_empty() { "/" } else { "/ranks/hot" };
+        let path = if category_id.is_empty() {
+            "/"
+        } else {
+            "/ranks/hot"
+        };
         let Some(html) = get_text(&format!("{base}{path}")).await else {
             return Ok(json!({"items": [], "has_more": false}));
         };
@@ -288,7 +299,9 @@ pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
 pub(crate) async fn detail(id: &str) -> ApiResult<Value> {
     let base = probe_base().await;
     let Some(html) = get_text(&format!("{base}/video/{id}")).await else {
-        return Ok(json!({"id": id, "title": "", "cover": "", "synopsis": "", "extra": {}, "episodes": []}));
+        return Ok(
+            json!({"id": id, "title": "", "cover": "", "synopsis": "", "extra": {}, "episodes": []}),
+        );
     };
     let h1_re = Regex::new(r"(?s)<h1[^>]*>(.*?)</h1>").unwrap();
     let mut title = h1_re
@@ -335,14 +348,21 @@ pub(crate) async fn detail(id: &str) -> ApiResult<Value> {
     }
     // 集数：取页面中含 data-ep-id / ep-item / ep-grid / /ep- 的 <a> 里的最大集号。
     let mut max_ep: i64 = 0;
-    let ep_re = Regex::new(r#"(?s)<a[^>]*(?:data-ep-id|ep-item|ep-grid|/ep-)[^>]*>(.*?)</a>"#).unwrap();
+    let ep_re =
+        Regex::new(r#"(?s)<a[^>]*(?:data-ep-id|ep-item|ep-grid|/ep-)[^>]*>(.*?)</a>"#).unwrap();
     let num_re = Regex::new(r"(\d+)").unwrap();
     for cap in ep_re.captures_iter(&html) {
         let inner = cap.get(1).unwrap().as_str();
         let mut n: i64 = 0;
-        if let Some(c) = Regex::new(r"data-ep-id[^0-9]*(\d+)").unwrap().captures(cap.get(0).unwrap().as_str()) {
+        if let Some(c) = Regex::new(r"data-ep-id[^0-9]*(\d+)")
+            .unwrap()
+            .captures(cap.get(0).unwrap().as_str())
+        {
             n = c.get(1).unwrap().as_str().parse().unwrap_or(0);
-        } else if let Some(c) = Regex::new(r"/ep-(\d+)").unwrap().captures(cap.get(0).unwrap().as_str()) {
+        } else if let Some(c) = Regex::new(r"/ep-(\d+)")
+            .unwrap()
+            .captures(cap.get(0).unwrap().as_str())
+        {
             n = c.get(1).unwrap().as_str().parse().unwrap_or(0);
         } else if let Some(c) = Regex::new(r"第\s*(\d+)\s*集").unwrap().captures(inner) {
             n = c.get(1).unwrap().as_str().parse().unwrap_or(0);
@@ -369,11 +389,7 @@ pub(crate) async fn detail(id: &str) -> ApiResult<Value> {
     }
     let mut episodes: Vec<Value> = Vec::new();
     for n in 1..=max_ep {
-        episodes.push(episode_json(
-            &format!("{id}#{n}"),
-            &format!("第{n}集"),
-            id,
-        ));
+        episodes.push(episode_json(&format!("{id}#{n}"), &format!("第{n}集"), id));
     }
     Ok(json!({
         "id": id, "title": title, "cover": cover, "synopsis": synopsis,
@@ -416,7 +432,10 @@ pub(crate) async fn search(query: &str) -> ApiResult<Value> {
     let listed = parse_list(&html);
     for it in items.iter_mut() {
         let id = it["id"].as_str().unwrap_or("").to_string();
-        if let Some(l) = listed.iter().find(|x| x["id"].as_str() == Some(id.as_str())) {
+        if let Some(l) = listed
+            .iter()
+            .find(|x| x["id"].as_str() == Some(id.as_str()))
+        {
             if it["cover"].as_str().unwrap_or("").is_empty() {
                 it["cover"] = l["cover"].clone();
             }

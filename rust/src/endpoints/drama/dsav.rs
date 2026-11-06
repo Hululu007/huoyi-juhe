@@ -27,9 +27,9 @@ use md5::{Digest, Md5};
 use once_cell::sync::Lazy;
 use rand::Rng;
 use serde_json::{json, Value};
+use sha2::Sha256;
 use std::future::Future;
 use std::pin::Pin;
-use sha2::Sha256;
 use std::sync::Mutex;
 
 use crate::error::{ApiError, ApiResult};

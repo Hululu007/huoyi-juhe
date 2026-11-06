@@ -46,7 +46,10 @@ fn headers(referer: &str) -> Vec<(String, String)> {
             "Accept".to_string(),
             "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8".to_string(),
         ),
-        ("Accept-Language".to_string(), "en-US,en;q=0.9,zh-CN;q=0.8".to_string()),
+        (
+            "Accept-Language".to_string(),
+            "en-US,en;q=0.9,zh-CN;q=0.8".to_string(),
+        ),
         ("Referer".to_string(), referer.to_string()),
     ]
 }
@@ -323,8 +326,7 @@ pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
     if list.is_empty() {
         // 详情页本身也可能含打包 JS 或直链（jar 的 streams 回退）。
         let text = unpack_js(&html);
-        let re_any =
-            Regex::new("https?://[^\"'\\s<>]+?\\.(?:m3u8|txt)[^\"'\\s<>]*").unwrap();
+        let re_any = Regex::new("https?://[^\"'\\s<>]+?\\.(?:m3u8|txt)[^\"'\\s<>]*").unwrap();
         for m in re_any.find_iter(&text) {
             let u = unesc(m.as_str());
             if u.len() > 10 && !list.contains(&u) {
@@ -397,10 +399,7 @@ mod tests {
 
     #[test]
     fn category_template_lookup() {
-        assert_eq!(
-            category_template("censored"),
-            "/censored_list/all/%d.html"
-        );
+        assert_eq!(category_template("censored"), "/censored_list/all/%d.html");
         assert_eq!(category_template("nope"), "/");
     }
 }

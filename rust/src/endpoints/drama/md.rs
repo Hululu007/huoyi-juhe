@@ -146,7 +146,10 @@ fn gunzip_if_needed(bytes: &[u8], encoding: &str) -> Vec<u8> {
 
 async fn call(path: &str, params: &[(&str, &str)]) -> ApiResult<Value> {
     let ts = now_ms().to_string();
-    let mut map: Vec<(String, String)> = params.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+    let mut map: Vec<(String, String)> = params
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
     map.push(("timestamp".to_string(), ts.clone()));
     map.sort_by(|a, b| a.0.cmp(&b.0));
     let sign_str = map
@@ -297,7 +300,9 @@ fn cards_from(resp: &Value) -> (Vec<Value>, i64, i64) {
 }
 
 pub(crate) async fn categories() -> ApiResult<Value> {
-    Ok(json!({"categories": CATS.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}))
+    Ok(
+        json!({"categories": CATS.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}),
+    )
 }
 
 pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
@@ -312,14 +317,20 @@ pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
         Err(_) => return Ok(json!({"items": [], "has_more": false})),
     };
     let (items, _total, last_page) = cards_from(&resp);
-    let has_more = if last_page > 0 { page < last_page } else { !items.is_empty() };
+    let has_more = if last_page > 0 {
+        page < last_page
+    } else {
+        !items.is_empty()
+    };
     Ok(json!({"items": items, "has_more": has_more}))
 }
 
 pub(crate) async fn detail(id: &str) -> ApiResult<Value> {
     let cached = CACHE.lock().unwrap().get(id).cloned();
     let Some(v) = cached else {
-        return Ok(json!({"id": id, "title": "", "cover": "", "synopsis": "", "extra": {}, "episodes": []}));
+        return Ok(
+            json!({"id": id, "title": "", "cover": "", "synopsis": "", "extra": {}, "episodes": []}),
+        );
     };
     let title = {
         let t = text_of(&v, &["title"]);

@@ -214,17 +214,17 @@ void main() {
   });
 
   group('missav 与鉴黄师强制最后一档', () {
-    // 178 站登记表（鉴黄师 javrate 第 16 位、missav 第 41 位，
+    // 200 站登记表（鉴黄师 javrate 第 16 位、missav 第 41 位，
     // 与主线注册表顺序一致；uu 未注册、不在表里）。
-    List<String> registry178() {
-      final registry = List.generate(178, (i) => 'site$i');
+    List<String> registry200() {
+      final registry = List.generate(200, (i) => 'site$i');
       registry[15] = 'javrate';
       registry[40] = 'missav';
       return registry;
     }
 
     test('两站不管在表里多靠前都钉到第 4 档', () {
-      final registry = registry178();
+      final registry = registry200();
       expect(adultTierForSiteId('javrate', registry), 3);
       expect(adultTierForSiteId('missav', registry), 3);
       // 表里位置不变（不改注册表顺序），只是分档被覆盖。
@@ -236,32 +236,32 @@ void main() {
     });
 
     test('第 4 档末尾两站的先后：missav 在前、鉴黄师压最后', () {
-      final registry = registry178();
+      final registry = registry200();
       final tier4 = adultTierSiteIds(3, registry);
-      expect(tier4.length, 46);
+      expect(tier4.length, 52);
       expect(tier4[tier4.length - 2], 'missav');
       expect(tier4.last, 'javrate');
-      // 其余第 4 档站仍按表顺序排在前面（178 站时第 4 档从下标 134 起）。
-      expect(tier4.first, 'site134');
+      // 其余第 4 档站仍按表顺序排在前面（200 站时第 4 档从下标 150 起）。
+      expect(tier4.first, 'site150');
     });
 
-    test('178 站分档规模：43/44/45/46（钉尾两站各占原档一位）', () {
-      final registry = registry178();
-      // 比例分档（钉尾前）是 45/44/45/44；javrate 与 missav 原都在
-      // 第 1 档，两站被钉到第 4 档后变成 43/44/45/46。
-      expect(adultTierSiteIds(0, registry).length, 43);
-      expect(adultTierSiteIds(1, registry).length, 44);
-      expect(adultTierSiteIds(2, registry).length, 45);
-      expect(adultTierSiteIds(3, registry).length, 46);
-      // 表尾的两站按表顺序进第 4 档（下标 176、177 都在第 4 档），
+    test('200 站分档规模：48/50/50/52（钉尾两站各占原档一位）', () {
+      final registry = registry200();
+      // 比例分档（钉尾前）是 50/50/50/50；javrate 与 missav 原都在
+      // 第 1 档，两站被钉到第 4 档后变成 48/50/50/52。
+      expect(adultTierSiteIds(0, registry).length, 48);
+      expect(adultTierSiteIds(1, registry).length, 50);
+      expect(adultTierSiteIds(2, registry).length, 50);
+      expect(adultTierSiteIds(3, registry).length, 52);
+      // 表尾的两站按表顺序进第 4 档（下标 198、199 都在第 4 档），
       // 排在钉尾两站之前。
       final tier4 = adultTierSiteIds(3, registry);
-      expect(tier4[tier4.length - 4], 'site176');
-      expect(tier4[tier4.length - 3], 'site177');
+      expect(tier4[tier4.length - 4], 'site198');
+      expect(tier4[tier4.length - 3], 'site199');
     });
 
     test('修为不到合体两站完全隐藏，到了才出现', () {
-      final registry = registry178();
+      final registry = registry200();
       final before = visibleSiteIds(registry, registry, 29999);
       expect(before, isNot(contains('missav')));
       expect(before, isNot(contains('javrate')));

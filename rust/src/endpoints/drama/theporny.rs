@@ -272,7 +272,9 @@ pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
     let keywords = text_of(&data, &["keywords_gem"]);
     let tags = text_of(&data, &["tags"]);
     let user = text_of(&data, &["user"]);
-    let synopsis = format!("{keywords}\n{tags}\n作者：{user}").trim().to_string();
+    let synopsis = format!("{keywords}\n{tags}\n作者：{user}")
+        .trim()
+        .to_string();
     Ok(json!({
         "id": series_id,
         "title": title,

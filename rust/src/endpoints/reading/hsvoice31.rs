@@ -27,41 +27,30 @@ const CLASSES: [(&str, &str); 4] = [
     ("latest", "最新"),
 ];
 
-static SHELL_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?s)\w+\('(.+?)'\.split").unwrap());
+static SHELL_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?s)\w+\('(.+?)'\.split").unwrap());
 static OBFUSCATE_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"/obfuscate/js/t/([0-9a-f]+)").unwrap());
-static VARH_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"var h\s*=\s*'([^']+)'").unwrap());
+static VARH_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"var h\s*=\s*'([^']+)'").unwrap());
 static BOOK_CARD_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
         r#"(?s)<a href="/play/(\d+)\.html" class="(?:book-card-link|update-item-link)">(.*?)</a>"#,
     )
     .unwrap()
 });
-static DTEXT_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"d\('([A-Za-z0-9+/=]+)'\)").unwrap());
-static AUTHOR_CARD_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?s)<a href="/author/([^"]+)\.html">(.*?)</a>"#).unwrap()
-});
-static IMG_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"<img[^>]+src="([^"]+)""#).unwrap());
+static DTEXT_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"d\('([A-Za-z0-9+/=]+)'\)").unwrap());
+static AUTHOR_CARD_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?s)<a href="/author/([^"]+)\.html">(.*?)</a>"#).unwrap());
+static IMG_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"<img[^>]+src="([^"]+)""#).unwrap());
 static MAIN_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"(?s)<main class="play-page">(.*?)</main>"#).unwrap());
-static H1_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?s)<h1[^>]*>.*?d\('([A-Za-z0-9+/=]+)'\)"#).unwrap()
-});
-static AUTHOR_LINK_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"href="/author/([^"]+)\.html""#).unwrap()
-});
-static SOURCE_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"<source src="([^"]+)""#).unwrap());
-static DOWNLOADS_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"/static/downloads/(\d+)/").unwrap());
-static DATE_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"^\d{4}-\d{2}-\d{2}$").unwrap());
-static PLAYS_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"^[\d.]+万$").unwrap());
+static H1_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?s)<h1[^>]*>.*?d\('([A-Za-z0-9+/=]+)'\)"#).unwrap());
+static AUTHOR_LINK_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"href="/author/([^"]+)\.html""#).unwrap());
+static SOURCE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"<source src="([^"]+)""#).unwrap());
+static DOWNLOADS_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"/static/downloads/(\d+)/").unwrap());
+static DATE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^\d{4}-\d{2}-\d{2}$").unwrap());
+static PLAYS_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[\d.]+万$").unwrap());
 
 /// py _b64decode：去空白、补 = 至 4 的倍数、标准 base64 解码。
 fn b64decode(s: &str) -> Vec<u8> {
@@ -125,7 +114,9 @@ async fn request_text(url: &str) -> ApiResult<String> {
         .map_err(|e| ApiError::Internal(e.to_string()))?;
     let status = resp.status().as_u16();
     if status != 200 {
-        return Err(ApiError::Internal(format!("黄色有声小说请求 HTTP {status}")));
+        return Err(ApiError::Internal(format!(
+            "黄色有声小说请求 HTTP {status}"
+        )));
     }
     resp.text()
         .await
@@ -231,7 +222,9 @@ async fn author_books(part: &str, pg: i64) -> ApiResult<Vec<Value>> {
 }
 
 pub(crate) async fn categories() -> ApiResult<Value> {
-    Ok(json!({"categories": CLASSES.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}))
+    Ok(
+        json!({"categories": CLASSES.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}),
+    )
 }
 
 pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
@@ -309,7 +302,9 @@ pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
         audio = format!("{HOST}{audio}");
     }
     if title.is_empty() || audio.is_empty() {
-        return Err(ApiError::Internal("黄色有声小说未取到书名或音频地址".into()));
+        return Err(ApiError::Internal(
+            "黄色有声小说未取到书名或音频地址".into(),
+        ));
     }
     let mut meta = format!("主播：{author}");
     if !date.is_empty() {

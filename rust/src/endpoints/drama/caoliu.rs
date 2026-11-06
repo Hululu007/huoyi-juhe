@@ -278,7 +278,9 @@ pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
     let keywords = text_of(&data, &["keywords_gem"]);
     let tags = text_of(&data, &["tags"]);
     let user = text_of(&data, &["user"]);
-    let synopsis = format!("{keywords}\n{tags}\n作者：{user}").trim().to_string();
+    let synopsis = format!("{keywords}\n{tags}\n作者：{user}")
+        .trim()
+        .to_string();
     Ok(json!({
         "id": series_id,
         "title": title,
@@ -357,7 +359,10 @@ mod tests {
         let items = parse_items(&data);
         assert_eq!(items.len(), 2);
         assert_eq!(items[0]["id"], "q7uf0f7rdPSYSo7c1");
-        assert_eq!(items[0]["cover"], "https://tp.xiaoxx.com/q7uf0f7rdPSYSo7c1.jpg");
+        assert_eq!(
+            items[0]["cover"],
+            "https://tp.xiaoxx.com/q7uf0f7rdPSYSo7c1.jpg"
+        );
         assert_eq!(items[0]["remark"], "4:01:22");
         assert_eq!(items[1]["id"], "4OboR7mJpBLrTYoor");
     }
@@ -372,13 +377,17 @@ mod tests {
 
     #[test]
     fn play_passthrough() {
-        let ok = play_check("https://cdn.uameta.ai/file/bucket-media/video/72025102307/video.m3u8").unwrap();
+        let ok = play_check("https://cdn.uameta.ai/file/bucket-media/video/72025102307/video.m3u8")
+            .unwrap();
         assert_eq!(
             ok["url"],
             "https://cdn.uameta.ai/file/bucket-media/video/72025102307/video.m3u8"
         );
         let ok2 = play_check("https://tm.xiaoxx.com/9nE-1tW5ZzkZQw3P80qkVg==,1793904960/66a2d34cb019d5b218d860c4/index.m3u8").unwrap();
-        assert!(ok2["url"].as_str().unwrap().starts_with("https://tm.xiaoxx.com/"));
+        assert!(ok2["url"]
+            .as_str()
+            .unwrap()
+            .starts_with("https://tm.xiaoxx.com/"));
         assert!(play_check("q7uf0f7rdPSYSo7c1").is_err());
     }
 

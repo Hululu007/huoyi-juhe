@@ -33,27 +33,20 @@ const CATEGORIES: [(&str, &str); 11] = [
 ];
 
 static TAG_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"<[^>]+>").unwrap());
-static SCRIPT_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?s)<script[^>]*>.*?</script>").unwrap());
-static STYLE_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?s)<style[^>]*>.*?</style>").unwrap());
-static BR_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)<br\s*/?>").unwrap());
-static CLOSE_P_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)</p\s*>").unwrap());
-static SPACE_RUN_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"[ \t]+").unwrap());
+static SCRIPT_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?s)<script[^>]*>.*?</script>").unwrap());
+static STYLE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?s)<style[^>]*>.*?</style>").unwrap());
+static BR_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)<br\s*/?>").unwrap());
+static CLOSE_P_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)</p\s*>").unwrap());
+static SPACE_RUN_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"[ \t]+").unwrap());
 static WS_RUN_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s+").unwrap());
-static FU_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"FU1\("([^"]+)"\)"#).unwrap());
+static FU_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"FU1\("([^"]+)"\)"#).unwrap());
 static ROW_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"<div class="art-item">\s*<a href="/artdetail-([A-Za-z0-9]+)/" title="([^"]+)">"#).unwrap()
+    Regex::new(r#"<div class="art-item">\s*<a href="/artdetail-([A-Za-z0-9]+)/" title="([^"]+)">"#)
+        .unwrap()
 });
-static TITLE_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?s)<title>(.*?)</title>").unwrap());
-static BODY_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?s)<div class="novel-content"[^>]*>(.*?)</div>"#).unwrap()
-});
+static TITLE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?s)<title>(.*?)</title>").unwrap());
+static BODY_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?s)<div class="novel-content"[^>]*>(.*?)</div>"#).unwrap());
 
 /// py _fetch 的 FU1 解包：有 FU1 包就 base64 解码再 JSON 解析，
 /// 解析出字符串才替换，否则保留原文；任一步失败保留原文。

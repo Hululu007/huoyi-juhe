@@ -163,7 +163,10 @@ fn from_hex(s: &str) -> Option<Vec<u8>> {
 async fn call(params: &[(&str, &str)]) -> ApiResult<Value> {
     let mut body = String::from("{");
     let mut pairs: Vec<(String, String)> = vec![
-        ("oauth_id".to_string(), "zwmLGswGWjXy61JY_1749114098063".to_string()),
+        (
+            "oauth_id".to_string(),
+            "zwmLGswGWjXy61JY_1749114098063".to_string(),
+        ),
         ("bundleId".to_string(), "com.tvlutv".to_string()),
         ("version".to_string(), "2.4.0".to_string()),
         ("oauth_type".to_string(), "web".to_string()),
@@ -186,7 +189,10 @@ async fn call(params: &[(&str, &str)]) -> ApiResult<Value> {
     let enc = aes_cfb(body.as_bytes(), false);
     let hex_data = hex::encode(enc);
     let ts = (now_ms() / 1000).to_string();
-    let sign = md5_hex(sha256_hex(format!("client=pwa&data={hex_data}&timestamp={ts}{SIGN_SECRET}").as_bytes()).as_bytes());
+    let sign = md5_hex(
+        sha256_hex(format!("client=pwa&data={hex_data}&timestamp={ts}{SIGN_SECRET}").as_bytes())
+            .as_bytes(),
+    );
     let form = format!(
         "client=pwa&timestamp={}&data={}&sign={}",
         urlenc(&ts),
@@ -247,8 +253,8 @@ async fn call(params: &[(&str, &str)]) -> ApiResult<Value> {
     let Some(all) = all else {
         return Err(ApiError::Internal(format!("lxs call failed: {last_err}")));
     };
-    let v: Value = serde_json::from_slice(&all)
-        .map_err(|e| ApiError::Internal(format!("lxs json: {e}")))?;
+    let v: Value =
+        serde_json::from_slice(&all).map_err(|e| ApiError::Internal(format!("lxs json: {e}")))?;
     let data_s = text_of(&v, &["data"]);
     if data_s.is_empty() {
         return Ok(v);
@@ -299,7 +305,11 @@ fn card(v: &Value, include_paid: bool) -> Option<Value> {
         }
     };
     let kind = text_of(v, &["mv_type"]);
-    let kind = if kind.is_empty() { "xiao".to_string() } else { kind };
+    let kind = if kind.is_empty() {
+        "xiao".to_string()
+    } else {
+        kind
+    };
     let mut it = item_json(&format!("{kind}:{id}"), &title, &pic(&cover), &remark);
     it["type_name"] = json!(text_of(v, &["category"]));
     Some(it)
@@ -312,7 +322,9 @@ fn list_result(resp: &Value, pg: i64) -> (Vec<Value>, i64, i64) {
         list = a.clone();
     }
     let page = get(resp, "page").cloned().unwrap_or(Value::Null);
-    let total = get(&page, "total").and_then(|x| x.as_i64()).unwrap_or(list.len() as i64);
+    let total = get(&page, "total")
+        .and_then(|x| x.as_i64())
+        .unwrap_or(list.len() as i64);
     let mut out = Vec::new();
     for v in &list {
         if let Some(c) = card(v, false) {
@@ -326,7 +338,9 @@ fn list_result(resp: &Value, pg: i64) -> (Vec<Value>, i64, i64) {
             }
         }
     }
-    let pagesize = get(&page, "pagesize").and_then(|x| x.as_i64()).unwrap_or(20);
+    let pagesize = get(&page, "pagesize")
+        .and_then(|x| x.as_i64())
+        .unwrap_or(20);
     let pagecount = if pg * pagesize < total { pg + 1 } else { pg };
     (out, pagecount, total)
 }
@@ -454,7 +468,15 @@ pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
             Some((a, n)) => (a, n),
             None => (rest, ""),
         };
-        let resp = match call(&[("mod", "actor"), ("code", "eq"), ("id", aid), ("actor", name), ("page", &page_s)]).await {
+        let resp = match call(&[
+            ("mod", "actor"),
+            ("code", "eq"),
+            ("id", aid),
+            ("actor", name),
+            ("page", &page_s),
+        ])
+        .await
+        {
             Ok(r) => r,
             Err(_) => return Ok(json!({"items": [], "has_more": false})),
         };
@@ -466,14 +488,28 @@ pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
     } else {
         ("xiao".to_string(), "new".to_string())
     };
-    let resp = match call(&[("code", "search"), ("mod", &ty), ("tag", &tag), ("page", &page_s)]).await {
+    let resp = match call(&[
+        ("code", "search"),
+        ("mod", &ty),
+        ("tag", &tag),
+        ("page", &page_s),
+    ])
+    .await
+    {
         Ok(r) => r,
         Err(_) => return Ok(json!({"items": [], "has_more": false})),
     };
     let (items, pagecount, total) = list_result(&resp, page);
     if !items.is_empty() && total > 0 {
         let other = if ty == "xiao" { "av" } else { "xiao" };
-        if let Ok(resp2) = call(&[("code", "search"), ("mod", other), ("tag", &tag), ("page", &page_s)]).await {
+        if let Ok(resp2) = call(&[
+            ("code", "search"),
+            ("mod", other),
+            ("tag", &tag),
+            ("page", &page_s),
+        ])
+        .await
+        {
             let (items2, pagecount2, _) = list_result(&resp2, page);
             if !items2.is_empty() {
                 return Ok(json!({"items": items2, "has_more": pagecount2 > page}));
@@ -489,7 +525,14 @@ pub(crate) async fn detail(id: &str) -> ApiResult<Value> {
             Some((a, n)) => (a, n),
             None => (rest, ""),
         };
-        let resp = call(&[("mod", "actor"), ("code", "eq"), ("id", aid), ("actor", name), ("page", "1")]).await?;
+        let resp = call(&[
+            ("mod", "actor"),
+            ("code", "eq"),
+            ("id", aid),
+            ("actor", name),
+            ("page", "1"),
+        ])
+        .await?;
         let (items, _, _) = list_result(&resp, 1);
         let mut episodes: Vec<Value> = Vec::new();
         for c in &items {
@@ -637,7 +680,8 @@ mod tests {
         let key: Vec<u8> = (0u8..32).collect();
         let iv: Vec<u8> = (0u8..16).collect();
         let plain: Vec<u8> = vec![
-            0x6b, 0xc1, 0xbe, 0xe2, 0x2e, 0x40, 0x9f, 0x96, 0xe9, 0x3d, 0x7e, 0x11, 0x73, 0x93, 0x17, 0x2a,
+            0x6b, 0xc1, 0xbe, 0xe2, 0x2e, 0x40, 0x9f, 0x96, 0xe9, 0x3d, 0x7e, 0x11, 0x73, 0x93,
+            0x17, 0x2a,
         ];
         let cipher = Aes256::new_from_slice(&key).unwrap();
         let mut prev = [0u8; 16];
@@ -650,18 +694,13 @@ mod tests {
         for (i, &b) in plain.iter().enumerate() {
             out.push(b ^ block[i]);
         }
-        assert_eq!(
-            hex::encode(out),
-            "31afbab526bbee0019132b2c7150b1b8"
-        );
+        assert_eq!(hex::encode(out), "31afbab526bbee0019132b2c7150b1b8");
     }
 
     #[test]
     fn card_paid_rules() {
-        let v: Value = serde_json::from_str(
-            r#"{"id":"1","title":"t","price":9.9,"mv_type":"av"}"#,
-        )
-        .unwrap();
+        let v: Value =
+            serde_json::from_str(r#"{"id":"1","title":"t","price":9.9,"mv_type":"av"}"#).unwrap();
         assert!(card(&v, false).is_none());
         let c = card(&v, true).unwrap();
         assert_eq!(c["id"], "av:1");

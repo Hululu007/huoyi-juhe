@@ -45,7 +45,10 @@ fn headers() -> Vec<(String, String)> {
             "Accept".to_string(),
             "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8".to_string(),
         ),
-        ("Accept-Language".to_string(), "zh-CN,zh;q=0.9,zh-Hant;q=0.8".to_string()),
+        (
+            "Accept-Language".to_string(),
+            "zh-CN,zh;q=0.9,zh-Hant;q=0.8".to_string(),
+        ),
         ("Referer".to_string(), format!("{HOST}/")),
     ]
 }
@@ -129,12 +132,7 @@ fn append_cards(html: &str, limit: usize) -> Vec<Value> {
         let segment = &html[start..end];
         let title = unesc(&first(&re_alt, segment));
         let cover = pic_of(segment);
-        items.push(item_json(
-            &format!("{HOST}/{id}"),
-            &title,
-            &cover,
-            "PTT01",
-        ));
+        items.push(item_json(&format!("{HOST}/{id}"), &title, &cover, "PTT01"));
     }
     items
 }
@@ -236,8 +234,7 @@ pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
             break;
         }
     }
-    let re_og_desc =
-        Regex::new("property=\"og:description\"[^>]*content=\"([^\"]*)\"").unwrap();
+    let re_og_desc = Regex::new("property=\"og:description\"[^>]*content=\"([^\"]*)\"").unwrap();
     let synopsis = unesc(&first(&re_og_desc, &html));
     let list = streams(&html);
     if list.is_empty() {

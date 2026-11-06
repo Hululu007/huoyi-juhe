@@ -175,8 +175,7 @@ async fn leaks_api(path: &str) -> ApiResult<Value> {
 }
 
 fn leaks_title(post: &Value) -> String {
-    let msg = clean(&text_of(post, &["message_content"]))
-        .replace(['\n', '\r'], " ");
+    let msg = clean(&text_of(post, &["message_content"])).replace(['\n', '\r'], " ");
     if !msg.trim().is_empty() {
         return msg.trim().to_string();
     }
@@ -238,18 +237,17 @@ fn leaks_detail_parts(post: &Value, id: &str) -> (String, String, String, Vec<Va
                 continue;
             }
             let is_video = m.get("is_video").and_then(|v| v.as_bool()).unwrap_or(false);
-            let is_locked = m.get("is_locked").and_then(|v| v.as_bool()).unwrap_or(false);
+            let is_locked = m
+                .get("is_locked")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             if is_video {
                 vid_no += 1;
                 let mut name = format!("影片 {vid_no}");
                 if is_locked {
                     name.push_str("（需會員）");
                 }
-                episodes.push(episode_json(
-                    &format!("leaks|{post_id}|{idx}"),
-                    &name,
-                    id,
-                ));
+                episodes.push(episode_json(&format!("leaks|{post_id}|{idx}"), &name, id));
             } else if !is_locked {
                 stills.push(path);
             }

@@ -25,32 +25,22 @@ const CATEGORIES: [(&str, &str); 5] = [
 ];
 
 static TAG_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"<[^>]+>").unwrap());
-static IMG_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"<img[^>]*>").unwrap());
-static SCRIPT_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?s)<script[^>]*>.*?</script>").unwrap());
-static BR_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)<br\s*/?>").unwrap());
-static CLOSE_P_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)</p\s*>").unwrap());
-static SPACE_RUN_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"[ \t]+").unwrap());
+static IMG_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"<img[^>]*>").unwrap());
+static SCRIPT_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?s)<script[^>]*>.*?</script>").unwrap());
+static BR_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)<br\s*/?>").unwrap());
+static CLOSE_P_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)</p\s*>").unwrap());
+static SPACE_RUN_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"[ \t]+").unwrap());
 static WS_RUN_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s+").unwrap());
-static ROW_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?s)/artdetail-(\d+)\.html"\s+class="row">(.*?)</a>"#).unwrap()
-});
-static LI_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?s)<li[^>]*>(.*?)</li>").unwrap());
-static TITLE_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?s)<p class="other-title">(.*?)</p>"#).unwrap()
-});
+static ROW_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?s)/artdetail-(\d+)\.html"\s+class="row">(.*?)</a>"#).unwrap());
+static LI_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?s)<li[^>]*>(.*?)</li>").unwrap());
+static TITLE_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?s)<p class="other-title">(.*?)</p>"#).unwrap());
 static BODY_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?s)<div class="other-content introduction">(.*?)</div>\s*</div>"#)
-        .unwrap()
+    Regex::new(r#"(?s)<div class="other-content introduction">(.*?)</div>\s*</div>"#).unwrap()
 });
-static BODY_FALLBACK_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?s)<div class="other-content introduction">(.*)"#).unwrap()
-});
+static BODY_FALLBACK_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?s)<div class="other-content introduction">(.*)"#).unwrap());
 
 async fn fetch(url: &str) -> String {
     let resp = match client() {

@@ -466,8 +466,7 @@ fn parse_cards(html: &str) -> Vec<Value> {
             .unwrap_or_else(|| {
                 // 站内标题常以裸番号开头（如 T38-075 Sample），无
                 // 方括号时也取开头的番号，否则备注只能退回日期。
-                let lead_re =
-                    Regex::new(r"^([A-Z]{1,5}[0-9]{2,4}-[0-9]{2,6})").unwrap();
+                let lead_re = Regex::new(r"^([A-Z]{1,5}[0-9]{2,4}-[0-9]{2,6})").unwrap();
                 lead_re
                     .captures(&title)
                     .map(|x| x[1].to_string())

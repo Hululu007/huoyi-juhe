@@ -254,17 +254,19 @@ fn card(v: &Value) -> Option<Value> {
     if id.is_empty() || title.is_empty() {
         return None;
     }
-    CACHE
-        .lock()
-        .unwrap()
-        .insert(id.clone(), v.clone());
+    CACHE.lock().unwrap().insert(id.clone(), v.clone());
     let mut content = String::new();
     if let Some(p) = get(v, "praise_num").and_then(|x| x.as_f64()) {
         if p > 0.0 {
             content = format!("点赞 {}", p as i64);
         }
     }
-    let mut it = item_json(&id, &title, &text_of(v, &["cover"]), &text_of(v, &["nickname"]));
+    let mut it = item_json(
+        &id,
+        &title,
+        &text_of(v, &["cover"]),
+        &text_of(v, &["nickname"]),
+    );
     it["content"] = json!(content);
     Some(it)
 }
@@ -306,13 +308,19 @@ async fn info(id: &str) -> ApiResult<Value> {
 }
 
 pub(crate) async fn categories() -> ApiResult<Value> {
-    Ok(json!({"categories": CATS.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}))
+    Ok(
+        json!({"categories": CATS.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}),
+    )
 }
 
 pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
     let page = if page < 1 { 1 } else { page };
     let type_id = category_id.parse::<i64>().unwrap_or(3);
-    let type_id = if (1..=3).contains(&type_id) { type_id } else { 3 };
+    let type_id = if (1..=3).contains(&type_id) {
+        type_id
+    } else {
+        3
+    };
     let items = match list_for(type_id, page).await {
         Ok(items) => items,
         Err(_) => Vec::new(),
@@ -325,12 +333,16 @@ pub(crate) async fn detail(id: &str) -> ApiResult<Value> {
     let info = match info(id).await {
         Ok(info) => info,
         Err(_) => {
-            return Ok(json!({"id": id, "title": "", "cover": "", "synopsis": "", "extra": {}, "episodes": []}));
+            return Ok(
+                json!({"id": id, "title": "", "cover": "", "synopsis": "", "extra": {}, "episodes": []}),
+            );
         }
     };
     if let Some(g) = get(&info, "gold").and_then(|x| x.as_f64()) {
         if g > 0.0 {
-            return Ok(json!({"id": id, "title": "", "cover": "", "synopsis": "", "extra": {}, "episodes": []}));
+            return Ok(
+                json!({"id": id, "title": "", "cover": "", "synopsis": "", "extra": {}, "episodes": []}),
+            );
         }
     }
     let mut title = text_of(&info, &["title"]);
@@ -433,7 +445,9 @@ mod tests {
         let pairs = vec![int_pair("page", 1), int_pair("type", 3)];
         let body = form_data(&pairs);
         assert!(body.starts_with("api_token=&data="));
-        assert!(body.contains("&device=android&device_type=MI8&device_version=8.0.0&version_code=2"));
+        assert!(
+            body.contains("&device=android&device_type=MI8&device_version=8.0.0&version_code=2")
+        );
         // data 段为大写 hex，解密后应为签名 JSON。
         let data_enc = body
             .split("data=")
@@ -442,8 +456,8 @@ mod tests {
             .split('&')
             .next()
             .unwrap();
-        let data_dec = url::form_urlencoded::byte_serialize(data_enc.as_bytes())
-            .collect::<String>();
+        let data_dec =
+            url::form_urlencoded::byte_serialize(data_enc.as_bytes()).collect::<String>();
         let _ = data_dec;
         let raw = percent_decode(data_enc);
         let bytes = hex::decode(raw).unwrap();

@@ -65,7 +65,10 @@ fn headers() -> Vec<(String, String)> {
             "Accept".to_string(),
             "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8".to_string(),
         ),
-        ("Accept-Language".to_string(), "zh-CN,zh;q=0.9,en;q=0.8".to_string()),
+        (
+            "Accept-Language".to_string(),
+            "zh-CN,zh;q=0.9,en;q=0.8".to_string(),
+        ),
         ("Referer".to_string(), format!("{HOST}/")),
     ]
 }
@@ -81,7 +84,9 @@ async fn fetch_text(url: &str) -> ApiResult<String> {
         .map_err(|e| ApiError::Internal(e.to_string()))?;
     let status = resp.status().as_u16();
     if status != 200 {
-        return Err(ApiError::Internal(format!("CartoonPorno 请求 HTTP {status}")));
+        return Err(ApiError::Internal(format!(
+            "CartoonPorno 请求 HTTP {status}"
+        )));
     }
     resp.text()
         .await
@@ -232,21 +237,35 @@ fn dur_of(segment: &str) -> String {
 }
 
 /// 与 Java 的 appendCards 一致（cardPattern 取 cporn 的 fdx 卡片）。
+/// Rust 的 regex 不支持 look-ahead，改用开标签定位 + 切片，不用 (?=...)。
 fn append_cards(html: &str, limit: usize) -> Vec<Value> {
     if html.len() < 200 {
         return Vec::new();
     }
-    let re_card = Regex::new(
-        "<div class=\"item\"><a class=\"fdx\"(.*?)(?=<div class=\"item\"><a class=\"fdx\"|<div class=\"pagination|<section>|<footer|</body>)",
-    )
-    .unwrap();
+    let re_open = Regex::new("<div class=\"item\"><a class=\"fdx\"").unwrap();
+    let opens: Vec<(usize, usize)> = re_open
+        .find_iter(html)
+        .map(|m| (m.start(), m.end()))
+        .collect();
     let mut items = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
-    for cap in re_card.captures_iter(html) {
+    for (idx, &(_, open_end)) in opens.iter().enumerate() {
         if items.len() >= limit {
             break;
         }
-        let segment = cap.get(1).map(|m| m.as_str()).unwrap_or("");
+        let seg_end = if idx + 1 < opens.len() {
+            opens[idx + 1].0
+        } else {
+            let tail = &html[open_end..];
+            let mut end = tail.len();
+            for marker in ["<div class=\"pagination", "<section>", "<footer", "</body>"] {
+                if let Some(p) = tail.find(marker) {
+                    end = end.min(p);
+                }
+            }
+            open_end + end
+        };
+        let segment = &html[open_end..seg_end];
         let link = pick_link(segment);
         if link.len() < 8 || !seen.insert(link.clone()) {
             continue;
@@ -254,7 +273,11 @@ fn append_cards(html: &str, limit: usize) -> Vec<Value> {
         let title = card_title(segment, &link);
         let cover = pic_of(segment);
         let dur = dur_of(segment);
-        let remark = if dur.is_empty() { "cporn".to_string() } else { dur };
+        let remark = if dur.is_empty() {
+            "cporn".to_string()
+        } else {
+            dur
+        };
         items.push(item_json(&link, &title, &cover, &remark));
     }
     if items.is_empty() {
@@ -300,7 +323,8 @@ fn scan_any_mp4(html: &str, seen: &mut HashSet<String>) -> Vec<(String, String)>
         let label = quality_label(&url);
         out.push((label, url));
     }
-    let re_rel = Regex::new("/(?:get_file|jmpres)/[^\"'\\s<>\\\\]+?\\.mp4/?[^\"'\\s<>\\\\]*").unwrap();
+    let re_rel =
+        Regex::new("/(?:get_file|jmpres)/[^\"'\\s<>\\\\]+?\\.mp4/?[^\"'\\s<>\\\\]*").unwrap();
     for m in re_rel.find_iter(html) {
         let url = format!("{HOST}{}", unesc(m.as_str()).trim());
         if is_preview(&url) || !seen.insert(url.clone()) {
@@ -316,8 +340,7 @@ fn scan_any_mp4(html: &str, seen: &mut HashSet<String>) -> Vec<(String, String)>
 async fn streams(html: &str) -> ApiResult<Vec<(String, String)>> {
     let mut seen: HashSet<String> = HashSet::new();
     let mut list: Vec<(String, String)> = Vec::new();
-    let re_m3u8 =
-        Regex::new("https?://[^\"'\\s<>\\\\]+?\\.m3u8[^\"'\\s<>\\\\]*").unwrap();
+    let re_m3u8 = Regex::new("https?://[^\"'\\s<>\\\\]+?\\.m3u8[^\"'\\s<>\\\\]*").unwrap();
     for m in re_m3u8.find_iter(html) {
         if list.len() >= 4 {
             break;
@@ -468,7 +491,10 @@ pub(crate) async fn play(video_id: &str) -> ApiResult<Value> {
 }
 
 pub(crate) async fn search(query: &str) -> ApiResult<Value> {
-    let url = with_query(&format!("{HOST}/search"), &[("q", query), ("hl", "zh"), ("p", "1")]);
+    let url = with_query(
+        &format!("{HOST}/search"),
+        &[("q", query), ("hl", "zh"), ("p", "1")],
+    );
     let html = fetch_text(&url).await?;
     let items = append_cards(&html, 40);
     Ok(json!({"items": items}))

@@ -82,7 +82,12 @@ struct BaseState {
     ready: bool,
 }
 
-static BASE_STATE: Lazy<Mutex<BaseState>> = Lazy::new(|| Mutex::new(BaseState { base: None, ready: false }));
+static BASE_STATE: Lazy<Mutex<BaseState>> = Lazy::new(|| {
+    Mutex::new(BaseState {
+        base: None,
+        ready: false,
+    })
+});
 static CACHE: Lazy<Mutex<std::collections::HashMap<String, Value>>> =
     Lazy::new(|| Mutex::new(std::collections::HashMap::new()));
 
@@ -230,7 +235,9 @@ fn cards(arr: Option<&Vec<Value>>) -> Vec<Value> {
 }
 
 pub(crate) async fn categories() -> ApiResult<Value> {
-    Ok(json!({"categories": CATS.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}))
+    Ok(
+        json!({"categories": CATS.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}),
+    )
 }
 
 pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
@@ -334,7 +341,9 @@ pub(crate) async fn detail(id: &str) -> ApiResult<Value> {
         let resp = match call(&format!("/special/detail/{spid}"), &[]).await {
             Ok(r) => r,
             Err(_) => {
-                return Ok(json!({"id": id, "title": "", "cover": "", "synopsis": "", "extra": {}, "episodes": []}));
+                return Ok(
+                    json!({"id": id, "title": "", "cover": "", "synopsis": "", "extra": {}, "episodes": []}),
+                );
             }
         };
         let data = get(&resp, "data").cloned().unwrap_or(Value::Null);

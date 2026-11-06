@@ -64,7 +64,12 @@ const CRKS_URLS: &[&str] = &[
     "https://d15beepu2m390g.cloudfront.net/crks.json",
     "https://tc-jp-alijs-1375272368.cos.ap-tokyo.myqcloud.com/crks.json",
 ];
-const LINE_DOMAINS: &[&str] = &["t5jrp0ov.work", "t9ds6oaj.work", "lv6gj9b1.work", "qg74b2wp.work"];
+const LINE_DOMAINS: &[&str] = &[
+    "t5jrp0ov.work",
+    "t9ds6oaj.work",
+    "lv6gj9b1.work",
+    "qg74b2wp.work",
+];
 const IMG_RELAY: &str = "https://hgimg.ystv.top/?u=";
 
 struct Session {
@@ -129,7 +134,7 @@ fn rand_alnum(n: usize) -> String {
 }
 
 fn aes_ecb_crypt(data: &[u8], key: &[u8], encrypt: bool) -> Option<Vec<u8>> {
-    use aes::cipher::{BlockDecrypt, BlockEncrypt, KeyInit, generic_array::GenericArray};
+    use aes::cipher::{generic_array::GenericArray, BlockDecrypt, BlockEncrypt, KeyInit};
     if key.len() != 16 || data.len() % 16 != 0 {
         return None;
     }
@@ -339,7 +344,12 @@ async fn login() {
         return;
     };
     let body = json!({"encStr": enc}).to_string();
-    let resp = http_json_once("POST", &format!("{base}/api/user/traveler/{s}/login"), Some(&body)).await;
+    let resp = http_json_once(
+        "POST",
+        &format!("{base}/api/user/traveler/{s}/login"),
+        Some(&body),
+    )
+    .await;
     if int_of(&resp, &["code"]) == 200 {
         if let Some(data) = get(&resp, "data").and_then(|d| d.as_str()) {
             if let Some(plain) = ecb_dec(data, &key) {
@@ -356,7 +366,13 @@ async fn login() {
 }
 
 async fn ensure_session() -> ApiResult<()> {
-    let base_empty = SESSION.lock().unwrap().base.clone().unwrap_or_default().is_empty();
+    let base_empty = SESSION
+        .lock()
+        .unwrap()
+        .base
+        .clone()
+        .unwrap_or_default()
+        .is_empty();
     if base_empty {
         let base = discover().await;
         if base.is_empty() {
@@ -441,7 +457,10 @@ fn card(v: &Value, domain: &str) -> Option<Value> {
         }
     }
     let cover = cover_url(&cover_raw, domain);
-    let remark = if get(v, "shortDrama").and_then(|b| b.as_bool()).unwrap_or(false) {
+    let remark = if get(v, "shortDrama")
+        .and_then(|b| b.as_bool())
+        .unwrap_or(false)
+    {
         "短剧".to_string()
     } else {
         arr_of(get(v, "tagTitles").unwrap_or(&Value::Null))
@@ -537,7 +556,10 @@ pub(crate) async fn detail(id: &str) -> ApiResult<Value> {
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let remark = if get(&resp, "shortDrama").and_then(|b| b.as_bool()).unwrap_or(false) {
+    let remark = if get(&resp, "shortDrama")
+        .and_then(|b| b.as_bool())
+        .unwrap_or(false)
+    {
         "短剧".to_string()
     } else {
         tags.join(" ")
@@ -598,7 +620,10 @@ async fn get_sign_key() -> String {
             }
         }
     }
-    let key = text_of(&unwrap(http_get("/api/v2/m3u8/play/signKey").await), &["signKey"]);
+    let key = text_of(
+        &unwrap(http_get("/api/v2/m3u8/play/signKey").await),
+        &["signKey"],
+    );
     if !key.is_empty() {
         let mut sess = SESSION.lock().unwrap();
         sess.sign_key = key.clone();
@@ -619,12 +644,7 @@ pub(crate) async fn play(video_id: &str) -> ApiResult<Value> {
     let mut video_url = text_of(&resp, &["videoUrl"]);
     let mut auth_key = text_of(&resp, &["authKey"]);
     if video_url.is_empty() {
-        let cached = SESSION
-            .lock()
-            .unwrap()
-            .detail_cache
-            .get(video_id)
-            .cloned();
+        let cached = SESSION.lock().unwrap().detail_cache.get(video_id).cloned();
         if let Some(c) = cached {
             video_url = text_of(&c, &["videoUrl"]);
             if auth_key.is_empty() {
@@ -654,7 +674,10 @@ pub(crate) async fn play(video_id: &str) -> ApiResult<Value> {
         return Err(ApiError::Internal("hgdjv no videoUrl or token".into()));
     }
     let sign_key = get_sign_key().await;
-    let server_ms = int_of(&unwrap(http_get("/api/v2/m3u8/play/time").await), &["unixMilliseconds"]);
+    let server_ms = int_of(
+        &unwrap(http_get("/api/v2/m3u8/play/time").await),
+        &["unixMilliseconds"],
+    );
     let ts: u64 = if server_ms > 0 {
         ((now_ms() as i64 + (server_ms - now_ms() as i64)) / 1000) as u64
     } else {

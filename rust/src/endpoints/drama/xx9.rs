@@ -30,8 +30,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use aes::Aes128;
 use base64::Engine as _;
-use cipher::{BlockDecrypt, BlockEncrypt, KeyInit};
 use cipher::generic_array::GenericArray;
+use cipher::{BlockDecrypt, BlockEncrypt, KeyInit};
 use serde_json::{json, Value};
 
 use crate::crypto::{pkcs7_pad, pkcs7_unpad_strict};
@@ -265,11 +265,7 @@ async fn pace(last: &mut Instant) {
 /// 发一次网关请求：外层 {data, time}，头带 jwtToken/accessToken。
 /// 密钥与网关按 jar 原样轮询（密钥 9 把轮换、每网关试两把）；响应先用
 /// 请求密钥解，失败再试下一把密钥；code 非 0000 也原样返回给调用方。
-async fn gateway_call(
-    inner: &Value,
-    jwt: Option<&str>,
-    token: Option<&str>,
-) -> ApiResult<Value> {
+async fn gateway_call(inner: &Value, jwt: Option<&str>, token: Option<&str>) -> ApiResult<Value> {
     let gws = gateways().await;
     let mut last = Instant::now() - Duration::from_secs(2);
     let mut last_err = String::new();
@@ -422,7 +418,9 @@ async fn auth() -> ApiResult<(String, String)> {
     } else {
         3000
     };
-    let ttl = jwt_valid.min(token_valid_secs.max(0) as u64).saturating_sub(60);
+    let ttl = jwt_valid
+        .min(token_valid_secs.max(0) as u64)
+        .saturating_sub(60);
     let ttl = ttl.max(60);
     if let Ok(mut guard) = AUTH.lock() {
         *guard = Some((
@@ -668,7 +666,11 @@ pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
         "sortType": 0,
     });
     let first = category_id.chars().next().unwrap_or('\0');
-    let num = category_id.get(1..).unwrap_or("").parse::<i64>().unwrap_or(0);
+    let num = category_id
+        .get(1..)
+        .unwrap_or("")
+        .parse::<i64>()
+        .unwrap_or(0);
     {
         let obj = params.as_object_mut().expect("XX9 目录参数须为对象");
         match first {

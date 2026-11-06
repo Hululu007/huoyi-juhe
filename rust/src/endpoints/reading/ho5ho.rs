@@ -144,15 +144,19 @@ fn pct_encode_segment(s: &str) -> String {
 }
 
 fn pct_encode_path(s: &str) -> String {
-    s.split('/').map(pct_encode_segment).collect::<Vec<_>>().join("/")
+    s.split('/')
+        .map(pct_encode_segment)
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 fn pct_encode_query(s: &str) -> String {
     let mut out = String::new();
     for b in s.as_bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~'
-            | b'/' => out.push(*b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
+                out.push(*b as char)
+            }
             _ => out.push_str(&format!("%{b:02X}")),
         }
     }
@@ -188,9 +192,7 @@ fn url_path(url: &str) -> String {
             return String::new();
         }
     }
-    let end = rest
-        .find(['?', '#'])
-        .unwrap_or(rest.len());
+    let end = rest.find(['?', '#']).unwrap_or(rest.len());
     rest[..end].to_string()
 }
 
@@ -249,7 +251,9 @@ fn parse_cards(page: &str) -> Vec<Value> {
 }
 
 pub(crate) async fn categories() -> ApiResult<Value> {
-    Ok(json!({"categories": CATEGORIES.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}))
+    Ok(
+        json!({"categories": CATEGORIES.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}),
+    )
 }
 
 pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
@@ -280,9 +284,12 @@ pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
         Some(caps) => caps[1].trim().to_string(),
         None => String::new(),
     };
-    let title = if title.is_empty() { pid.to_string() } else { title };
-    let cover = match must_re(r#"ho5ho-v3-cover"[^>]*>\s*<img[^>]*src="([^"]+)""#).captures(&page)
-    {
+    let title = if title.is_empty() {
+        pid.to_string()
+    } else {
+        title
+    };
+    let cover = match must_re(r#"ho5ho-v3-cover"[^>]*>\s*<img[^>]*src="([^"]+)""#).captures(&page) {
         Some(caps) => caps[1].to_string(),
         None => String::new(),
     };
@@ -309,8 +316,12 @@ pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
             .map(|(chap, text)| episode_json(&format!("{pid}#{chap}"), text, pid))
             .collect()
     };
-    let remarks = match must_re(r"(?s)作品資料與分類.*?分類\s*(.*?)\s*標籤").captures(&page) {
-        Some(caps) => clean_collapse(&caps[1]).chars().take(60).collect::<String>(),
+    let remarks = match must_re(r"(?s)作品資料與分類.*?分類\s*(.*?)\s*標籤").captures(&page)
+    {
+        Some(caps) => clean_collapse(&caps[1])
+            .chars()
+            .take(60)
+            .collect::<String>(),
         None => String::new(),
     };
     let extra = if remarks.is_empty() {
@@ -366,9 +377,7 @@ pub(crate) async fn play(video_id: &str) -> ApiResult<Value> {
     if imgs.is_empty() {
         let block_re = must_re(r#"wp-manga-chapter-img"[^>]*>"#);
         for block in block_re.captures_iter(&page) {
-            if let Some(caps) =
-                must_re(r#"(?:data-src|src)="([^"]+)""#).captures(&block[0])
-            {
+            if let Some(caps) = must_re(r#"(?:data-src|src)="([^"]+)""#).captures(&block[0]) {
                 let src = caps[1].to_string();
                 if !imgs.contains(&src) {
                     imgs.push(src);

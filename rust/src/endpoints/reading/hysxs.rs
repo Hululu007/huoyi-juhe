@@ -51,34 +51,25 @@ static CARD_RE: Lazy<Regex> = Lazy::new(|| {
     )
     .unwrap()
 });
-static CARD_ID_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"/ting/index\.php/book/detail/id/(\d+)\.html").unwrap()
-});
-static CARD_TITLE_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?s)class="text-primary[^>]*>(.*?)</span>"#).unwrap()
-});
-static PAGE_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"/page/(\d+)\.html").unwrap());
+static CARD_ID_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"/ting/index\.php/book/detail/id/(\d+)\.html").unwrap());
+static CARD_TITLE_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?s)class="text-primary[^>]*>(.*?)</span>"#).unwrap());
+static PAGE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"/page/(\d+)\.html").unwrap());
 static TAG_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"<[^>]+>").unwrap());
 static WS_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s+").unwrap());
-static TITLE_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?s)<title>(.*?)</title>").unwrap());
+static TITLE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?s)<title>(.*?)</title>").unwrap());
 static MAIN_TITLE_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"class="main-title">([^<]+)<"#).unwrap());
-static SSTYPE_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"var sstypeid\s*=\s*'(\d+)'").unwrap());
-static KEY_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"var key\s*=\s*CryptoJS\.enc\.Utf8\.parse\("([^"]+)"\)"#).unwrap()
-});
-static IV_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"var iv\s*=\s*CryptoJS\.enc\.Utf8\.parse\("([^"]+)"\)"#).unwrap()
-});
-static TRACKS_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?s)const tracks\s*=\s*\[(.*?)\];").unwrap()
-});
-static TRACK_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"title:\s*"([^"]+)",\s*url:\s*"([^"]+)""#).unwrap()
-});
+static SSTYPE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"var sstypeid\s*=\s*'(\d+)'").unwrap());
+static KEY_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"var key\s*=\s*CryptoJS\.enc\.Utf8\.parse\("([^"]+)"\)"#).unwrap());
+static IV_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"var iv\s*=\s*CryptoJS\.enc\.Utf8\.parse\("([^"]+)"\)"#).unwrap());
+static TRACKS_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?s)const tracks\s*=\s*\[(.*?)\];").unwrap());
+static TRACK_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"title:\s*"([^"]+)",\s*url:\s*"([^"]+)""#).unwrap());
 
 /// py _clean：去标签（调用方先做）后再把空白压成单个空格并去首尾。
 fn clean(s: &str) -> String {
@@ -186,7 +177,7 @@ async fn fetch(path: &str) -> ApiResult<String> {
 /// py _aes_cbc_decrypt：手写 CBC（AES-128 解块 + 与前一密文块异或，
 /// 只解整块），填充只在合法 PKCS7 时去掉，否则保留原数据。
 fn aes_cbc_decrypt(data: &[u8], key: &[u8], iv: &[u8]) -> ApiResult<Vec<u8>> {
-    use aes::cipher::{BlockDecrypt, KeyInit, generic_array::GenericArray};
+    use aes::cipher::{generic_array::GenericArray, BlockDecrypt, KeyInit};
     if key.len() < 16 || iv.len() < 16 {
         return Err(ApiError::Internal("H有声小说密钥长度不足".into()));
     }
@@ -265,7 +256,9 @@ fn pagecount(html: &str, card_len: usize) -> i64 {
 }
 
 pub(crate) async fn categories() -> ApiResult<Value> {
-    Ok(json!({"categories": TYPES.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}))
+    Ok(
+        json!({"categories": TYPES.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}),
+    )
 }
 
 pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
@@ -297,10 +290,7 @@ async fn audio_detail(bid: &str) -> ApiResult<AudioDetail> {
         .captures(&html)
         .map(|c| clean(&c[1]))
         .unwrap_or_default();
-    title = title
-        .trim_end_matches("-H有声小说")
-        .trim()
-        .to_string();
+    title = title.trim_end_matches("-H有声小说").trim().to_string();
     if title.is_empty() {
         title = MAIN_TITLE_RE
             .captures(&html)
@@ -311,7 +301,12 @@ async fn audio_detail(bid: &str) -> ApiResult<AudioDetail> {
     // 后再 trim，与之等价（尾缀后只剩空白时同样去掉）。
     let typename = SSTYPE_RE
         .captures(&html)
-        .and_then(|c| TYPES.iter().find(|(id, _)| *id == &c[1]).map(|(_, n)| n.to_string()))
+        .and_then(|c| {
+            TYPES
+                .iter()
+                .find(|(id, _)| *id == &c[1])
+                .map(|(_, n)| n.to_string())
+        })
         .unwrap_or_default();
     let key: Vec<u8> = KEY_RE
         .captures(&html)

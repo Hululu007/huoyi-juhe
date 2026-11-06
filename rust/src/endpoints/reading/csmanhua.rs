@@ -115,8 +115,9 @@ fn pct_encode_query(s: &str) -> String {
     let mut out = String::new();
     for b in s.as_bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~'
-            | b'/' => out.push(*b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
+                out.push(*b as char)
+            }
             _ => out.push_str(&format!("%{b:02X}")),
         }
     }
@@ -197,12 +198,18 @@ fn detail_images(page: &str) -> Vec<String> {
 }
 
 pub(crate) async fn categories() -> ApiResult<Value> {
-    Ok(json!({"categories": CATEGORIES.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}))
+    Ok(
+        json!({"categories": CATEGORIES.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}),
+    )
 }
 
 pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
     let page = if page < 1 { 1 } else { page };
-    let tid = if category_id.is_empty() { "8" } else { category_id };
+    let tid = if category_id.is_empty() {
+        "8"
+    } else {
+        category_id
+    };
     let path = if page > 1 {
         format!("/cstype/{tid}-{page}/")
     } else {
@@ -220,23 +227,26 @@ pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
         return Err(ApiError::Internal("csmanhua未返回详情".into()));
     }
     let name = match must_re(r"(?s)<title>(.*?)</title>").captures(&page) {
-        Some(caps) => clean_text(&caps[1]).split(" - 成色漫画").next().unwrap_or("").trim().to_string(),
+        Some(caps) => clean_text(&caps[1])
+            .split(" - 成色漫画")
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_string(),
         None => String::new(),
     };
     let name = if name.is_empty() { wid.clone() } else { name };
-    let mut videos: Vec<(String, String)> = must_re(
-        r#"<video[^>]*data-hls-src="([^"]+)"[^>]*data-fallback-src="([^"]*)"[^>]*>"#,
-    )
-    .captures_iter(&page)
-    .map(|caps| (caps[1].to_string(), caps[2].to_string()))
-    .collect();
+    let mut videos: Vec<(String, String)> =
+        must_re(r#"<video[^>]*data-hls-src="([^"]+)"[^>]*data-fallback-src="([^"]*)"[^>]*>"#)
+            .captures_iter(&page)
+            .map(|caps| (caps[1].to_string(), caps[2].to_string()))
+            .collect();
     if videos.is_empty() {
-        videos = must_re(
-            r#"<video[^>]*data-fallback-src="([^"]+)"[^>]*data-hls-src="([^"]*)"[^>]*>"#,
-        )
-        .captures_iter(&page)
-        .map(|caps| (caps[2].to_string(), caps[1].to_string()))
-        .collect();
+        videos =
+            must_re(r#"<video[^>]*data-fallback-src="([^"]+)"[^>]*data-hls-src="([^"]*)"[^>]*>"#)
+                .captures_iter(&page)
+                .map(|caps| (caps[2].to_string(), caps[1].to_string()))
+                .collect();
     }
     if !videos.is_empty() {
         let poster = match must_re(r#"<video[^>]*poster="([^"]+)""#).captures(&page) {
@@ -334,12 +344,11 @@ mod tests {
             .unwrap()[1]
             .to_string();
         assert_eq!(poster, "p.jpg");
-        let videos: Vec<(String, String)> = must_re(
-            r#"<video[^>]*data-hls-src="([^"]+)"[^>]*data-fallback-src="([^"]*)"[^>]*>"#,
-        )
-        .captures_iter(page)
-        .map(|c| (c[1].to_string(), c[2].to_string()))
-        .collect();
+        let videos: Vec<(String, String)> =
+            must_re(r#"<video[^>]*data-hls-src="([^"]+)"[^>]*data-fallback-src="([^"]*)"[^>]*>"#)
+                .captures_iter(page)
+                .map(|c| (c[1].to_string(), c[2].to_string()))
+                .collect();
         assert_eq!(videos[0], ("h.m3u8".to_string(), "f.mp4".to_string()));
     }
 

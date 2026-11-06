@@ -257,12 +257,12 @@ fn detail_cover(page: &str) -> String {
 fn detail_synopsis(page: &str) -> String {
     let raw = match must_re(r#"<meta name="description" content="([^"]*)""#).captures(page) {
         Some(caps) => caps[1].to_string(),
-        None => match must_re(r#"<meta property="og:description" content="([^"]*)""#)
-            .captures(page)
-        {
-            Some(caps) => caps[1].to_string(),
-            None => String::new(),
-        },
+        None => {
+            match must_re(r#"<meta property="og:description" content="([^"]*)""#).captures(page) {
+                Some(caps) => caps[1].to_string(),
+                None => String::new(),
+            }
+        }
     };
     let mut text = clean_text(&raw);
     for marker in ["免费在线阅读", "动漫啦提供"] {
@@ -414,12 +414,9 @@ pub(crate) async fn play(video_id: &str) -> ApiResult<Value> {
 mod tests {
     use super::*;
 
-    const SEARCH_SAMPLE: &str =
-        include_str!("../../../../../mycomic_re/probe/dmla_search.bin");
-    const DETAIL_SAMPLE: &str =
-        include_str!("../../../../../mycomic_re/probe/dmla_detail.bin");
-    const CHAPTER_SAMPLE: &str =
-        include_str!("../../../../../mycomic_re/probe/dm_chapter.bin");
+    const SEARCH_SAMPLE: &str = include_str!("../../../../../mycomic_re/probe/dmla_search.bin");
+    const DETAIL_SAMPLE: &str = include_str!("../../../../../mycomic_re/probe/dmla_detail.bin");
+    const CHAPTER_SAMPLE: &str = include_str!("../../../../../mycomic_re/probe/dm_chapter.bin");
 
     #[test]
     fn search_sample_parses_21_items_first_5667() {
@@ -438,7 +435,14 @@ mod tests {
     fn detail_sample_parses_146_chapters_including_first() {
         let chapters = parse_chapters(DETAIL_SAMPLE);
         assert_eq!(chapters.len(), 146);
-        assert_eq!(chapters[0], ("5667".to_string(), "148522".to_string(), "第1话".to_string()));
+        assert_eq!(
+            chapters[0],
+            (
+                "5667".to_string(),
+                "148522".to_string(),
+                "第1话".to_string()
+            )
+        );
         assert!(chapters
             .iter()
             .any(|(_, cid, title)| cid == "148522" && title == "第1话"));
@@ -465,20 +469,36 @@ mod tests {
             imgs[0],
             "https://img.dongman.la/d/dldl/1/0001.jpg?v=20261016b"
         );
-        assert!(imgs.iter().all(|u| u.starts_with("https://img.dongman.la/")));
+        assert!(imgs
+            .iter()
+            .all(|u| u.starts_with("https://img.dongman.la/")));
     }
 
     #[test]
     fn categories_cover_static_table_and_letters() {
         let list = category_list();
         assert_eq!(list.len(), 2 + 59 + 6 + 27);
-        assert!(list.iter().any(|c| c["id"] == "finish" && c["name"] == "完结"));
-        assert!(list.iter().any(|c| c["id"] == "serial" && c["name"] == "连载"));
-        assert!(list.iter().any(|c| c["id"] == "class/49" && c["name"] == "少年"));
-        assert!(list.iter().any(|c| c["id"] == "class/2155" && c["name"] == "爱情，奇幻"));
-        assert!(list.iter().any(|c| c["id"] == "guochan" && c["name"] == "国产"));
-        assert!(list.iter().any(|c| c["id"] == "letter/a" && c["name"] == "A"));
-        assert!(list.iter().any(|c| c["id"] == "letter/90" && c["name"] == "0-9"));
+        assert!(list
+            .iter()
+            .any(|c| c["id"] == "finish" && c["name"] == "完结"));
+        assert!(list
+            .iter()
+            .any(|c| c["id"] == "serial" && c["name"] == "连载"));
+        assert!(list
+            .iter()
+            .any(|c| c["id"] == "class/49" && c["name"] == "少年"));
+        assert!(list
+            .iter()
+            .any(|c| c["id"] == "class/2155" && c["name"] == "爱情，奇幻"));
+        assert!(list
+            .iter()
+            .any(|c| c["id"] == "guochan" && c["name"] == "国产"));
+        assert!(list
+            .iter()
+            .any(|c| c["id"] == "letter/a" && c["name"] == "A"));
+        assert!(list
+            .iter()
+            .any(|c| c["id"] == "letter/90" && c["name"] == "0-9"));
         assert!(!list.iter().any(|c| c["id"] == "class/2154"));
     }
 

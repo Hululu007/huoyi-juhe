@@ -63,8 +63,7 @@ fn cat_url(tid: &str, page: i64) -> String {
         }
         _ => {
             if let Some(tag) = tid.strip_prefix("t:") {
-                let enc: String =
-                    url::form_urlencoded::byte_serialize(tag.as_bytes()).collect();
+                let enc: String = url::form_urlencoded::byte_serialize(tag.as_bytes()).collect();
                 return format!(
                     "{BASE}/e/tags/index.php?page={page}&tagname={enc}&line=20&tempid=2"
                 );
@@ -106,8 +105,7 @@ fn pic(src: &str) -> String {
         return String::new();
     }
     if src.starts_with("http://") || src.starts_with("https://") {
-        let enc: String =
-            url::form_urlencoded::byte_serialize(src.as_bytes()).collect();
+        let enc: String = url::form_urlencoded::byte_serialize(src.as_bytes()).collect();
         return format!("https://images.x6av.com/getimages.php?src={enc}&w=430&h=240");
     }
     if let Some(rest) = src.strip_prefix("//") {
@@ -163,10 +161,8 @@ async fn post_form(url: &str, body: &str) -> ApiResult<String> {
 /// 列表解析（jar `parseList`）。
 fn parse_list(html: &str) -> Vec<Value> {
     let mut items = Vec::new();
-    let list_re = Regex::new(
-        r#"(?s)<div class="th">(.*?)<a class="th-description"[^>]*>(.*?)</a>"#,
-    )
-    .unwrap();
+    let list_re =
+        Regex::new(r#"(?s)<div class="th">(.*?)<a class="th-description"[^>]*>(.*?)</a>"#).unwrap();
     let link_re = Regex::new(r#"href="(/[a-z0-9-]+/(\d+)\.html)""#).unwrap();
     let pic_re = Regex::new(r#"<img[^>]*src="([^"]+)""#).unwrap();
     let hd_re = Regex::new(r#"<span class="th-hd">([^<]*)</span>"#).unwrap();
@@ -285,8 +281,7 @@ fn parse_detail(html: &str, id: &str) -> Value {
     if !tags.is_empty() {
         synopsis.push_str(&format!("\n标签：{}", tags.join(" / ")));
     }
-    let path_re =
-        Regex::new(r#"data-pathid="(\d+)"[^>]*>(?:.*?<span>([^<]*)</span>)?"#).unwrap();
+    let path_re = Regex::new(r#"data-pathid="(\d+)"[^>]*>(?:.*?<span>([^<]*)</span>)?"#).unwrap();
     let mut episodes = Vec::new();
     let mut seen: Vec<String> = Vec::new();
     for c in path_re.captures_iter(html) {
@@ -295,7 +290,10 @@ fn parse_detail(html: &str, id: &str) -> Value {
             continue;
         }
         seen.push(pathid.clone());
-        let label = c.get(2).map(|m| m.as_str().trim().to_string()).unwrap_or_default();
+        let label = c
+            .get(2)
+            .map(|m| m.as_str().trim().to_string())
+            .unwrap_or_default();
         let title = if label.is_empty() {
             "正片".to_string()
         } else {
@@ -327,8 +325,7 @@ fn parse_detail(html: &str, id: &str) -> Value {
 
 /// Dean Edwards packer 解包：按 `encode(c, a)` 建词典替换。
 fn unpack(p: &str, radix: u32, count: usize, keys: &[String]) -> String {
-    const ALPHABET: &[u8] =
-        b"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const ALPHABET: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
     fn encode(mut n: usize, radix: u32, alphabet: &[u8]) -> String {
         if n == 0 {
             return (alphabet[0] as char).to_string();
@@ -344,20 +341,29 @@ fn unpack(p: &str, radix: u32, count: usize, keys: &[String]) -> String {
     for c in 0..count {
         let word = encode(c, radix, ALPHABET);
         let val = keys.get(c).cloned().unwrap_or_default();
-        dict.insert(word, if val.is_empty() { encode(c, radix, ALPHABET) } else { val });
+        dict.insert(
+            word,
+            if val.is_empty() {
+                encode(c, radix, ALPHABET)
+            } else {
+                val
+            },
+        );
     }
     let word_re = Regex::new(r"\b\w+\b").unwrap();
     word_re
         .replace_all(p, |caps: &regex::Captures| {
-            dict.get(&caps[0]).cloned().unwrap_or_else(|| caps[0].to_string())
+            dict.get(&caps[0])
+                .cloned()
+                .unwrap_or_else(|| caps[0].to_string())
         })
         .to_string()
 }
 
 /// 从文本里取 m3u8 直链（jar `pickLinks` 的正则）。
 fn pick_m3u8(text: &str) -> String {
-    let re = Regex::new(r#"https?://[^"'\\\s]+(?:master\.txt|master\.m3u8|\.m3u8)[^"'\\\s]*"#)
-        .unwrap();
+    let re =
+        Regex::new(r#"https?://[^"'\\\s]+(?:master\.txt|master\.m3u8|\.m3u8)[^"'\\\s]*"#).unwrap();
     re.find(text)
         .map(|m| m.as_str().trim_end_matches(['"', '\'', '\\']).to_string())
         .unwrap_or_default()

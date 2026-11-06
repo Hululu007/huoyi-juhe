@@ -105,7 +105,9 @@ const CATS: &[(&str, &str)] = &[
 const PAGE_SIZE: usize = 24;
 
 fn cat_name(id: &str) -> Option<&'static str> {
-    CATS.iter().find(|(cid, _)| *cid == id).map(|(_, name)| *name)
+    CATS.iter()
+        .find(|(cid, _)| *cid == id)
+        .map(|(_, name)| *name)
 }
 
 async fn get_text(url: &str, referer: Option<&str>) -> ApiResult<String> {
@@ -275,10 +277,7 @@ fn detail_title(html: &str, album_id: &str) -> String {
         let t = t.trim();
         let t = t.strip_prefix("有声小说").unwrap_or(t);
         // <title> 形如“言情有声小说花颜策_主播…”，分类名前缀也去掉。
-        if let Some((cat, _)) = album_id
-            .trim_start_matches("/album/")
-            .split_once('-')
-        {
+        if let Some((cat, _)) = album_id.trim_start_matches("/album/").split_once('-') {
             if let Some(name) = cat_name(cat) {
                 let prefixed = format!("{name}有声小说");
                 if let Some(rest) = t.strip_prefix(prefixed.as_str()) {
@@ -324,15 +323,16 @@ fn parse_chapters(html: &str) -> Vec<(String, String)> {
     let Ok(a_re) = Regex::new("(?s)<li[^>]*>\\s*<a\\s+href=\"([^\"]+)\"[^>]*>(.*?)</a>") else {
         return Vec::new();
     };
-    a_re
-        .captures_iter(&block)
+    a_re.captures_iter(&block)
         .map(|c| (c[1].to_string(), strip_tags(&c[2])))
         .filter(|(href, title)| href.starts_with("/audio/") && !title.is_empty())
         .collect()
 }
 
 pub(crate) async fn categories() -> ApiResult<Value> {
-    Ok(json!({"categories": CATS.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}))
+    Ok(
+        json!({"categories": CATS.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}),
+    )
 }
 
 pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
@@ -396,7 +396,10 @@ pub(crate) async fn detail(album_id: &str) -> ApiResult<Value> {
     };
     // 主播：JSON-LD 的 creator.name 优先，退到 .sub-tags 的 a 链接。
     let teller = {
-        let from_ld = pick(&html, "(?s)\"creator\"\\s*:\\s*\\{[^}]*\"name\"\\s*:\\s*\"([^\"]+)\"");
+        let from_ld = pick(
+            &html,
+            "(?s)\"creator\"\\s*:\\s*\\{[^}]*\"name\"\\s*:\\s*\"([^\"]+)\"",
+        );
         if !from_ld.is_empty() {
             from_ld
         } else {
@@ -423,7 +426,11 @@ pub(crate) async fn detail(album_id: &str) -> ApiResult<Value> {
         .iter()
         .map(|(href, raw_title)| {
             // Dart 用 $ 作分隔，标题里的 #、$ 先换空格（与听友同款处理）。
-            let title = raw_title.replace('#', " ").replace('$', " ").trim().to_string();
+            let title = raw_title
+                .replace('#', " ")
+                .replace('$', " ")
+                .trim()
+                .to_string();
             episode_json(href, &title, album_id)
         })
         .collect();
@@ -499,9 +506,7 @@ pub(crate) async fn play(video_id: &str) -> ApiResult<Value> {
         return Err(ApiError::Internal("书音FM该章节暂无可用的播放线路".into()));
     };
     let Some(code) = lines_re.captures(&html).map(|c| c[1].to_string()) else {
-        return Err(ApiError::Internal(
-            "书音FM该章节暂无可用的播放线路".into(),
-        ));
+        return Err(ApiError::Internal("书音FM该章节暂无可用的播放线路".into()));
     };
     let path = pick(&html, "url\\s*:\\s*'([^']*)'");
     if path.is_empty() {
@@ -577,9 +582,7 @@ mod tests {
 </li>"#;
 
     fn wrap_list(items: &str) -> String {
-        format!(
-            "<ul class=\"qm-pic-txt pic-110-146-classify width-1220 clearfix\">{items}</ul>"
-        )
+        format!("<ul class=\"qm-pic-txt pic-110-146-classify width-1220 clearfix\">{items}</ul>")
     }
 
     #[test]
@@ -651,8 +654,14 @@ mod tests {
             fix_url("https://img1.kuwo.cn/x.jpg"),
             "https://img1.kuwo.cn/x.jpg"
         );
-        assert_eq!(fix_url("//img1.kuwo.cn/x.jpg"), "https://img1.kuwo.cn/x.jpg");
-        assert_eq!(fix_url("/css/logo.png"), "https://www.shuyinfm.com/css/logo.png");
+        assert_eq!(
+            fix_url("//img1.kuwo.cn/x.jpg"),
+            "https://img1.kuwo.cn/x.jpg"
+        );
+        assert_eq!(
+            fix_url("/css/logo.png"),
+            "https://www.shuyinfm.com/css/logo.png"
+        );
         assert_eq!(fix_url(""), "");
         assert_eq!(
             fix_url("https:/img1.kuwo.cn/x.jpg"),
@@ -679,7 +688,10 @@ mod tests {
 
     #[test]
     fn strip_tags_decodes_entities() {
-        assert_eq!(strip_tags("连载中&nbsp;&nbsp;2026-09-04更新"), "连载中 2026-09-04更新");
+        assert_eq!(
+            strip_tags("连载中&nbsp;&nbsp;2026-09-04更新"),
+            "连载中 2026-09-04更新"
+        );
         assert_eq!(strip_tags("<b>花</b>颜策"), "花 颜策");
     }
 }

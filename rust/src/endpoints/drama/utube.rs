@@ -155,7 +155,9 @@ async fn call(path: &str, params: &[(&str, &str)]) -> ApiResult<Value> {
     let cipher = crate::crypto::aes_cbc_encrypt(&padded, AES_KEY, AES_IV);
     let b64 = base64::engine::general_purpose::STANDARD.encode(cipher);
     let ts = (now_ms() / 1000).to_string();
-    let sign = md5_hex(sha256_hex(format!("client=pwa&data={b64}&timestamp={ts}{SECRET}").as_bytes()).as_bytes());
+    let sign = md5_hex(
+        sha256_hex(format!("client=pwa&data={b64}&timestamp={ts}{SECRET}").as_bytes()).as_bytes(),
+    );
     let form = format!(
         "client=pwa&timestamp={ts}&data={}&sign={sign}",
         urlenc(&b64)
@@ -204,8 +206,8 @@ async fn call(path: &str, params: &[(&str, &str)]) -> ApiResult<Value> {
     let Some(all) = all else {
         return Err(ApiError::Internal(format!("utube call failed: {last_err}")));
     };
-    let v: Value = serde_json::from_slice(&all)
-        .map_err(|e| ApiError::Internal(format!("utube json: {e}")))?;
+    let v: Value =
+        serde_json::from_slice(&all).map_err(|e| ApiError::Internal(format!("utube json: {e}")))?;
     let data_s = text_of(&v, &["data"]);
     if data_s.is_empty() {
         return Ok(v);
@@ -248,7 +250,10 @@ fn is_paid(v: &Value) -> bool {
 }
 
 fn cover_of(v: &Value) -> String {
-    img(&text_of(v, &["cover_horizontal", "cover_vertical", "cover"]))
+    img(&text_of(
+        v,
+        &["cover_horizontal", "cover_vertical", "cover"],
+    ))
 }
 
 fn title_of(v: &Value) -> String {
@@ -366,7 +371,12 @@ async fn list_for(category_id: &str, page: i64) -> ApiResult<Vec<Value>> {
     if let Some(id) = category_id.strip_prefix("construct:") {
         let resp = call(
             "/api.php/api/mv/list_construct",
-            &[("sort", "see"), ("id", id), ("page", &page_s), ("limit", "16")],
+            &[
+                ("sort", "see"),
+                ("id", id),
+                ("page", &page_s),
+                ("limit", "16"),
+            ],
         )
         .await?;
         let data = get(&resp, "data").cloned().unwrap_or(Value::Null);
@@ -378,7 +388,12 @@ async fn list_for(category_id: &str, page: i64) -> ApiResult<Vec<Value>> {
     if category_id == "melon" {
         let resp = call(
             "/api.php/api/material/list_sort",
-            &[("sort", "new"), ("id", "1"), ("page", &page_s), ("limit", "16")],
+            &[
+                ("sort", "new"),
+                ("id", "1"),
+                ("page", &page_s),
+                ("limit", "16"),
+            ],
         )
         .await?;
         let data = get(&resp, "data").cloned().unwrap_or(Value::Null);
@@ -461,7 +476,9 @@ fn play_url(v: &Value) -> String {
 }
 
 pub(crate) async fn categories() -> ApiResult<Value> {
-    Ok(json!({"categories": CATS.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}))
+    Ok(
+        json!({"categories": CATS.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}),
+    )
 }
 
 pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
@@ -553,7 +570,12 @@ pub(crate) async fn search(query: &str) -> ApiResult<Value> {
     }
     let resp = match call(
         "/api.php/api/mv/search",
-        &[("word", query), ("type", "1"), ("page", "1"), ("limit", "16")],
+        &[
+            ("word", query),
+            ("type", "1"),
+            ("page", "1"),
+            ("limit", "16"),
+        ],
     )
     .await
     {
@@ -624,10 +646,7 @@ mod tests {
             r#"{"preview_url":"https://hf-abc123.cdn.com/x.m3u8","source_720":"https://cdn/720.m3u8"}"#,
         )
         .unwrap();
-        assert_eq!(
-            play_url(&v),
-            "https://hf-long.cdn.com/x.m3u8"
-        );
+        assert_eq!(play_url(&v), "https://hf-long.cdn.com/x.m3u8");
         let v2: Value = serde_json::from_str(r#"{"m3u8":"https://cdn/a.m3u8"}"#).unwrap();
         assert_eq!(play_url(&v2), "https://cdn/a.m3u8");
     }
@@ -637,7 +656,9 @@ mod tests {
         let v: Value = serde_json::from_str(r#"{"id":"1","title":"t","is_pay":1}"#).unwrap();
         assert!(card(&v, "video", false).is_none());
         assert!(card(&v, "video", true).is_some());
-        let v2: Value = serde_json::from_str(r#"{"id":"2","title":"t","coins":5,"isfree":2,"duration":125}"#).unwrap();
+        let v2: Value =
+            serde_json::from_str(r#"{"id":"2","title":"t","coins":5,"isfree":2,"duration":125}"#)
+                .unwrap();
         let c = card(&v2, "video", true).unwrap();
         assert_eq!(c["remark"], "付费");
         let v3: Value = serde_json::from_str(r#"{"id":"3","title":"t","duration":125}"#).unwrap();

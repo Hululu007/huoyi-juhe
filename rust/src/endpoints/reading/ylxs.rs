@@ -24,36 +24,30 @@ const CATEGORIES: [(&str, &str); 4] = [
 ];
 
 static TAG_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"<[^>]+>").unwrap());
-static BR_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)<br\s*/?>").unwrap());
-static CLOSE_P_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)</p\s*>").unwrap());
-static SPACE_RUN_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"[ \t]+").unwrap());
+static BR_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)<br\s*/?>").unwrap());
+static CLOSE_P_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)</p\s*>").unwrap());
+static SPACE_RUN_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"[ \t]+").unwrap());
 static WS_RUN_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s+").unwrap());
 static CARD_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"(?s)<article class="novel-card[^"]*"[^>]*>(.*?)</article>"#).unwrap()
 });
 static CARD_TITLE_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"novel-card-title">\s*<a href="/novel/(show|series)/(\d+)">\s*([^<]+)</a>"#).unwrap()
+    Regex::new(r#"novel-card-title">\s*<a href="/novel/(show|series)/(\d+)">\s*([^<]+)</a>"#)
+        .unwrap()
 });
-static BADGE_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"<span class="card-badge">([^<]+)</span>"#).unwrap()
-});
-static STATS_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"novel-card-stats">\s*<span>([^<]+)</span>"#).unwrap()
-});
-static TITLE_TAG_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?s)<title>(.*?)</title>").unwrap());
-static JSONLD_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#""@type":"Book","name":"([^"]+)""#).unwrap()
-});
+static BADGE_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"<span class="card-badge">([^<]+)</span>"#).unwrap());
+static STATS_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"novel-card-stats">\s*<span>([^<]+)</span>"#).unwrap());
+static TITLE_TAG_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?s)<title>(.*?)</title>").unwrap());
+static JSONLD_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#""@type":"Book","name":"([^"]+)""#).unwrap());
 static BODY_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?s)<div class="novel-body"[^>]*>(.*?)</div>\s*<div class="novel-action-panel""#).unwrap()
+    Regex::new(r#"(?s)<div class="novel-body"[^>]*>(.*?)</div>\s*<div class="novel-action-panel""#)
+        .unwrap()
 });
-static BODY_FALLBACK_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?s)<div class="novel-body"[^>]*>(.*)"#).unwrap()
-});
+static BODY_FALLBACK_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?s)<div class="novel-body"[^>]*>(.*)"#).unwrap());
 
 async fn fetch(url: &str) -> String {
     let resp = match client() {
@@ -237,11 +231,7 @@ pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
         return Err(ApiError::Internal("ylxs 未返回详情".into()));
     }
     let title = show_title(&page);
-    let title = if title.is_empty() {
-        vid.clone()
-    } else {
-        title
-    };
+    let title = if title.is_empty() { vid.clone() } else { title };
     let text = show_text(&page);
     Ok(json!({
         "id": vid,
@@ -277,11 +267,7 @@ pub(crate) async fn play(video_id: &str) -> ApiResult<Value> {
     }
     let page = fetch(&format!("{BASE_URL}/novel/show/{nid}")).await;
     let title = show_title(&page);
-    let title = if title.is_empty() {
-        nid.clone()
-    } else {
-        title
-    };
+    let title = if title.is_empty() { nid.clone() } else { title };
     let text = show_text(&page);
     if text.is_empty() {
         return Err(ApiError::Internal("ylxs 该本没有正文".into()));

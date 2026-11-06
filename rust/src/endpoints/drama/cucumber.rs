@@ -129,7 +129,12 @@ fn sha1(data: &[u8]) -> [u8; 20] {
     for chunk in msg.chunks_exact(64) {
         let mut w = [0u32; 80];
         for i in 0..16 {
-            w[i] = u32::from_be_bytes([chunk[i * 4], chunk[i * 4 + 1], chunk[i * 4 + 2], chunk[i * 4 + 3]]);
+            w[i] = u32::from_be_bytes([
+                chunk[i * 4],
+                chunk[i * 4 + 1],
+                chunk[i * 4 + 2],
+                chunk[i * 4 + 3],
+            ]);
         }
         for i in 16..80 {
             w[i] = (w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16]).rotate_left(1);
@@ -190,7 +195,7 @@ fn hmac_sha1(key: &[u8], msg: &[u8]) -> [u8; 20] {
 }
 
 fn aes_ecb_decrypt(data: &[u8], key: &[u8]) -> Option<Vec<u8>> {
-    use aes::cipher::{BlockDecrypt, KeyInit, generic_array::GenericArray};
+    use aes::cipher::{generic_array::GenericArray, BlockDecrypt, KeyInit};
     if key.len() != 16 || data.len() % 16 != 0 {
         return None;
     }
@@ -219,7 +224,14 @@ fn now_ms() -> u128 {
 
 /// 签名串：`<METHOD><path>?Authorization=&Seq=<seq>&X-Auth-Key=…&X-Auth-Nonce=…&X-Auth-TimeStamp=…`
 /// + 排序后的全部参数（含固定 pkg/release/terminal），形如 `&k=v`（值不编码）。
-fn sign(method: &str, path: &str, params: &[(String, String)], nonce: &str, ts: &str, seq: &str) -> String {
+fn sign(
+    method: &str,
+    path: &str,
+    params: &[(String, String)],
+    nonce: &str,
+    ts: &str,
+    seq: &str,
+) -> String {
     let mut all: Vec<(String, String)> = params.to_vec();
     all.push(("pkg".into(), "cuke0001".into()));
     all.push(("release".into(), "410".into()));
@@ -249,7 +261,10 @@ fn query_string(params: &[(String, String)]) -> String {
 }
 
 fn sorted_params(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
-    let mut v: Vec<(String, String)> = pairs.iter().map(|(k, val)| (k.to_string(), val.to_string())).collect();
+    let mut v: Vec<(String, String)> = pairs
+        .iter()
+        .map(|(k, val)| (k.to_string(), val.to_string()))
+        .collect();
     v.sort_by(|a, b| a.0.cmp(&b.0));
     v
 }
@@ -264,11 +279,7 @@ async fn call(
     for base in BASES {
         let (nonce, ts, seq) = {
             let seq = SEQ.lock().unwrap().clone();
-            (
-                rand::random::<u32>() % 10000,
-                now_ms().to_string(),
-                seq,
-            )
+            (rand::random::<u32>() % 10000, now_ms().to_string(), seq)
         };
         let nonce = nonce.to_string();
         let sig = sign(method, path, params, &nonce, &ts, &seq);
@@ -280,7 +291,11 @@ async fn call(
         };
         let req = match client() {
             Ok(c) => {
-                let mut r = if method == "POST" { c.post(&url) } else { c.get(&url) };
+                let mut r = if method == "POST" {
+                    c.post(&url)
+                } else {
+                    c.get(&url)
+                };
                 r = r
                     .header("release", "410")
                     .header("origin", ORIGIN)
@@ -355,13 +370,11 @@ async fn call(
         if int_of(&v, &["code"]) == 0 {
             return Ok(v);
         }
-        last_err = format!(
-            "code {} {}",
-            int_of(&v, &["code"]),
-            text_of(&v, &["msg"])
-        );
+        last_err = format!("code {} {}", int_of(&v, &["code"]), text_of(&v, &["msg"]));
     }
-    Err(ApiError::Internal(format!("cucumber no base worked: {last_err}")))
+    Err(ApiError::Internal(format!(
+        "cucumber no base worked: {last_err}"
+    )))
 }
 
 fn data_list(resp: &Value) -> Vec<Value> {
@@ -595,7 +608,10 @@ async fn channels() -> Vec<[String; 4]> {
             let name = text_of(&v, &["name"]);
             if m != 0 && !name.is_empty() {
                 let t = int_of(&v, &["channelType"]);
-                let sel = if get(&v, "hasSelection").and_then(|b| b.as_bool()).unwrap_or(false) {
+                let sel = if get(&v, "hasSelection")
+                    .and_then(|b| b.as_bool())
+                    .unwrap_or(false)
+                {
                     "1"
                 } else {
                     "0"
@@ -660,7 +676,11 @@ async fn list_for(id: &str, page: i64) -> ApiResult<Vec<Value>> {
         let mut out = Vec::new();
         for g in data_list(&resp) {
             let name = text_of(&g, &["name"]);
-            let name = if name.is_empty() { "精选".to_string() } else { name };
+            let name = if name.is_empty() {
+                "精选".to_string()
+            } else {
+                name
+            };
             if let Some(arr) = arr_of(get(&g, "movList").unwrap_or(&Value::Null)) {
                 out.extend(cards(arr, &name));
             }
@@ -688,7 +708,11 @@ async fn list_for(id: &str, page: i64) -> ApiResult<Vec<Value>> {
             let mut out = Vec::new();
             for g in data_list(&resp) {
                 let name = text_of(&g, &["name"]);
-                let name = if name.is_empty() { "精选".to_string() } else { name };
+                let name = if name.is_empty() {
+                    "精选".to_string()
+                } else {
+                    name
+                };
                 if let Some(arr) = arr_of(get(&g, "movList").unwrap_or(&Value::Null)) {
                     out.extend(cards(arr, &name));
                 }
@@ -777,9 +801,17 @@ async fn list_for(id: &str, page: i64) -> ApiResult<Vec<Value>> {
             let mut seen = std::collections::HashSet::new();
             for v in data_list(&resp) {
                 let aid = text_of(&v, &["actorsId"]);
-                let aid = if aid.is_empty() { text_of(&v, &["id"]) } else { aid };
+                let aid = if aid.is_empty() {
+                    text_of(&v, &["id"])
+                } else {
+                    aid
+                };
                 let name = text_of(&v, &["nameCn"]);
-                let name = if name.is_empty() { text_of(&v, &["name"]) } else { name };
+                let name = if name.is_empty() {
+                    text_of(&v, &["name"])
+                } else {
+                    name
+                };
                 if aid.is_empty() || name.is_empty() || !seen.insert(aid.clone()) {
                     continue;
                 }
@@ -1083,8 +1115,16 @@ pub(crate) async fn detail(id: &str) -> ApiResult<Value> {
         let resp = call("GET", "/home/actor/detail", &params, None).await?;
         let first = data_list(&resp).into_iter().next().unwrap_or(Value::Null);
         let name = text_of(&first, &["nameCn"]);
-        let name = if name.is_empty() { text_of(&first, &["name"]) } else { name };
-        let title = if name.is_empty() { id.to_string() } else { name.clone() };
+        let name = if name.is_empty() {
+            text_of(&first, &["name"])
+        } else {
+            name
+        };
+        let title = if name.is_empty() {
+            id.to_string()
+        } else {
+            name.clone()
+        };
         let cup = text_of(&first, &["cup"]);
         let content = format!(
             "{}\n身高：{} cm 三围：{}-{}-{} cm 罩杯：{}",
@@ -1123,7 +1163,11 @@ pub(crate) async fn detail(id: &str) -> ApiResult<Value> {
         let resp = call("GET", "/module/nav", &params, None).await?;
         let first = data_list(&resp).into_iter().next().unwrap_or(Value::Null);
         let name = text_of(&first, &["navName"]);
-        let name = if name.is_empty() { nav_id.to_string() } else { name };
+        let name = if name.is_empty() {
+            nav_id.to_string()
+        } else {
+            name
+        };
         let items = list_for(id, 1).await.unwrap_or_default();
         let mut episodes: Vec<Value> = Vec::new();
         for c in &items {
@@ -1142,7 +1186,9 @@ pub(crate) async fn detail(id: &str) -> ApiResult<Value> {
     let obj = match browse(id).await {
         Ok(o) => o,
         Err(_) => {
-            return Ok(json!({"id": id, "title": "", "cover": "", "synopsis": "", "extra": {}, "episodes": []}));
+            return Ok(
+                json!({"id": id, "title": "", "cover": "", "synopsis": "", "extra": {}, "episodes": []}),
+            );
         }
     };
     let mut title = video_title(&obj);
@@ -1197,11 +1243,7 @@ pub(crate) async fn detail(id: &str) -> ApiResult<Value> {
 }
 
 pub(crate) async fn search(query: &str) -> ApiResult<Value> {
-    let params = sorted_params(&[
-        ("q", query),
-        ("pageNo", "1"),
-        ("pageSize", "10"),
-    ]);
+    let params = sorted_params(&[("q", query), ("pageNo", "1"), ("pageSize", "10")]);
     let resp = match call("GET", "/es/mov/search", &params, None).await {
         Ok(r) => r,
         Err(_) => return Ok(json!({"items": []})),
@@ -1277,10 +1319,9 @@ mod tests {
 
     #[test]
     fn address_order() {
-        let v: Value = serde_json::from_str(
-            r#"{"address":{"240P":"low","720P":"mid","1080P":"high"}}"#,
-        )
-        .unwrap();
+        let v: Value =
+            serde_json::from_str(r#"{"address":{"240P":"low","720P":"mid","1080P":"high"}}"#)
+                .unwrap();
         assert_eq!(address(&v), "high");
     }
 

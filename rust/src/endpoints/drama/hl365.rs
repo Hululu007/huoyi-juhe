@@ -107,7 +107,11 @@ fn cards(html: &str) -> Vec<Value> {
     let date_re = Regex::new(r#"datePublished"[^>]*>([^<]+)"#).unwrap();
     for cap in re_article().captures_iter(html) {
         let block = cap.get(0).unwrap().as_str();
-        let Some(id) = id_re.captures(block).and_then(|c| c.get(1)).map(|m| m.as_str().to_string()) else {
+        let Some(id) = id_re
+            .captures(block)
+            .and_then(|c| c.get(1))
+            .map(|m| m.as_str().to_string())
+        else {
             continue;
         };
         let title = first_group(&title_re, block);
@@ -177,7 +181,9 @@ fn players(html: &str) -> Vec<(String, String)> {
 }
 
 pub(crate) async fn categories() -> ApiResult<Value> {
-    Ok(json!({"categories": CATS.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}))
+    Ok(
+        json!({"categories": CATS.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}),
+    )
 }
 
 pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
@@ -210,10 +216,14 @@ pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
 
 pub(crate) async fn detail(id: &str) -> ApiResult<Value> {
     let Some(base) = probe_base().await else {
-        return Ok(json!({"id": id, "title": "", "cover": "", "synopsis": "", "extra": {}, "episodes": []}));
+        return Ok(
+            json!({"id": id, "title": "", "cover": "", "synopsis": "", "extra": {}, "episodes": []}),
+        );
     };
     let Some(html) = get_text(&format!("{base}/archives/{id}.html")).await else {
-        return Ok(json!({"id": id, "title": "", "cover": "", "synopsis": "", "extra": {}, "episodes": []}));
+        return Ok(
+            json!({"id": id, "title": "", "cover": "", "synopsis": "", "extra": {}, "episodes": []}),
+        );
     };
     let title_re = Regex::new(r"<title>([^<]+)</title>").unwrap();
     let mut title = first_group(&title_re, &html);

@@ -183,13 +183,9 @@ fn parse_cards(html: &str) -> Vec<Value> {
     let mut items = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
     let href_re = Regex::new(r#"<a[^>]*class="display d-block"[^>]*href="([^"]+)""#).ok();
-    let cover_re =
-        Regex::new(r#"background-image:\s*url\(['"]?([^)'"]+)"#).ok();
+    let cover_re = Regex::new(r#"background-image:\s*url\(['"]?([^)'"]+)"#).ok();
     let dur_re = Regex::new(r#"<small class="layer">([^<]+)</small>"#).ok();
-    let title_re = Regex::new(
-        r#"(?s)<a[^>]*class="title[^"]*"[^>]*href="[^"]+">([^<]+)</a>"#,
-    )
-    .ok();
+    let title_re = Regex::new(r#"(?s)<a[^>]*class="title[^"]*"[^>]*href="[^"]+">([^<]+)</a>"#).ok();
     for block in html.split("<div class=\"video-elem\">").skip(1) {
         let href = match &href_re {
             Some(re) => re
@@ -238,9 +234,7 @@ fn parse_cards(html: &str) -> Vec<Value> {
 
 /// 排序 tab 解析：div data-href + 文本（/video 与 /videos 共用）。
 fn parse_tabs(html: &str, prefix: &str) -> Vec<(String, String)> {
-    let re = match Regex::new(
-        r#"data-href="([^"]+)"[^>]*>([^<]+)</div>"#,
-    ) {
+    let re = match Regex::new(r#"data-href="([^"]+)"[^>]*>([^<]+)</div>"#) {
         Ok(re) => re,
         Err(_) => return Vec::new(),
     };
@@ -262,9 +256,7 @@ fn parse_tabs(html: &str, prefix: &str) -> Vec<(String, String)> {
 
 /// 蝌蚪排序解析：<a href="/videos/<sort>/<页>">文本</a>。
 fn parse_k_sorts(html: &str) -> Vec<(String, String)> {
-    let re = match Regex::new(
-        r#"<a[^>]*href="/videos/([a-z-]+)/\d+"[^>]*>([^<]+)</a>"#,
-    ) {
+    let re = match Regex::new(r#"<a[^>]*href="/videos/([a-z-]+)/\d+"[^>]*>([^<]+)</a>"#) {
         Ok(re) => re,
         Err(_) => return Vec::new(),
     };
@@ -367,10 +359,7 @@ fn catalog_route(category_id: &str, page: i64) -> Option<(String, String)> {
     if let Some(slug) = category_id.strip_prefix("k-") {
         if K_SORTS.contains(&slug) {
             let base = format!("/videos/{slug}");
-            return Some((
-                format!("{base}/{pg}"),
-                format!("{base}/{}", pg + 1),
-            ));
+            return Some((format!("{base}/{pg}"), format!("{base}/{}", pg + 1)));
         }
         let base = format!("/videos/categories/{slug}");
         let path = if pg <= 1 {
@@ -445,11 +434,24 @@ fn meta_content(html: &str, attr: &str, value: &str) -> String {
 fn iso_duration_secs(html: &str) -> Option<f64> {
     let re = Regex::new(r#""duration":\s*"PT(?:(\d+)H)?(?:(\d+)M)?(?:([\d.]+)S)?""#).ok()?;
     let cap = re.captures(html)?;
-    let h: f64 = cap.get(1).and_then(|m| m.as_str().parse().ok()).unwrap_or(0.0);
-    let m: f64 = cap.get(2).and_then(|m| m.as_str().parse().ok()).unwrap_or(0.0);
-    let s: f64 = cap.get(3).and_then(|m| m.as_str().parse().ok()).unwrap_or(0.0);
+    let h: f64 = cap
+        .get(1)
+        .and_then(|m| m.as_str().parse().ok())
+        .unwrap_or(0.0);
+    let m: f64 = cap
+        .get(2)
+        .and_then(|m| m.as_str().parse().ok())
+        .unwrap_or(0.0);
+    let s: f64 = cap
+        .get(3)
+        .and_then(|m| m.as_str().parse().ok())
+        .unwrap_or(0.0);
     let total = h * 3600.0 + m * 60.0 + s;
-    if total > 0.0 { Some(total) } else { None }
+    if total > 0.0 {
+        Some(total)
+    } else {
+        None
+    }
 }
 
 struct PlaylistInfo {
@@ -475,11 +477,20 @@ fn parse_playlist(text: &str) -> Option<PlaylistInfo> {
     }
     if n == 0 {
         if text.contains(".m3u8") {
-            return Some(PlaylistInfo { total: None, notice });
+            return Some(PlaylistInfo {
+                total: None,
+                notice,
+            });
         }
-        return Some(PlaylistInfo { total: Some(0.0), notice });
+        return Some(PlaylistInfo {
+            total: Some(0.0),
+            notice,
+        });
     }
-    Some(PlaylistInfo { total: Some(total), notice })
+    Some(PlaylistInfo {
+        total: Some(total),
+        notice,
+    })
 }
 
 async fn playlist_info(url: &str) -> Option<PlaylistInfo> {
@@ -502,7 +513,11 @@ fn playlist_playable(info: &PlaylistInfo, claimed: Option<f64>) -> bool {
 
 /// embed 页流地址（/video 与 /vod 两池）；取不到返回空串。
 async fn embed_play_url(detail_path: &str) -> String {
-    let hex = detail_path.trim_matches('/').rsplit('/').next().unwrap_or("");
+    let hex = detail_path
+        .trim_matches('/')
+        .rsplit('/')
+        .next()
+        .unwrap_or("");
     if hex.is_empty() {
         return String::new();
     }
@@ -618,7 +633,9 @@ pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
                 let sd_url = parse_play_url(&sd_html);
                 if !sd_url.is_empty() {
                     let sd_claimed = iso_duration_secs(&sd_html).or(claimed);
-                    if let Some(ok) = resolve_hls(&sd_url, &format!("/video/view/{hex}"), sd_claimed).await {
+                    if let Some(ok) =
+                        resolve_hls(&sd_url, &format!("/video/view/{hex}"), sd_claimed).await
+                    {
                         episodes.push(episode_json(&ok, "标清全片", series_id));
                     }
                 }
@@ -723,7 +740,10 @@ mod tests {
             <div class="item col-30 " click="redirect" data-href="/video/category/hot-list">当前最热</div>"#;
         let tabs = parse_tabs(html, "/video/category/");
         assert_eq!(tabs.len(), 3);
-        assert_eq!(tabs[1], ("/video/category/hd".to_string(), "高清视频".to_string()));
+        assert_eq!(
+            tabs[1],
+            ("/video/category/hd".to_string(), "高清视频".to_string())
+        );
     }
 
     #[test]
@@ -762,19 +782,31 @@ mod tests {
     fn catalog_route_all_prefixes() {
         assert_eq!(
             catalog_route("v-hd", 1).unwrap(),
-            ("/video/category/hd".to_string(), "/video/category/hd/2".to_string())
+            (
+                "/video/category/hd".to_string(),
+                "/video/category/hd/2".to_string()
+            )
         );
         assert_eq!(
             catalog_route("v-hd", 3).unwrap(),
-            ("/video/category/hd/3".to_string(), "/video/category/hd/4".to_string())
+            (
+                "/video/category/hd/3".to_string(),
+                "/video/category/hd/4".to_string()
+            )
         );
         assert_eq!(
             catalog_route("k-top-rated", 2).unwrap(),
-            ("/videos/top-rated/2".to_string(), "/videos/top-rated/3".to_string())
+            (
+                "/videos/top-rated/2".to_string(),
+                "/videos/top-rated/3".to_string()
+            )
         );
         assert_eq!(
             catalog_route("k-chinese", 1).unwrap(),
-            ("/videos/categories/chinese".to_string(), "/videos/categories/chinese/2".to_string())
+            (
+                "/videos/categories/chinese".to_string(),
+                "/videos/categories/chinese/2".to_string()
+            )
         );
         assert_eq!(
             catalog_route("d-all", 2).unwrap(),
@@ -786,7 +818,10 @@ mod tests {
         );
         assert_eq!(
             catalog_route("s-swag", 2).unwrap(),
-            ("/swag?keywords=swag&page=2".to_string(), "/swag?keywords=swag&page=3".to_string())
+            (
+                "/swag?keywords=swag&page=2".to_string(),
+                "/swag?keywords=swag&page=3".to_string()
+            )
         );
         assert!(catalog_route("x-nope", 1).is_none());
     }
@@ -806,18 +841,9 @@ mod tests {
 
     #[test]
     fn iso_duration_secs_cases() {
-        assert_eq!(
-            iso_duration_secs(r#""duration": "PT1M53S""#),
-            Some(113.0)
-        );
-        assert_eq!(
-            iso_duration_secs(r#""duration": "PT17S""#),
-            Some(17.0)
-        );
-        assert_eq!(
-            iso_duration_secs(r#""duration": "PT20M59S""#),
-            Some(1259.0)
-        );
+        assert_eq!(iso_duration_secs(r#""duration": "PT1M53S""#), Some(113.0));
+        assert_eq!(iso_duration_secs(r#""duration": "PT17S""#), Some(17.0));
+        assert_eq!(iso_duration_secs(r#""duration": "PT20M59S""#), Some(1259.0));
         assert_eq!(iso_duration_secs("no duration here"), None);
     }
 
@@ -828,7 +854,8 @@ mod tests {
         assert_eq!(info.total, Some(6.0));
         assert!(info.notice);
         assert!(!playlist_playable(&info, Some(113.0)));
-        let full = "#EXTM3U\n#EXTINF:8.341667,\nindex0.ts\n#EXTINF:8.341667,\nindex1.ts\n#EXT-X-ENDLIST\n";
+        let full =
+            "#EXTM3U\n#EXTINF:8.341667,\nindex0.ts\n#EXTINF:8.341667,\nindex1.ts\n#EXT-X-ENDLIST\n";
         let info = parse_playlist(full).unwrap();
         assert!(!info.notice);
         assert!(playlist_playable(&info, Some(17.0)));
@@ -841,7 +868,10 @@ mod tests {
         let id = "video/viewhd/ec38d7530bee96c9708c";
         assert!(id.starts_with("video/viewhd/"));
         let hex = id.rsplit('/').next().unwrap();
-        assert_eq!(format!("/video/view/{hex}"), "/video/view/ec38d7530bee96c9708c");
+        assert_eq!(
+            format!("/video/view/{hex}"),
+            "/video/view/ec38d7530bee96c9708c"
+        );
     }
 
     #[test]

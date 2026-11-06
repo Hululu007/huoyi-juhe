@@ -37,9 +37,7 @@ use std::sync::OnceLock;
 
 use crate::error::{ApiError, ApiResult};
 
-use super::{
-    arr_of, category_json, client, episode_json, get, item_json, str_of, text_of,
-};
+use super::{arr_of, category_json, client, episode_json, get, item_json, str_of, text_of};
 
 const HOST: &str = "https://hgtv.im";
 const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
@@ -98,7 +96,9 @@ async fn fetch(url: &str) -> ApiResult<String> {
         .map_err(|e| ApiError::Internal(e.to_string()))?;
     let status = resp.status().as_u16();
     if status != 200 {
-        return Err(ApiError::Internal(format!("黄果短剧HGTV请求 HTTP {status}")));
+        return Err(ApiError::Internal(format!(
+            "黄果短剧HGTV请求 HTTP {status}"
+        )));
     }
     resp.text()
         .await
@@ -590,10 +590,7 @@ mod tests {
 
     #[test]
     fn play_url_shape() {
-        assert_eq!(
-            abs_url("/play/32_1.html"),
-            "https://hgtv.im/play/32_1.html"
-        );
+        assert_eq!(abs_url("/play/32_1.html"), "https://hgtv.im/play/32_1.html");
         assert_eq!(
             abs_url("/play/32_21.html"),
             "https://hgtv.im/play/32_21.html"
@@ -604,7 +601,11 @@ mod tests {
     fn categories_count() {
         assert_eq!(CATS.len(), 14);
         assert_eq!(CATS[0], ("home", "首页"));
-        assert!(CATS.iter().any(|(id, name)| *id == "2" && *name == "都市爱情"));
-        assert!(CATS.iter().any(|(id, name)| *id == "68" && *name == "二次元区"));
+        assert!(CATS
+            .iter()
+            .any(|(id, name)| *id == "2" && *name == "都市爱情"));
+        assert!(CATS
+            .iter()
+            .any(|(id, name)| *id == "68" && *name == "二次元区"));
     }
 }

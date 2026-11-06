@@ -220,8 +220,7 @@ fn parse_detail(html: &str) -> Detail {
     // “报告错误”（举报弹窗标题），须跳过，缺简介时用标题兜底。
     let re_dur = Regex::new(r#"title="视频时长".*?</svg>\s*([\d:]+)"#).unwrap();
     let re_views = Regex::new(r#"title="观看次数".*?</svg>\s*([\d,]+)"#).unwrap();
-    let re_actor =
-        Regex::new(r#"href="https://hbook\.tv/actress/(\d+)"[^>]*>([^<]+)<"#).unwrap();
+    let re_actor = Regex::new(r#"href="https://hbook\.tv/actress/(\d+)"[^>]*>([^<]+)<"#).unwrap();
     let title = re_h1
         .captures(html)
         .map(|c| strip_tags(&c[1]))
@@ -432,7 +431,10 @@ mod tests {
         let html = r#"<a href="https://hbook.tv/v/mfyd-159"><img data-src="https://hd.skylines.pro/mfyd-159/cover-t.jpg" alt="MFYD-159 标题"><span class="bottom-1 right-1">2:03:41</span></a><a href="https://hbook.tv/v/gesy-033"><img data-src="https://hd.skylines.pro/gesy-033/cover-t.jpg" alt="GESY-033 标题"><span class="bottom-1 right-1">0:38:49</span></a>"#;
         let items = parse_cards(html);
         assert_eq!(items.len(), 2);
-        assert_eq!(items[0].get("id").and_then(|v| v.as_str()), Some("mfyd-159"));
+        assert_eq!(
+            items[0].get("id").and_then(|v| v.as_str()),
+            Some("mfyd-159")
+        );
         assert_eq!(
             items[0].get("cover").and_then(|v| v.as_str()),
             Some("https://hd.skylines.pro/mfyd-159/cover-t.jpg")

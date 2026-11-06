@@ -22,9 +22,7 @@ use serde_json::{json, Value};
 
 use crate::error::{ApiError, ApiResult};
 
-use super::{
-    arr_of, category_json, client, episode_json, get, int_of, item_json, str_of, text_of,
-};
+use super::{arr_of, category_json, client, episode_json, get, int_of, item_json, str_of, text_of};
 
 const BASE: &str = "https://aimove.click";
 const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
@@ -108,8 +106,8 @@ async fn fetch_json(url: &str, body: Option<&str>, token: Option<&str>) -> ApiRe
         .text()
         .await
         .map_err(|e| ApiError::Internal(e.to_string()))?;
-    let value: Value =
-        serde_json::from_str(&text).map_err(|_| ApiError::Internal("新黄果短剧返回非 JSON".into()))?;
+    let value: Value = serde_json::from_str(&text)
+        .map_err(|_| ApiError::Internal("新黄果短剧返回非 JSON".into()))?;
     if status != 200 {
         let msg = text_of(&value, &["message"]);
         return Err(ApiError::Internal(format!(
@@ -140,9 +138,9 @@ async fn fetch_json(url: &str, body: Option<&str>, token: Option<&str>) -> ApiRe
 /// 访客自动注册：每位访客进站即注册，得 10 金币；失败时如实报错。
 async fn guest_token() -> ApiResult<String> {
     {
-        let slot = guest_slot().lock().map_err(|_| {
-            ApiError::Internal("新黄果短剧访客 token 锁异常".into())
-        })?;
+        let slot = guest_slot()
+            .lock()
+            .map_err(|_| ApiError::Internal("新黄果短剧访客 token 锁异常".into()))?;
         if let Some(t) = slot.as_ref() {
             if !t.is_empty() {
                 return Ok(t.clone());
@@ -268,7 +266,9 @@ fn episode_title(ep: &Value) -> String {
     } else {
         text_of(ep, &["title"])
     };
-    let locked = !get(ep, "isUnlocked").map(|v| v.as_bool().unwrap_or(false)).unwrap_or(false);
+    let locked = !get(ep, "isUnlocked")
+        .map(|v| v.as_bool().unwrap_or(false))
+        .unwrap_or(false);
     if locked {
         let cost = int_of(ep, &["unlockPoints"]);
         if cost > 0 {
@@ -289,7 +289,8 @@ async fn fetch_detail(drama_id: &str, token: Option<&str>) -> ApiResult<Value> {
 
 fn find_episode<'a>(detail: &'a Value, episode_id: &str) -> Option<&'a Value> {
     let eps = get(detail, "episodes").and_then(arr_of)?;
-    eps.iter().find(|e| int_of(e, &["id"]).to_string() == episode_id)
+    eps.iter()
+        .find(|e| int_of(e, &["id"]).to_string() == episode_id)
 }
 
 fn episode_url(ep: &Value) -> String {

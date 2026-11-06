@@ -89,8 +89,9 @@ fn pct_encode_query(s: &str) -> String {
     let mut out = String::new();
     for b in s.as_bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~'
-            | b'/' => out.push(*b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
+                out.push(*b as char)
+            }
             _ => out.push_str(&format!("%{b:02X}")),
         }
     }
@@ -183,7 +184,11 @@ async fn categories_list() -> Vec<Value> {
             if let Some(rows) = get(inner, "categories").and_then(|v| v.as_array()) {
                 for row in rows {
                     let slug = str_of(get(row, "slug").unwrap_or(&Value::Null));
-                    let slug = if slug.is_empty() { "latest".to_string() } else { slug };
+                    let slug = if slug.is_empty() {
+                        "latest".to_string()
+                    } else {
+                        slug
+                    };
                     let name = str_of(get(row, "name").unwrap_or(&Value::Null));
                     cats.push(category_json(&slug, &name));
                 }
@@ -262,7 +267,11 @@ pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
     };
     let title = {
         let t = str_of(get(&alb, "name").unwrap_or(&Value::Null));
-        if t.is_empty() { aid.to_string() } else { t }
+        if t.is_empty() {
+            aid.to_string()
+        } else {
+            t
+        }
     };
     let desc = str_of(get(&alb, "description").unwrap_or(&Value::Null));
     let series = get(&alb, "series").and_then(|v| v.as_array()).cloned();

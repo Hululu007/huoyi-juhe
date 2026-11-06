@@ -28,15 +28,11 @@ const CATEGORIES: [&str; 7] = [
 static LIST_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"<h2 class="entry-title"><a href="https://1000novel\.com/(\d{4}/\d{2}/\d{2}/[^"/]+/)"[^>]*>(.*?)</a></h2>"#).unwrap()
 });
-static TITLE_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?s)<h1[^>]*>(.*?)</h1>").unwrap());
-static PARA_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?s)<p[^>]*>(.*?)</p>").unwrap());
+static TITLE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?s)<h1[^>]*>(.*?)</h1>").unwrap());
+static PARA_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?s)<p[^>]*>(.*?)</p>").unwrap());
 static TAG_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"<[^>]+>").unwrap());
-static BR_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)<br\s*/?>").unwrap());
-static CLOSE_P_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)</p\s*>").unwrap());
+static BR_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)<br\s*/?>").unwrap());
+static CLOSE_P_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)</p\s*>").unwrap());
 
 /// 单次字符实体解码：与 Python html.unescape 一致（单遍、未知实体不动）。
 fn unescape(s: &str) -> String {
@@ -232,10 +228,7 @@ pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
     let url = if category_id.is_empty() {
         format!("{BASE_URL}/")
     } else {
-        let path = format!(
-            "/category/{}/",
-            percent_encode_segment(category_id)
-        );
+        let path = format!("/category/{}/", percent_encode_segment(category_id));
         if page > 1 {
             format!("{BASE_URL}{path}page/{page}/")
         } else {
@@ -261,11 +254,7 @@ pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
     let total = page_count(path, &page);
     let mut episodes = Vec::new();
     if total <= 1 {
-        episodes.push(episode_json(
-            &format!("1000novel:{path}:1"),
-            "全集",
-            path,
-        ));
+        episodes.push(episode_json(&format!("1000novel:{path}:1"), "全集", path));
     } else {
         for n in 1..=total {
             episodes.push(episode_json(

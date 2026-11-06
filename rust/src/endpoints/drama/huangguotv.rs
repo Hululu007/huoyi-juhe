@@ -27,9 +27,7 @@ use std::sync::OnceLock;
 
 use crate::error::{ApiError, ApiResult};
 
-use super::{
-    arr_of, category_json, client, episode_json, get, int_of, item_json, str_of, text_of,
-};
+use super::{arr_of, category_json, client, episode_json, get, int_of, item_json, str_of, text_of};
 
 const HOST: &str = "https://huangguotv.com";
 const MEDIA: &str = "https://media.huangguotv.com";
@@ -401,7 +399,10 @@ mod tests {
         let items = parse_cards(CARD_HTML);
         assert_eq!(items.len(), 2);
         assert_eq!(items[0]["id"], "1654747");
-        assert_eq!(items[0]["title"], "《爸爸出差那几天》1-8 妈妈阿姨妹妹操了个遍");
+        assert_eq!(
+            items[0]["title"],
+            "《爸爸出差那几天》1-8 妈妈阿姨妹妹操了个遍"
+        );
         assert!(items[0]["cover"]
             .as_str()
             .unwrap()
@@ -436,10 +437,7 @@ mod tests {
     fn catalog_url_shapes() {
         assert_eq!(catalog_url("home", 1), "https://huangguotv.com");
         assert_eq!(catalog_url("home", 2), "https://huangguotv.com?page=2");
-        assert_eq!(
-            catalog_url("33", 1),
-            "https://huangguotv.com/category/33"
-        );
+        assert_eq!(catalog_url("33", 1), "https://huangguotv.com/category/33");
         assert_eq!(
             catalog_url("ai", 3),
             "https://huangguotv.com/videos/ai?page=3"

@@ -23,27 +23,20 @@ const CATEGORIES: [(&str, &str); 5] = [
     ("sex-in-the-city", "都市生活"),
 ];
 
-static MAIN_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?s)<main[^>]*>(.*?)</main>").unwrap());
+static MAIN_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?s)<main[^>]*>(.*?)</main>").unwrap());
 static LIST_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"href=https://69story\.com/(article/\d+-[^\s>]+)[^>]*>(.*?)</a>")
-        .unwrap()
+    Regex::new(r"href=https://69story\.com/(article/\d+-[^\s>]+)[^>]*>(.*?)</a>").unwrap()
 });
-static TITLE_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?s)<h1[^>]*class="entry-title"[^>]*>(.*?)</h1>"#).unwrap()
-});
-static BODY_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?s)<div class=entry-content>(.*?)</div>\s*<div").unwrap()
-});
+static TITLE_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?s)<h1[^>]*class="entry-title"[^>]*>(.*?)</h1>"#).unwrap());
+static BODY_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?s)<div class=entry-content>(.*?)</div>\s*<div").unwrap());
 static BODY_FALLBACK_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?s)<div class=entry-content>(.*)").unwrap());
-static NUM_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"article/(\d+)-").unwrap());
+static NUM_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"article/(\d+)-").unwrap());
 static TAG_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"<[^>]+>").unwrap());
-static BR_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)<br\s*/?>").unwrap());
-static CLOSE_P_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)</p\s*>").unwrap());
+static BR_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)<br\s*/?>").unwrap());
+static CLOSE_P_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)</p\s*>").unwrap());
 
 fn unescape(s: &str) -> String {
     if !s.contains('&') {
@@ -296,9 +289,6 @@ mod tests {
 
     #[test]
     fn clean_text_breaks_and_unescapes() {
-        assert_eq!(
-            clean_text("<p>甲<br/>乙</p><p>&nbsp;丙</p>"),
-            "甲\n乙\n丙"
-        );
+        assert_eq!(clean_text("<p>甲<br/>乙</p><p>&nbsp;丙</p>"), "甲\n乙\n丙");
     }
 }

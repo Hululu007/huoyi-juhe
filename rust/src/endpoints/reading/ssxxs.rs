@@ -34,22 +34,16 @@ const CATEGORIES: [(&str, &str); 11] = [
 ];
 
 static TAG_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"<[^>]+>").unwrap());
-static BR_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)<br[^>]*>").unwrap());
-static ROW_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"/artdetail-(\d+)\.html" title="([^"]+)""#).unwrap()
-});
-static DATE_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"<span class="r">([^<]+)</span>"#).unwrap()
-});
-static TITLE_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?s)<div class="article-title">\s*『(.*?)』\s*</div>"#).unwrap()
-});
-static BODY_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?s)<div class="artcontent">(.*?)</div>"#).unwrap()
-});
-static DIGITS_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(\d+)").unwrap());
+static BR_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)<br[^>]*>").unwrap());
+static ROW_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"/artdetail-(\d+)\.html" title="([^"]+)""#).unwrap());
+static DATE_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"<span class="r">([^<]+)</span>"#).unwrap());
+static TITLE_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?s)<div class="article-title">\s*『(.*?)』\s*</div>"#).unwrap());
+static BODY_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?s)<div class="artcontent">(.*?)</div>"#).unwrap());
+static DIGITS_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(\d+)").unwrap());
 
 async fn fetch(url: &str) -> String {
     let resp = match client() {

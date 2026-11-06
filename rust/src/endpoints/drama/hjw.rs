@@ -163,7 +163,9 @@ async fn site() -> ApiResult<String> {
             Err(e) => last_err = e.to_string(),
         }
     }
-    Err(ApiError::Internal(format!("海角网全部域名不通：{last_err}")))
+    Err(ApiError::Internal(format!(
+        "海角网全部域名不通：{last_err}"
+    )))
 }
 
 async fn page(url: &str, referer: &str) -> ApiResult<String> {

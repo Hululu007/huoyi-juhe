@@ -49,9 +49,7 @@ use serde_json::{json, Value};
 
 use crate::error::{ApiError, ApiResult};
 
-use super::{
-    arr_of, category_json, client, episode_json, get, int_of, item_json, str_of, text_of,
-};
+use super::{arr_of, category_json, client, episode_json, get, int_of, item_json, str_of, text_of};
 
 const BASE: &str = "https://sjgyoptiq.hjfwoz.com";
 const S3: &str = "https://soost.hnxyjws.com";
@@ -233,15 +231,12 @@ async fn call_once(
             return Ok(v);
         }
     }
-    serde_json::from_str(&text)
-        .map_err(|_| ApiError::Internal("欢爱返回非 JSON".into()))
+    serde_json::from_str(&text).map_err(|_| ApiError::Internal("欢爱返回非 JSON".into()))
 }
 
 /// 匿名自动注册：每位访客进站即注册（不走验证码），得 token + 新邀请码。
 async fn register() -> ApiResult<Session> {
-    let body = format!(
-        "{{\"inviteCode\":\"{INVITE_CODE}\",\"sourceUrl\":null}}"
-    );
+    let body = format!("{{\"inviteCode\":\"{INVITE_CODE}\",\"sourceUrl\":null}}");
     let v = call("POST", "/api/user/register", Some(&body), None).await?;
     let data = check_envelope(&v)?;
     let token = text_of(&data, &["token"]);
@@ -268,7 +263,9 @@ async fn session() -> ApiResult<Session> {
 async fn balance(token: &str) -> ApiResult<f64> {
     let v = call("GET", "/api/user/home", None, Some(token)).await?;
     let data = check_envelope(&v)?;
-    let ca = get(&data, "readCoinAccount").cloned().unwrap_or(Value::Null);
+    let ca = get(&data, "readCoinAccount")
+        .cloned()
+        .unwrap_or(Value::Null);
     Ok(get(&ca, "availableAmount")
         .and_then(|n| n.as_f64())
         .unwrap_or(0.0))
@@ -518,7 +515,11 @@ pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
     let blurb = text_of(&data, &["vodBlurb"]);
     let duration = text_of(&data, &["vodDuration"]);
     let hits = int_of(&data, &["vodHits"]);
-    let mut synopsis = if blurb.is_empty() { title.clone() } else { blurb };
+    let mut synopsis = if blurb.is_empty() {
+        title.clone()
+    } else {
+        blurb
+    };
     if !tag.is_empty() {
         synopsis = format!("{synopsis}\n标签：{tag}");
     }
@@ -528,18 +529,16 @@ pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
     if !duration.is_empty() {
         synopsis = format!("{synopsis}\n片长：{duration}");
     }
-    let price = get(&data, "vodCoinPrice").and_then(|n| n.as_f64()).unwrap_or(0.0);
+    let price = get(&data, "vodCoinPrice")
+        .and_then(|n| n.as_f64())
+        .unwrap_or(0.0);
     if price > 0.0 {
         synopsis = format!("{synopsis}\n价格：{price:.0}金币/片");
     }
     let play_url = text_of(&data, &["vodPlayUrl"]);
     let mut episodes: Vec<Value> = Vec::new();
     for (i, (name, _)) in watch_lines(&play_url).iter().enumerate() {
-        episodes.push(episode_json(
-            &format!("{vod_id}#{i}"),
-            name,
-            vod_id,
-        ));
+        episodes.push(episode_json(&format!("{vod_id}#{i}"), name, vod_id));
     }
     Ok(json!({
         "id": vod_id,
@@ -554,13 +553,7 @@ pub(crate) async fn search(query: &str) -> ApiResult<Value> {
     let sess = session().await?;
     let q = query.trim().replace('\\', "\\\\").replace('"', "\\\"");
     let body = format!("{{\"currentPage\":1,\"words\":\"{q}\"}}");
-    let v = call(
-        "POST",
-        "/api/film-b/search",
-        Some(&body),
-        Some(&sess.token),
-    )
-    .await?;
+    let v = call("POST", "/api/film-b/search", Some(&body), Some(&sess.token)).await?;
     let data = check_envelope(&v)?;
     let items: Vec<Value> = match &data {
         Value::Array(arr) => arr.iter().filter_map(card).collect(),
@@ -654,18 +647,32 @@ mod tests {
 
     #[test]
     fn caesar_decode_real_body() {
-        let raw = "{\n \"code\": 0,\n \"data\": {\n  \"s3Url\": \"https://soost.hnxyjws.com\"\n }\n}";
+        let raw =
+            "{\n \"code\": 0,\n \"data\": {\n  \"s3Url\": \"https://soost.hnxyjws.com\"\n }\n}";
         let b64: String = {
-            const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+            const ALPHABET: &[u8] =
+                b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
             let bytes = raw.as_bytes();
             let mut out = String::new();
             for chunk in bytes.chunks(3) {
-                let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+                let b = [
+                    chunk[0],
+                    *chunk.get(1).unwrap_or(&0),
+                    *chunk.get(2).unwrap_or(&0),
+                ];
                 let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
                 out.push(ALPHABET[(n >> 18) as usize & 63] as char);
                 out.push(ALPHABET[(n >> 12) as usize & 63] as char);
-                out.push(if chunk.len() > 1 { ALPHABET[(n >> 6) as usize & 63] as char } else { '=' });
-                out.push(if chunk.len() > 2 { ALPHABET[n as usize & 63] as char } else { '=' });
+                out.push(if chunk.len() > 1 {
+                    ALPHABET[(n >> 6) as usize & 63] as char
+                } else {
+                    '='
+                });
+                out.push(if chunk.len() > 2 {
+                    ALPHABET[n as usize & 63] as char
+                } else {
+                    '='
+                });
             }
             out
         };
@@ -743,10 +750,7 @@ mod tests {
             "https://soost.hnxyjws.com/vod/abc/c.dat"
         );
         assert_eq!(cover_url(""), "");
-        assert_eq!(
-            cover_url("https://x.y/z.jpg"),
-            "https://x.y/z.jpg"
-        );
+        assert_eq!(cover_url("https://x.y/z.jpg"), "https://x.y/z.jpg");
     }
 
     #[test]

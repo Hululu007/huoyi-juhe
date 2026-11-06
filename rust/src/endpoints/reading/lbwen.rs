@@ -32,25 +32,19 @@ const CATEGORIES: [(&str, &str); 11] = [
 ];
 
 static TAG_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"<[^>]+>").unwrap());
-static SCRIPT_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?s)<script[^>]*>.*?</script>").unwrap());
-static STYLE_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?s)<style[^>]*>.*?</style>").unwrap());
-static BR_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)<br\s*/?>").unwrap());
-static CLOSE_P_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)</p\s*>").unwrap());
-static SPACE_RUN_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"[ \t]+").unwrap());
+static SCRIPT_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?s)<script[^>]*>.*?</script>").unwrap());
+static STYLE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?s)<style[^>]*>.*?</style>").unwrap());
+static BR_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)<br\s*/?>").unwrap());
+static CLOSE_P_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)</p\s*>").unwrap());
+static SPACE_RUN_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"[ \t]+").unwrap());
 static WS_RUN_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s+").unwrap());
 static ROW_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"<dt>\s*<span[^>]*>[^<]*</span>\s*<a href="/artdetail-(\d+)\.html">([^<]+)</a>"#).unwrap()
-});
-static TITLE_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?s)<title>(.*?)</title>").unwrap());
-static BODY_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?s)<div class="Readarea ReadAjax_content"[^>]*>(.*?)</div>"#)
+    Regex::new(r#"<dt>\s*<span[^>]*>[^<]*</span>\s*<a href="/artdetail-(\d+)\.html">([^<]+)</a>"#)
         .unwrap()
+});
+static TITLE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?s)<title>(.*?)</title>").unwrap());
+static BODY_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(?s)<div class="Readarea ReadAjax_content"[^>]*>(.*?)</div>"#).unwrap()
 });
 
 async fn fetch(url: &str) -> String {

@@ -27,17 +27,13 @@
 //! 中继回整文件 audio/mp4（3 条音频缓存，Range 头目前只给 /src
 //! 静态路用，此路无 Range，播放器在缓冲内 seek）。
 
-#[path = "1000novel.rs"]
-mod novel1000;
-#[path = "55comics.rs"]
-mod comics55;
-#[path = "69story.rs"]
-mod story69;
 mod aabook;
 mod buliang;
 mod canovel;
 mod cheniyo;
 mod cjg;
+#[path = "55comics.rs"]
+mod comics55;
 mod csmanhua;
 mod dongmanla;
 mod h528;
@@ -54,8 +50,12 @@ mod lbwen;
 mod mhbl;
 mod modu18;
 mod nnhanman;
-mod ssxxs;
+#[path = "1000novel.rs"]
+mod novel1000;
 mod shuyinfm;
+mod ssxxs;
+#[path = "69story.rs"]
+mod story69;
 mod tencent;
 mod tingyou;
 mod ximalaya;
@@ -129,7 +129,9 @@ fn handle_categories<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, Api
             "hysxs" => hysxs::categories().await,
             "ximalaya" => ximalaya::categories().await,
             "hongguo" => hongguo::categories().await,
-            other => Err(ApiError::BadRequest(format!("unknown reading site: {other}"))),
+            other => Err(ApiError::BadRequest(format!(
+                "unknown reading site: {other}"
+            ))),
         }
     })
 }
@@ -171,7 +173,9 @@ fn handle_catalog<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiRes
             "hysxs" => hysxs::catalog(&category_id, page).await,
             "ximalaya" => ximalaya::catalog(&category_id, page).await,
             "hongguo" => hongguo::catalog(&category_id, page).await,
-            other => Err(ApiError::BadRequest(format!("unknown reading site: {other}"))),
+            other => Err(ApiError::BadRequest(format!(
+                "unknown reading site: {other}"
+            ))),
         }
     })
 }
@@ -215,7 +219,9 @@ fn handle_detail<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResu
             "hysxs" => hysxs::detail(&id).await,
             "ximalaya" => ximalaya::detail(&id).await,
             "hongguo" => hongguo::detail(&id).await,
-            other => Err(ApiError::BadRequest(format!("unknown reading site: {other}"))),
+            other => Err(ApiError::BadRequest(format!(
+                "unknown reading site: {other}"
+            ))),
         }
     })
 }
@@ -259,7 +265,9 @@ fn handle_search<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResu
             "hysxs" => hysxs::search(&query).await,
             "ximalaya" => ximalaya::search(&query).await,
             "hongguo" => hongguo::search(&query).await,
-            other => Err(ApiError::BadRequest(format!("unknown reading site: {other}"))),
+            other => Err(ApiError::BadRequest(format!(
+                "unknown reading site: {other}"
+            ))),
         }
     })
 }
@@ -317,7 +325,9 @@ fn handle_play<'a>(ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResult<
             "hysxs" => hysxs::play(&video_id).await,
             "ximalaya" => ximalaya::play(&video_id).await,
             "hongguo" => hongguo::play(&video_id).await,
-            other => Err(ApiError::BadRequest(format!("unknown reading site: {other}"))),
+            other => Err(ApiError::BadRequest(format!(
+                "unknown reading site: {other}"
+            ))),
         };
         let mut value = result?;
         if site_name == "hongguo" {
@@ -340,10 +350,7 @@ fn handle_play<'a>(ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResult<
 /// 红果听书中继：book/item/tone 三参 → hg_audio_bytes（签名
 /// playurl → 下载整文件 → CENC 解密 → 3 条缓存）→ 整文件
 /// audio/mp4 流出（无 Range，见模块头说明）。
-fn handle_hg_audio<'a>(
-    _ctx: &'a Ctx,
-    params: &'a Params,
-) -> BoxFuture<'a, ApiResult<RawOut>> {
+fn handle_hg_audio<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResult<RawOut>> {
     let book = params.get_str("book");
     let item = params.get_str("item");
     let tone = params.get_str("tone");

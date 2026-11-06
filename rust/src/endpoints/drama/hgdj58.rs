@@ -208,9 +208,7 @@ async fn api_post(path: &str, body: Option<&str>) -> (u16, Value) {
             if status == 200 {
                 return (status, v);
             }
-            if (status == 401 || status == 403)
-                && (err_code(&v) == 4005 || err_code(&v) == 4003)
-            {
+            if (status == 401 || status == 403) && (err_code(&v) == 4005 || err_code(&v) == 4003) {
                 if guest_login().await {
                     let (s2, v2) = post_once(origin, path, body).await;
                     if s2 != 0 {
@@ -280,8 +278,7 @@ fn card_fields(v: &Value) -> (String, String, String, String) {
 }
 
 async fn cards_with_covers(list: &[Value]) -> Vec<Value> {
-    let fields: Vec<(String, String, String, String)> =
-        list.iter().map(card_fields).collect();
+    let fields: Vec<(String, String, String, String)> = list.iter().map(card_fields).collect();
     let covers = join_all(fields.iter().map(|(_, _, thumb, _)| resolve_cover(thumb))).await;
     fields
         .into_iter()
@@ -318,8 +315,7 @@ pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
     let page = if page < 1 { 1 } else { page };
     let mut path = format!("/dramas/home?page={page}&page_size=30&order=hot");
     if category_id != "home" && !category_id.is_empty() {
-        let enc =
-            url::form_urlencoded::byte_serialize(category_id.as_bytes()).collect::<String>();
+        let enc = url::form_urlencoded::byte_serialize(category_id.as_bytes()).collect::<String>();
         path.push_str(&format!("&category_id={enc}"));
     }
     let v = api_get(&path).await;
@@ -513,7 +509,9 @@ mod tests {
         let items = list_of(&v);
         assert_eq!(items.len(), 3);
         assert_eq!(text_of(&items[0], &["access_type"]), "free");
-        assert!(!get(&items[0], "locked").and_then(|b| b.as_bool()).unwrap_or(true));
+        assert!(!get(&items[0], "locked")
+            .and_then(|b| b.as_bool())
+            .unwrap_or(true));
         assert_eq!(int_of(&items[2], &["coin_price"]), 49);
     }
 

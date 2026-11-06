@@ -115,8 +115,9 @@ fn pct_encode_query(s: &str) -> String {
     let mut out = String::new();
     for b in s.as_bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~'
-            | b'/' => out.push(*b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
+                out.push(*b as char)
+            }
             _ => out.push_str(&format!("%{b:02X}")),
         }
     }
@@ -413,10 +414,7 @@ fn topic_id_of(series_id: &str) -> String {
 }
 
 fn find_nickname(body: &str, param: &str) -> String {
-    let pat = format!(
-        r#"{}\.nickname="((?:[^"\\]|\\.)*)""#,
-        regex::escape(param)
-    );
+    let pat = format!(r#"{}\.nickname="((?:[^"\\]|\\.)*)""#, regex::escape(param));
     match must_re(&pat).captures(body) {
         Some(caps) => decode_js_string(&caps[1]),
         None => String::new(),
@@ -539,8 +537,7 @@ fn parse_search_items(html: &str) -> Vec<Value> {
     };
     let mut items = Vec::new();
     for block in section.split("<div class=\"TabW184").skip(1) {
-        let Some(caps) =
-            must_re(r#"href="/web/topic/(\d+)"[^>]*title="([^"]*)""#).captures(block)
+        let Some(caps) = must_re(r#"href="/web/topic/(\d+)"[^>]*title="([^"]*)""#).captures(block)
         else {
             continue;
         };
@@ -549,8 +546,7 @@ fn parse_search_items(html: &str) -> Vec<Value> {
         if title.is_empty() {
             continue;
         }
-        let author = match must_re(r#"(?s)class="author[^"]*"[^>]*>(.*?)</div>"#).captures(block)
-        {
+        let author = match must_re(r#"(?s)class="author[^"]*"[^>]*>(.*?)</div>"#).captures(block) {
             Some(a) => clean_collapse(&a[1]),
             None => String::new(),
         };
@@ -587,7 +583,9 @@ fn parse_chapter_images(html: &str) -> Vec<String> {
 }
 
 pub(crate) async fn categories() -> ApiResult<Value> {
-    Ok(json!({"categories": CATEGORIES.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}))
+    Ok(
+        json!({"categories": CATEGORIES.iter().map(|(id, name)| category_json(id, name)).collect::<Vec<_>>()}),
+    )
 }
 
 pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
@@ -607,8 +605,12 @@ pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
             Ok(json!({"items": items, "has_more": false}))
         }
         "tag" => {
-            let items =
-                parse_tag_items(&fetch(&format!("/tag/{num}?region=&pays=&state=&sort=&page={page}")).await);
+            let items = parse_tag_items(
+                &fetch(&format!(
+                    "/tag/{num}?region=&pays=&state=&sort=&page={page}"
+                ))
+                .await,
+            );
             let has_more = !items.is_empty();
             Ok(json!({"items": items, "has_more": has_more}))
         }
@@ -815,8 +817,12 @@ mod tests {
         assert_eq!(chapters.len(), 100);
         assert_eq!(get_s(&chapters[0], "id"), "147096");
         assert_eq!(get_s(&chapters[0], "title"), "第1话 心悸的小舞");
-        assert!(!is_locked(chapters[0].get("locked").unwrap_or(&Value::Null)));
-        assert!(is_locked(chapters[99].get("locked").unwrap_or(&Value::Null)));
+        assert!(!is_locked(
+            chapters[0].get("locked").unwrap_or(&Value::Null)
+        ));
+        assert!(is_locked(
+            chapters[99].get("locked").unwrap_or(&Value::Null)
+        ));
         assert_eq!(get_s(&chapters[99], "id"), "368991");
     }
 
@@ -871,8 +877,8 @@ mod tests {
             eprintln!("跳过 tag 样本单测：/tmp/kk_tag20.html 不存在（临时样本已清）");
             return;
         }
-        let html = String::from_utf8_lossy(&std::fs::read(path).expect("读 tag 样本失败"))
-            .into_owned();
+        let html =
+            String::from_utf8_lossy(&std::fs::read(path).expect("读 tag 样本失败")).into_owned();
         let items = parse_tag_items(&html);
         assert_eq!(items.len(), 47);
         assert_eq!(items[0]["id"], "13455");
