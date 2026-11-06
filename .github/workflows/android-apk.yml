@@ -293,6 +293,27 @@ jobs:
       - name: Resolve Dart package dependencies
         run: flutter pub get --enforce-lockfile
 
+      - name: Restore TG pre-seeded session (build-time only)
+        # TG影视库预置登录会话：完整的 Telegram 登录态，绝不提交进 git。
+        # 由仓库密钥 TG_SESSION_JSON_B64（session.json 的 base64）解出，
+        # 只写到构建期临时文件 assets/tgdrama_session.json。
+        # 密钥未设时构建失败（pubspec 要求该 asset 存在），须先在仓库
+        # Settings → Secrets 里加 TG_SESSION_JSON_B64；生成办法见
+        # ~/workspace/tgdrama_work/convert_telethon_session.py。
+        # 注意：此文件不进 git、不进产物日志；构建完的 APK 只私发用户一人。
+        # 位置：必须在 pub get 之后、所有 flutter 命令之前——FFI 集成测试
+        #（flutter test）与 APK 编译都要打包 asset，缺文件会报
+        # Failed to build asset bundle。
+        env:
+          TG_SESSION_JSON_B64: ${{ secrets.TG_SESSION_JSON_B64 }}
+        run: |
+          if [ -z "$TG_SESSION_JSON_B64" ]; then
+            echo "TG_SESSION_JSON_B64 secret is not set; cannot build the pre-seeded TG session asset." >&2
+            exit 1
+          fi
+          printf '%s' "$TG_SESSION_JSON_B64" | base64 -d > assets/tgdrama_session.json
+          chmod 600 assets/tgdrama_session.json
+
       - name: Rust formatting
         run: |
           mapfile -t sources < <(
@@ -458,23 +479,6 @@ jobs:
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.11'
-      - name: Restore TG pre-seeded session (build-time only)
-        # TG影视库预置登录会话：完整的 Telegram 登录态，绝不提交进 git。
-        # 由仓库密钥 TG_SESSION_JSON_B64（session.json 的 base64）解出，
-        # 只写到构建期临时文件 assets/tgdrama_session.json。
-        # 密钥未设时构建失败（pubspec 要求该 asset 存在），须先在仓库
-        # Settings → Secrets 里加 TG_SESSION_JSON_B64；生成办法见
-        # ~/workspace/tgdrama_work/convert_telethon_session.py。
-        # 注意：此文件不进 git、不进产物日志；构建完的 APK 只私发用户一人。
-        env:
-          TG_SESSION_JSON_B64: ${{ secrets.TG_SESSION_JSON_B64 }}
-        run: |
-          if [ -z "$TG_SESSION_JSON_B64" ]; then
-            echo "TG_SESSION_JSON_B64 secret is not set; cannot build the pre-seeded TG session asset." >&2
-            exit 1
-          fi
-          printf '%s' "$TG_SESSION_JSON_B64" | base64 -d > assets/tgdrama_session.json
-          chmod 600 assets/tgdrama_session.json
       - name: Compile release APK (ARM64 only)
         # Single architecture: arm64-v8a only. Chaquopy requires
         # ndk.abiFilters, which AGP rejects whenever per-ABI splits are
