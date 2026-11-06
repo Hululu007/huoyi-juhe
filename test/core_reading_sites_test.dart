@@ -8,8 +8,8 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  testWidgets('核心阅读站：27 个，成人 18 个，类型全覆盖', (tester) async {
-    expect(coreReadingSiteIds.length, 27);
+  testWidgets('核心阅读站：31 个，成人 18 个，类型全覆盖', (tester) async {
+    expect(coreReadingSiteIds.length, 31);
     expect(coreAdultReadingSiteIds.length, 18);
     expect(coreAdultReadingSiteIds.difference(coreReadingSiteIds), isEmpty);
     for (final id in coreReadingSiteIds) {
@@ -26,11 +26,11 @@ void main() {
     );
     expect(
       coreReadingSiteIds.where((id) => coreReadingKinds[id] == 'comic').length,
-      8,
+      11,
     );
     expect(
       coreReadingSiteIds.where((id) => coreReadingKinds[id] == 'audio').length,
-      5,
+      6,
     );
     expect(
       coreAdultReadingSiteIds
@@ -52,7 +52,7 @@ void main() {
     );
   });
 
-  testWidgets('核心阅读客户端工厂：27 站有客户端，未知站回空', (tester) async {
+  testWidgets('核心阅读客户端工厂：31 站有客户端，未知站回空', (tester) async {
     for (final id in coreReadingSiteIds) {
       expect(readingSiteContentClient(id), isNotNull, reason: id);
     }

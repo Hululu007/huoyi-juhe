@@ -193,6 +193,12 @@ void main() {
   });
 
   Future<void> pumpPage(WidgetTester tester) async {
+    // 页面加了 TDLib 区后变高，默认 800x600 视口装不下，ListView 不会
+    // 构建屏外的插件手机号区；测前把视口拉高，整个页面一次可见。
+    tester.view.physicalSize = const Size(800, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(
       MaterialApp(
         home: TgdramaLoginPage(
@@ -210,6 +216,10 @@ void main() {
     WidgetTester tester,
     FakeTdlibService fakeTdlib,
   ) async {
+    tester.view.physicalSize = const Size(800, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(
       MaterialApp(
         home: TgdramaLoginPage(

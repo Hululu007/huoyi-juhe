@@ -138,7 +138,10 @@ void main() {
     final readout = find.byKey(const ValueKey('reading-heatmap-day'));
     expect(tester.widget<Text>(readout).data, '今天 · 1分钟');
     // Column 0 is fifteen weeks back, so its Monday is never today.
-    await tester.tap(find.byKey(const ValueKey('reading-heatmap-cell-0')));
+    final cell = find.byKey(const ValueKey('reading-heatmap-cell-0'));
+    await tester.scrollUntilVisible(cell, 200);
+    await _dragIntoView(tester, cell);
+    await tester.tap(cell);
     await tester.pump();
     expect(tester.widget<Text>(readout).data, endsWith(' · 未阅读'));
     expect(find.text('今天 · 1分钟'), findsNothing);
@@ -199,6 +202,7 @@ void main() {
     await tester.pumpAndSettle();
     final showAll = find.text('全部');
     await tester.scrollUntilVisible(showAll, 200);
+    await _dragIntoView(tester, showAll);
     expect(find.text('听书 book6'), findsNothing, reason: 'preview stops at 5');
     await tester.tap(showAll);
     await tester.pumpAndSettle();
@@ -225,6 +229,32 @@ void main() {
   });
 }
 
+/// Drags until [finder] is fully inside the MinePage ListView viewport.
+///
+/// scrollUntilVisible stops as soon as the target is built, but the list
+/// underestimates its max scroll extent while trailing items are still
+/// unbuilt, so the target can end up one row below the fold; a further
+/// drag rebuilds the trailing items and reveals it. Direction follows
+/// which edge the target is past, so an overshoot is corrected too.
+Future<void> _dragIntoView(WidgetTester tester, Finder finder) async {
+  final listView = find.byType(ListView).first;
+  for (var i = 0; i < 6; i++) {
+    if (finder.evaluate().isEmpty) return;
+    final box = tester.renderObject<RenderBox>(finder);
+    final rect = box.localToGlobal(Offset.zero) & box.size;
+    final listTop = tester.getTopLeft(listView).dy;
+    final viewport = tester
+        .state<ScrollableState>(find.byType(Scrollable).first)
+        .position
+        .viewportDimension;
+    final bottom = listTop + viewport;
+    if (rect.top >= listTop && rect.bottom <= bottom) return;
+    final dy = rect.bottom > bottom ? -200.0 : 200.0;
+    await tester.drag(listView, Offset(0, dy));
+    await tester.pump();
+  }
+}
+
 /// Taps a 读得最多 row and returns the detail page it pushed.
 Future<DetailPage> _openRankedTitle(WidgetTester tester, String title) async {
   final observer = _RouteObserver();
@@ -235,17 +265,7 @@ Future<DetailPage> _openRankedTitle(WidgetTester tester, String title) async {
   await tester.pumpAndSettle();
   final row = find.text(title);
   await tester.scrollUntilVisible(row, 200);
-  // TEMP-DBG v4: extra drags + ListView global rect
-  ScrollPosition dbgPos() => tester
-      .state<ScrollableState>(find.byType(Scrollable).first)
-      .position;
-  for (var i = 0; i < 4; i++) {
-    final lvTop = tester.getTopLeft(find.byType(ListView).first).dy;
-    // ignore: avoid_print
-    print('DBG $title extra$i: center=${row.evaluate().isEmpty ? 'none' : tester.getCenter(row)} lvTop=$lvTop pixels=${dbgPos().pixels} max=${dbgPos().maxScrollExtent}');
-    await tester.drag(find.byType(ListView).first, const Offset(0, -200));
-    await tester.pump();
-  }
+  await _dragIntoView(tester, row);
   final context = tester.element(find.byType(MinePage));
   await tester.tap(row);
   await tester.pump();

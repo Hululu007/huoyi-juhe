@@ -731,5 +731,17 @@ jobs:
       # --concurrency defaults to half the cores; it was pinned to 2 when this
       # ran alongside the Rust cross-compile in one runner. Here the suite owns
       # the whole 4-vCPU machine, so 4 keeps every core busy.
+      - name: Install CJK test font
+        # 预览/金图测试要读 /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc；
+        # ubuntu-24.04 跑机默认没装，缺了报 PathNotFoundException。
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq fonts-noto-cjk
+
       - name: Test
-        run: flutter test --no-pub --concurrency=4 --reporter compact
+        # tdlib_service_test 用 --dart-define 注入的假凭证（12345/testhash，
+        # 只是测试替身、不是真密钥）；不传时 TgdramaCredentials.hasCredentials
+        # 为假，initialize 抛“缺少 Telegram 凭证”致测试失败。
+        run: >-
+          flutter test --no-pub --concurrency=4 --reporter compact
+          --dart-define=TG_API_ID=12345 --dart-define=TG_API_HASH=testhash
