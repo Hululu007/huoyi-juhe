@@ -696,6 +696,21 @@ jobs:
       - name: Resolve Dart package dependencies
         run: flutter pub get --enforce-lockfile
 
+      - name: Restore TG pre-seeded session (build-time only)
+        # 与 apk job 同一步：pubspec 声明了 assets/tgdrama_session.json，
+        # analyze 会校验 asset 存在；该文件 .gitignore 隔离不进仓，
+        # 须先从仓库密钥 TG_SESSION_JSON_B64 解出，否则 analyze 报
+        # asset_does_not_exist 失败。
+        env:
+          TG_SESSION_JSON_B64: ${{ secrets.TG_SESSION_JSON_B64 }}
+        run: |
+          if [ -z "$TG_SESSION_JSON_B64" ]; then
+            echo "TG_SESSION_JSON_B64 secret is not set; cannot build the pre-seeded TG session asset." >&2
+            exit 1
+          fi
+          printf '%s' "$TG_SESSION_JSON_B64" | base64 -d > assets/tgdrama_session.json
+          chmod 600 assets/tgdrama_session.json
+
       - name: Analyze
         run: flutter analyze --no-pub
 
