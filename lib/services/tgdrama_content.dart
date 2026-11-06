@@ -188,6 +188,114 @@ class TgdramaContentClient implements DramaSiteContentClient {
     return total < 0 ? 0 : total;
   }
 
+  /// 频道解析：顶层 {list:[...], enabled, syncing}，裸数组也接受。
+  /// 单条字段：tg_chat_id（没有就跳过）、name（没有回退“频道 + id”）、
+  /// type、username、enabled、message_count、source_count、syncing。
+  /// id 用 channel: 前缀，detail() 靠它识别频道。封面频道没有，
+  /// 备注写消息数与视频来源数，未启用的加“未启用”。
+  static List<DramaSiteItem> parseChats(dynamic decoded) {
+    final rows = _chatRows(decoded);
+    final seen = <String>{};
+    final items = <DramaSiteItem>[];
+    for (final entry in rows) {
+      final node = _asMap(entry);
+      final tgChatId = _stringOf(
+        node['tg_chat_id'] ??
+            node['tgChatId'] ??
+            node['chat_id'] ??
+            node['id'],
+      );
+      if (tgChatId.isEmpty || tgChatId == '0' || !seen.add(tgChatId)) {
+        continue;
+      }
+      final name = _stringOf(node['name']);
+      items.add(
+        DramaSiteItem(
+          id: '$_channelItemPrefix$tgChatId',
+          title: name.isEmpty ? '频道 $tgChatId' : name,
+          cover: '',
+          remark: _chatRemarkOf(node),
+        ),
+      );
+    }
+    return items;
+  }
+
+  static List<dynamic> _chatRows(dynamic decoded) {
+    if (decoded is List) return decoded;
+    if (decoded is! Map) return const [];
+    for (final key in ['list', 'chats', 'items']) {
+      if (decoded[key] is List) return decoded[key] as List;
+    }
+    final data = _asMap(decoded['data']);
+    if (data.isNotEmpty) {
+      for (final key in ['list', 'chats', 'items']) {
+        if (data[key] is List) return data[key] as List;
+      }
+    }
+    return const [];
+  }
+
+  /// 频道备注：消息数、视频来源数；类型不是 channel 时写类型；
+  /// 未启用的加“未启用”，同步中的加“同步中”。都没有就不写备注。
+  static String _chatRemarkOf(Map<String, dynamic> node) {
+    final parts = <String>[];
+    final messageCount = _intOf(
+      node['message_count'] ?? node['messageCount'],
+    );
+    if (messageCount > 0) parts.add('$messageCount条消息');
+    final sourceCount = _intOf(node['source_count'] ?? node['sourceCount']);
+    if (sourceCount > 0) parts.add('$sourceCount个视频来源');
+    final type = _stringOf(node['type']);
+    if (type.isNotEmpty && type != 'channel') parts.add(type);
+    if (!_boolOf(node['enabled'])) parts.add('未启用');
+    if (_boolOf(node['syncing'])) parts.add('同步中');
+    return parts.join(' · ');
+  }
+
+  /// 频道详情：标题取 name（没有回退“频道 + id”），简介写频道信息
+  /// 与诚实说明——插件暂未提供按频道列剧的接口，这里还列不出该频道
+  /// 收录的剧，该频道收的剧都在「全部」与标签分类里按剧名聚合。
+  /// 分集为空：频道不是剧，没有可播的分集；详情页对空分集显示
+  /// 空选集区，不会崩。
+  static DramaSiteDetail parseChannelDetail(
+    Map<String, dynamic> node,
+    String tgChatId,
+  ) {
+    final name = _stringOf(node['name']);
+    final title = name.isEmpty ? '频道 $tgChatId' : name;
+    final lines = <String>[];
+    final type = _stringOf(node['type']);
+    lines.add('类型：${type.isEmpty ? '频道' : type}');
+    final username = _stringOf(node['username']);
+    if (username.isNotEmpty) {
+      lines.add('用户名：${username.startsWith('@') ? username : '@$username'}');
+    }
+    lines.add('TG 频道 ID：$tgChatId');
+    final messageCount = _intOf(
+      node['message_count'] ?? node['messageCount'],
+    );
+    final sourceCount = _intOf(node['source_count'] ?? node['sourceCount']);
+    final counts = <String>[];
+    if (messageCount > 0) counts.add('$messageCount条消息');
+    if (sourceCount > 0) counts.add('$sourceCount个视频来源');
+    if (counts.isNotEmpty) lines.add(counts.join(' · '));
+    lines.add(
+      '状态：${_boolOf(node['enabled']) ? '已启用' : '未启用'}${_boolOf(node['syncing']) ? '（同步中）' : ''}',
+    );
+    lines.add('');
+    lines.add(
+      '插件暂未提供按频道列剧的接口，这里还列不出该频道收录的剧；该频道收的剧都在「全部」与标签分类里按剧名聚合。',
+    );
+    return DramaSiteDetail(
+      id: '$_channelItemPrefix$tgChatId',
+      title: title,
+      cover: '',
+      synopsis: lines.join('\n'),
+      episodes: const [],
+    );
+  }
+
   /// 分集解析：videoId 取 id（字符串化）；标题取 name，
   /// 为空时按 episode_no 取“第N集”（episode_no 取
   /// episode_no/episodeNo，没有时按位置 index+1）。
@@ -263,7 +371,20 @@ class TgdramaContentClient implements DramaSiteContentClient {
       if (response.statusCode != 200) {
         return const [DramaSiteCategory('all', '全部')];
       }
-      return parseTags(_decodeJson(response.body, '标签'));
+      final categories = parseTags(_decodeJson(response.body, '标签'));
+      // 「频道」分类挂在最后；已有同 id 标签时不重复加。
+      // 标签失败兜底成裸 [全部] 时不加频道：服务没起来频道也拿不到，
+      // 没有真标签时也不硬挂一个频道分类。
+      if (categories.length == 1 && categories.first.id == 'all') {
+        return categories;
+      }
+      if (!categories.any((c) => c.id == channelsCategoryId)) {
+        return [
+          ...categories,
+          const DramaSiteCategory(channelsCategoryId, channelsCategoryName),
+        ];
+      }
+      return categories;
     } catch (_) {
       return const [DramaSiteCategory('all', '全部')];
     }
@@ -272,6 +393,9 @@ class TgdramaContentClient implements DramaSiteContentClient {
   @override
   Future<DramaSiteCatalogPage> catalog(String categoryId, int page) async {
     await _ensureRunning();
+    if (categoryId == channelsCategoryId) {
+      return _channelsCatalog();
+    }
     final p = page < 1 ? 1 : page;
     final query = <String, String>{'page': '$p'};
     if (categoryId.isNotEmpty && categoryId != 'all') {
@@ -293,9 +417,22 @@ class TgdramaContentClient implements DramaSiteContentClient {
     return DramaSiteCatalogPage(items: items, hasMore: hasMore);
   }
 
+  /// 频道列表：调 /api/chats，一次全量，没有翻页。
+  Future<DramaSiteCatalogPage> _channelsCatalog() async {
+    final response = await _client.get(Uri.parse('$baseUrl/api/chats'));
+    if (response.statusCode != 200) {
+      throw StateError('TG影视库频道 HTTP ${response.statusCode}');
+    }
+    final items = parseChats(_decodeJson(response.body, '频道'));
+    return DramaSiteCatalogPage(items: items, hasMore: false);
+  }
+
   @override
   Future<DramaSiteDetail> detail(String seriesId) async {
     await _ensureRunning();
+    if (seriesId.startsWith(_channelItemPrefix)) {
+      return _channelDetail(seriesId.substring(_channelItemPrefix.length));
+    }
     final response = await _client.get(
       Uri.parse('$baseUrl/api/shows/${Uri.encodeComponent(seriesId)}'),
     );
@@ -303,6 +440,29 @@ class TgdramaContentClient implements DramaSiteContentClient {
       throw StateError('TG影视库详情 HTTP ${response.statusCode}');
     }
     return parseDetail(_decodeJson(response.body, '详情'), seriesId);
+  }
+
+  /// 频道详情：再调一次 /api/chats，按 tg_chat_id 找到该频道，
+  /// 回频道信息详情（分集为空）；找不到抛“找不到该频道”。
+  Future<DramaSiteDetail> _channelDetail(String tgChatId) async {
+    final response = await _client.get(Uri.parse('$baseUrl/api/chats'));
+    if (response.statusCode != 200) {
+      throw StateError('TG影视库频道 HTTP ${response.statusCode}');
+    }
+    final rows = _chatRows(_decodeJson(response.body, '频道'));
+    for (final entry in rows) {
+      final node = _asMap(entry);
+      final id = _stringOf(
+        node['tg_chat_id'] ??
+            node['tgChatId'] ??
+            node['chat_id'] ??
+            node['id'],
+      );
+      if (id == tgChatId) {
+        return parseChannelDetail(node, tgChatId);
+      }
+    }
+    throw StateError('找不到该频道');
   }
 
   @override

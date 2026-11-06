@@ -60,17 +60,23 @@ MockClient _jsonClient(
 
 void main() {
   group('categories 标签解析', () {
-    test('字符串数组成分类', () async {
+    test('字符串数组成分类，末尾多一个「频道」分类', () async {
       final transport = _jsonClient({
         '/api/tags': ['动作', '爱情'],
       });
       addTearDown(transport.close);
       final categories = await _client(transport).categories();
-      expect(categories.map((c) => c.id).toList(), ['动作', '爱情']);
-      expect(categories.map((c) => c.name).toList(), ['动作', '爱情']);
+      expect(
+        categories.map((c) => c.id).toList(),
+        ['动作', '爱情', 'channels'],
+      );
+      expect(
+        categories.map((c) => c.name).toList(),
+        ['动作', '爱情', '频道'],
+      );
     });
 
-    test('含 name/tag 的对象数组：id 取 tag、名取 name', () async {
+    test('含 name/tag 的对象数组：id 取 tag、名取 name，末尾多「频道」', () async {
       final transport = _jsonClient({
         '/api/tags': [
           {'name': '动作', 'tag': 'action'},
@@ -80,11 +86,17 @@ void main() {
       });
       addTearDown(transport.close);
       final categories = await _client(transport).categories();
-      expect(categories.map((c) => c.id).toList(), ['action', 'love']);
-      expect(categories.map((c) => c.name).toList(), ['动作', '爱情']);
+      expect(
+        categories.map((c) => c.id).toList(),
+        ['action', 'love', 'channels'],
+      );
+      expect(
+        categories.map((c) => c.name).toList(),
+        ['动作', '爱情', '频道'],
+      );
     });
 
-    test('空、失败、坏 JSON 都回 [全部]，不抛错', () async {
+    test('空、失败、坏 JSON 都回 [全部]，不抛错、不加「频道」', () async {
       for (final transport in [
         _jsonClient({'/api/tags': []}),
         MockClient((_) async => http.Response('nope', 500)),
@@ -100,6 +112,181 @@ void main() {
       addTearDown(transport.close);
       final categories = await _client(transport, service: down).categories();
       expect(categories.map((c) => c.id).toList(), ['all']);
+    });
+  });
+
+  group('频道分类与列表', () {
+    Map<String, Object?> chatsBody() {
+      return {
+        'list': [
+          {
+            'tg_chat_id': -100111,
+            'name': '剧场一号',
+            'type': 'channel',
+            'username': 'juchang1',
+            'enabled': 1,
+            'message_count': 128,
+            'source_count': 56,
+            'syncing': 0,
+          },
+          {
+            'tg_chat_id': -100222,
+            'name': '',
+            'type': 'channel',
+            'enabled': 0,
+            'message_count': 0,
+            'source_count': 3,
+          },
+          {
+            'tg_chat_id': -100333,
+            'name': '布尔开关',
+            'type': 'group',
+            'enabled': true,
+            'syncing': true,
+            'message_count': 5,
+          },
+          {'name': '缺 tg_chat_id 跳过', 'type': 'channel'},
+          {
+            'tg_chat_id': -100111,
+            'name': '重复 id 跳过',
+            'type': 'channel',
+          },
+        ],
+        'enabled': 2,
+        'syncing': 1,
+      };
+    }
+
+    test('parseChats：id 带 channel: 前缀、名缺省回退、备注拼数', () {
+      final items = TgdramaContentClient.parseChats(chatsBody());
+      expect(items.length, 3);
+      expect(items[0].id, 'channel:-100111');
+      expect(items[0].title, '剧场一号');
+      expect(items[0].cover, '');
+      expect(items[0].remark, '128条消息 · 56个视频来源');
+      expect(items[1].id, 'channel:-100222');
+      expect(items[1].title, '频道 -100222');
+      expect(items[1].remark, '3个视频来源 · 未启用');
+      expect(items[2].id, 'channel:-100333');
+      expect(items[2].title, '布尔开关');
+      expect(items[2].remark, '5条消息 · group · 同步中');
+    });
+
+    test('parseChats 裸数组与 data 包一层也接受', () {
+      final bare = TgdramaContentClient.parseChats([
+        {'tg_chat_id': 7, 'name': '裸数组'},
+      ]);
+      expect(bare.length, 1);
+      expect(bare.first.id, 'channel:7');
+      final wrapped = TgdramaContentClient.parseChats({
+        'data': {
+          'list': [
+            {'tg_chat_id': 8, 'name': '包一层'},
+          ],
+        },
+      });
+      expect(wrapped.length, 1);
+      expect(wrapped.first.id, 'channel:8');
+      expect(TgdramaContentClient.parseChats({'list': 'not a list'}), isEmpty);
+      expect(TgdramaContentClient.parseChats(null), isEmpty);
+    });
+
+    test('catalog(channels) 调 /api/chats、一次全量不翻页', () async {
+      final seen = <Uri>[];
+      final transport = _jsonClient({
+        '/api/chats': chatsBody(),
+      }, onRequest: (request) => seen.add(request.url));
+      addTearDown(transport.close);
+      final page = await _client(transport).catalog('channels', 1);
+      expect(seen.last.path, '/api/chats');
+      expect(seen.last.queryParameters.containsKey('tag'), isFalse);
+      expect(page.items.length, 3);
+      expect(page.items.first.id, 'channel:-100111');
+      expect(page.hasMore, isFalse);
+    });
+
+    test('catalog(channels) 接口失败与坏 JSON 抛带接口名的 StateError', () async {
+      final failing = MockClient((_) async => http.Response('nope', 500));
+      addTearDown(failing.close);
+      await expectLater(
+        _client(failing).catalog('channels', 1),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('TG影视库频道'),
+          ),
+        ),
+      );
+      final badJson = MockClient((_) async => http.Response('{bad json', 200));
+      addTearDown(badJson.close);
+      await expectLater(
+        _client(badJson).catalog('channels', 1),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('TG影视库频道'),
+          ),
+        ),
+      );
+    });
+
+    test('detail(channel:id) 回频道信息详情、分集为空、简介有诚实说明', () async {
+      final transport = _jsonClient({
+        '/api/chats': chatsBody(),
+      });
+      addTearDown(transport.close);
+      final detail = await _client(transport).detail('channel:-100111');
+      expect(detail.id, 'channel:-100111');
+      expect(detail.title, '剧场一号');
+      expect(detail.cover, '');
+      expect(detail.episodes, isEmpty);
+      expect(detail.synopsis, contains('类型：channel'));
+      expect(detail.synopsis, contains('用户名：@juchang1'));
+      expect(detail.synopsis, contains('TG 频道 ID：-100111'));
+      expect(detail.synopsis, contains('128条消息 · 56个视频来源'));
+      expect(detail.synopsis, contains('状态：已启用'));
+      expect(detail.synopsis, contains('插件暂未提供按频道列剧的接口'));
+    });
+
+    test('detail(channel:id) 名空时标题回退、找不到频道抛错', () async {
+      final transport = _jsonClient({
+        '/api/chats': chatsBody(),
+      });
+      addTearDown(transport.close);
+      final client = _client(transport);
+      final detail = await client.detail('channel:-100222');
+      expect(detail.title, '频道 -100222');
+      expect(detail.synopsis, contains('状态：未启用'));
+      await expectLater(
+        client.detail('channel:-100999'),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            '找不到该频道',
+          ),
+        ),
+      );
+    });
+
+    test('服务未启动时频道 catalog/detail 也抛错', () async {
+      final service = _FakeService(running: false, error: '本地服务未拉起');
+      final transport = _jsonClient({
+        '/api/chats': chatsBody(),
+      });
+      addTearDown(transport.close);
+      final client = _client(transport, service: service);
+      await expectLater(
+        client.catalog('channels', 1),
+        throwsA(isA<StateError>()),
+      );
+      await expectLater(
+        client.detail('channel:-100111'),
+        throwsA(isA<StateError>()),
+      );
+      expect(service.calls, 2);
     });
   });
 
