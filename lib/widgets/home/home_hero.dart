@@ -37,6 +37,9 @@ class HomeHero extends StatefulWidget {
   static const String searchHint = '请输入书名或作者名';
 
   /// 官方 `@string/gl`。
+  static const String categoryLabel = '分类';
+
+  /// 官方 `@string/gl`。
   final VoidCallback onSearch;
 
   /// 短剧区站点药丸上显示的站点名。null 时不显示药丸。
@@ -44,6 +47,9 @@ class HomeHero extends StatefulWidget {
 
   /// 站点药丸的点击回调。null 时药丸不可点。
   final VoidCallback? onSiteTap;
+
+  /// 右上角「分类」入口。null 时不占位（与官方 `i_y` gone 一致）。
+  final VoidCallback? onCategory;
 
   /// 搜索框热搜词（`/api/v1/search/cue`）。null 表示不接入——测试与离线
   /// 场景框内保持静态提示语；拉取失败同样回退静态提示语。
@@ -54,6 +60,7 @@ class HomeHero extends StatefulWidget {
     required this.onSearch,
     this.siteName,
     this.onSiteTap,
+    this.onCategory,
     this.cueLoader,
   });
 
@@ -157,6 +164,10 @@ class _HomeHeroState extends State<HomeHero> {
                   ),
                 ),
               ),
+              if (widget.onCategory != null) ...[
+                const SizedBox(width: 16),
+                _categoryPill(palette),
+              ],
             ],
           ),
         ),
@@ -184,6 +195,33 @@ class _HomeHeroState extends State<HomeHero> {
         children: [...previousChildren, ?currentChild],
       ),
       child: word,
+    );
+  }
+
+  /// 搜索行右端的「分类」入口：与搜索框同高同圆角的 40dp 胶囊。
+  Widget _categoryPill(HomePalette palette) {
+    return GestureDetector(
+      key: const Key('home_category_button'),
+      behavior: HitTestBehavior.opaque,
+      onTap: widget.onCategory,
+      child: Container(
+        height: HomeHero.searchBarHeight,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          color: palette.searchBar,
+          borderRadius: BorderRadius.circular(HomeHero.searchBarRadius),
+        ),
+        child: Row(
+          children: [
+            Icon(LucideIcons.layout_grid, size: 15, color: palette.ink),
+            const SizedBox(width: 5),
+            Text(
+              HomeHero.categoryLabel,
+              style: TextStyle(fontSize: 13, color: palette.ink),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

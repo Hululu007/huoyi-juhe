@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'builtin_imported_sites.dart';
 import 'drama_site_content.dart';
 import 'drama_sites.dart';
 import 'engine_site_content.dart';
@@ -252,10 +253,12 @@ class SourceRegistry {
   static const _customKey = 'juhe_custom_sources';
   static const _disabledKey = 'juhe_disabled_builtin_sites';
   static const _deletedBuiltinKey = 'juhe_deleted_builtin_jar';
+  static const _deletedSeedKey = 'juhe_deleted_builtin_seeds';
 
   List<SourceEntry> _custom = const [];
   Set<String> _disabledBuiltin = {};
   Set<String> _deletedBuiltin = {};
+  Set<String> _deletedSeeds = {};
   bool _loaded = false;
 
   List<SourceEntry> get custom => List.unmodifiable(_custom);
@@ -290,6 +293,16 @@ class SourceRegistry {
         final decoded = jsonDecode(deletedRaw);
         if (decoded is List) {
           _deletedBuiltin = {
+            for (final entry in decoded)
+              if (entry is String) entry,
+          };
+        }
+      }
+      final deletedSeedRaw = preferences.getString(_deletedSeedKey);
+      if (deletedSeedRaw != null && deletedSeedRaw.isNotEmpty) {
+        final decoded = jsonDecode(deletedSeedRaw);
+        if (decoded is List) {
+          _deletedSeeds = {
             for (final entry in decoded)
               if (entry is String) entry,
           };
@@ -410,6 +423,81 @@ class SourceRegistry {
     await _persist();
   }
 
+  /// 内置导入站首次启动补进登记表（与 jar 内置站同款规矩）：幂等、
+  /// 已有的不动、用户删过的（墓碑）不再复活。asset 读不到时跳过该站，
+  /// 不阻塞启动；新补的站随后触发一次分类提取。
+  Future<void> ensureBuiltinImportedSites() async {
+    await load();
+    final addedIds = <String>[];
+    for (final seed in builtinImportedSeeds) {
+      if (_deletedSeeds.contains(seed.seedId)) continue;
+      if (_custom.any((e) => e.extra['seedId'] == seed.seedId)) continue;
+      String text;
+      try {
+        text = await rootBundle.loadString(seed.asset);
+      } catch (_) {
+        continue;
+      }
+      try {
+        final directory = await getApplicationSupportDirectory();
+        final sub = seed.kind == SourceKind.pyImport
+            ? 'imported_py'
+            : 'imported_legado';
+        final dir = Directory('${directory.path}/$sub');
+        if (!await dir.exists()) await dir.create(recursive: true);
+        final file = File('${dir.path}/seed_${seed.seedId}_${seed.fileName}');
+        await file.writeAsString(text);
+        final id = 'seed_${seed.seedId}';
+        _custom = [
+          ..._custom,
+          SourceEntry(
+            id: id,
+            name: seed.name,
+            kind: seed.kind,
+            address: seed.fileName,
+            detail: '内置导入站',
+            extra: {
+              'path': file.path,
+              'ext': '',
+              'contentType': 'video',
+              'builtin': true,
+              'seedId': seed.seedId,
+              if (seed.kind == SourceKind.legadoImport) 'hasExplore': true,
+            },
+          ),
+        ];
+        addedIds.add(id);
+      } catch (_) {}
+    }
+    if (addedIds.isEmpty) return;
+    _registerCustomSites();
+    await _persist();
+    for (final id in addedIds) {
+      _triggerCategoryExtraction(id);
+    }
+  }
+
+  /// 定制站的注册分类：优先读导入/注册时提取后持久化在
+  /// entry.extra['extractedCategories'] 里的真实分类（[{id, name}]），
+  /// 没提取到时才回落到只有「全部」。extra 随 toJson/fromJson 持久化，
+  /// 故注册分类在重启后仍是真实分类，不用每次重新提取。
+  static List<DramaSiteCategory> categoriesFromExtra(
+    Map<String, dynamic> extra,
+  ) {
+    final raw = extra['extractedCategories'];
+    if (raw is! List) return [const DramaSiteCategory('all', '全部')];
+    final out = <DramaSiteCategory>[];
+    for (final item in raw) {
+      if (item is! Map) continue;
+      final id = '${item['id'] ?? ''}'.trim();
+      final name = '${item['name'] ?? ''}'.trim();
+      if (id.isEmpty || name.isEmpty) continue;
+      out.add(DramaSiteCategory(id, name));
+    }
+    if (out.isEmpty) return [const DramaSiteCategory('all', '全部')];
+    return out;
+  }
+
   void _registerCustomSites() {
     registerExtraDramaSites([
       for (final entry in _custom)
@@ -419,10 +507,66 @@ class SourceRegistry {
             entry.kind == SourceKind.jsImport ||
             entry.kind == SourceKind.xbpqImport ||
             entry.kind == SourceKind.legadoImport)
-          DramaSite(entry.id, entry.name, [
-            const DramaSiteCategory('all', '全部'),
-          ]),
+          DramaSite(entry.id, entry.name, categoriesFromExtra(entry.extra)),
     ]);
+  }
+
+  /// 站点分类提取：拿该站客户端调 categories()，结果写进
+  /// entry.extra['extractedCategories'] 并持久化，同时刷新注册。
+  /// 任何一步失败都静默回落到现有分类，绝不打断导入与打开流程。
+  /// 调用方在导入完成后 fire-and-forget 触发一次；分类页打开影视
+  /// tab 时若本站仍只有「全部」，也会现场调一次。
+  Future<List<DramaSiteCategory>> extractSiteCategories(
+    String siteId,
+  ) async {
+    final current = categoriesFromExtra(
+      customById(siteId)?.extra ?? const {},
+    );
+    try {
+      final client = await clientFor(siteId);
+      if (client == null) return current;
+      final cats = await client
+          .categories()
+          .timeout(const Duration(seconds: 30));
+      final valid = [
+        for (final c in cats)
+          if (c.id.trim().isNotEmpty && c.name.trim().isNotEmpty) c,
+      ];
+      if (valid.isEmpty) return current;
+      await load();
+      final index = _custom.indexWhere((e) => e.id == siteId);
+      if (index < 0) return valid;
+      final old = _custom[index];
+      final extra = Map<String, dynamic>.from(old.extra)
+        ..['extractedCategories'] = [
+          for (final c in valid) {'id': c.id, 'name': c.name},
+        ];
+      _custom = [
+        for (var i = 0; i < _custom.length; i++)
+          if (i == index)
+            SourceEntry(
+              id: old.id,
+              name: old.name,
+              kind: old.kind,
+              address: old.address,
+              detail: old.detail,
+              enabled: old.enabled,
+              extra: extra,
+            )
+          else
+            _custom[i],
+      ];
+      _registerCustomSites();
+      await _persist();
+      return valid;
+    } catch (_) {
+      return current;
+    }
+  }
+
+  /// 导入完成后的提取触发：fire-and-forget，不阻塞导入返回。
+  void _triggerCategoryExtraction(String siteId) {
+    unawaited(extractSiteCategories(siteId));
   }
 
   Future<void> _persist() async {
@@ -439,6 +583,10 @@ class SourceRegistry {
       await preferences.setString(
         _deletedBuiltinKey,
         jsonEncode(_deletedBuiltin.toList()),
+      );
+      await preferences.setString(
+        _deletedSeedKey,
+        jsonEncode(_deletedSeeds.toList()),
       );
     } catch (_) {}
   }
@@ -551,6 +699,7 @@ class SourceRegistry {
     ];
     _registerCustomSites();
     await _persist();
+    _triggerCategoryExtraction(entry.id);
     return entry;
   }
 
@@ -717,6 +866,9 @@ class SourceRegistry {
     );
     _custom = [..._custom, entry, ...children];
     await _persist();
+    for (final child in children) {
+      _triggerCategoryExtraction(child.id);
+    }
     return entry;
   }
 
@@ -752,6 +904,7 @@ class SourceRegistry {
     _custom = [..._custom, entry];
     _registerCustomSites();
     await _persist();
+    _triggerCategoryExtraction(entry.id);
     return entry;
   }
 
@@ -809,6 +962,7 @@ class SourceRegistry {
     _custom = [..._custom, entry];
     _registerCustomSites();
     await _persist();
+    _triggerCategoryExtraction(entry.id);
     return entry;
   }
 
@@ -882,6 +1036,7 @@ class SourceRegistry {
     ];
     _registerCustomSites();
     await _persist();
+    _triggerCategoryExtraction(id);
     return updated;
   }
 
@@ -941,6 +1096,7 @@ class SourceRegistry {
     _custom = [..._custom, entry];
     _registerCustomSites();
     await _persist();
+    _triggerCategoryExtraction(entry.id);
     return entry;
   }
 
@@ -979,6 +1135,7 @@ class SourceRegistry {
     _custom = [..._custom, entry];
     _registerCustomSites();
     await _persist();
+    _triggerCategoryExtraction(entry.id);
     return entry;
   }
 
@@ -1032,6 +1189,9 @@ class SourceRegistry {
     _custom = [..._custom, ...entries];
     _registerCustomSites();
     await _persist();
+    for (final entry in entries) {
+      _triggerCategoryExtraction(entry.id);
+    }
     return entries;
   }
 
@@ -1059,6 +1219,11 @@ class SourceRegistry {
     if (removed?.extra['builtin'] == true) {
       // 内置 jar 站删后记墓碑，下次补齐不再复活；下载文件夹原文件不在此处处理。
       _deletedBuiltin.add(id);
+    }
+    final removedSeedId = removed?.extra['seedId'];
+    if (removedSeedId is String && removedSeedId.isNotEmpty) {
+      // 内置导入站删后记种子墓碑，下次补齐不再复活。
+      _deletedSeeds.add(removedSeedId);
     }
     _registerCustomSites();
     await _persist();

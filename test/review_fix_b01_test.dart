@@ -53,7 +53,7 @@ void main() {
   group('EpisodeSource.fromResponse scheme validation', () {
     test('rejects local file and content URIs', () {
       for (final rawUrl in [
-        'file:///data/user/0/com.fqapp.fqapp/files/secret.mp4',
+        'file:///data/user/0/com.fanrenxiuxianguanyingchuan/files/secret.mp4',
         'content://com.example/secret',
       ]) {
         expect(
@@ -148,7 +148,7 @@ void main() {
             startIndex: 0,
             contentLoader: (_) async => {
               'video_url':
-                  'file:///data/user/0/com.fqapp.fqapp/files/secret.mp4',
+                  'file:///data/user/0/com.fanrenxiuxianguanyingchuan/files/secret.mp4',
             },
             playerFactory: () => player,
           ),

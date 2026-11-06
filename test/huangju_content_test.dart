@@ -10,13 +10,13 @@ http.Response _json(Object value, [int status = 200]) {
   return http.Response.bytes(utf8.encode(jsonEncode(value)), status);
 }
 
-MockClient _mockClient({bool expireFirst = false}) {
+MockClient _mockClient({bool expireFirst = false, int guestStatus = 200}) {
   var guestCalls = 0;
   return MockClient((request) async {
     final url = request.url.toString();
     if (url == 'https://api.huangju.net/auth/guest') {
       guestCalls++;
-      return _json({'token': 'guest-token-1'});
+      return _json({'token': 'guest-token-1'}, guestStatus);
     }
     if (url.startsWith('https://api.huangju.net/categories')) {
       return _json([
@@ -93,6 +93,12 @@ void main() {
     final detail = await client.detail('drama-a-11');
     expect(detail.episodes.map((e) => e.videoId), ['e1', 'e2']);
     expect(detail.episodes.map((e) => e.title), ['第 1 集', '第 2 集']);
+  });
+
+  test('剧果：访客授权 201（新建设备）也接受', () async {
+    final client = HuangjuContentClient(client: _mockClient(guestStatus: 201));
+    final categories = await client.categories();
+    expect(categories.map((c) => c.id), ['@new', 'city']);
   });
 
   test('剧果：401 刷新令牌一次后成功', () async {

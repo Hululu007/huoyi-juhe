@@ -8,6 +8,7 @@ import '../services/api_client.dart';
 import '../services/app_theme.dart';
 import '../services/audio_floating_routes.dart';
 import '../services/audio_preferences.dart';
+import '../services/cultivation.dart';
 import '../services/episode_source_cache.dart';
 import '../services/native_player.dart';
 import '../services/player_preferences.dart';
@@ -227,6 +228,12 @@ class _ListenModePageState extends State<ListenModePage>
   }
 
   void _onEpisodeEnded() {
+    // 听完 1 章听书 +150 修为（播完即算，最后一集也算）。
+    unawaited(
+      CultivationService.instance
+          .addChapterCompleted(CultivationCategory.audio)
+          .catchError((Object _) {}),
+    );
     if (!mounted || _index >= widget.episodes.length - 1) return;
     // 官方听书列表连播：下一集自动接上。
     unawaited(_load(_index + 1, autoplay: true));

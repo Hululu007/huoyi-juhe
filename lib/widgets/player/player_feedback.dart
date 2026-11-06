@@ -8,7 +8,16 @@ class PlayerErrorFeedback extends StatelessWidget {
   final PlaybackIssue issue;
   final VoidCallback? onRetry;
 
-  const PlayerErrorFeedback({super.key, required this.issue, this.onRetry});
+  /// 设为 false 时卡片不可滚动：上下滑手势不再被卡片吃掉，交给上层
+  /// （如直播页的上下滑切频道）。默认 true，保持点播页原样。
+  final bool scrollable;
+
+  const PlayerErrorFeedback({
+    super.key,
+    required this.issue,
+    this.onRetry,
+    this.scrollable = true,
+  });
 
   @override
   Widget build(BuildContext context) => _FeedbackCard(
@@ -16,6 +25,7 @@ class PlayerErrorFeedback extends StatelessWidget {
     message: issue.message,
     leading: const Icon(Icons.error_outline, color: Colors.white70, size: 24),
     onRetry: onRetry,
+    scrollable: scrollable,
   );
 }
 
@@ -114,12 +124,14 @@ class _FeedbackCard extends StatelessWidget {
   final String message;
   final Widget leading;
   final VoidCallback? onRetry;
+  final bool scrollable;
 
   const _FeedbackCard({
     required this.title,
     required this.message,
     required this.leading,
     this.onRetry,
+    this.scrollable = true,
   });
 
   @override
@@ -150,59 +162,67 @@ class _FeedbackCard extends StatelessWidget {
           ),
         );
       }
-      return Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(12),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 320),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: const Color(0xCC16161A),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
+      final card = ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 320),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: const Color(0xCC16161A),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        leading,
-                        const SizedBox(width: 10),
-                        Flexible(
-                          child: Text(
-                            title,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
+                    leading,
+                    const SizedBox(width: 10),
+                    Flexible(
+                      child: Text(
+                        title,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      message,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 13,
                       ),
                     ),
-                    if (retryButton != null) ...[
-                      const SizedBox(height: 8),
-                      retryButton,
-                    ],
                   ],
                 ),
-              ),
+                const SizedBox(height: 8),
+                Text(
+                  message,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 13,
+                  ),
+                ),
+                if (retryButton != null) ...[
+                  const SizedBox(height: 8),
+                  retryButton,
+                ],
+              ],
             ),
           ),
         ),
       );
+      return Center(
+        child: _scrollableCard(card),
+      );
     },
   );
+
+  /// 报错卡片在直播页不可滚动（scrollable=false）时直接放卡片，不包
+  /// 滚动视图：滚动视图会抢走上下滑手势，直播页的上下滑切频道就收不到。
+  Widget _scrollableCard(Widget card) {
+    if (!scrollable) return card;
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(12),
+      child: card,
+    );
+  }
 }

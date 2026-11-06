@@ -16,6 +16,7 @@ import 'detail_page.dart' show openBookDetail;
 import 'series_detail_page.dart' show SeriesDetailPage;
 import '../services/api_client.dart';
 import '../services/backend_transport.dart' show BackendRequest;
+import '../services/cultivation.dart';
 import '../services/player_panel_preferences.dart';
 import '../services/watched_episodes.dart';
 import 'listen_mode_page.dart';
@@ -83,6 +84,12 @@ class PlayerPage extends StatefulWidget {
   /// 详情页的电影/电视剧走通用形态（默认 false）。
   final bool shortSeries;
 
+  /// 修为记账分类：短剧 feed / 全集播放页进来的短剧记 drama，
+  /// 详情页 / 阅读器内打开的影视记 video（默认）。shortSeries 只
+  /// 决定播放器形态，不区分短剧与影视（详情页的影视也走短剧形态），
+  /// 所以记账分类要调用方显式传，不能从 shortSeries 推。
+  final CultivationCategory cultivationCategory;
+
   /// 播放页信息层的 AI 声明行。
   final bool aiGenerated;
 
@@ -120,6 +127,7 @@ class PlayerPage extends StatefulWidget {
     this.danmakuFetcher,
     this.hotCommentsLoader,
     this.shortSeries = false,
+    this.cultivationCategory = CultivationCategory.video,
     this.aiGenerated = false,
     this.openFullScreen = false,
     this.onAddToShelf,
@@ -1267,10 +1275,12 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     );
     _prefetchTimer?.cancel();
     _prefetchTimer = null;
+    final upcoming = upcomingChapters(widget.eps, index);
     _sources.retainOnly({
       episode.itemId,
-      if (index + 1 < widget.eps.length) widget.eps[index + 1].itemId,
+      for (final chapter in upcoming) chapter.itemId,
     });
+    _prefetchUpcomingSources(index, upcoming);
     _progressTimer?.cancel();
     _watchTime.stop();
     unawaited(_persistProgress());
@@ -1654,6 +1664,15 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
         // paging gesture delays it. Each snapshot settles only new watch time.
         // Note: .agents/notes/implemented/bug-fix/2026-09-17-persistent-data-and-web-cancellation.md
         unawaited(_persistProgress());
+        // 看完 1 集短剧 +300 修为（只记短剧；详情页的影视不走这条，
+        // 它的时长已在 _persistProgress 里按 video 记）。
+        if (widget.cultivationCategory == CultivationCategory.drama) {
+          unawaited(
+            CultivationService.instance
+                .addDramaEpisodeCompleted()
+                .catchError((Object _) {}),
+          );
+        }
         if (_paging) {
           _pendingCompletion = generation;
           return;
@@ -1698,6 +1717,16 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     final seconds =
         _watchTime.elapsedMicroseconds / Duration.microsecondsPerSecond;
     _watchTime.reset();
+    // 修为记账：真实观看时长 1 分钟 = 1 修为（服务里 ×1.8 后 0.5/秒）。
+    // _watchTime 每次结算后清零，只记新增时长，不重复记；记账失败
+    // （如读盘失败）不影响进度保存。
+    if (seconds > 0) {
+      unawaited(
+        CultivationService.instance
+            .addSeconds(widget.cultivationCategory, seconds)
+            .catchError((Object _) {}),
+      );
+    }
     return _history.save(history, watchedSeconds: seconds);
   }
 

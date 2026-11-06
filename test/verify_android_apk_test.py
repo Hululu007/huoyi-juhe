@@ -57,7 +57,7 @@ class SignatureClassificationTest(unittest.TestCase):
                 if name == "apksigner.log":
                     return output
                 if name == "aapt-badging.log":
-                    return "package: name='com.fqapp.fqapp' versionCode='127' versionName='1.0.122'\n"
+                    return "package: name='com.fanrenxiuxianguanyingchuan' versionCode='127' versionName='1.0.122'\n"
                 return "fixture SDK command succeeded\n"
 
             with mock.patch.object(verifier, "executable", return_value="fixture-tool"), \

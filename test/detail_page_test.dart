@@ -599,6 +599,47 @@ void main() {
     expect(page.chapters.length, 2);
   });
 
+  testWidgets('video detail shows a play button on the poster; book does not', (
+    tester,
+  ) async {
+    final observer = _RouteObserver();
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorObservers: [observer],
+        home: DetailPage(
+          item: _item('video'),
+          readerStore: MemoryReaderStore(),
+          detailLoader: (id, {String tab = '小说'}) async => {},
+          directoryLoader: (id, {String tab = '小说'}) async => [_chapters],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('detail_cover_play_button')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('detail_cover_play_button')));
+    await tester.idle();
+    final context = tester.element(find.byType(DetailPage));
+    final page =
+        (observer.lastRoute! as MaterialPageRoute).builder(context)
+            as PlayerPage;
+    expect(page.kind, 'video');
+    await tester.pumpWidget(const SizedBox.shrink());
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DetailPage(
+          item: _book,
+          readerStore: MemoryReaderStore(),
+          detailLoader: (id, {String tab = '小说'}) async => {},
+          directoryLoader: (id, {String tab = '小说'}) async => [_chapters],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('detail_cover_play_button')), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('autoOpenReader stays on detail for audio and empty catalogues', (
     tester,
   ) async {

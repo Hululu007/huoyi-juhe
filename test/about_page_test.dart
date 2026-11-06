@@ -26,7 +26,7 @@ void main() {
   testWidgets('关于页渲染出介绍与全部信息行', (tester) async {
     await pumpAbout(tester);
 
-    expect(find.text('火蚁聚合'), findsOneWidget);
+    expect(find.text('凡人修仙观影传'), findsOneWidget);
     expect(find.text('小说 / 短剧 / 漫剧 / 漫画 / 听书聚合客户端'), findsOneWidget);
     // 介绍是一段正文，不再是「项目介绍」标题行。
     expect(find.textContaining('所有签名与解密都在你的手机本地完成'), findsOneWidget);
@@ -40,8 +40,12 @@ void main() {
     expect(find.text('GPL-3.0 与第三方组件许可'), findsOneWidget);
     expect(find.text('Source Code'), findsNothing);
     expect(find.text('源代码'), findsOneWidget);
-    expect(find.text('问题反馈'), findsOneWidget);
+    // 问题反馈行是午夜区伪装入口，已随门禁一并删除，不再出现。
+    expect(find.text('问题反馈'), findsNothing);
+    // 反馈行是影视入口的口令激活入口（不是旧的伪装入口）。
+    expect(find.text('反馈'), findsOneWidget);
     // 信息行统一走设置组件，不再使用 Material ListTile。
+    // 旧问题反馈行已删，现 5 行：版本、检查更新、开源许可、源代码、反馈。
     expect(find.byType(SettingsRow), findsNWidgets(5));
     expect(find.byType(ListTile), findsNothing);
 
@@ -90,7 +94,7 @@ void main() {
       () => Future<void>.delayed(const Duration(milliseconds: 600)),
     );
     await tester.pump();
-    expect(find.text('火蚁聚合'), findsWidgets);
+    expect(find.text('凡人修仙观影传'), findsWidgets);
   });
 
   testWidgets('墨水屏下 logo 不投彩色阴影，浅色仍保留', (tester) async {

@@ -1,0 +1,30 @@
+{
+ "bookSourceName": "🔞大白兔漫社·短剧",
+ "bookSourceUrl": "https://dabaitu-mh.cc",
+ "bookSourceType": 4,
+ "bookSourceGroup": "",
+ "bookSourceComment": "短剧源（视频型）：只含 AI成人短剧分类；详情页 video 标签直链 m3u8（无加密，清单与首分片已验 200）；视频 CDN 只认 Referer https://s.chigua.media/，已按书源 header 字段写上，播放器是否带头须手机实测，若 403 则用 py 版；发现只取第 1 页；无搜索（搜索会混入图片本，视频源播不了）；目录按单章写，须手机实测。取流已改成脚本直取：直接在详情页源码里抓 data-hls-src，不再走选择器提取；Referer 头仍按书源 header 字段带。",
+ "enabled": true,
+ "enabledExplore": true,
+ "header": "{\"Referer\":\"https://s.chigua.media/\"}",
+ "exploreUrl": "AI成人短剧::https://dabaitu-mh.cc/dbttype/5/",
+ "ruleExplore": {
+  "bookList": "div.card",
+  "name": "a@title",
+  "bookUrl": "a@href",
+  "coverUrl": "div[data-bg2]@data-bg2##^(.*)$##$1,{\"Referer\":\"https://s.chigua.media/\"}"
+ },
+ "ruleBookInfo": {
+  "name": "title@text##(.*) - 大白兔漫社",
+  "coverUrl": "video@poster##^(.*)$##$1,{\"Referer\":\"https://s.chigua.media/\"}"
+ },
+ "ruleToc": {
+  "chapterList": "title",
+  "chapterName": "@text",
+  "chapterUrl": ""
+ },
+ "ruleContent": {
+  "content": "<js>var h=src; if(h&&h.html) h=h.html(); var m=h.match(/data-hls-src=\"([^\"]+)\"/); m ? m[1] : ''</js>",
+  "title": "title@text##(.*) - 大白兔漫社"
+ }
+}

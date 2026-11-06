@@ -167,6 +167,27 @@ extension _PlayerPagePreload on _PlayerPageState {
     );
   }
 
+  /// 往后 5 集的地址预取（11-01 预加载规格）：只解析地址进取流缓存，
+  /// 不建播放器、不下载视频字节。窗口随播滑动：换集时 [_loadVideo] 重算
+  /// retainOnly 并重发本方法，旧窗口外条目由 retainOnly 剔除；排队中的
+  /// 预取在起跑前复核仍在窗口内（仍在当前集之后 5 集内），跳集后过期的
+  /// 不发起。短剧与影视全走这里（不设 shortSeries 门）；直播只有一集，
+  /// upcoming 天然为空。紧挨着的一集另有 [_updateWarmNext] 建预热播放器，
+  /// 它取流时会先命中这里已预取好的地址。
+  void _prefetchUpcomingSources(int index, List<Chapter> upcoming) {
+    for (var offset = 0; offset < upcoming.length; offset++) {
+      final targetIndex = index + 1 + offset;
+      final chapter = upcoming[offset];
+      unawaited(
+        _sources.prefetch(
+          chapter,
+          stillWanted: () =>
+              mounted && _index < targetIndex && targetIndex - _index <= 5,
+        ),
+      );
+    }
+  }
+
   /// 预热失败是静默的：丢掉播放器和它用过的地址，切到这一集时按常规
   /// 链路重新取流（失败了还有 [_retrySilently] 兜底）。
   void _discardWarm(_WarmEpisode warm) {
@@ -249,9 +270,26 @@ extension _PlayerPagePreload on _PlayerPageState {
       trace?.source = 'offline';
       return (offline, null);
     }
-    final request = _sources.request(episode, refresh: refresh);
-    trace?.source = request.origin.name;
-    var online = await request.future;
+    // 跨部预取：信息流已提前取到的下一部第一集地址，播放页直接用，不再发一次
+    // 网络请求。只在 ApiClient 默认路径（contentLoader 为空）时读共享存储，
+    // 站点专用 loader 的播放页不读，避免跨站键/loader 串扰；刷新时也不读。
+    final shared =
+        widget.contentLoader == null && !refresh
+            ? SharedEpisodePrefetch.instance.get(
+                bookId: widget.bookId,
+                itemId: episode.itemId,
+              )
+            : null;
+    final EpisodeSource resolved;
+    if (shared != null) {
+      trace?.source = 'sharedPrefetchHit';
+      resolved = shared;
+    } else {
+      final request = _sources.request(episode, refresh: refresh);
+      trace?.source = request.origin.name;
+      resolved = await request.future;
+    }
+    var online = resolved;
     int? height;
     // 会话内记住的画质选择（官方=引擎当前档）：按画质名在本集自己
     // 的 variants 里找，找到就用，找不到回默认（#60：换下一集不

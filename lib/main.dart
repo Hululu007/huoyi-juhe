@@ -3,6 +3,8 @@ import 'services/audio_downloader.dart';
 import 'widgets/desktop_app_frame.dart';
 import 'services/native_player.dart';
 import 'services/desktop_platform.dart';
+import 'services/drama_site_content.dart';
+import 'services/web_page_fetch.dart';
 import 'services/platform_channel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -14,11 +16,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
 
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui' show ImageFilter;
 
 import 'pages/home_page.dart';
 import 'pages/audio_page.dart';
 import 'pages/cached_books_page.dart';
+import 'pages/cultivation_create_page.dart';
 import 'pages/drama_page.dart';
 import 'pages/library_page.dart';
 import 'pages/live_page.dart';
@@ -41,6 +45,7 @@ import 'services/fair_memory.dart';
 import 'services/connectivity_status.dart';
 import 'services/home_feed_cache.dart';
 import 'services/library_store.dart';
+import 'services/cultivation.dart';
 import 'services/rank_cache.dart';
 import 'services/player_style_config.dart';
 import 'services/source_registry.dart';
@@ -50,6 +55,7 @@ import 'services/poster_cache.dart';
 import 'services/shelf_store.dart';
 import 'services/swipe_guide_store.dart';
 import 'widgets/lazy_indexed_stack.dart';
+import 'widgets/cultivation_level_up_dialog.dart';
 import 'widgets/home/home_design.dart';
 
 Future<void> main() async {
@@ -180,6 +186,8 @@ Future<void> _initializeLocalData() async {
   unawaited(DramaCachePreferences.instance.load());
   // ZakaTV jar 内置站首次启动补进登记表：幂等、开关保留、删过的不复活。
   unawaited(SourceRegistry.instance.ensureBuiltinJarSites());
+  // 内置导入站（随包 py / 阅读 JSON）首次启动补进登记表：同款规矩。
+  unawaited(SourceRegistry.instance.ensureBuiltinImportedSites());
   // 短剧切后台悬浮窗开关（#24）：异步读取，失败退化为默认关闭。
   unawaited(PlayerPreferences.loadFloatingWindow());
   // 离线缓存的网络门（官方 onNetChangeCheck）：断网/只剩计费链路时
@@ -215,8 +223,15 @@ Future<void> _initializeLocalData() async {
   );
   // 墨水屏模式与深色模式同为可选偏好：读不到退化为关闭，不拖住启动。
   einkModeNotifier.value = sp.getBool(einkModeKey) ?? false;
+  // 修仙体系：读盘（首次安装未建档时不静默注册，主界面弹创建档案弹窗）。
+  unawaited(CultivationService.instance.ensureInitialized());
   // OLED 纯黑与墨水屏互斥；两个旧值同时为 true 时墨水屏优先。
   oledModeNotifier.value = sp.getBool(oledModeKey) ?? false;
+  // 背景主题：读不到或非法值退化为默认，不拖住启动。
+  backgroundNotifier.value = AppBackground.decode(
+    sp.getString(backgroundKey),
+    sp.getString(backgroundImageKey),
+  );
   // 播放页布局（短剧上下分屏/左右分栏）同样是可选偏好：读不到退化为
   // 沉浸式，不阻塞启动。
   PlayerLayoutPreferences.mode.value = PlayerLayoutPreferences.decode(
@@ -255,15 +270,24 @@ class _FqAppState extends State<FqApp> {
 
   @override
   Widget build(BuildContext context) {
+    // 网页引擎取页绑定导航键：伍果走 WebView 过指纹门，取页时往导航
+    // 的 Overlay 里插离屏页；绑定是幂等赋值，每次重建都可跑。
+    WebViewPageFetcher.bind(_navigatorKey);
+    MaccmsContentClient.defaultWebFetch = WebViewPageFetcher.fetch;
     return ValueListenableBuilder<ThemeMode>(
       valueListenable: themeModeNotifier,
       builder: (context, mode, _) {
         return ValueListenableBuilder<bool>(
           valueListenable: einkModeNotifier,
           builder: (context, eink, _) {
-            return ValueListenableBuilder<bool>(
-              valueListenable: oledModeNotifier,
-              builder: (context, oled, _) {
+            return ListenableBuilder(
+              listenable: Listenable.merge([
+                oledModeNotifier,
+                backgroundNotifier,
+              ]),
+              builder: (context, _) {
+                final oled = oledModeNotifier.value;
+                final background = backgroundNotifier.value;
                 // 墨水屏强制浅色纯黑白：深色反白在墨水屏上残影最重。
                 final effectiveMode = eink ? ThemeMode.light : mode;
                 return MaterialApp(
@@ -276,18 +300,56 @@ class _FqAppState extends State<FqApp> {
                       recentListen: loadRecentListen,
                       child: child ?? const SizedBox.shrink(),
                     );
-                    return AudioFloatingRouteScope(
+                    final framed = AudioFloatingRouteScope(
                       routes: _audioRoutes,
                       child: isWindowsDesktop
                           ? DesktopAppFrame(child: playback)
                           : playback,
                     );
+                    // 图片背景：图片铺满 + 半透明罩（浅色罩白、深色罩黑），
+                    // 正文颜色按主题亮度来，罩住后仍可读；墨水屏不铺图。
+                    if (!eink &&
+                        background.isImage &&
+                        background.imagePath != null) {
+                      final isDark =
+                          Theme.of(context).brightness == Brightness.dark;
+                      final scrim = isDark ? Colors.black : Colors.white;
+                      return Stack(
+                        children: [
+                          Positioned.fill(
+                            child: Image.file(
+                              File(background.imagePath!),
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, _, _) =>
+                                  Container(color: scrim),
+                            ),
+                          ),
+                          Positioned.fill(
+                            child: Container(
+                              color: scrim.withValues(alpha: 0.55),
+                            ),
+                          ),
+                          framed,
+                        ],
+                      );
+                    }
+                    return framed;
                   },
-                  title: '火蚁聚合',
+                  title: '凡人修仙观影传',
                   debugShowCheckedModeBanner: false,
                   // OLED 纯黑只在深色下生效（浅色时 createTheme 直接忽略）。
-                  theme: _theme(Brightness.light, eink: eink, oled: oled),
-                  darkTheme: _theme(Brightness.dark, eink: eink, oled: oled),
+                  theme: _theme(
+                    Brightness.light,
+                    eink: eink,
+                    oled: oled,
+                    background: background,
+                  ),
+                  darkTheme: _theme(
+                    Brightness.dark,
+                    eink: eink,
+                    oled: oled,
+                    background: background,
+                  ),
                   themeMode: effectiveMode,
                   // 全 App 文案是中文，系统文本菜单（复制/粘贴/全选）与 Material
                   // 内置文案也必须跟着中文：缺 delegates 时一律回退英文（#79）。
@@ -311,7 +373,13 @@ class _FqAppState extends State<FqApp> {
     Brightness brightness, {
     bool eink = false,
     bool oled = false,
-  }) => AppTheme.createTheme(brightness, einkMode: eink, oledMode: oled);
+    AppBackground? background,
+  }) => AppTheme.createTheme(
+    brightness,
+    einkMode: eink,
+    oledMode: oled,
+    background: background,
+  );
 }
 
 /// Opens local data before any page can access LibraryStore's boxes. Failed
@@ -430,6 +498,18 @@ class _RootShellState extends State<RootShell> {
   int _index = 0;
   bool _backendReady = false;
 
+  /// 创建道友档案是否已读盘核对过（未核对完先显示加载，不闪创建页）。
+  bool _profileChecked = false;
+
+  /// 上次升境弹窗结算时的总修为（null 表示还没读盘）；修为只涨不跌，
+  /// 跨过境界门槛时弹升境庆祝弹窗。
+  int? _lastLevelUpXp;
+
+  /// 升境庆祝弹窗是否正在显示（避免修为连续跳变时叠弹窗）。
+  bool _levelUpDialogShowing = false;
+
+  /// 首页 feed 的滚动控制器，由壳层持有以便底部栏触发回顶部。
+
   /// 首页 feed 的滚动控制器，由壳层持有以便底部栏触发回顶部。
   final ScrollController _homeScroll = ScrollController();
 
@@ -468,11 +548,72 @@ class _RootShellState extends State<RootShell> {
     // 短剧频道在推荐（视频流）与浅色页之间切换时，悬浮 dock 和系统导航栏
     // 要跟着换肤，所以停在壳层的 build 里监听。
     dramaLightPageNotifier.addListener(_onDramaChromeChanged);
+    // 修为变化时刷新导航栏：影视入口到元婴期才由锁变正常。
+    CultivationService.instance.snapshotNotifier.addListener(
+      _onCultivationChanged,
+    );
     _startBackend();
+    // 硬门槛：先读盘核对有没有创建过道友档案；没建档时主界面不挂，
+    // 只显示全屏创建人物界面（无跳过、无关闭、返回键也绕不过去），
+    // 建档落盘后才进主界面。
+    unawaited(_checkProfile());
   }
 
   void _onDramaChromeChanged() {
     if (mounted) setState(() {});
+  }
+
+  void _onCultivationChanged() {
+    if (mounted) setState(() {});
+    _maybeShowLevelUpDialog();
+  }
+
+  /// 读盘核对道友档案：核对完才决定显示创建页还是主界面，
+  /// 免得已建档的用户首帧先闪一下创建页。
+  Future<void> _checkProfile() async {
+    await CultivationService.instance.ensureInitialized();
+    if (!mounted) return;
+    _lastLevelUpXp ??= CultivationService.instance.snapshot.totalXp;
+    setState(() => _profileChecked = true);
+  }
+
+  /// 修为跨过境界门槛时弹升境庆祝弹窗（列新解锁的内容区与成人站档位）。
+  /// 首次读盘只记基线不弹；弹窗显示期间的跳变先记着，关掉后重算再弹，
+  /// 不叠弹窗、不漏境界。
+  void _maybeShowLevelUpDialog() {
+    if (!mounted || _levelUpDialogShowing) return;
+    final currentXp = CultivationService.instance.snapshot.totalXp;
+    final lastXp = _lastLevelUpXp;
+    if (lastXp == null) {
+      _lastLevelUpXp = currentXp;
+      return;
+    }
+    if (currentXp <= lastXp) {
+      _lastLevelUpXp = currentXp;
+      return;
+    }
+    final crossed = crossedRealmIndexes(lastXp, currentXp);
+    if (crossed.isEmpty) {
+      _lastLevelUpXp = currentXp;
+      return;
+    }
+    _lastLevelUpXp = currentXp;
+    _levelUpDialogShowing = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) {
+        _levelUpDialogShowing = false;
+        return;
+      }
+      await showCultivationLevelUpDialog(
+        context,
+        crossedRealmIndexes: crossed,
+        adultRegistryOrder: coreVideoSiteIds.toList(),
+        newXp: currentXp,
+      );
+      _levelUpDialogShowing = false;
+      // 关掉后重算一次：弹窗期间又有跳变时补弹，不漏境界。
+      _maybeShowLevelUpDialog();
+    });
   }
 
   Future<void> _startBackend() async {
@@ -496,12 +637,41 @@ class _RootShellState extends State<RootShell> {
   @override
   void dispose() {
     dramaLightPageNotifier.removeListener(_onDramaChromeChanged);
+    CultivationService.instance.snapshotNotifier.removeListener(
+      _onCultivationChanged,
+    );
     _homeScroll.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    // 硬门槛：读盘没核对完先显示加载；核对完未建档时只显示全屏创建人物
+    // 界面（创建页自带 PopScope 禁返回，没有跳过/关闭），建档落盘后
+    // 快照监听会重建、自动进主界面；本地服务在后台照常启动。
+    if (!_profileChecked) {
+      return const Scaffold(
+        body: SafeArea(
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text('正在读取本地数据…'),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+    if (!CultivationService.instance.snapshot.hasProfile) {
+      return CultivationCreatePage(
+        onCreated: () {
+          if (mounted) setState(() {});
+        },
+      );
+    }
     if (!_backendReady) {
       return Scaffold(
         body: SafeArea(
@@ -636,33 +806,43 @@ class _RootShellState extends State<RootShell> {
         onDestinationSelected: _selectTab,
         backgroundColor: Colors.transparent,
         elevation: 0,
-        destinations: const [
-          NavigationDestination(
+        destinations: [
+          const NavigationDestination(
             icon: Icon(LucideIcons.house),
             selectedIcon: Icon(LucideIcons.house),
             label: '首页',
           ),
-          NavigationDestination(
+          const NavigationDestination(
             icon: Icon(LucideIcons.clapperboard),
             selectedIcon: Icon(LucideIcons.clapperboard),
             label: '短剧',
           ),
+          // 影视区是成人午夜区：导航栏一直显示，修为不到元婴期时显示上锁
+          // 图标，点进去是上锁页（写明还差多少修为）；到元婴期后正常显示。
           NavigationDestination(
-            icon: Icon(LucideIcons.film),
-            selectedIcon: Icon(LucideIcons.film),
+            icon: Icon(
+              CultivationService.instance.snapshot.unlockedVideo
+                  ? LucideIcons.film
+                  : LucideIcons.lock,
+            ),
+            selectedIcon: Icon(
+              CultivationService.instance.snapshot.unlockedVideo
+                  ? LucideIcons.film
+                  : LucideIcons.lock,
+            ),
             label: '影视',
           ),
-          NavigationDestination(
+          const NavigationDestination(
             icon: Icon(LucideIcons.tv),
             selectedIcon: Icon(LucideIcons.tv),
             label: '直播',
           ),
-          NavigationDestination(
+          const NavigationDestination(
             icon: Icon(LucideIcons.library_big),
             selectedIcon: Icon(LucideIcons.library_big),
             label: '书架',
           ),
-          NavigationDestination(
+          const NavigationDestination(
             icon: Icon(LucideIcons.circle_user_round),
             selectedIcon: Icon(LucideIcons.circle_user_round),
             label: '我的',

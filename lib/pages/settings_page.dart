@@ -1,29 +1,33 @@
 import '../services/desktop_platform.dart';
 import '../widgets/desktop_settings_body.dart';
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../services/app_theme.dart';
 import '../services/audio_preferences.dart';
+import '../services/cultivation.dart';
 import '../services/native_player.dart';
 import '../services/player_preferences.dart';
 import '../services/player_layout_preferences.dart';
 import '../services/source_registry.dart';
+import '../services/file_text_picker.dart';
 import '../services/book_open_preferences.dart';
 import '../services/drama_mute_preferences.dart';
 import '../services/library_store.dart';
-import '../services/midnight_gate.dart';
 import '../widgets/home/home_design.dart';
 import '../widgets/settings/settings_widgets.dart';
 import 'about_page.dart';
 import 'api_service_page.dart';
 import 'cached_books_page.dart';
 import 'cached_dramas_page.dart';
+import 'cultivation_titles_page.dart';
 import 'library_backup_page.dart';
-import 'one_click_py_page.dart';
 import 'settings_category_page.dart';
 import 'source_management_page.dart';
 import 'system_tts_settings_page.dart';
@@ -38,12 +42,11 @@ class SettingsPage extends StatelessWidget {
   Widget build(BuildContext context) {
     // 开关读的是 ValueNotifier：先把持久化的值读出来，读到后自动重绘。
     unawaited(BookOpenPreferences.instance.load());
-    unawaited(MidnightGate.ensureLoaded());
     final categories = <SettingsCategory>[
       SettingsCategory(
         icon: LucideIcons.palette,
         title: '外观',
-        subtitle: '主题模式、OLED 纯黑、播放页布局',
+        subtitle: '主题模式、OLED 纯黑、背景主题、播放页布局',
         // 用 builder 而不是固定 items：切到深色 / 切回浅色后，分类页重建
         // 时会重新判定，OLED 行不必退出重进就能出现或消失。
         // 播放页布局只在手机端有效（Windows 由 DesktopVideoChrome 承担）。
@@ -53,6 +56,7 @@ class SettingsPage extends StatelessWidget {
             systemBrightness: MediaQuery.platformBrightnessOf(context),
           ))
             _oledModeItem(),
+          _backgroundItem(),
           if (!isWindowsDesktop) _playerLayoutItem(),
         ],
       ),
@@ -103,6 +107,30 @@ class SettingsPage extends StatelessWidget {
         ],
       ),
       SettingsCategory(
+        icon: LucideIcons.sparkles,
+        title: '修仙',
+        subtitle: '修为、境界与新人兑换码',
+        items: [
+          SettingsItem(
+            icon: LucideIcons.gift,
+            title: '新人兑换码',
+            subtitle: 'VIP666→筑基、VIP888→结丹、VIP6666→元婴、VIP8888→化神',
+            onTap: (context, _) => _showRedeemCodeDialog(context),
+          ),
+          SettingsItem(
+            icon: LucideIcons.trophy,
+            title: '称号排行',
+            subtitle: '按修为排的 14 档称号，前三是特效称号',
+            onTap: (context, _) => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const CultivationTitlesPage(),
+              ),
+            ),
+          ),
+        ],
+      ),
+      SettingsCategory(
         icon: LucideIcons.list,
         title: '站源',
         subtitle: '内置短剧、自定义与导入站源的开关与检测',
@@ -118,34 +146,23 @@ class SettingsPage extends StatelessWidget {
               ),
             ),
           ),
-          SettingsItem(
-            icon: LucideIcons.wand_sparkles,
-            title: '一键写PY',
-            subtitle: '输入网址按模板生成 py 并自动导入站点',
-            onTap: (context, _) => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const OneClickPyPage(),
-              ),
-            ),
-          ),
         ],
       ),
       SettingsCategory(
         icon: LucideIcons.book_open,
         title: '书源',
-        subtitle: '导入阅读书源（链接或 JSON）',
+        subtitle: '导入阅读书源（JSON 文件）',
         items: [
           SettingsItem(
             icon: LucideIcons.book_plus,
             title: '书源导入',
-            subtitle: '粘贴书源链接或 JSON，自动识别导入',
+            subtitle: '选择 JSON 文件或粘贴远程地址导入，自动识别',
             onTap: (context, _) => _showBookSourceImportDialog(context),
           ),
           SettingsItem(
             icon: LucideIcons.book_down,
             title: 'JSON 书源导入',
-            subtitle: '粘贴 JSON 书源，支持单个或数组',
+            subtitle: '选择 JSON 文件导入，支持单个或数组',
             onTap: (context, _) =>
                 _showBookSourceImportDialog(context, jsonOnly: true),
           ),
@@ -242,72 +259,198 @@ class SettingsPage extends StatelessWidget {
     );
   }
 
+  // ── 修仙 ──────────────────────────────────────────────────────────────
+
+  /// 新人兑换码：输码把修为直接补到目标境界。
+  /// VIP666→筑基 300、VIP888→结丹 1000、VIP6666→元婴 3000、
+  /// VIP8888→化神 8000；每个码只能用一次，已达到目标境界时不消耗。
+  /// 兑换成功后升境解锁弹窗由壳层修为监听自动弹，这里只报兑换结果。
+  static Future<void> _showRedeemCodeDialog(BuildContext context) async {
+    final controller = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        final snapshot = CultivationService.instance.snapshot;
+        final used = CultivationService.instance.usedCodes;
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) => AlertDialog(
+            title: const Text('新人兑换码'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '当前总修为 ${snapshot.totalXp} · ${snapshot.realm.displayName}',
+                  style: const TextStyle(fontSize: 13),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: controller,
+                  textCapitalization: TextCapitalization.characters,
+                  decoration: const InputDecoration(
+                    labelText: '兑换码',
+                    hintText: '如 VIP666',
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: (_) => setDialogState(() {}),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'VIP666→筑基、VIP888→结丹、VIP6666→元婴、VIP8888→化神，'
+                  '每个码只能用一次。',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                if (used.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    '已用过：${used.join('、')}',
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ],
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: controller.text.trim().isEmpty
+                    ? null
+                    : () => Navigator.of(dialogContext).pop(true),
+                child: const Text('兑换'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    final code = controller.text.trim();
+    controller.dispose();
+    if (confirmed != true || code.isEmpty || !context.mounted) return;
+    final result = await CultivationService.instance.redeemCode(code);
+    if (!context.mounted) return;
+    final message = switch (result.result) {
+      CultivationRedeemResult.success =>
+        '兑换成功！修为已补到 ${result.targetXp}（${realmForXp(result.newXp).displayName}）',
+      CultivationRedeemResult.invalid => '兑换码不对，请检查后重试',
+      CultivationRedeemResult.alreadyUsed => '这个码已经用过了',
+      CultivationRedeemResult.alreadyAtRealm =>
+        '已经达到或超过该境界，不用兑换',
+    };
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
   // ── 书源 ──────────────────────────────────────────────────────────────
 
-  /// 书源导入：阅读（Legado）导入框同款——粘贴后自动识别：JSON 对象/数组
-  /// 直接导入，http(s) 链接走远程拉取；JSON 专线只认 JSON。导入走注册表
+  /// 书源导入：选 JSON 文件导入，或在输入框粘贴远程书源地址 / JSON 内容。
+  /// 导入时优先用输入框里的内容，按 classifyBookSourceInput 识别：
+  /// http(s) 链接走远程拉取，JSON 对象/数组直接导入。导入走注册表
   /// 现成的 addLegadoImport / addLegadoRemote，导入后在站源管理里可见。
   Future<void> _showBookSourceImportDialog(
     BuildContext context, {
     bool jsonOnly = false,
   }) async {
     var text = '';
+    var pickedName = '';
+    final urlController = TextEditingController();
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(jsonOnly ? 'JSON 书源导入' : '书源导入'),
-        content: TextField(
-          maxLines: 8,
-          minLines: 4,
-          onChanged: (value) => text = value,
-          decoration: InputDecoration(
-            hintText: jsonOnly ? '粘贴 JSON 书源（单个或数组）' : '粘贴书源链接或 JSON',
-            border: const OutlineInputBorder(),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: Text(jsonOnly ? 'JSON 书源导入' : '书源导入'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final picked = await pickTextFile(
+                    label: 'JSON',
+                    extensions: ['json'],
+                  );
+                  if (picked == null) return;
+                  setDialogState(() {
+                    text = picked.content;
+                    pickedName = picked.name;
+                  });
+                },
+                icon: const Icon(Icons.folder_open),
+                label: const Text('选择 JSON 文件'),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                pickedName.isEmpty ? '未选择文件' : '已选：$pickedName',
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              if (!jsonOnly) ...[
+                const SizedBox(height: 12),
+                TextField(
+                  controller: urlController,
+                  keyboardType: TextInputType.url,
+                  decoration: const InputDecoration(
+                    labelText: '远程书源地址',
+                    hintText: '粘贴远程书源地址 http(s)://…',
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: (_) => setDialogState(() {}),
+                ),
+              ],
+            ],
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed:
+                  (text.isEmpty && urlController.text.trim().isEmpty)
+                  ? null
+                  : () => Navigator.of(dialogContext).pop(true),
+              child: const Text('导入'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('导入'),
-          ),
-        ],
       ),
     );
+    final typed = urlController.text.trim();
+    urlController.dispose();
     if (confirmed != true || !context.mounted) return;
+    // 优先用输入框里的内容（远程地址或 JSON），没填才用选中的文件内容。
+    final effective = typed.isNotEmpty ? typed : text;
     final registry = SourceRegistry.instance;
     try {
       if (jsonOnly) {
-        final trimmed = text.trim();
+        final trimmed = effective.trim();
         if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('请粘贴 JSON 书源（单个或数组）')),
+            const SnackBar(content: Text('所选文件不是 JSON 书源（单个或数组）')),
           );
           return;
         }
-        final entries = await registry.addLegadoImport(text);
+        final entries = await registry.addLegadoImport(effective);
         if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('已导入 ${entries.length} 个书源')),
         );
         return;
       }
-      switch (classifyBookSourceInput(text)) {
+      switch (classifyBookSourceInput(effective)) {
         case BookSourceImportKind.invalid:
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('请输入书源链接或 JSON')),
+            const SnackBar(content: Text('输入内容不是有效的书源')),
           );
         case BookSourceImportKind.remote:
-          final entries = await registry.addLegadoRemote(text.trim());
+          final entries = await registry.addLegadoRemote(effective.trim());
           if (!context.mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('已导入 ${entries.length} 个书源')),
           );
         case BookSourceImportKind.json:
-          final entries = await registry.addLegadoImport(text);
+          final entries = await registry.addLegadoImport(effective);
           if (!context.mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('已导入 ${entries.length} 个书源')),
@@ -460,6 +603,131 @@ class SettingsPage extends StatelessWidget {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('OLED 纯黑已更新，但未能保存')));
+      }
+    }
+  }
+
+  /// 背景主题：预设色（按当前亮度过滤）或自定义图片，全应用生效，首页
+  /// 也跟着换；墨水屏下不生效（纯黑白是硬件约束）。
+  SettingsItem _backgroundItem() => SettingsItem(
+    icon: LucideIcons.image,
+    title: '背景主题',
+    subtitle: '全应用背景色或图片，首页也生效',
+    trailingBuilder: (context) => ValueListenableBuilder<AppBackground>(
+      valueListenable: backgroundNotifier,
+      builder: (context, bg, _) {
+        if (bg.isImage) return const Icon(LucideIcons.image);
+        final color = bg.presetColor;
+        if (color != null) {
+          return Container(
+            width: 24,
+            height: 24,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              border: Border.all(color: Theme.of(context).dividerColor),
+            ),
+          );
+        }
+        return const Text('默认');
+      },
+    ),
+    onTap: (context, setState) {
+      unawaited(_pickBackground(context));
+    },
+  );
+
+  Future<void> _pickBackground(BuildContext context) async {
+    final isDark = isDarkAppearance(
+      systemBrightness: MediaQuery.platformBrightnessOf(context),
+    );
+    final presets = [
+      for (final preset in backgroundPresets)
+        if (preset.dark == isDark) preset,
+    ];
+    final pick = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('背景主题'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(LucideIcons.ban),
+                title: const Text('默认'),
+                subtitle: const Text('跟随主题画布'),
+                onTap: () => Navigator.pop(context, 'default'),
+              ),
+              for (final preset in presets)
+                ListTile(
+                  leading: Container(
+                    width: 24,
+                    height: 24,
+                    decoration: BoxDecoration(
+                      color: preset.color,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  title: Text(preset.name),
+                  onTap: () => Navigator.pop(context, preset.id),
+                ),
+              ListTile(
+                leading: const Icon(LucideIcons.image),
+                title: const Text('从相册选图'),
+                onTap: () => Navigator.pop(context, 'custom'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (pick == null || !context.mounted) return;
+    await _applyBackgroundPick(context, pick);
+  }
+
+  Future<void> _applyBackgroundPick(BuildContext context, String pick) async {
+    String? imagePath;
+    if (pick == 'custom') {
+      final file = await ImagePicker().pickImage(source: ImageSource.gallery);
+      if (file == null) return;
+      try {
+        final docs = await getApplicationDocumentsDirectory();
+        final ext = file.path.split('.').last.toLowerCase();
+        final safeExt = ['jpg', 'jpeg', 'png', 'webp'].contains(ext)
+            ? ext
+            : 'jpg';
+        final dest = File('${docs.path}/app_background.$safeExt');
+        await File(file.path).copy(dest.path);
+        imagePath = dest.path;
+      } catch (_) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('图片保存失败，背景未改')),
+          );
+        }
+        return;
+      }
+    }
+    final bg = AppBackground.decode(
+      pick == 'custom' ? 'custom' : pick,
+      imagePath,
+    );
+    backgroundNotifier.value = bg;
+    try {
+      final sp = await SharedPreferences.getInstance();
+      final idSaved = await sp.setString(backgroundKey, bg.id);
+      final imageSaved = bg.isImage
+          ? await sp.setString(backgroundImageKey, bg.imagePath!)
+          : await sp.remove(backgroundImageKey);
+      if (!idSaved || !imageSaved) {
+        throw StateError('Background preference was not saved');
+      }
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('背景已更新，但未能保存')),
+        );
       }
     }
   }

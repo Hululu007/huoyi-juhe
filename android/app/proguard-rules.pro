@@ -32,11 +32,11 @@
 # These are referenced directly so R8 keeps them alive, but their channel
 # handlers are wired at runtime. Keeping the names makes stack traces and
 # channel diagnostics readable after obfuscation.
--keep class com.fqapp.fqapp.MainActivity { *; }
--keep class com.fqapp.fqapp.NativePlayerPlugin { *; }
--keep class com.fqapp.fqapp.ReaderDevicePlugin { *; }
--keep class com.fqapp.fqapp.NativeVideoOutput { *; }
--keep class com.fqapp.fqapp.ReaderBrightnessSession { *; }
+-keep class com.fanrenxiuxianguanyingchuan.MainActivity { *; }
+-keep class com.fanrenxiuxianguanyingchuan.NativePlayerPlugin { *; }
+-keep class com.fanrenxiuxianguanyingchuan.ReaderDevicePlugin { *; }
+-keep class com.fanrenxiuxianguanyingchuan.NativeVideoOutput { *; }
+-keep class com.fanrenxiuxianguanyingchuan.ReaderBrightnessSession { *; }
 
 # --- Flutter embedding ---------------------------------------------------
 # The embedding is reached from the generated registrant and from native code

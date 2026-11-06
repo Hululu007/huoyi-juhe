@@ -10,10 +10,12 @@ import '../services/library_store.dart';
 import '../services/media_history_store.dart';
 import '../widgets/home/home_design.dart';
 import '../widgets/home/home_shelf.dart';
+import '../widgets/mine/cultivation_profile_card.dart';
 import '../widgets/mine/mine_entries.dart';
 import '../widgets/mine/mine_heatmap.dart';
 import '../widgets/mine/mine_summary.dart';
 import '../widgets/mine/mine_top_books.dart';
+import 'cultivation_titles_page.dart';
 import 'detail_page.dart';
 import 'settings_page.dart';
 
@@ -32,6 +34,7 @@ class MinePage extends StatefulWidget {
 class _MinePageState extends State<MinePage> {
   ReadingStats _stats = ReadingStats.empty;
   bool _loading = true;
+  int _totalTitles = 0;
   late final Listenable _historyChanges;
   late final Listenable _readTimeChanges;
   Timer? _reloadTimer;
@@ -82,13 +85,15 @@ class _MinePageState extends State<MinePage> {
     _reloadTimer = null;
     _storeDirty = false;
     final store = LibraryStore.instance;
+    final history = store.historySnapshot();
     final stats = ReadingStats.from(
-      history: store.historySnapshot(),
+      history: history,
       readTime: store.readTimeSnapshot(),
       readTimeKinds: store.readTimeKindSnapshot(),
     );
     setState(() {
       _stats = stats;
+      _totalTitles = history.length;
       _loading = false;
     });
   }
@@ -140,6 +145,15 @@ class _MinePageState extends State<MinePage> {
           : ListView(
               padding: EdgeInsets.only(bottom: homeBottomClearance(context)),
               children: [
+                CultivationProfileCard(
+                  totalTitles: _totalTitles,
+                  onOpenTitles: () => Navigator.push(
+                    context,
+                    MaterialPageRoute<void>(
+                      builder: (_) => const CultivationTitlesPage(),
+                    ),
+                  ),
+                ),
                 MineSummary(stats: _stats, today: today),
                 MineHeatmap(stats: _stats, today: today),
                 MineTopBooks(rank: _stats.rank, onOpen: _openEntry),

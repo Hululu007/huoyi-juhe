@@ -7,8 +7,8 @@ import 'package:flutter/material.dart';
 const themeModeKey = 'theme_mode';
 
 /// Brand seed color for the whole app (also used by the player slider and
-/// the detail page's accent text).
-const appSeedColor = Color(0xFFEF5038);
+/// the detail page's accent text). 凡人修仙传主题：金 0xFF9C7C1C。
+const appSeedColor = Color(0xFF9C7C1C);
 
 /// Global theme-mode notifier; the settings page writes it, MaterialApp
 /// rebuilds with the new mode.
@@ -35,6 +35,120 @@ const oledModeKey = 'oled_mode';
 /// Global OLED mode notifier; the settings page writes it, MaterialApp
 /// rebuilds with the pure-black palette.
 final ValueNotifier<bool> oledModeNotifier = ValueNotifier(false);
+
+/// Persisted background theme key: 'app_background' = preset id or 'custom'.
+/// 'default' means follow the theme canvas (current behavior, no override).
+const backgroundKey = 'app_background';
+
+/// Persisted custom background image path key: 'app_background_image'.
+/// Only used when [backgroundKey] is 'custom'; the picked image is copied
+/// into the app documents dir so it survives gallery deletion.
+const backgroundImageKey = 'app_background_image';
+
+/// A background theme: a preset color, a custom image, or default.
+/// Eink mode ignores it (pure black/white is a hardware constraint).
+class AppBackground {
+  const AppBackground({required this.id, this.imagePath});
+
+  final String id;
+  final String? imagePath;
+
+  bool get isDefault => id == 'default';
+
+  bool get isImage =>
+      id == 'custom' && imagePath != null && imagePath!.isNotEmpty;
+
+  Color? get presetColor {
+    for (final preset in backgroundPresets) {
+      if (preset.id == id) return preset.color;
+    }
+    return null;
+  }
+
+  static AppBackground decode(String? id, String? imagePath) {
+    if (id == 'custom' && imagePath != null && imagePath.isNotEmpty) {
+      return AppBackground(id: 'custom', imagePath: imagePath);
+    }
+    if (id != null && backgroundPresets.any((preset) => preset.id == id)) {
+      return AppBackground(id: id);
+    }
+    return const AppBackground(id: 'default');
+  }
+}
+
+/// A preset background color. [dark] marks presets meant for dark
+/// appearance; the settings sheet only offers presets matching the current
+/// brightness so a light color never lands under light-mode text.
+class BackgroundPreset {
+  const BackgroundPreset({
+    required this.id,
+    required this.name,
+    required this.color,
+    required this.dark,
+  });
+
+  final String id;
+  final String name;
+  final Color color;
+  final bool dark;
+}
+
+const backgroundPresets = <BackgroundPreset>[
+  BackgroundPreset(
+    id: 'warm',
+    name: '暖纸',
+    color: Color(0xFFFCFAF7),
+    dark: false,
+  ),
+  BackgroundPreset(
+    id: 'cream',
+    name: '米白',
+    color: Color(0xFFF6F6F6),
+    dark: false,
+  ),
+  BackgroundPreset(
+    id: 'green',
+    name: '浅绿',
+    color: Color(0xFFEAF3EC),
+    dark: false,
+  ),
+  BackgroundPreset(
+    id: 'blue',
+    name: '浅蓝',
+    color: Color(0xFFEAF1F8),
+    dark: false,
+  ),
+  BackgroundPreset(
+    id: 'pink',
+    name: '浅粉',
+    color: Color(0xFFF9ECEC),
+    dark: false,
+  ),
+  BackgroundPreset(
+    id: 'charcoal',
+    name: '炭黑',
+    color: Color(0xFF1A1A1C),
+    dark: true,
+  ),
+  BackgroundPreset(
+    id: 'navy',
+    name: '深蓝',
+    color: Color(0xFF1B2233),
+    dark: true,
+  ),
+  BackgroundPreset(
+    id: 'plum',
+    name: '深紫',
+    color: Color(0xFF2A1E2E),
+    dark: true,
+  ),
+];
+
+/// Global background notifier; the settings page writes it, MaterialApp
+/// rebuilds with the new background.
+final ValueNotifier<AppBackground> backgroundNotifier = ValueNotifier(
+  const AppBackground(id: 'default'),
+);
 
 /// 当前外观实际是不是深色：墨水屏恒为浅色（纯黑白），跟随系统时取系统亮度。
 /// [systemBrightness] 供设置页传入 `MediaQuery.platformBrightnessOf(context)`，
@@ -86,10 +200,21 @@ ThemeMode themeModeFromName(String? name) {
 }
 
 /// Unified design system and theme factory for fqapp.
+///
+/// 凡人修仙传主题，三张参考图全融进来：①游戏主界面（深蓝底+金字金光）；
+/// ②韩立官方图（蓝天+绿色灵气+金字）；③剑修职业页（浅蓝白雾气底+蓝色
+/// 图标）。主色金（金光 / 金丹）与深蓝紫（夜空 / 仙山，取自启动图标背景
+/// #323464），辅色青绿（灵气）与天蓝（蓝天 / 图标）。浅色走浅蓝白雾气底，
+/// 深色用深蓝紫底 + 亮金字线。墨水屏纯黑白逻辑不动。
 class AppTheme {
-  static const Color accent = Color(0xFFEF5038);
-  static const Color accentStrong = Color(0xFFC73D29);
-  static const Color accentDark = Color(0xFFF05E47);
+  /// 金：浅色主色（按钮 / 选中态 / 进度条 / 高亮）。
+  static const Color accent = Color(0xFF9C7C1C);
+
+  /// 深金：浅色下更深一档的主色。
+  static const Color accentStrong = Color(0xFF7A5F14);
+
+  /// 亮金：深色主色，在深蓝紫底上更亮。
+  static const Color accentDark = Color(0xFFD4AF37);
 
   /// Pure black-on-white theme for e-ink (#15/#9). No tonal / seed palette,
   /// no grey scale except black-on-white, no ripple, no page transition.
@@ -224,63 +349,72 @@ class AppTheme {
     Brightness brightness, {
     bool einkMode = false,
     bool oledMode = false,
+    AppBackground? background,
   }) {
     if (einkMode) return _createEinkTheme();
     final isDark = brightness == Brightness.dark;
     // OLED 纯黑只在深色下成立；浅色模式忽略该开关。
     final oled = oledMode && isDark;
     final primary = isDark ? accentDark : accent;
-    // 浅色画布与 HomePalette.canvas 同取官方书城底色 #F6F6F6。此前是暖纸
-    // 色 #FCFAF7，只设 body 色的页面 AppBar（取 canvas）与 body 会拼成两色；
+    // 浅色画布走浅蓝白雾气底（剑修页雾气 #EAF2F8），不再是中性灰 #F6F6F6；
     // 深色 / OLED / 墨水屏本来就与 HomePalette.canvas 一致。
-    final canvas = oled
+    final normalCanvas = oled
         ? Colors.black
-        : (isDark ? const Color(0xFF151517) : const Color(0xFFF6F6F6));
+        : (isDark ? const Color(0xFF1E1D38) : const Color(0xFFEAF2F8));
+    // 背景主题：预设色替换整套画布（与之前三处同取 canvas 一致）；图片
+    // 时 body 透明（露出身后的图片层），对话框 / 顶栏保持不透明画布，
+    // 否则标题与弹层文字会压在图片上读不清。默认跟以前一样。
+    final bg = background ?? const AppBackground(id: 'default');
+    final presetColor = bg.presetColor;
+    final scaffoldBg = bg.isImage
+        ? Colors.transparent
+        : (presetColor ?? normalCanvas);
+    final chromeBg = presetColor ?? normalCanvas;
     final surface = oled
         ? const Color(0xFF0C0C0E)
-        : (isDark ? const Color(0xFF242427) : Colors.white);
+        : (isDark ? const Color(0xFF262543) : Colors.white);
     final surfaceContainerLow = oled
         ? const Color(0xFF121215)
-        : (isDark ? const Color(0xFF1C1C1F) : const Color(0xFFF7F5F0));
+        : (isDark ? const Color(0xFF1F1E3A) : const Color(0xFFF2F7FB));
     final surfaceContainer = oled
         ? const Color(0xFF17171A)
-        : (isDark ? const Color(0xFF242428) : const Color(0xFFF2EFE9));
+        : (isDark ? const Color(0xFF282744) : const Color(0xFFEAF2F8));
     final surfaceContainerHigh = oled
         ? const Color(0xFF1F1F23)
-        : (isDark ? const Color(0xFF2C2C32) : const Color(0xFFEBE7DF));
+        : (isDark ? const Color(0xFF2F2E4E) : const Color(0xFFDCE9F2));
     final ink = isDark ? const Color(0xFFF5F1EB) : const Color(0xFF262522);
     final muted = isDark ? const Color(0xFFA7A39E) : const Color(0xFF706C66);
     final line = oled
         ? const Color(0xFF2E2E34)
-        : (isDark ? const Color(0xFF333336) : const Color(0xFFE8E4DE));
+        : (isDark ? const Color(0xFF3A3860) : const Color(0xFFD8E2EC));
 
     final scheme = ColorScheme(
       brightness: brightness,
       primary: primary,
       onPrimary: Colors.white,
       primaryContainer:
-          isDark ? const Color(0xFF381C17) : const Color(0xFFFFECE8),
+          isDark ? const Color(0xFF3D2F0A) : const Color(0xFFF5E9C8),
       onPrimaryContainer:
-          isDark ? const Color(0xFFFFDAD4) : const Color(0xFF410002),
-      secondary: isDark ? const Color(0xFFE5806B) : const Color(0xFFD3513B),
+          isDark ? const Color(0xFFFFE9A8) : const Color(0xFF3D2F00),
+      secondary: isDark ? const Color(0xFF5BD6A0) : const Color(0xFF1E9E6A),
       onSecondary: Colors.white,
       secondaryContainer:
-          isDark ? const Color(0xFF33201C) : const Color(0xFFFFECE5),
+          isDark ? const Color(0xFF14382C) : const Color(0xFFDDF3E8),
       onSecondaryContainer:
-          isDark ? const Color(0xFFFFDAD2) : const Color(0xFF3C0E07),
+          isDark ? const Color(0xFFC2F0D8) : const Color(0xFF0A3D28),
       tertiary: isDark ? const Color(0xFF7DB3EC) : const Color(0xFF4A90D9),
       onTertiary: Colors.white,
       surface: surface,
       onSurface: ink,
       surfaceContainerLowest: oled
           ? Colors.black
-          : (isDark ? const Color(0xFF0F0F11) : Colors.white),
+          : (isDark ? const Color(0xFF14132B) : Colors.white),
       surfaceContainerLow: surfaceContainerLow,
       surfaceContainer: surfaceContainer,
       surfaceContainerHigh: surfaceContainerHigh,
       surfaceContainerHighest: oled
           ? const Color(0xFF27272C)
-          : (isDark ? const Color(0xFF34343A) : const Color(0xFFE4DFD6)),
+          : (isDark ? const Color(0xFF383759) : const Color(0xFFD2DEEB)),
       onSurfaceVariant: muted,
       outline: oled
           ? const Color(0xFF8A867F)
@@ -298,10 +432,10 @@ class AppTheme {
     return ThemeData(
       colorScheme: scheme,
       useMaterial3: true,
-      scaffoldBackgroundColor: canvas,
-      canvasColor: canvas,
+      scaffoldBackgroundColor: scaffoldBg,
+      canvasColor: chromeBg,
       appBarTheme: AppBarTheme(
-        backgroundColor: canvas,
+        backgroundColor: chromeBg,
         surfaceTintColor: Colors.transparent,
         scrolledUnderElevation: 0,
         elevation: 0,

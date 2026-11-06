@@ -2,8 +2,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fqapp/models/homepage_page.dart';
 import 'package:fqapp/models/media_item.dart';
 import 'package:fqapp/services/drama_site_content.dart';
-import 'package:fqapp/services/m3u_export.dart';
-import 'package:fqapp/services/m3u_export_db.dart';
 import 'package:fqapp/services/original_site_content.dart';
 
 MediaItem feedItem(String id, String title) => MediaItem(
@@ -132,39 +130,4 @@ void main() {
     );
   });
 
-  test('番茄短剧导出：适配器直插导出流，地址进库', () async {
-    final client = OriginalContentClient(
-      homepageLoader: ({int offset = 0, String? sessionId}) async {
-        if (offset == 0) {
-          return HomepagePage(
-            items: [feedItem('s1', '剧一'), feedItem('s2', '剧二')],
-            nextOffset: 20,
-            sessionId: 's1',
-          );
-        }
-        return const HomepagePage(items: [], nextOffset: null, sessionId: null);
-      },
-      contentLoader: (itemId) async => {
-        'data': {'video_url': 'https://cdn.example.com/$itemId.m3u8'},
-      },
-    );
-    final db = MemoryM3uExportDb();
-    final result = await exportSiteToLocalDb(
-      siteId: 'original',
-      siteName: '番茄短剧',
-      client: client,
-      dbSink: db,
-      gateOpen: true,
-      allowNonM3u8: true,
-    );
-    expect(result.successCount, 2);
-    final rows = await db.listVideos(gateOpen: true);
-    expect(
-      rows.map((row) => row.url).toSet(),
-      {
-        'https://cdn.example.com/s1.m3u8',
-        'https://cdn.example.com/s2.m3u8',
-      },
-    );
-  });
 }

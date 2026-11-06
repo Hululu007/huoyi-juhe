@@ -45,8 +45,9 @@ class InlineVideoPlayback {
     this.historyStore,
     PlayerPool? pool,
   }) : pool = pool ?? PlayerPool() {
-    // The address cache is page-local: it keeps {url,keyHex} for at most two
-    // episodes with a two minute TTL and never downloads media bytes.
+    // The address cache is page-local: it keeps {url,keyHex} for at most six
+    // entries (current + next five) with a ten minute TTL and never
+    // downloads media bytes.
     _sources =
         sources ??
         EpisodeSourceCache(
@@ -577,10 +578,26 @@ class InlineVideoPlayback {
     try {
       final episodes = await _episodesFor(contentId, tab, nextSeries);
       if (_disposed || generation != _generation || episodes.isEmpty) return;
+      final first = episodes.first;
+      // 先向页内缓存要地址（与下面 prefetch 同一条待定请求，不多发一次网络），
+      // 拿到后另写进跨页共享存储，供播放页（ApiClient 默认路径）直接用。
+      final request = _sources.request(first);
       await _sources.prefetch(
-        episodes.first,
+        first,
         stillWanted: () => !_disposed && generation == _generation,
       );
+      try {
+        final source = await request.future;
+        if (!_disposed && generation == _generation) {
+          SharedEpisodePrefetch.instance.put(
+            bookId: contentId,
+            itemId: first.itemId,
+            source: source,
+          );
+        }
+      } catch (_) {
+        // 取流失败是静默的，播放页届时正常再取。
+      }
     } catch (_) {
       // Speculative prefetch errors are silent.
     }

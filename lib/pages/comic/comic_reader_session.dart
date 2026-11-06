@@ -290,6 +290,12 @@ extension _ComicReaderSession on _ComicReaderPageState {
             .accumulateReadTime(widget.bookId, 'manga', seconds)
             .catchError((Object _) {}),
       );
+      // 修为记账：真实阅读时长 1 分钟 = 1 修为（服务里 ×1.8）。
+      unawaited(
+        CultivationService.instance
+            .addSeconds(CultivationCategory.comic, seconds)
+            .catchError((Object _) {}),
+      );
     }
   }
 
@@ -333,6 +339,14 @@ extension _ComicReaderSession on _ComicReaderPageState {
     unawaited(
       _saveProgress(),
     ); // Snapshot is captured before changing chapters.
+    // 读完 1 章漫画 +150 修为：只记逐章往后翻（目录跳章不算读完）。
+    if (index == _chapterIndex + 1) {
+      unawaited(
+        CultivationService.instance
+            .addChapterCompleted(CultivationCategory.comic)
+            .catchError((Object _) {}),
+      );
+    }
     _setState(() => _chapterIndex = index);
     unawaited(_loadChapter());
   }

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../services/drama_site_content.dart';
 import '../services/live_sources.dart';
 import '../services/source_registry.dart';
+import '../services/file_text_picker.dart';
 import 'site_browse_page.dart';
 
 /// 站源管理的一级技术分组：按技术分，空组也保留（页里显示“暂无…”）。
@@ -67,7 +68,7 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
   bool _loading = true;
   final Map<String, String?> _checkResults = {};
   final Set<String> _checking = {};
-  int? _liveChannelCount;
+  final Set<String> _expanded = {};
 
   @override
   void initState() {
@@ -75,20 +76,6 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
     SourceRegistry.instance.load().then((_) {
       if (mounted) setState(() => _loading = false);
     });
-    unawaited(_loadLiveChannelCount());
-  }
-
-  /// 欲火直播内置频道表的条数：只作展示，读不到就只显示直播源个数。
-  Future<void> _loadLiveChannelCount() async {
-    try {
-      final source = LiveSources.byId('yuhuo_live');
-      if (source == null) return;
-      final channels = await LiveSources.loadBuiltinListChannels(source);
-      if (!mounted) return;
-      setState(() => _liveChannelCount = channels.length);
-    } catch (_) {
-      // 读不到频道表不影响站源管理，静默只显示源个数。
-    }
   }
 
   Future<void> _refresh() async {
@@ -234,7 +221,7 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
                   items: const [
                     DropdownMenuItem(
                       value: SourceKind.pyImport,
-                      child: Text('Python（粘贴源码，引擎直跑）'),
+                      child: Text('Python（选择 .py 文件，引擎直跑）'),
                     ),
                     DropdownMenuItem(
                       value: SourceKind.jarImport,
@@ -288,15 +275,33 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
                     }
                   },
                 ),
-                if (kind == SourceKind.pyImport)
+                if (kind == SourceKind.pyImport) ...[
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        final picked = await pickTextFile(
+                          label: 'Python',
+                          extensions: ['py'],
+                        );
+                        if (picked == null) return;
+                        setDialogState(
+                          () => sourceController.text = picked.content,
+                        );
+                      },
+                      icon: const Icon(Icons.folder_open),
+                      label: const Text('选择 .py 文件'),
+                    ),
+                  ),
                   TextField(
                     controller: sourceController,
                     maxLines: 8,
                     decoration: const InputDecoration(
                       labelText: '蜘蛛源码',
-                      hintText: '粘贴 .py 文件全文，含 class Spider',
+                      hintText: '选择 .py 文件后源码显示在这里（含 class Spider），也可直接粘贴',
                     ),
                   ),
+                ],
                 if (kind == SourceKind.jarImport) ...[
                   TextField(
                     controller: jarUrlController,
@@ -445,10 +450,7 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
                 ListTile(
                   title: const Text('直播源汇总'),
                   subtitle: Text(
-                    _liveChannelCount == null
-                        ? '${LiveSources.builtin.length} 个直播源：$liveNames'
-                        : '${LiveSources.builtin.length} 个直播源：$liveNames'
-                            '，其中欲火直播频道表 $_liveChannelCount 条',
+                    '${LiveSources.builtin.length} 个直播源：$liveNames',
                   ),
                 ),
                 _groupTitle('jar 内置'),
@@ -542,23 +544,42 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
     final checking = _checking.contains(entry.id);
     final checkError = _checkResults[entry.id];
     final playable = entry.kind == SourceKind.customMaccms;
+    // 折叠：默认只露一行类型标，点行或点箭头才展开地址/详情等多行。
+    final expanded = _expanded.contains(entry.id);
+    final lines = [
+      '${entry.kind.label} · ${entry.contentType.label}',
+      if (entry.address.isNotEmpty) entry.address,
+      if (entry.detail.isNotEmpty) entry.detail,
+      if (entry.extra['downloadPath'] is String &&
+          (entry.extra['downloadPath'] as String).isNotEmpty)
+        '下载文件：${entry.extra['downloadPath']}',
+      if (checkError != null) '检测失败：$checkError',
+    ];
+    void toggleExpanded() {
+      setState(() {
+        if (expanded) {
+          _expanded.remove(entry.id);
+        } else {
+          _expanded.add(entry.id);
+        }
+      });
+    }
+
     return ListTile(
       title: Text(entry.name),
-      subtitle: Text(
-        [
-          '${entry.kind.label} · ${entry.contentType.label}',
-          if (entry.address.isNotEmpty) entry.address,
-          if (entry.detail.isNotEmpty) entry.detail,
-          if (entry.extra['downloadPath'] is String &&
-              (entry.extra['downloadPath'] as String).isNotEmpty)
-            '下载文件：${entry.extra['downloadPath']}',
-          if (checkError != null) '检测失败：$checkError',
-        ].join('\n'),
-      ),
-      isThreeLine: true,
+      subtitle: Text(expanded ? lines.join('\n') : lines.first),
+      isThreeLine: expanded,
+      onTap: toggleExpanded,
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          IconButton(
+            icon: Icon(
+              expanded ? Icons.expand_less : Icons.expand_more,
+            ),
+            tooltip: expanded ? '收起' : '展开',
+            onPressed: toggleExpanded,
+          ),
           if (_browsable(entry))
             TextButton(
               onPressed: () => Navigator.push(

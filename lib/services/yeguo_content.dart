@@ -92,6 +92,15 @@ _YeguoAccess? _parseYeguoConfig(String script) {
   );
 }
 
+/// 从脚本里找 api.php 接口入口：站方主脚本以形如
+/// https://www.yeguodj.com/api.php 的前端控制器为接口地址，
+/// 路由拼在其后；脚本里有多个时取第一个。
+String? _apiPhpUrl(String script) {
+  final match =
+      RegExp(r'''https?://[^\s"'`]+/api\.php''').firstMatch(script);
+  return match?.group(0);
+}
+
 String _yeguoSignature(Map<String, dynamic> envelope, List<int> signKey) {
   final names = envelope.keys
       .where((name) => name != 'sign' && name != '_ver')
@@ -218,8 +227,12 @@ class YeguoContentClient implements DramaSiteContentClient {
   Future<_YeguoAccess?> _discoverAt(String site) async {
     final pageUrl = '$site/';
     final html = await _fetchText(pageUrl, referer: pageUrl);
-    final apiBase = _nuxtApiBase(html);
-    if (apiBase == null || apiBase.isEmpty) return null;
+    // 站方首页的 __NUXT_DATA__ 已不再带 apiBaseURL（2026-11-05 实测：
+    // 载荷里只有 img_base、brand_domain 等配置，没有接口地址字段）。
+    // 接口地址改从脚本里找：站方主脚本以 api.php 前端控制器为接口
+    // 入口（如 https://www.yeguodj.com/api.php），路由拼在其后；
+    // 载荷里仍带 apiBaseURL 时沿用旧行为；两者都没有则整站判死。
+    final foundApiBase = _nuxtApiBase(html);
     final entry = _moduleScriptUrl(html, pageUrl);
     if (entry == null) return null;
     final entryBody = await _fetchText(entry, referer: pageUrl);
@@ -234,6 +247,8 @@ class YeguoContentClient implements DramaSiteContentClient {
       return aComma ? 1 : -1;
     });
     final seen = <String>{};
+    _YeguoAccess? foundConfig;
+    String? apiPhp;
     for (final imported in imports) {
       if (imported.group(1)!.length > 2400) continue;
       final entryUri = Uri.tryParse(entry);
@@ -249,23 +264,29 @@ class YeguoContentClient implements DramaSiteContentClient {
       }
       if (seen.length > 20) break;
       final body = await _fetchText(address.toString(), referer: pageUrl);
+      apiPhp ??= _apiPhpUrl(body);
       final parsed = _parseYeguoConfig(body);
-      if (parsed == null) continue;
-      final random = Random.secure();
-      final idBytes = List<int>.generate(16, (_) => random.nextInt(256));
-      final identifier =
-          idBytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
-      return _YeguoAccess(
-        base: apiBase.trim().replaceAll(RegExp(r'/+$'), ''),
-        site: site,
-        key: parsed.key,
-        iv: parsed.iv,
-        signKey: parsed.signKey,
-        identifier: identifier,
-        loadedAt: DateTime.now(),
-      );
+      if (parsed != null && foundConfig == null) foundConfig = parsed;
+      if (foundConfig != null && apiPhp != null) break;
     }
-    return null;
+    if (foundConfig == null) return null;
+    final base = (foundApiBase != null && foundApiBase.isNotEmpty)
+        ? foundApiBase
+        : apiPhp;
+    if (base == null || base.isEmpty) return null;
+    final random = Random.secure();
+    final idBytes = List<int>.generate(16, (_) => random.nextInt(256));
+    final identifier =
+        idBytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    return _YeguoAccess(
+      base: base.trim().replaceAll(RegExp(r'/+$'), ''),
+      site: site,
+      key: foundConfig.key,
+      iv: foundConfig.iv,
+      signKey: foundConfig.signKey,
+      identifier: identifier,
+      loadedAt: DateTime.now(),
+    );
   }
 
   List<String> _transitCandidates(String body) {

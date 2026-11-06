@@ -17,6 +17,42 @@ const _homepage = '''
 
 const _entryJs = 'import {foo} from "/_nuxt/chunk.xyz.js";';
 
+// 站方现状：__NUXT_DATA__ 里不再带 apiBaseURL，只有其它配置字段。
+const _homepageNoApiBase = '''
+<html><head>
+<script id="__NUXT_DATA__" type="application/json">[null,{"other":2},"x"]</script>
+<script type="module" src="/_nuxt/entry.abc.js"></script>
+</head></html>
+''';
+
+const _entryApiJs =
+    'import {foo} from "/_nuxt/chunk.xyz.js"; import {bar} from "/_nuxt/chunk.api.js";';
+
+const _apiJs = 'const api = "https://api2.yeguo.test/api.php";';
+
+MockClient _mockApiPhpClient() {
+  return MockClient((request) async {
+    final url = request.url.toString();
+    if (url == 'https://analyze.buxefaex.cc/') {
+      return http.Response(_homepageNoApiBase, 200);
+    }
+    if (url == 'https://analyze.buxefaex.cc/_nuxt/entry.abc.js') {
+      return http.Response(_entryApiJs, 200);
+    }
+    if (url == 'https://analyze.buxefaex.cc/_nuxt/chunk.xyz.js') {
+      return http.Response(_configJs, 200);
+    }
+    if (url == 'https://analyze.buxefaex.cc/_nuxt/chunk.api.js') {
+      return http.Response(_apiJs, 200);
+    }
+    if (url.startsWith(
+        'https://api2.yeguo.test/api.php/api/home/contentOptions')) {
+      return http.Response(_envelope, 200);
+    }
+    return http.Response('not found', 404);
+  });
+}
+
 const _configJs = '''
 const cfg = {version:"v0",mode:"CBC",padding:"Pkcs7",
 key:"0123456789abcdef",iv:"abcdef0123456789",sign_key:"signkey1234567890"};
@@ -44,6 +80,13 @@ MockClient _mockClient() {
 void main() {
   test('野果发现+签名验算+解密：Mock 全链出分类', () async {
     final client = YeguoContentClient(client: _mockClient());
+    final categories = await client.categories();
+    expect(categories.map((c) => c.id), ['theme:1']);
+    expect(categories.single.name, '都市');
+  });
+
+  test('野果无 apiBaseURL 时从脚本里找 api.php 接口地址', () async {
+    final client = YeguoContentClient(client: _mockApiPhpClient());
     final categories = await client.categories();
     expect(categories.map((c) => c.id), ['theme:1']);
     expect(categories.single.name, '都市');

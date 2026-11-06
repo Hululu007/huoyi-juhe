@@ -89,32 +89,4 @@ void main() {
     expect(rows.every((row) => row.url.isEmpty), isTrue);
   });
 
-  testWidgets('预爬取按钮一键爬本站进库：地址齐全', (tester) async {
-    final db = MemoryM3uExportDb();
-    await tester.pumpWidget(
-      MaterialApp(
-        home: SiteBrowsePage(
-          siteId: 'test_site',
-          siteName: '测试站',
-          client: _FakeBrowseClient(),
-          dbSink: db,
-        ),
-      ),
-    );
-    await pumpUntilDbHas(tester, db, 2);
-    await tester.tap(find.byKey(const Key('precrawl-button')));
-    for (var i = 0; i < 30; i++) {
-      await tester.pump(const Duration(milliseconds: 100));
-      if (find.textContaining('已写入本地库').evaluate().isNotEmpty) break;
-    }
-    expect(find.textContaining('已写入本地库 2 条'), findsOneWidget);
-    final rows = await db.listVideos(gateOpen: true);
-    expect(
-      rows.map((row) => row.url).toSet(),
-      {
-        'https://cdn.example.com/v1.m3u8',
-        'https://cdn.example.com/v2.m3u8',
-      },
-    );
-  });
 }

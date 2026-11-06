@@ -9,6 +9,10 @@ import '../home/home_media_card.dart';
 ///
 /// Mockup size is exactly 92×128 at r6 with no shadow, spine or border; e-ink
 /// keeps the shape and paints the artwork in grayscale.
+///
+/// When [onPlay] is given (video detail), a play button sits in the middle
+/// of the poster; tapping it starts playback, tapping elsewhere on the
+/// poster still opens the zoomable viewer.
 class DetailCoverTile extends StatelessWidget {
   final MediaItem item;
 
@@ -16,11 +20,15 @@ class DetailCoverTile extends StatelessWidget {
   final bool desktop;
   final bool compact;
 
+  /// Video play action. Null means no play button on the poster.
+  final VoidCallback? onPlay;
+
   const DetailCoverTile({
     super.key,
     required this.item,
     this.desktop = false,
     this.compact = false,
+    this.onPlay,
   });
 
   @override
@@ -39,17 +47,50 @@ class DetailCoverTile extends StatelessWidget {
         child: ExcludeSemantics(
           child: ClipRRect(
             borderRadius: BorderRadius.circular(6),
-            child: palette.eink
-                ? ColorFiltered(
-                    colorFilter: const ColorFilter.matrix(<double>[
-                      0.2126, 0.7152, 0.0722, 0, 0, //
-                      0.2126, 0.7152, 0.0722, 0, 0, //
-                      0.2126, 0.7152, 0.0722, 0, 0, //
-                      0, 0, 0, 1, 0, //
-                    ]),
-                    child: StoryCover(item: item, cacheWidth: 320),
-                  )
-                : StoryCover(item: item, cacheWidth: 320),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                palette.eink
+                    ? ColorFiltered(
+                        colorFilter: const ColorFilter.matrix(<double>[
+                          0.2126, 0.7152, 0.0722, 0, 0, //
+                          0.2126, 0.7152, 0.0722, 0, 0, //
+                          0.2126, 0.7152, 0.0722, 0, 0, //
+                          0, 0, 0, 1, 0, //
+                        ]),
+                        child: StoryCover(item: item, cacheWidth: 320),
+                      )
+                    : StoryCover(item: item, cacheWidth: 320),
+                if (onPlay != null)
+                  Center(
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        key: const Key('detail_cover_play_button'),
+                        customBorder: const CircleBorder(),
+                        onTap: onPlay,
+                        child: Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.55),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.85),
+                              width: 1.5,
+                            ),
+                          ),
+                          child: const Icon(
+                            LucideIcons.play,
+                            color: Colors.white,
+                            size: 24,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),

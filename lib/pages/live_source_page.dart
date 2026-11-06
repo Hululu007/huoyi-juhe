@@ -1,59 +1,25 @@
 import 'package:flutter/material.dart';
 
-import '../models/media_item.dart';
 import '../services/live_platform.dart';
 import '../services/live_sources.dart';
-import 'player_page.dart';
+import 'live_player_page.dart';
 
-Future<void> openLiveChannel(BuildContext context, LiveChannel channel) async {
-  var playUrl = channel.url;
-  final needsResolve =
-      (channel.sourceId == 'bilibili' || channel.sourceId == 'huya') &&
-      channel.token.isNotEmpty;
-  if (needsResolve) {
-    if (!context.mounted) return;
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(child: CircularProgressIndicator()),
-    );
-    try {
-      final resolved = await resolvePlatformPlaybackUrl(channel);
-      if (!context.mounted) return;
-      Navigator.pop(context);
-      if (resolved == null || resolved.isEmpty) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('该直播间暂时取不到播放地址')));
-        return;
-      }
-      playUrl = resolved;
-    } catch (error) {
-      if (!context.mounted) return;
-      Navigator.pop(context);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('取流失败：$error')));
-      return;
-    }
-  }
-  if (!context.mounted) return;
+/// 打开直播专用播放器：带上整个频道表与当前下标，播放页内可上下切频道、
+/// 打开频道列表、切换直播源。不再走通用点播 PlayerPage。
+Future<void> openLiveChannel(
+  BuildContext context, {
+  required List<LiveChannel> channels,
+  required int index,
+  required LiveSource source,
+}) async {
+  if (channels.isEmpty || !context.mounted) return;
   Navigator.push(
     context,
     MaterialPageRoute<void>(
-      builder: (_) => PlayerPage(
-        bookId: playUrl,
-        kind: 'video',
-        title: channel.title,
-        eps: [
-          Chapter(itemId: playUrl, title: channel.title, volumeName: ''),
-        ],
-        startIndex: 0,
-        contentLoader: (_) async => {
-          'video_url': playUrl,
-          'key_hex': '',
-          'variants': <Map<String, dynamic>>[],
-        },
+      builder: (_) => LivePlayerPage(
+        channels: channels,
+        startIndex: index.clamp(0, channels.length - 1),
+        source: source,
       ),
     ),
   );
@@ -69,8 +35,6 @@ class LiveSourceBrowsePage extends StatelessWidget {
     switch (source.protocol) {
       case LiveProtocol.list:
         return _ListChannelsPage(source: source);
-      case LiveProtocol.platform:
-        return _PlatformListPage(source: source);
       case LiveProtocol.pingtai:
         return _PingtaiPlatformsPage(source: source);
     }
@@ -78,12 +42,19 @@ class LiveSourceBrowsePage extends StatelessWidget {
 }
 
 class _ChannelTile extends StatelessWidget {
-  const _ChannelTile({required this.channel});
+  const _ChannelTile({
+    required this.channels,
+    required this.index,
+    required this.source,
+  });
 
-  final LiveChannel channel;
+  final List<LiveChannel> channels;
+  final int index;
+  final LiveSource source;
 
   @override
   Widget build(BuildContext context) {
+    final channel = channels[index];
     return ListTile(
       title: Text(channel.title),
       subtitle: channel.subtitle.isEmpty
@@ -94,7 +65,12 @@ class _ChannelTile extends StatelessWidget {
                   : '${channel.group} · ${channel.subtitle}',
             ),
       trailing: const Icon(Icons.play_arrow),
-      onTap: () => openLiveChannel(context, channel),
+      onTap: () => openLiveChannel(
+        context,
+        channels: channels,
+        index: index,
+        source: source,
+      ),
     );
   }
 }
@@ -123,126 +99,14 @@ class _ListChannelsPage extends StatelessWidget {
           }
           return ListView.builder(
             itemCount: channels.length,
-            itemBuilder: (context, index) =>
-                _ChannelTile(channel: channels[index]),
+            itemBuilder: (context, index) => _ChannelTile(
+              channels: channels,
+              index: index,
+              source: source,
+            ),
           );
         },
       ),
-    );
-  }
-}
-
-class _PlatformListPage extends StatelessWidget {
-  const _PlatformListPage({required this.source});
-
-  final LiveSource source;
-
-  @override
-  Widget build(BuildContext context) {
-    final platforms = livePlatformCategories(source.id);
-    return Scaffold(
-      appBar: AppBar(title: Text(source.name)),
-      body: ListView(
-        children: [
-          for (final platform in platforms)
-            ListTile(
-              title: Text(platform.name),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute<void>(
-                  builder: (_) => _PlatformRoomsPage(
-                    source: source,
-                    platform: platform,
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PlatformRoomsPage extends StatefulWidget {
-  const _PlatformRoomsPage({required this.source, required this.platform});
-
-  final LiveSource source;
-  final LivePlatform platform;
-
-  @override
-  State<_PlatformRoomsPage> createState() => _PlatformRoomsPageState();
-}
-
-class _PlatformRoomsPageState extends State<_PlatformRoomsPage> {
-  final _rooms = <LiveChannel>[];
-  var _page = 1;
-  var _loading = true;
-  var _loadingMore = false;
-  String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadPage(1);
-  }
-
-  Future<void> _loadPage(int page) async {
-    try {
-      final rooms = await fetchPlatformRooms(
-        widget.source.id,
-        widget.platform,
-        page,
-      );
-      if (!mounted) return;
-      setState(() {
-        if (page == 1) _rooms.clear();
-        _rooms.addAll(rooms);
-        _page = page;
-        _loading = false;
-        _loadingMore = false;
-        _error = null;
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _loadingMore = false;
-        _error = '$error';
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(widget.platform.name)),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null && _rooms.isEmpty
-              ? Center(child: Text('加载失败：$_error'))
-              : ListView.builder(
-                  itemCount: _rooms.length + 1,
-                  itemBuilder: (context, index) {
-                    if (index == _rooms.length) {
-                      return Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Center(
-                          child: _loadingMore
-                              ? const CircularProgressIndicator()
-                              : TextButton(
-                                  onPressed: () {
-                                    setState(() => _loadingMore = true);
-                                    _loadPage(_page + 1);
-                                  },
-                                  child: const Text('加载更多'),
-                                ),
-                        ),
-                      );
-                    }
-                    return _ChannelTile(channel: _rooms[index]);
-                  },
-                ),
     );
   }
 }
@@ -321,8 +185,11 @@ class _PingtaiChannelsPage extends StatelessWidget {
           }
           return ListView.builder(
             itemCount: channels.length,
-            itemBuilder: (context, index) =>
-                _ChannelTile(channel: channels[index]),
+            itemBuilder: (context, index) => _ChannelTile(
+              channels: channels,
+              index: index,
+              source: source,
+            ),
           );
         },
       ),

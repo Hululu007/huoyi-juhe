@@ -95,6 +95,25 @@ void main() {
     });
   });
 
+  group('category entry', () {
+    testWidgets('shows at the search row right end when a callback is given',
+        (tester) async {
+      var tapped = false;
+      await pump(
+        tester,
+        HomeHero(
+          onSearch: _Noop._,
+          onCategory: () => tapped = true,
+        ),
+      );
+
+      expect(find.byKey(const Key('home_category_button')), findsOneWidget);
+      expect(find.text('分类'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('home_category_button')));
+      expect(tapped, true);
+    });
+  });
+
   group('SearchCue payload', () {
     test('reads data_v1 words and rotate_interval_ms', () {
       final cue = SearchCue.fromPayload(const {

@@ -242,7 +242,7 @@ ELF/ZIP 的 16 KiB 对齐检查通过后，仍需在对应 Android 设备上验�
 ```powershell
 # 真机 USB 调试连接后
 adb install -r build\app\outputs\flutter-apk\app-debug.apk
-adb shell am start -n com.fqapp.fqapp/.MainActivity
+adb shell am start -n com.fanrenxiuxianguanyingchuan/.MainActivity
 ```
 
 首次启动：App 将运行时资源部署到 `files/backend/`，通过 flutter_rust_bridge 初始化 Rust 原生核心，健康检查通过后进入主界面。
@@ -689,10 +689,10 @@ App 通过 `ApiClient` 调用后端 **`/api/v1/*` 业务路由**（Rust 核心 `
 
 ```powershell
 # 查看后端日志（App 内写入）
-adb shell run-as com.fqapp.fqapp cat files/backend/backend.log
+adb shell run-as com.fanrenxiuxianguanyingchuan cat files/backend/backend.log
 
 # 查看部署文件
-adb shell run-as com.fqapp.fqapp ls -la files/backend/
+adb shell run-as com.fanrenxiuxianguanyingchuan ls -la files/backend/
 
 # 端口转发测试（后端起来后）
 adb forward tcp:18080 tcp:18921

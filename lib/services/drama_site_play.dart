@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
@@ -41,44 +42,91 @@ bool isForeignProxyUrl(String url) {
   return !LocalMediaProxy.instance.owns(url);
 }
 
-/// 取流结果 → 播放器可播地址：dict 头非空时经本地代理带上；外来壳
-/// 代理地址经蜘蛛 localProxy 会话转接；其余直链原样。主地址与每个
-/// variant 一起换，keyHex 与高度原样保留。
+/// 外来壳代理地址解包（可单测）：从 127.0.0.1:9978/proxy 这类外壳代理
+/// 地址里取出真正的上游地址；取不出（查询是不透明令牌、只能由蜘蛛
+/// 自己的 localProxy 解析）时回空，调用方改走蜘蛛 localProxy 会话。
+/// 常见形态：?url=、?u=、?target=、?src=、?link=、?playUrl=（值已解码
+/// 一次，双重编码的再解一次），以及整个查询串本身就是一条 urlencoded
+/// 上游地址；查询里带的 header/headers（JSON 对象）一并取出。
+/// 注意：本函数只看查询形态，不判定是不是外来代理地址；生产调用方
+/// 先过 isForeignProxyUrl 再调它，避免把正常带 url 参数的接口误解包。
+({String target, Map<String, String> headers})? unwrapForeignProxyUrl(
+  String url,
+) {
+  final uri = Uri.tryParse(url);
+  if (uri == null || uri.query.isEmpty) return null;
+  String? candidate;
+  for (final key in const [
+    'url',
+    'u',
+    'target',
+    'src',
+    'link',
+    'playUrl',
+    'playurl',
+  ]) {
+    final value = uri.queryParameters[key];
+    if (value != null && value.isNotEmpty) {
+      candidate = value;
+      break;
+    }
+  }
+  candidate ??= uri.query;
+  var decoded = candidate;
+  for (var i = 0; i < 2; i++) {
+    if (decoded.contains('%3A') ||
+        decoded.contains('%2F') ||
+        decoded.contains('%3a') ||
+        decoded.contains('%2f')) {
+      try {
+        decoded = Uri.decodeFull(decoded);
+      } catch (_) {
+        break;
+      }
+    } else {
+      break;
+    }
+  }
+  if (!decoded.startsWith('http://') && !decoded.startsWith('https://')) {
+    return null;
+  }
+  final headers = <String, String>{};
+  for (final key in const ['header', 'headers']) {
+    final raw = uri.queryParameters[key];
+    if (raw == null || raw.isEmpty) continue;
+    try {
+      final parsed = jsonDecode(raw);
+      if (parsed is Map) {
+        for (final entry in parsed.entries) {
+          if (entry.value is String) {
+            headers[entry.key.toString()] = entry.value as String;
+          }
+        }
+      }
+    } catch (_) {}
+  }
+  return (target: decoded, headers: headers);
+}
+
+/// 取流结果 → 播放器可播地址：逐条地址独立决策——外来壳代理地址先解包，
+/// 解得出上游就走 /r/ 转发（带播放头与查询里的头，不再要求蜘蛛实现
+/// localProxy）；解不出（不透明令牌）才走蜘蛛 localProxy 会话，蜘蛛没
+/// 实现就报诚实错误；dict 头非空的直链经 /r/ 带上；其余直链原样。
+/// 主地址与每个 variant 一起换，keyHex 与高度原样保留。
 Future<DramaPlaySource> _proxyIfNeeded(
   DramaSiteContentClient client,
   DramaPlaySource source,
 ) async {
   final proxy = LocalMediaProxy.instance;
-  Future<DramaPlaySource> mapUrl(
-    Future<String> Function(String) map,
-  ) async {
-    final url = await map(source.url);
-    final variants = <DramaPlayVariant>[];
-    for (final variant in source.variants) {
-      variants.add(
-        DramaPlayVariant(
-          name: variant.name,
-          url: await map(variant.url),
-          keyHex: variant.keyHex,
-          height: variant.height,
-        ),
-      );
-    }
-    return DramaPlaySource(
-      url: url,
-      keyHex: source.keyHex,
-      variants: variants,
-    );
-  }
-
-  if (isForeignProxyUrl(source.url)) {
+  // /h/ 会话懒注册：只有遇到解不出上游的外来代理地址时才建。
+  String? sessionUrl;
+  Future<String> handlerSessionUrl() async {
+    if (sessionUrl != null) return sessionUrl!;
     if (client is! LocalProxyCapable) {
       throw StateError('该站未实现本地代理，无法转接壳代理地址');
     }
-    // 上面的守卫已保证类型；这里用 as 纯粹是绕开参数提升失效，
-    // 到不了错类型（错类型在守卫处已抛诚实错误）。
     final capable = client as LocalProxyCapable;
-    final sessionUrl = await proxy.registerHandler(
+    sessionUrl = await proxy.registerHandler(
       handler: (requestUri) async {
         final result = await capable.localProxy(requestUri);
         if (result == null) {
@@ -87,19 +135,43 @@ Future<DramaPlaySource> _proxyIfNeeded(
         return result;
       },
     );
-    return mapUrl((url) async {
-      if (!isForeignProxyUrl(url)) return url;
+    return sessionUrl!;
+  }
+
+  Future<String> mapOne(String url) async {
+    if (isForeignProxyUrl(url)) {
+      final unwrapped = unwrapForeignProxyUrl(url);
+      if (unwrapped != null) {
+        final headers = {...unwrapped.headers, ...source.headers};
+        return proxy.register(targetUrl: unwrapped.target, headers: headers);
+      }
+      final session = await handlerSessionUrl();
       final query = Uri.parse(url).query;
-      return query.isEmpty ? sessionUrl : '$sessionUrl?$query';
-    });
-  }
-  if (source.headers.isNotEmpty && source.url.startsWith('http')) {
-    return mapUrl((url) async {
-      if (!url.startsWith('http')) return url;
+      return query.isEmpty ? session : '$session?$query';
+    }
+    if (source.headers.isNotEmpty && url.startsWith('http')) {
       return proxy.register(targetUrl: url, headers: source.headers);
-    });
+    }
+    return url;
   }
-  return source;
+
+  final mappedUrl = await mapOne(source.url);
+  final variants = <DramaPlayVariant>[];
+  for (final variant in source.variants) {
+    variants.add(
+      DramaPlayVariant(
+        name: variant.name,
+        url: await mapOne(variant.url),
+        keyHex: variant.keyHex,
+        height: variant.height,
+      ),
+    );
+  }
+  return DramaPlaySource(
+    url: mappedUrl,
+    keyHex: source.keyHex,
+    variants: variants,
+  );
 }
 
 class _PlaySourcePreload {
@@ -562,6 +634,7 @@ Future<void> openDramaSiteItem(
   if (client == null) return;
   final entry = SourceRegistry.instance.customById(siteId);
   final isEngineSite = siteId.startsWith('localdb:') ||
+      coreReadingSiteIds.contains(siteId) ||
       (entry != null &&
           entry.kind != SourceKind.customMaccms &&
           entry.kind != SourceKind.builtinDrama);
@@ -587,7 +660,12 @@ Future<void> openDramaSiteItem(
         cover: item.cover,
         engineSiteId: isEngineSite ? siteId : '',
         shelfKind: entry == null
-            ? 'video'
+            ? switch (coreReadingKinds[siteId]) {
+                'comic' => 'manga',
+                'audio' => 'audio',
+                'novel' => 'book',
+                _ => 'video',
+              }
             : engineShelfKindFor(entry.contentType),
         initialDetail: initialDetail,
         directoryLoader: (id) async {

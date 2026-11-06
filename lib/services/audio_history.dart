@@ -1,4 +1,5 @@
 import '../models/media_item.dart';
+import 'cultivation.dart';
 import 'library_store.dart';
 import 'media_history_store.dart';
 
@@ -34,6 +35,14 @@ class AudioHistory {
         } catch (_) {
           // Statistics must not prevent saving the listening position.
         }
+        // 修为记账：真实收听时长 1 分钟 = 1 修为（服务里 ×1.8）。
+        // 记账失败不影响收听进度保存。
+        try {
+          await CultivationService.instance.addSeconds(
+            CultivationCategory.audio,
+            listenedSeconds,
+          );
+        } catch (_) {}
       }
       if (!guard.canWriteHistory) return;
       try {

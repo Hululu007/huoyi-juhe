@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:fqapp/pages/midnight_page.dart';
+import 'package:fqapp/pages/video_page.dart';
 import 'package:fqapp/services/source_registry.dart';
 
 SourceEntry _entry({

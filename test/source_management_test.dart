@@ -95,7 +95,9 @@ void main() {
     expect(find.text('我的 Python 小说站'), findsOneWidget);
     await tester.scrollUntilVisible(find.text('阅读书源'), 500);
     expect(find.text('我的阅读书源'), findsOneWidget);
-    await tester.scrollUntilVisible(find.text('直播源'), 500);
+    // 断言对象是副标题里的计数：直接滚到计数字样再断言，行高变化
+    // （如站源行折叠变矮）不会把副标题顶出可视区导致误判。
+    await tester.scrollUntilVisible(find.textContaining('个直播源'), 500);
     expect(find.textContaining('个直播源'), findsOneWidget);
   });
 }

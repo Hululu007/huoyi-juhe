@@ -9,6 +9,7 @@ import '../models/related_series.dart';
 import '../widgets/player/related_series_sheet.dart';
 import '../services/api_client.dart';
 import '../services/backend_transport.dart';
+import '../services/cultivation.dart';
 import '../services/library_store.dart';
 import '../services/player_history.dart';
 import '../services/shelf_store.dart';
@@ -364,6 +365,8 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
             eps: _episodes,
             startIndex: target,
             shortSeries: true,
+            // 全集播放页是短剧，记 drama（看完一集 +300、时长记短剧）。
+            cultivationCategory: CultivationCategory.drama,
             initialSeriesDetail: _detail,
             historyStore: widget.historyStore,
           ),
@@ -431,6 +434,7 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
     return Scaffold(
       key: const ValueKey('series-detail-page'),
       backgroundColor: palette.canvas,
+      bottomNavigationBar: _bottomPlayBar(palette),
       body: Stack(
         children: [
           Positioned.fill(child: _backdrop(palette)),
@@ -468,6 +472,37 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
       ),
     );
   }
+
+  /// 详情页底部大播放钮（照对方详情页的底部「继续观看」按钮）：与头部
+  /// 播放钮同文案、同动作（播当前/续看集），头部钮保留；海报本身不点播。
+  Widget _bottomPlayBar(HomePalette palette) => SafeArea(
+    top: false,
+    child: ColoredBox(
+      color: palette.canvas,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        child: FilledButton(
+          key: const ValueKey('series-detail-bottom-play-button'),
+          onPressed: _playable ? () => _play(_currentIndex) : null,
+          style: FilledButton.styleFrom(
+            backgroundColor: seriesAccent(palette),
+            foregroundColor: seriesOnAccent(palette),
+            disabledBackgroundColor: palette.soft,
+            disabledForegroundColor: palette.muted,
+            elevation: 0,
+            minimumSize: const Size.fromHeight(52),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            shape: const StadiumBorder(),
+            textStyle: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          child: Text(_playLabel),
+        ),
+      ),
+    ),
+  );
 
   /// 顶部淡色带：只铺在状态栏 + 顶栏后面（高度 = 安全区顶 + 顶栏），在
   /// 顶栏下缘淡出到画布。墨水屏 / 灰色系时整页就是画布色。

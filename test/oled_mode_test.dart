@@ -31,7 +31,7 @@ void main() {
   test('oled mode is ignored by the light theme', () {
     final light = AppTheme.createTheme(Brightness.light, oledMode: true);
     expect(light.brightness, Brightness.light);
-    expect(light.scaffoldBackgroundColor, const Color(0xFFF6F6F6));
+    expect(light.scaffoldBackgroundColor, const Color(0xFFEAF2F8));
     expect(light.colorScheme.surface, Colors.white);
   });
 
@@ -65,8 +65,8 @@ void main() {
 
   test('dark theme without oled keeps the existing palette', () {
     final dark = AppTheme.createTheme(Brightness.dark);
-    expect(dark.scaffoldBackgroundColor, const Color(0xFF151517));
-    expect(dark.colorScheme.surface, const Color(0xFF242427));
+    expect(dark.scaffoldBackgroundColor, const Color(0xFF1E1D38));
+    expect(dark.colorScheme.surface, const Color(0xFF262543));
   });
 
   test('home palette follows oled mode', () {

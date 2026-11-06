@@ -8,11 +8,23 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fqapp/main.dart';
+import 'package:fqapp/services/cultivation.dart';
+
+/// 硬门槛：RootShell 未建档时只显示全屏创建人物界面。壳层用例要看到
+/// 主界面/后端启动屏，得先建一个道友档案（直接调服务，不走创建页）。
+Future<void> _createTestProfile() async {
+  await CultivationService.instance.createProfile(
+    gender: CultivationGender.male,
+    sect: cultivationSects.first,
+    profession: defaultCultivationProfession,
+  );
+}
 
 void main() {
   testWidgets('long startup failures stay scrollable and retryable', (
     tester,
   ) async {
+    await _createTestProfile();
     await tester.binding.setSurfaceSize(const Size(320, 480));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     var attempts = 0;
@@ -37,6 +49,7 @@ void main() {
   });
 
   testWidgets('App boots', (WidgetTester tester) async {
+    await _createTestProfile();
     await tester.pumpWidget(const ProviderScope(child: FqApp()));
     await tester.pump();
     // The app should show the backend startup screen or the main shell.

@@ -90,22 +90,6 @@
   <img src=".github/contributors.svg" alt="贡献者">
 </a>
 
-## 支持作者
-
-如果对你有用，欢迎请我喝杯咖啡，或给项目点个 ⭐ Star。
-
-<p>
-  <a href="https://afdian.com/a/ch6vip">
-    <img alt="Afdian" src="https://img.shields.io/badge/Afdian-Sponsor-946ce6?style=social&logo=afdian">
-  </a>
-</p>
-
-**微信赞助**
-
-<img src=".github/wechat.png" width="260" alt="微信赞助">
-
-App 里也有入口：「设置 → 关于 → 支持作者」。
-
 ---
 
 **电脑版** [Windows 桌面版](WINDOWS.md) ｜ **开发者** [编译与开发](DEVELOPMENT.md) ｜ [如何反馈](CONTRIBUTING.md) ｜ **许可** [GPL-3.0](LICENSE)，Copyright (C) 2026 ch6vip ｜ **致谢** [LINUX DO](https://linux.do/)

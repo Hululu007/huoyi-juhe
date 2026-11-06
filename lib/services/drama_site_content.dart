@@ -9,6 +9,7 @@ import 'aes_cipher.dart';
 import 'package:html/parser.dart' as html_parser;
 import 'package:http/http.dart' as http;
 
+import 'api_client.dart';
 import 'drama_playback.dart';
 import 'drama_sites.dart';
 import 'local_media_proxy.dart';
@@ -158,6 +159,19 @@ Map<String, dynamic> _asMap(dynamic value) {
 String _stringOf(dynamic value) {
   if (value == null) return '';
   return value.toString().trim();
+}
+
+/// 黄豆 HLS 密钥校验：站方返回的密钥是 32 位十六进制（16 字节 AES 密钥）。
+/// 注意不能用 int.tryParse 做十六进制校验：32 位十六进制是 128 位整数，
+/// 远超 Dart int（64 位）范围，合法密钥也会解析失败返回 null，导致
+/// 每个带密钥的正片都被误判为“无效的 HLS 密钥”。改用正则按字符校验。
+String huangdouHlsKeyHex(String rawKey) {
+  if (rawKey.isEmpty) return '';
+  if (rawKey.length != 32 ||
+      !RegExp(r'^[0-9a-fA-F]{32}$').hasMatch(rawKey)) {
+    throw StateError('黄豆返回了无效的 HLS 密钥');
+  }
+  return rawKey;
 }
 
 /// 红果镜像：与红果共用 hongguoduanju.com 网页端，分类与卡片取自
@@ -1909,9 +1923,22 @@ class YaguoContentClient implements DramaSiteContentClient {
     if (decoded is! Map<String, dynamic>) {
       throw StateError('芽果登录数据格式无法识别');
     }
-    final token = _firstString(decoded, ['token', 'access_token', 'accessToken']);
+    var token = _firstString(decoded, ['token', 'access_token', 'accessToken']);
     if (token.isEmpty) {
-      throw StateError('芽果未返回有效的访问令牌');
+      // 有些响应把令牌嵌在 data 里，兼容一层嵌套。
+      token = _firstString(
+        _asMap(decoded['data']),
+        ['token', 'access_token', 'accessToken'],
+      );
+    }
+    if (token.isEmpty) {
+      final detail = _firstString(decoded, ['msg', 'message', 'error']);
+      final code = _stringOf(decoded['code'] ?? decoded['errorCode']);
+      throw StateError(
+        '芽果未返回有效的访问令牌'
+        '${code.isNotEmpty ? '（$code）' : ''}'
+        '${detail.isNotEmpty ? '：$detail' : ''}',
+      );
     }
     _token = token;
     _tokenExpiresAt = DateTime.now().add(const Duration(hours: 6));
@@ -2131,9 +2158,20 @@ class MaccmsContentClient implements DramaSiteContentClient {
   final String siteId;
   final String baseUrl;
 
-  MaccmsContentClient(this.siteId, this.baseUrl);
+  MaccmsContentClient(this.siteId, this.baseUrl, [http.Client? client])
+    : _client = client ?? http.Client();
 
-  final http.Client _client = http.Client();
+  /// 网页引擎取页：只给伍果用（指纹门），测试可直接赋值假取页。
+  /// 生产由主树绑定到 WebViewPageFetcher.fetch（见 main.dart）。
+  Future<String> Function(String url)? webFetch;
+  static Future<String> Function(String url)? defaultWebFetch;
+
+  Future<String> Function(String url)? get _effectiveWebFetch =>
+      webFetch ?? defaultWebFetch;
+  bool get _useWebFetch =>
+      siteId == 'wuguo' && _effectiveWebFetch != null;
+
+  final http.Client _client;
 
   static const _cardClasses = [
     'col-lg-2',
@@ -2619,6 +2657,10 @@ class MaccmsContentClient implements DramaSiteContentClient {
   @override
   Future<DramaSiteCatalogPage> catalog(String categoryId, int page) async {
     final url = _catalogUrl(categoryId, page);
+    if (_useWebFetch) {
+      final items = parseCatalog(await _effectiveWebFetch!(url), baseUrl);
+      return DramaSiteCatalogPage(items: items, hasMore: items.isNotEmpty);
+    }
     final response = await _client.get(
       Uri.parse(url),
       headers: {'Referer': '$baseUrl/'},
@@ -2634,16 +2676,35 @@ class MaccmsContentClient implements DramaSiteContentClient {
   Future<DramaSiteDetail> detail(String seriesId) async {
     StateError? lastError;
     for (final url in _detailCandidates(seriesId)) {
-      final response = await _client.get(
-        Uri.parse(url),
-        headers: {'Referer': '$baseUrl/'},
-      );
-      if (response.statusCode != 200) {
-        lastError = StateError('详情 HTTP ${response.statusCode}');
-        continue;
+      String body;
+      if (_useWebFetch) {
+        try {
+          body = await _effectiveWebFetch!(url);
+        } catch (e) {
+          lastError = StateError(e.toString());
+          continue;
+        }
+      } else {
+        http.Response response;
+        try {
+          response = await _client.get(
+            Uri.parse(url),
+            headers: {'Referer': '$baseUrl/'},
+          );
+        } catch (e) {
+          // 单个候选地址网络中断（如连接被服务端掐断）不能断掉整个详情查找，
+          // 记下错误继续试下一个候选地址。
+          lastError = StateError(e.toString());
+          continue;
+        }
+        if (response.statusCode != 200) {
+          lastError = StateError('详情 HTTP ${response.statusCode}');
+          continue;
+        }
+        body = response.body;
       }
       try {
-        final parsed = parseDetail(response.body, seriesId);
+        final parsed = parseDetail(body, seriesId);
         return DramaSiteDetail(
           id: seriesId,
           title: parsed.title,
@@ -2668,14 +2729,20 @@ class MaccmsContentClient implements DramaSiteContentClient {
 
   @override
   Future<DramaPlaySource> playSource(DramaSiteEpisode episode) async {
-    final response = await _client.get(
-      Uri.parse(episode.videoId),
-      headers: {'Referer': '$baseUrl/'},
-    );
-    if (response.statusCode != 200) {
-      throw StateError('播放页 HTTP ${response.statusCode}');
+    final String body;
+    if (_useWebFetch) {
+      body = await _effectiveWebFetch!(episode.videoId);
+    } else {
+      final response = await _client.get(
+        Uri.parse(episode.videoId),
+        headers: {'Referer': '$baseUrl/'},
+      );
+      if (response.statusCode != 200) {
+        throw StateError('播放页 HTTP ${response.statusCode}');
+      }
+      body = response.body;
     }
-    var url = parsePlayerUrl(response.body);
+    var url = parsePlayerUrl(body);
     if (url.contains('#')) {
       for (final part in url.split('#')) {
         if (part.trim().toLowerCase().startsWith('http')) {
@@ -2708,8 +2775,12 @@ class MaccmsContentClient implements DramaSiteContentClient {
 
   @override
   Future<List<DramaSiteItem>> search(String query) async {
+    final url = _searchUrl(query);
+    if (_useWebFetch) {
+      return parseCatalog(await _effectiveWebFetch!(url), baseUrl);
+    }
     final response = await _client.get(
-      Uri.parse(_searchUrl(query)),
+      Uri.parse(url),
       headers: {'Referer': '$baseUrl/'},
     );
     if (response.statusCode != 200) {
@@ -2875,6 +2946,9 @@ class NiuguoContentClient implements DramaSiteContentClient {
 
   @override
   Future<List<DramaSiteCategory>> categories() async => const [
+    // 服务端按 class=1/2/4/5 查多为空，不带 class 才能拿到内容；
+    // 把“全部”放首位，打开牛果默认就有内容，不再一打开就是暂无内容。
+    DramaSiteCategory('', '全部'),
     DramaSiteCategory('1', '短剧'),
     DramaSiteCategory('2', '电影'),
     DramaSiteCategory('3', '电视剧'),
@@ -3274,23 +3348,239 @@ class HuangdouContentClient implements DramaSiteContentClient {
         media = Uri.parse(base).resolve(media).toString();
       } catch (_) {}
     }
-    var keyHex = '';
-    final rawKey = _stringOf(data['hls_key']);
-    if (rawKey.isNotEmpty) {
-      if (rawKey.length != 32 ||
-          int.tryParse(rawKey, radix: 16) == null) {
-        throw StateError('黄豆返回了无效的 HLS 密钥');
-      }
-      keyHex = rawKey;
-    }
+    final keyHex = huangdouHlsKeyHex(_stringOf(data['hls_key']));
     return DramaPlaySource(url: media, keyHex: keyHex);
   }
 }
 
+/// 午夜区核心视频站 id（146 站筛查的视频候选里批回报已验的 83 站）：
+/// 与 Rust 影视区路由的 site_id 一一对应（591av 走 av591 模块，
+/// 17rip/99jj/69vj/123av 四个数字头文件在 mod.rs 里用 #[path] 映射）。
+/// 影视区站表（videoZoneSites）与登记（dramaSites）都以这份为准，
+/// 不另抄一份，免得三处 drift。
+const coreVideoSiteIds = <String>{
+  'mjv011',
+  'huangguo',
+  'huangguotv',
+  'hgtvim',
+  'huai',
+  'hl365',
+  'sex8',
+  'hgdjv',
+  'km2',
+  'cucumber',
+  'haijiao',
+  'md',
+  'utube',
+  'av91',
+  'lxs',
+  'javrate',
+  'xszav',
+  'txfans',
+  'juyin',
+  '99jj',
+  'dayday',
+  'dsav',
+  'kuaihuo',
+  'jack20',
+  'gqck',
+  'wuyetv',
+  'hjw',
+  'aoxx69',
+  'pigav',
+  'sihucdn',
+  'sihu',
+  'xx9',
+  '69vj',
+  'avcnn',
+  'javhd',
+  'fq',
+  'wnzs',
+  'tudou',
+  'xjh5',
+  'xj2',
+  'missav',
+  'hddj',
+  'jm',
+  'getav',
+  'hsck',
+  'missavoff',
+  'mirror',
+  '123av',
+  'dsd',
+  'lissav',
+  'xhamster',
+  'rou',
+  'pb',
+  'rouav',
+  'av18av',
+  'dage',
+  'sporn',
+  'okxxx',
+  '591av',
+  'avjoy',
+  'hanime',
+  'xvideo',
+  'ptt01',
+  'cporn',
+  'xanimu',
+  'xx01',
+  'netflav',
+  'goodav',
+  'av6k',
+  'jav',
+  'jav777',
+  'airav',
+  'go2av',
+  'mmtv7',
+  'zggjav',
+  'avbigplat',
+  'xhy11',
+  'pj5ti',
+  'thdh',
+  'hjapp',
+  '17rip',
+  'javplay',
+  'javguru',
+  'missavt',
+  'wukong',
+  'chengren91',
+  'badyi',
+  'aiye',
+  'av18avmcg',
+  'avtoday',
+  'hohoj',
+  'jptt',
+  'xojav',
+  'px8x',
+  'tinyav',
+  'pachub',
+  'ssis',
+  'aisxpc',
+  '321av',
+  'porncgw',
+  'xlook',
+  'hgdj',
+  'javmap',
+  'madao',
+  'chinax',
+  'swagr',
+  'tanhua91',
+  'theporny',
+  'aimove',
+  'henhenlu',
+  'pandatv',
+  'mianfeiai',
+  'avyanjiuyuan',
+  'xingkongfuli',
+  'ai2026',
+  'dj91',
+  'toptv',
+  'jin18',
+  'klxq',
+  'taose',
+  'hongyan',
+  'naihenda',
+  'haijiao4k',
+  'uudj',
+  'madou',
+  'dj69',
+  'ywmm',
+  'luoliai',
+  'shaofu',
+  'hgai',
+  'danai',
+  'yunmeng',
+  'javzw',
+  'hduanju',
+  'rscg91',
+  'aidj',
+  'mose365',
+  'yiren',
+  'zwdj',
+  'hongxing',
+  'shunvwang',
+  'heitaoduanju',
+  'dingjiaseku',
+  'aiduanju',
+  'fuchou',
+  'shunvqu',
+  'huangguazy',
+  'zwwm',
+  'hgaidj',
+  'jiuse',
+  'xianxia',
+  'ai4k',
+  'muzi',
+  'guzhuang',
+  'nvdi',
+  'caoliu',
+  'djwo',
+  'hgkpz',
+  'huangduanju',
+  'jiuseduanju',
+  'xj',
+  'hbook',
+  'hgdj58',
+  'jav188',
+  'duanjuone',
+  'crdj',
+  'javher',
+  'javwine',
+  'lissavcn',
+  'pornhub',
+  'hongluo',
+  'ddys',
+  'javgg',
+  'javtiful',
+  'jable',
+  'vjav',
+  'tiktvod',
+  'topjav',
+};
+
+/// 只走核心的午夜视频站：没有 Dart 版客户端，核心报错时直接把错
+/// 抛出去，界面如实显示，不兜底、不冒充（与阅读区
+/// CoreReadingContentClient 同款：核心未起、站未进核心、返回格式
+/// 不对时都不静默回空）。
+class _CoreOnlyFallback implements DramaSiteContentClient {
+  const _CoreOnlyFallback();
+
+  @override
+  Future<List<DramaSiteCategory>> categories() async =>
+      throw StateError('该站只走核心，核心未返回分类');
+
+  @override
+  Future<DramaSiteCatalogPage> catalog(String categoryId, int page) async =>
+      throw StateError('该站只走核心，核心未返回目录');
+
+  @override
+  Future<DramaSiteDetail> detail(String seriesId) async =>
+      throw StateError('该站只走核心，核心未返回详情');
+
+  @override
+  Future<DramaPlaySource> playSource(DramaSiteEpisode episode) async =>
+      throw StateError('该站只走核心，核心未返回播放地址');
+
+  @override
+  Future<List<DramaSiteItem>> search(String query) async =>
+      throw StateError('该站只走核心，核心未返回搜索结果');
+}
+
 DramaSiteContentClient? dramaSiteContentClient(String siteId) {
   if (siteId == 'original') return OriginalContentClient();
-  if (siteId == 'huangju') return HuangjuContentClient();
-  if (siteId == 'yeguo') return YeguoContentClient();
+  if (siteId == 'huangju') {
+    return CoreDramaContentClient(
+      siteId: 'huangju',
+      fallback: HuangjuContentClient(),
+    );
+  }
+  if (siteId == 'yeguo') {
+    return CoreDramaContentClient(
+      siteId: 'yeguo',
+      fallback: YeguoContentClient(),
+    );
+  }
   if (siteId == 'hgtvmirror') return HgtvMirrorContentClient();
   if (siteId == 'hongguo') return HongguoContentClient();
   if (siteId == 'hgtv') return HgtvContentClient();
@@ -3299,10 +3589,25 @@ DramaSiteContentClient? dramaSiteContentClient(String siteId) {
   if (siteId == 'heguo') return HeguoContentClient();
   if (siteId == 'xingguo') return XingguoContentClient();
   if (siteId == 'maoguo') return MaoguoContentClient();
-  if (siteId == 'yaguo') return YaguoContentClient();
-  if (siteId == 'niuguo') return NiuguoContentClient();
-  if (siteId == 'huangdou' || siteId == 'huangdou_yh') {
-    return HuangdouContentClient();
+  if (siteId == 'yaguo') return CoreDramaContentClient();
+  if (siteId == 'niuguo') {
+    return CoreDramaContentClient(
+      siteId: 'niuguo',
+      fallback: NiuguoContentClient(),
+    );
+  }
+  if (siteId == 'huangdou') {
+    return CoreDramaContentClient(
+      siteId: 'huangdou',
+      fallback: HuangdouContentClient(),
+    );
+  }
+  if (siteId == 'huangdou_yh') return HuangdouContentClient();
+  if (coreVideoSiteIds.contains(siteId)) {
+    return CoreDramaContentClient(
+      siteId: siteId,
+      fallback: const _CoreOnlyFallback(),
+    );
   }
   if (siteId == 'huaguo') {
     return MaccmsContentClient('huaguo', 'https://www.zywest263.com');
@@ -3316,5 +3621,323 @@ DramaSiteContentClient? dramaSiteContentClient(String siteId) {
   if (siteId == 'wangguo') {
     return MaccmsContentClient('wangguo', 'https://www.duanju2.com');
   }
+  if (coreReadingSiteIds.contains(siteId)) {
+    return CoreReadingContentClient(siteId: siteId);
+  }
   return null;
+}
+
+/// 影视区走核心的客户端：请求发往核心的影视区路由，返回的 JSON 与
+/// Dart 模型一一对应，这里只做直译。siteId 与 Rust 影视区路由的
+/// site_id 一一对应（芽果首个进核心，现已扩到剧果/黄豆/野果/牛果）。
+///
+/// 核心一旦报错（未进核心的站、核心未起、返回格式不对），一律回退到
+/// 本站的原 Dart 版客户端——原始实现不动、仍在树里兜底，核心侧手机
+/// 验通后再摘掉回退。
+class CoreDramaContentClient implements DramaSiteContentClient {
+  /// 核心侧站点 id（与 Rust 影视区路由的 site_id 一一对应）。
+  final String siteId;
+
+  final ApiClient _api;
+  final DramaSiteContentClient _fallback;
+
+  static DramaSiteContentClient _defaultFallback(
+    String siteId, [
+    http.Client? client,
+  ]) {
+    switch (siteId) {
+      case 'huangju':
+        return HuangjuContentClient(client: client);
+      case 'yeguo':
+        return YeguoContentClient(client: client);
+      case 'niuguo':
+        return NiuguoContentClient(client);
+      case 'huangdou':
+        return HuangdouContentClient(client);
+      case 'yaguo':
+        return YaguoContentClient(client);
+      default:
+        throw ArgumentError('未知核心站点 $siteId，未给回退客户端');
+    }
+  }
+
+  CoreDramaContentClient({
+    this.siteId = 'yaguo',
+    ApiClient? api,
+    DramaSiteContentClient? fallback,
+    http.Client? fallbackClient,
+  })  : _api = api ?? ApiClient.instance,
+        _fallback = fallback ?? _defaultFallback(siteId, fallbackClient);
+
+  List<DramaSiteItem> _itemsOf(dynamic rows) {
+    if (rows is! List) throw StateError('核心目录格式错误');
+    return [
+      for (final entry in rows)
+        DramaSiteItem(
+          id: _stringOf(_asMap(entry)['id']),
+          title: _stringOf(_asMap(entry)['title']),
+          cover: _stringOf(_asMap(entry)['cover']),
+          remark: _stringOf(_asMap(entry)['remark']),
+        ),
+    ];
+  }
+
+  @override
+  Future<List<DramaSiteCategory>> categories() async {
+    try {
+      final payload = await _api.dramaCategories(siteId);
+      final rows = payload['categories'];
+      if (rows is! List) throw StateError('核心分类格式错误');
+      return [
+        for (final entry in rows)
+          DramaSiteCategory(
+            _stringOf(_asMap(entry)['id']),
+            _stringOf(_asMap(entry)['name']),
+          ),
+      ];
+    } catch (_) {
+      return _fallback.categories();
+    }
+  }
+
+  @override
+  Future<DramaSiteCatalogPage> catalog(String categoryId, int page) async {
+    try {
+      final payload = await _api.dramaCatalog(siteId, categoryId, page);
+      return DramaSiteCatalogPage(
+        items: _itemsOf(payload['items']),
+        hasMore: payload['has_more'] == true,
+      );
+    } catch (_) {
+      return _fallback.catalog(categoryId, page);
+    }
+  }
+
+  @override
+  Future<DramaSiteDetail> detail(String seriesId) async {
+    try {
+      final payload = await _api.dramaDetail(siteId, seriesId);
+      final rows = payload['episodes'];
+      if (rows is! List) throw StateError('核心详情格式错误');
+      final extra = <String, String>{};
+      for (final entry in _asMap(payload['extra']).entries) {
+        extra[entry.key.toString()] = _stringOf(entry.value);
+      }
+      return DramaSiteDetail(
+        id: _stringOf(payload['id']),
+        title: _stringOf(payload['title']),
+        cover: _stringOf(payload['cover']),
+        synopsis: _stringOf(payload['synopsis']),
+        extra: extra,
+        episodes: [
+          for (final entry in rows)
+            DramaSiteEpisode(
+              videoId: _stringOf(_asMap(entry)['video_id']),
+              title: _stringOf(_asMap(entry)['title']),
+              seriesId: _stringOf(_asMap(entry)['series_id']),
+            ),
+        ],
+      );
+    } catch (_) {
+      return _fallback.detail(seriesId);
+    }
+  }
+
+  @override
+  Future<DramaPlaySource> playSource(DramaSiteEpisode episode) async {
+    try {
+      final payload = await _api.dramaPlay(siteId, episode.videoId);
+      final url = _stringOf(payload['url']);
+      if (url.isEmpty) throw StateError('核心取流无地址');
+      return DramaPlaySource(url: url);
+    } catch (_) {
+      return _fallback.playSource(episode);
+    }
+  }
+
+  @override
+  Future<List<DramaSiteItem>> search(String query) async {
+    try {
+      final payload = await _api.dramaSearch(siteId, query);
+      return _itemsOf(payload['items']);
+    } catch (_) {
+      return _fallback.search(query);
+    }
+  }
+}
+
+/// 阅读区走核心的客户端：请求发往核心的阅读区路由，返回的 JSON 与
+/// Dart 模型一一对应，这里只做直译。siteId 与 Rust 阅读区路由的
+/// site_id 一一对应（火蚁TV 内置 28 个阅读源，全部写进核心）。
+///
+/// 只有核心，没有回退：用户令阅读源只写核心，不走 Java、不走 py 内置
+/// 种子，Dart 侧也不另写一套。所以核心报错（核心未起、站未进核心、
+/// 返回格式不对）时直接把错抛出去，界面如实显示，不兜底、不冒充。
+/// 取流回的字典头随 DramaPlaySource.headers 原样带出，取流层经本地
+/// 媒体代理带上（与影视区同路）。
+///
+/// 注意：红果听书（hongguo）签名内核与 CENC 解密尚未移植，核心侧全
+/// 动作都报错，不是这个客户端的问题，等签名补齐后不用改这里。
+class CoreReadingContentClient implements DramaSiteContentClient {
+  /// 核心侧站点 id（与 Rust 阅读区路由的 site_id 一一对应）。
+  final String siteId;
+
+  final ApiClient _api;
+
+  CoreReadingContentClient({required this.siteId, ApiClient? api})
+    : _api = api ?? ApiClient.instance;
+
+  List<DramaSiteItem> _itemsOf(dynamic rows) {
+    if (rows is! List) throw StateError('核心阅读目录格式错误');
+    return [
+      for (final entry in rows)
+        DramaSiteItem(
+          id: _stringOf(_asMap(entry)['id']),
+          title: _stringOf(_asMap(entry)['title']),
+          cover: _stringOf(_asMap(entry)['cover']),
+          remark: _stringOf(_asMap(entry)['remark']),
+        ),
+    ];
+  }
+
+  Map<String, String> _headersOf(dynamic value) {
+    if (value is! Map) return const {};
+    return {
+      for (final entry in value.entries)
+        entry.key.toString(): _stringOf(entry.value),
+    };
+  }
+
+  @override
+  Future<List<DramaSiteCategory>> categories() async {
+    final payload = await _api.readingCategories(siteId);
+    final rows = payload['categories'];
+    if (rows is! List) throw StateError('核心阅读分类格式错误');
+    return [
+      for (final entry in rows)
+        DramaSiteCategory(
+          _stringOf(_asMap(entry)['id']),
+          _stringOf(_asMap(entry)['name']),
+        ),
+    ];
+  }
+
+  @override
+  Future<DramaSiteCatalogPage> catalog(String categoryId, int page) async {
+    final payload = await _api.readingCatalog(siteId, categoryId, page);
+    return DramaSiteCatalogPage(
+      items: _itemsOf(payload['items']),
+      hasMore: payload['has_more'] == true,
+    );
+  }
+
+  @override
+  Future<DramaSiteDetail> detail(String seriesId) async {
+    final payload = await _api.readingDetail(siteId, seriesId);
+    final rows = payload['episodes'];
+    if (rows is! List) throw StateError('核心阅读详情格式错误');
+    final extra = <String, String>{};
+    for (final entry in _asMap(payload['extra']).entries) {
+      extra[entry.key.toString()] = _stringOf(entry.value);
+    }
+    return DramaSiteDetail(
+      id: _stringOf(payload['id']),
+      title: _stringOf(payload['title']),
+      cover: _stringOf(payload['cover']),
+      synopsis: _stringOf(payload['synopsis']),
+      extra: extra,
+      episodes: [
+        for (final entry in rows)
+          DramaSiteEpisode(
+            videoId: _stringOf(_asMap(entry)['video_id']),
+            title: _stringOf(_asMap(entry)['title']),
+            seriesId: _stringOf(_asMap(entry)['series_id']),
+          ),
+      ],
+    );
+  }
+
+  @override
+  Future<DramaPlaySource> playSource(DramaSiteEpisode episode) async {
+    final payload = await _api.readingPlay(siteId, episode.videoId);
+    final url = _stringOf(payload['url']);
+    if (url.isEmpty) throw StateError('核心阅读取流无地址');
+    return DramaPlaySource(
+      url: url,
+      headers: _headersOf(payload['header']),
+    );
+  }
+
+  @override
+  Future<List<DramaSiteItem>> search(String query) async {
+    final payload = await _api.readingSearch(siteId, query);
+    return _itemsOf(payload['items']);
+  }
+}
+
+/// 核心阅读站 id（与 Rust 阅读区路由的 site_id 一一对应）。
+/// 小说 14、漫画 11、听书 6，共 31 个（火蚁TV 内置全部）。
+const Set<String> coreReadingSiteIds = {
+  // 小说
+  '1000novel', '69story', 'aabook', 'buliang', 'canovel', 'cheniyo',
+  'cjg', 'h528', 'hwg4', 'jywx2', 'lbwen', 'ssxxs', 'ylxs', 'yinse',
+  // 漫画
+  '55comics', 'csmanhua', 'dongmanla', 'ho5ho', 'kmh001', 'kuaikan',
+  'kxmanhua', 'mhbl', 'modu18', 'nnhanman', 'tencent',
+  // 听书
+  'tingyou', 'hsvoice31', 'hysxs', 'ximalaya', 'hongguo', 'shuyinfm',
+};
+
+/// 核心阅读站的类型：novel（小说）、comic（漫画）、audio（听书）。
+const Map<String, String> coreReadingKinds = {
+  '1000novel': 'novel', '69story': 'novel', 'aabook': 'novel',
+  'buliang': 'novel', 'canovel': 'novel', 'cheniyo': 'novel',
+  'cjg': 'novel', 'h528': 'novel', 'hwg4': 'novel', 'jywx2': 'novel',
+  'lbwen': 'novel', 'ssxxs': 'novel', 'ylxs': 'novel', 'yinse': 'novel',
+  '55comics': 'comic', 'csmanhua': 'comic', 'dongmanla': 'comic',
+  'ho5ho': 'comic', 'kmh001': 'comic', 'kuaikan': 'comic',
+  'kxmanhua': 'comic', 'mhbl': 'comic', 'modu18': 'comic',
+  'nnhanman': 'comic', 'tencent': 'comic',
+  'tingyou': 'audio', 'hsvoice31': 'audio', 'hysxs': 'audio',
+  'ximalaya': 'audio', 'hongguo': 'audio', 'shuyinfm': 'audio',
+};
+
+/// 核心阅读站的显示名（站名取 Rust 模块头里的站名；成人站按规则
+/// 带 🔞 前缀）。只做显示标签：站表本身仍以 coreReadingSiteIds
+/// 为准，没进这张表的站用 id 当名显示，不会因此漏站。
+const Map<String, String> coreReadingSiteNames = {
+  // 小说
+  '1000novel': '🔞1000novel', '69story': '🔞69story', 'aabook': 'aabook',
+  'buliang': '🔞不良小说', 'canovel': '🔞canovel', 'cheniyo': '🔞cheniyo',
+  'cjg': '🔞cjg', 'h528': '🔞h528', 'hwg4': '🔞hwg4', 'jywx2': '🔞jywx2',
+  'lbwen': '🔞lbwen', 'ssxxs': '🔞ssxxs', 'ylxs': 'ylxs',
+  'yinse': '🔞yinse',
+  // 漫画
+  '55comics': '🔞55comics', 'csmanhua': '🔞csmanhua',
+  'dongmanla': '动漫啦', 'ho5ho': '🔞ho5ho', 'kmh001': 'kmh001',
+  'kuaikan': '快看漫画', 'kxmanhua': 'kxmanhua', 'mhbl': 'mhbl',
+  'modu18': '🔞modu18', 'nnhanman': 'nnhanman', 'tencent': '腾讯动漫',
+  // 听书
+  'tingyou': '听友听书', 'hsvoice31': '🔞黄色有声小说',
+  'hysxs': '🔞H有声小说', 'ximalaya': '喜马拉雅', 'hongguo': '红果听书',
+  'shuyinfm': '书音FM',
+};
+
+/// 核心阅读站里的成人站（按 py 源内自带成人标识判定，与站名猜测无关）。
+/// 小说 12、漫画 4、听书 2，共 18 个；其余 13 个为非成人。
+const Set<String> coreAdultReadingSiteIds = {
+  // 小说 12
+  '1000novel', '69story', 'buliang', 'canovel', 'cheniyo', 'cjg',
+  'h528', 'hwg4', 'jywx2', 'lbwen', 'ssxxs', 'yinse',
+  // 漫画 4
+  '55comics', 'csmanhua', 'ho5ho', 'modu18',
+  // 听书 2
+  'hsvoice31', 'hysxs',
+};
+
+/// 阅读区核心站的客户端工厂：核心站 id 进，核心阅读客户端出；
+/// 不是核心阅读站时回 null（不兜底、不冒充）。
+DramaSiteContentClient? readingSiteContentClient(String siteId) {
+  if (!coreReadingSiteIds.contains(siteId)) return null;
+  return CoreReadingContentClient(siteId: siteId);
 }

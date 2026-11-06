@@ -53,7 +53,9 @@ void main() {
       gate.complete(_source('old'));
       await first.future;
       expect(cache.request(_chapter('1')).origin, EpisodeSourceOrigin.cacheHit);
-      now = const Duration(minutes: 2);
+      now = const Duration(minutes: 9, seconds: 59);
+      expect(cache.request(_chapter('1')).origin, EpisodeSourceOrigin.cacheHit);
+      now = const Duration(minutes: 10);
       final expired = cache.request(_chapter('1'));
       expect(expired.origin, EpisodeSourceOrigin.network);
       expect((await expired.future).url, _source('fresh').url);
@@ -136,7 +138,7 @@ void main() {
   );
 
   test(
-    'completed metadata is bounded to two entries with recent use retained',
+    'completed metadata is bounded to six entries (current + next five)',
     () async {
       final requests = <String>[];
       final cache = EpisodeSourceCache(
@@ -146,10 +148,14 @@ void main() {
         },
       );
       addTearDown(cache.dispose);
-      for (final id in ['1', '2', '1', '3', '1', '2']) {
+      for (final id in ['1', '2', '3', '4', '5', '6', '7']) {
         await cache.request(_chapter(id)).future;
       }
-      expect(requests, ['1', '2', '3', '2']);
+      expect(cache.request(_chapter('7')).origin, EpisodeSourceOrigin.cacheHit);
+      final evicted = cache.request(_chapter('1'));
+      expect(evicted.origin, EpisodeSourceOrigin.network);
+      await evicted.future;
+      expect(requests, ['1', '2', '3', '4', '5', '6', '7', '1']);
     },
   );
 
@@ -307,6 +313,56 @@ void main() {
           .vertical,
       isTrue,
     );
+  });
+
+  test('upcomingChapters slides a five-episode window', () {
+    final episodes = [
+      for (var i = 1; i <= 8; i++) _chapter('$i'),
+    ];
+    expect(
+      upcomingChapters(episodes, 0).map((c) => c.itemId),
+      ['2', '3', '4', '5', '6'],
+    );
+    expect(
+      upcomingChapters(episodes, 2).map((c) => c.itemId),
+      ['4', '5', '6', '7', '8'],
+    );
+    expect(
+      upcomingChapters(episodes, 5).map((c) => c.itemId),
+      ['7', '8'],
+    );
+    expect(upcomingChapters(episodes, 7), isEmpty);
+    expect(upcomingChapters(<Chapter>[], 0), isEmpty);
+    expect(
+      upcomingChapters(episodes, 0, ahead: 2).map((c) => c.itemId),
+      ['2', '3'],
+    );
+  });
+
+  test('prefetching five ahead makes demand hit the cache', () async {
+    final requests = <String>[];
+    final cache = EpisodeSourceCache(
+      loader: (chapter) async {
+        requests.add(chapter.itemId);
+        return _source(chapter.itemId);
+      },
+    );
+    addTearDown(cache.dispose);
+    final episodes = [
+      for (var i = 1; i <= 8; i++) _chapter('$i'),
+    ];
+    final upcoming = upcomingChapters(episodes, 0);
+    expect(upcoming.map((c) => c.itemId), ['2', '3', '4', '5', '6']);
+    for (final chapter in upcoming) {
+      await cache.prefetch(chapter, stillWanted: () => true);
+    }
+    for (final chapter in upcoming) {
+      expect(
+        cache.request(chapter).origin,
+        EpisodeSourceOrigin.prefetchHit,
+      );
+    }
+    expect(requests, ['2', '3', '4', '5', '6']);
   });
 }
 

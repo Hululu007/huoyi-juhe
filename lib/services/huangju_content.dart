@@ -73,7 +73,9 @@ class HuangjuContentClient implements DramaSiteContentClient {
           body: jsonEncode({'deviceId': _deviceId}),
         )
         .timeout(const Duration(seconds: 15));
-    if (response.statusCode != 200) {
+    // 访客授权新建设备时站方回 201（Created），同样是成功并带令牌；
+    // 只认 200 会让每个新设备第一次授权就失败。
+    if (response.statusCode != 200 && response.statusCode != 201) {
       throw StateError('剧果访客授权失败：HTTP ${response.statusCode}');
     }
     final row = jsonDecode(utf8.decode(response.bodyBytes));

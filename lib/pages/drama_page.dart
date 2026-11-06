@@ -15,6 +15,7 @@ import '../models/playlet_comment.dart';
 import '../models/series_detail.dart';
 import '../services/api_client.dart';
 import '../services/backend_transport.dart';
+import '../services/cultivation.dart';
 import '../services/drama_channel_preferences.dart';
 import '../services/drama_mute_preferences.dart';
 import '../services/episode_source_cache.dart';
@@ -835,8 +836,14 @@ class _DramaPageState extends ConsumerState<DramaPage>
     if (_inline.activeId.value == item.id) return;
     unawaited(_inline.activate(item));
     final items = _visibleItems(ref.read(dramaProvider));
-    if (widget.directoryLoader == null && _screenIndex + 1 < items.length) {
-      unawaited(_inline.prefetchNextDrama(items[_screenIndex + 1]));
+    if (widget.directoryLoader == null) {
+      // 往后 3 部：每部只取第一集地址（预加载规格 11-01，往后 1-3 部）。
+      for (var offset = 1; offset <= 3; offset++) {
+        final next = _screenIndex + offset;
+        if (next < items.length) {
+          unawaited(_inline.prefetchNextDrama(items[next]));
+        }
+      }
     }
   }
 
@@ -2182,6 +2189,8 @@ class _DramaPageState extends ConsumerState<DramaPage>
             shortSeries: true,
             openFullScreen: openFullScreen,
             aiGenerated: item.aiGenerated,
+            // 短剧 feed 进播放器记 drama（看完一集 +300、时长记短剧）。
+            cultivationCategory: CultivationCategory.drama,
           ),
         ),
       );

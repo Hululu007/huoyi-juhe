@@ -4,7 +4,7 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
-enum LiveProtocol { pingtai, list, platform }
+enum LiveProtocol { pingtai, list }
 
 class LiveSource {
   const LiveSource({
@@ -137,20 +137,6 @@ class LiveSources {
       adult: true,
     ),
     LiveSource(
-      id: 'bilibili',
-      name: '哔哩哔哩',
-      description: '哔哩哔哩直播 · 热门推荐',
-      protocol: LiveProtocol.platform,
-      headers: {'Referer': 'https://live.bilibili.com/'},
-    ),
-    LiveSource(
-      id: 'huya',
-      name: '虎牙',
-      description: '虎牙直播 · 游戏与娱乐',
-      protocol: LiveProtocol.platform,
-      headers: {'Referer': 'https://www.huya.com/'},
-    ),
-    LiveSource(
       id: 'maiyoux',
       name: '欲火聚合',
       description: '欲火移植 · 平台动态聚合 · 实时开播',
@@ -162,12 +148,22 @@ class LiveSources {
       adult: true,
     ),
     LiveSource(
-      id: 'yuhuo_live',
-      name: '欲火直播',
-      description: '欲火移植 · 内置频道表 · 未探活',
+      id: 'bnzb',
+      name: '百年直播',
+      description: '百年直播 · 多平台聚合 · 实时开播',
+      protocol: LiveProtocol.pingtai,
+      endpoints: [
+        'http://api.vipmisss.com:81/xcdsw',
+      ],
+      adult: true,
+    ),
+    LiveSource(
+      id: 'user_m3u',
+      name: '成人点播',
+      description: '用户提供的 m3u · 点开即播',
       protocol: LiveProtocol.list,
-      endpoints: ['asset://assets/live/yuhuo_live.m3u'],
-      group: '欲火直播',
+      endpoints: ['asset://assets/live/user_m3u.m3u'],
+      adult: true,
     ),
   ];
 
@@ -208,9 +204,6 @@ class LiveSources {
       );
     }).toList();
   }
-
-  static List<LiveSource> get mainTabSources =>
-      [for (final source in builtin) if (!source.adult) source];
 
   static List<LiveSource> get midnightSources =>
       [for (final source in builtin) if (source.adult) source];

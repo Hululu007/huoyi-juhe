@@ -15,10 +15,12 @@ pub mod comments;
 pub mod content;
 pub mod content_util;
 pub mod dhcontent;
+pub mod drama;
 pub mod full;
 pub mod home;
 pub mod manga;
 pub mod reader_video;
+pub mod reading;
 pub mod router;
 pub mod search;
 pub mod session;
@@ -189,5 +191,7 @@ pub mod server {
         video::register(s);
         reader_video::register(s);
         manga::register(s);
+        drama::register(s);
+        reading::register(s);
     }
 }

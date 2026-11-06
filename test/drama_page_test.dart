@@ -22,6 +22,7 @@ import 'package:fqapp/pages/search_page.dart';
 import 'package:fqapp/pages/home_provider.dart';
 import 'package:fqapp/services/api_client.dart';
 import 'package:fqapp/services/app_theme.dart';
+import 'package:fqapp/services/cultivation.dart';
 import 'package:fqapp/services/desktop_platform.dart';
 import 'package:fqapp/services/drama_channel_preferences.dart';
 import 'package:fqapp/services/library_store.dart';
@@ -1089,6 +1090,13 @@ void main() {
     addTearDown(() => dramaLightPageNotifier.value = false);
     addTearDown(() => tester.pumpWidget(const SizedBox.shrink()));
 
+    // 硬门槛：RootShell 未建档时只显示创建人物界面，看不到底部栏；
+    // 先建一个道友档案再泵壳。
+    await CultivationService.instance.createProfile(
+      gender: CultivationGender.male,
+      sect: cultivationSects.first,
+      profession: defaultCultivationProfession,
+    );
     await tester.pumpWidget(
       _scope(
         child: MaterialApp(home: RootShell(backendStarter: () async {})),
@@ -1709,7 +1717,7 @@ void main() {
     // 海报格页以前恒为白底黑字，深色主题下整页会刺眼——现在跟随色板。
     expect(
       tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor,
-      const Color(0xFF151517),
+      const Color(0xFF1E1D38),
     );
     expect(
       tester.widget<Text>(find.text('8-0 作品')).style?.color,

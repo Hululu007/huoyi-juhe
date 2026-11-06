@@ -1,36 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fqapp/pages/adult_novels_page.dart';
-import 'package:fqapp/services/midnight_gate.dart';
+import 'package:fqapp/services/source_registry.dart';
 
 void main() {
-  setUp(() {
-    SharedPreferences.setMockInitialValues({});
-  });
-
-  tearDown(() {
-    MidnightGate.activated.value = false;
-  });
-
-  testWidgets('门禁未开：聚合页只显示锁定页，不取数', (tester) async {
-    MidnightGate.activated.value = false;
-    await tester.pumpWidget(const MaterialApp(home: AdultNovelsPage()));
-    await tester.pumpAndSettle();
-    expect(find.text('午夜区未开启'), findsOneWidget);
-    expect(find.text('暂无成人小说'), findsNothing);
-  });
-
-  testWidgets('门禁已开、无成人源：小说 tab 显示空态与导入提示', (tester) async {
-    MidnightGate.activated.value = true;
-    await tester.pumpWidget(const MaterialApp(home: AdultNovelsPage()));
-    await tester.pumpAndSettle();
+  testWidgets('无门禁：聚合页直接显示空态，不取数也不锁', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(home: AdultNovelsPage()),
+    );
+    // 核心取数走真实网络（本机无核心在跑）：先用真实时间等取数落空
+    // （后端启动超时 15 秒 + 单站超时 15 秒，20 秒足够），再泵一帧刷新。
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(seconds: 20));
+    });
+    await tester.pump();
     expect(find.text('暂无成人小说'), findsOneWidget);
-    expect(find.text('可在设置 → 书源里导入成人源'), findsOneWidget);
+    expect(find.text('核心站与已导入的成人源暂无内容'), findsOneWidget);
+    expect(find.text('午夜区未开启'), findsNothing);
   });
 
-  testWidgets('入口：门禁未开不露，门禁已开出现', (tester) async {
+  testWidgets('入口：不再设门，直接出现', (tester) async {
     const sliver = MaterialApp(
       home: Scaffold(
         body: CustomScrollView(
@@ -40,14 +30,20 @@ void main() {
     );
     await tester.pumpWidget(sliver);
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('adult-novels-entry')), findsNothing);
+    expect(find.byKey(const Key('adult-novels-entry')), findsOneWidget);
+  });
 
-    // 同一棵树重 pump 不重跑 initState：先 dispose 再重建；门禁单例已加载
-    // 后 ensureLoaded 不重读偏好，这里直接改开关值测显隐逻辑。
-    await tester.pumpWidget(const SizedBox.shrink());
-    MidnightGate.activated.value = true;
+  testWidgets('漫画入口：标题与键各是自己的', (tester) async {
+    const sliver = MaterialApp(
+      home: Scaffold(
+        body: CustomScrollView(
+          slivers: [AdultNovelsEntrySliver(type: ContentType.comic)],
+        ),
+      ),
+    );
     await tester.pumpWidget(sliver);
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('adult-novels-entry')), findsOneWidget);
+    expect(find.text('成人漫画'), findsOneWidget);
+    expect(find.byKey(const Key('adult-entry-comic')), findsOneWidget);
   });
 }

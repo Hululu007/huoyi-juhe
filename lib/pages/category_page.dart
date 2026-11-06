@@ -5,6 +5,7 @@ import '../models/category_front.dart';
 import '../services/api_client.dart';
 import '../services/desktop_platform.dart';
 import '../services/user_facing_error.dart';
+import '../services/video_category_tags.dart';
 import '../widgets/category/category_dim_rail.dart';
 import '../widgets/home/home_design.dart';
 import '../widgets/home/home_feed_states.dart';
@@ -28,12 +29,32 @@ import 'search_page.dart';
 ///   反向同步左栏高亮（官方 `c1` 按 firstVisibleItem 反查）。
 ///
 /// 数据一次 GET 一个频道（`category_tab` 不同瓦片不同）。
+///
+/// 另有一个本地「影视」频道（tab value 为 `video`，不走服务端接口）：
+/// 内容随当前视频站变化——本站分类 + 提取的标签/主题/角色/情节，
+/// 成人站的热门标签里追加「熟女」；点 chip 进视频搜索。
+/// 影视页右上角分类按钮直接以该频道打开本页。
 class CategoryPage extends StatefulWidget {
-  const CategoryPage({super.key, this.loader});
+  const CategoryPage({
+    super.key,
+    this.loader,
+    this.videoSiteId,
+    this.openVideoTab = false,
+    this.videoLoader,
+  });
 
   /// 数据源注入（生产默认 [ApiClient.categoryFront]；测试替换，同
   /// [SearchPage] 的 loader 规矩——页测不落网络）。
   final Future<CategoryFront> Function({int tab})? loader;
+
+  /// 影视频道要展示的视频站 id；为空时按影视页持久化的当前站找。
+  final String? videoSiteId;
+
+  /// 打开即落在影视频道（影视页分类按钮用）。
+  final bool openVideoTab;
+
+  /// 影视频道数据源注入（生产默认 [loadVideoCategoryData]；测试替换）。
+  final Future<VideoCategoryData> Function(String siteId)? videoLoader;
 
   @override
   State<CategoryPage> createState() => _CategoryPageState();
@@ -68,12 +89,35 @@ int _chipColumnsFor(double contentWidth) => (contentWidth / _chipTargetWidth)
     .floor()
     .clamp(_chipMinColumns, _chipMaxColumns);
 
+/// 服务端未返回频道表时影视频道顶栏的兜底频道（男生/女生/有声书/
+/// 出版/短剧/漫画，value 与服务端口径一致；仅在影视频道首开、
+/// 服务端频道表尚未拿到时展示，正常频道仍以服务端返回为准）。
+const _fallbackTabs = [
+  CategoryTab(name: '男生', value: '1'),
+  CategoryTab(name: '女生', value: '2'),
+  CategoryTab(name: '有声书', value: '3'),
+  CategoryTab(name: '出版', value: '4'),
+  CategoryTab(name: '短剧', value: '5'),
+  CategoryTab(name: '漫画', value: '6'),
+];
+
+/// 影视频道的频道项（value 不是数字，绝不发给服务端接口）。
+const _videoTab = CategoryTab(name: '影视', value: 'video');
+
 class _CategoryPageState extends State<CategoryPage> {
   CategoryFront? _front;
   String? _error;
-  int _tabValue = 1;
+  String _tabValue = '1';
   int _selected = 0;
   bool _loading = false;
+
+  /// 当前是否落在本地影视频道（不走服务端接口，分组直接按
+  /// 热门标签/主题/角色/情节四组建，不过滤空组）。
+  bool _isVideoTab = false;
+
+  /// 影视 tab 的 key：首开影视时把它滚进顶栏视野（手机上频道一排
+  /// 放不下，影视在末尾，不滚用户看不到选中态）。
+  final _videoTabKey = GlobalKey();
 
   /// 每次 [_load] 自增。请求回来时只有最新一代能落地：加载期间再切频道
   /// 不会被丢掉，先发后到的旧频道响应也不会覆盖新频道的内容。
@@ -95,7 +139,11 @@ class _CategoryPageState extends State<CategoryPage> {
   void initState() {
     super.initState();
     _scroll.addListener(_onScroll);
-    _load();
+    if (widget.openVideoTab) {
+      _loadVideo();
+    } else {
+      _load();
+    }
   }
 
   @override
@@ -108,15 +156,17 @@ class _CategoryPageState extends State<CategoryPage> {
       widget.loader?.call(tab: tab) ??
       ApiClient.instance.categoryFront(tab: tab);
 
-  Future<void> _load({int? tab}) async {
+  Future<void> _load({String? tab}) async {
     final target = tab ?? _tabValue;
+    if (target == _videoTab.value) return _loadVideo();
     final generation = ++_loadGeneration;
     setState(() {
       _loading = true;
       _error = null;
+      _isVideoTab = false;
     });
     try {
-      final front = await _fetch(tab: target);
+      final front = await _fetch(tab: int.tryParse(target) ?? 1);
       if (!mounted || generation != _loadGeneration) return;
       setState(() {
         _tabValue = target;
@@ -135,6 +185,73 @@ class _CategoryPageState extends State<CategoryPage> {
       setState(() => _error = userFacingError(error));
     } finally {
       // 失败也要复位：否则转圈永远挡在重试前面，重试会被 `_loading` 吞掉。
+      if (mounted && generation == _loadGeneration) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
+  /// 影视频道加载：本站数据，不走服务端接口。切站后从影视页带新站号
+  /// 打开本页，影视 tab 即显示新站的标签；无站号时按影视页持久化的
+  /// 当前站找。分组固定四组（热门标签/主题/角色/情节），没数据的组
+  /// 只留组头位置，不跳过——左栏四项始终齐全。
+  Future<void> _loadVideo() async {
+    final generation = ++_loadGeneration;
+    setState(() {
+      _loading = true;
+      _error = null;
+      _isVideoTab = true;
+    });
+    try {
+      final siteId =
+          widget.videoSiteId ?? await currentVideoZoneSiteId();
+      if (siteId == null || siteId.isEmpty) {
+        throw StateError('请先在影视页选择站点');
+      }
+      final data = widget.videoLoader != null
+          ? await widget.videoLoader!(siteId)
+          : await loadVideoCategoryData(siteId);
+      if (!mounted || generation != _loadGeneration) return;
+      List<CategoryTile> tiles(
+        String section,
+        List<String> names, {
+        bool hot = false,
+      }) => [
+        for (var i = 0; i < names.length; i++)
+          CategoryTile(
+            name: names[i],
+            dim: section,
+            id: 'video_${section}_$i',
+            hot: hot,
+          ),
+      ];
+      setState(() {
+        _tabValue = _videoTab.value;
+        _error = null;
+        _sections = [
+          _Section('热门标签', tiles('hot', data.hotTags, hot: true)),
+          _Section('主题', tiles('theme', data.themes)),
+          _Section('角色', tiles('role', data.roles)),
+          _Section('情节', tiles('plot', data.plots)),
+        ];
+        _selected = 0;
+        _expanded.clear();
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_scroll.hasClients) _scroll.jumpTo(0);
+        final tabContext = _videoTabKey.currentContext;
+        if (tabContext != null) {
+          Scrollable.ensureVisible(
+            tabContext,
+            alignment: 1,
+            duration: const Duration(milliseconds: 300),
+          );
+        }
+      });
+    } catch (error) {
+      if (!mounted || generation != _loadGeneration) return;
+      setState(() => _error = userFacingError(error));
+    } finally {
       if (mounted && generation == _loadGeneration) {
         setState(() => _loading = false);
       }
@@ -214,9 +331,9 @@ class _CategoryPageState extends State<CategoryPage> {
 
   void _openSearch({String? query}) {
     final category = switch (_tabValue) {
-      3 => SearchCategory.audio,
-      5 => SearchCategory.manga,
-      6 => SearchCategory.video,
+      '3' => SearchCategory.audio,
+      '5' => SearchCategory.manga,
+      '6' || 'video' => SearchCategory.video,
       _ => SearchCategory.book,
     };
     Navigator.of(context).push(
@@ -238,10 +355,19 @@ class _CategoryPageState extends State<CategoryPage> {
         child: Column(
           children: [
             _TopBar(
-              tabs: front?.tabs ?? const [],
+              // 顶部频道：服务端频道表 + 本地影视频道；服务端表未拿到
+              // 且落在影视频道时用兜底频道表，免得顶栏空着。
+              tabs: [
+                if (front != null && front.tabs.isNotEmpty)
+                  ...front.tabs
+                else if (_isVideoTab)
+                  ..._fallbackTabs,
+                _videoTab,
+              ],
               selected: _tabValue,
-              onSelect: (v) => _load(tab: int.tryParse(v) ?? 1),
+              onSelect: (v) => _load(tab: v),
               onSearch: _openSearch,
+              videoTabKey: _videoTabKey,
             ),
             if (_loading)
               Padding(
@@ -257,11 +383,11 @@ class _CategoryPageState extends State<CategoryPage> {
                     title: _error!,
                     actionLabel: '重试',
                     actionIcon: LucideIcons.refresh_cw,
-                    onAction: () => _load(),
+                    onAction: () => _load(tab: _tabValue),
                   ),
                 ),
               )
-            else if (front != null)
+            else if (front != null || _isVideoTab)
               Expanded(
                 // 列数按实际内容区宽度算：手机仍是官方三列，桌面按 170dp
                 // 一颗的目标宽度加列，免得 chip 被拉成细长横条。
@@ -306,12 +432,16 @@ class _TopBar extends StatelessWidget {
     required this.selected,
     required this.onSelect,
     required this.onSearch,
+    this.videoTabKey,
   });
 
   final List<CategoryTab> tabs;
-  final int selected;
+  final String selected;
   final ValueChanged<String> onSelect;
   final VoidCallback onSearch;
+
+  /// 影视 tab 的 key：首开影视时靠它把 tab 滚进视野。
+  final Key? videoTabKey;
 
   @override
   Widget build(BuildContext context) {
@@ -337,36 +467,50 @@ class _TopBar extends StatelessWidget {
           Expanded(
             child: tabs.isEmpty
                 ? const SizedBox.shrink()
-                : ListView.separated(
+                // 频道数少（≤8），不用懒加载列表：Row 全量构建，末尾的
+                // 影视 tab 也有 context，首开影视时才能把它滚进视野。
+                : SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     padding: const EdgeInsets.only(right: 8),
-                    itemCount: tabs.length,
-                    separatorBuilder: (_, _) => const SizedBox(width: 24),
-                    itemBuilder: (context, index) {
-                      final tab = tabs[index];
-                      final isSelected = int.tryParse(tab.value) == selected;
-                      return GestureDetector(
-                        key: ValueKey('category_tab_${tab.value}'),
-                        behavior: HitTestBehavior.opaque,
-                        onTap: () => onSelect(tab.value),
-                        child: Center(
-                          child: Text(
-                            tab.name,
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: isSelected
-                                  ? FontWeight.w700
-                                  : FontWeight.w400,
-                              color: isSelected
-                                  ? palette.ink
-                                  : (palette.eink
-                                        ? palette.ink
-                                        : const Color(0xFF8C8C8C)),
-                            ),
+                    child: Row(
+                      children: [
+                        for (var i = 0; i < tabs.length; i++) ...[
+                          if (i > 0) const SizedBox(width: 24),
+                          Builder(
+                            builder: (context) {
+                              final tab = tabs[i];
+                              final isSelected = tab.value == selected;
+                              return GestureDetector(
+                                key: tab.value == _videoTab.value &&
+                                        videoTabKey != null
+                                    ? videoTabKey
+                                    : ValueKey(
+                                        'category_tab_${tab.value}',
+                                      ),
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () => onSelect(tab.value),
+                                child: Center(
+                                  child: Text(
+                                    tab.name,
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: isSelected
+                                          ? FontWeight.w700
+                                          : FontWeight.w400,
+                                      color: isSelected
+                                          ? palette.ink
+                                          : (palette.eink
+                                                ? palette.ink
+                                                : const Color(0xFF8C8C8C)),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
                           ),
-                        ),
-                      );
-                    },
+                        ],
+                      ],
+                    ),
                   ),
           ),
           IconButton(

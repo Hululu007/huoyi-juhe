@@ -3,14 +3,25 @@ import 'package:flutter/physics.dart';
 
 import '../../services/app_theme.dart';
 
-/// The home surface keeps its warm paper / tomato identity in both themes.
+/// 凡人修仙传主题：仙侠配色，三张参考图全融进来——①游戏主界面（深蓝底+
+/// 金字金光）；②韩立官方图（蓝天+绿色灵气+金字）；③剑修职业页（浅蓝白
+/// 雾气底+蓝色图标）。主色是金（金光 / 金丹 / 仙气）与深蓝紫（神秘夜空 /
+/// 仙山，取自启动图标背景 #323464），辅色是青绿（灵气）与天蓝（蓝天 /
+/// 图标）。深色下画布与卡片染成深蓝紫，浅色走浅蓝白雾气底，金与青绿只做
+/// 点缀。
 class HomePalette {
-  static const accent = Color(0xFFEF5038);
-  static const accentStrong = Color(0xFFC73D29);
+  /// 金：主品牌色，浅色按钮 / 选中态 / 进度条 / 高亮用它。
+  static const accent = Color(0xFF9C7C1C);
+
+  /// 深金：浅色下需要比主金更深一档的文字 / 描边用它。
+  static const accentStrong = Color(0xFF7A5F14);
+
+  /// 亮金：深色下金字 / 金线用它，在深蓝紫底上比主金更亮、读得清。
+  static const accentDark = Color(0xFFD4AF37);
   final bool dark;
 
   /// #15/#9：墨水屏时所有纸面 / 文字 / 线条退化为纯黑白。accent 静态常量
-  /// 仍为品牌橙（93 处直接引用），本轮不全量替换，见收尾未验项。
+  /// 仍为品牌金（93 处直接引用），本轮不全量替换，见收尾未验项。
   final bool eink;
 
   /// OLED 纯黑：画布用纯黑省电，卡片 / 弹层保持近黑，靠描边维持层次。
@@ -32,14 +43,20 @@ class HomePalette {
   /// 写成逐层判断而非嵌套三元，三个候选一眼能数清。
   Color get canvas {
     if (eink) return Colors.white;
+    final bg = backgroundNotifier.value;
+    if (bg.isImage) return Colors.transparent;
+    final preset = bg.presetColor;
+    if (preset != null) return preset;
     if (oled && dark) return Colors.black;
-    return dark ? const Color(0xFF151517) : const Color(0xFFF6F6F6);
+    // 深色画布染成深蓝紫（图标背景 #323464 一系，游戏主界面深蓝底），
+    // 浅色走浅蓝白雾气底（剑修页雾气，#EAF2F8），不再是纯白 / 中性灰。
+    return dark ? const Color(0xFF1E1D38) : const Color(0xFFEAF2F8);
   }
 
   Color get surface {
     if (eink) return Colors.white;
     if (oled && dark) return const Color(0xFF0C0C0E);
-    return dark ? const Color(0xFF242427) : Colors.white;
+    return dark ? const Color(0xFF262543) : Colors.white;
   }
 
   Color get ink => eink
@@ -48,25 +65,26 @@ class HomePalette {
   Color get muted => eink
       ? Colors.black
       : (dark ? const Color(0xFFA7A39E) : const Color(0xFF706C66));
-  Color get accentText => eink ? Colors.black : (dark ? accent : accentStrong);
+  Color get accentText =>
+      eink ? Colors.black : (dark ? accentDark : accentStrong);
 
   Color get soft {
     if (eink) return Colors.white;
     if (oled && dark) return const Color(0xFF141417);
-    return dark ? const Color(0xFF202023) : const Color(0xFFF1EEE9);
+    return dark ? const Color(0xFF232240) : const Color(0xFFEAF2F8);
   }
 
   Color get line {
     if (eink) return Colors.black;
     if (oled && dark) return const Color(0xFF2E2E34);
-    return dark ? const Color(0xFF333336) : const Color(0xFFE8E4DE);
+    return dark ? const Color(0xFF3A3860) : const Color(0xFFD8E2EC);
   }
 
   /// 官方搜索框底色 `skin_color_search_bar_bg_v2_light` = #FFFFFF
   /// （res/values/colors.xml），暗色下用 surface。
   Color get searchBar => eink
       ? Colors.white
-      : (dark ? const Color(0xFF2A2A2E) : const Color(0xFFFFFFFF));
+      : (dark ? const Color(0xFF2A2950) : const Color(0xFFFFFFFF));
 
   /// 官方搜索框提示字色 `skin_color_search_bar_text_v3_light` = #66000000。
   Color get searchBarText => eink

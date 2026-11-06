@@ -136,12 +136,28 @@ class EpisodeSourceRequest {
   const EpisodeSourceRequest(this.future, this.origin);
 }
 
+/// 往后 [ahead] 集的预加载窗口：当前集之后、尚未播到的集（11-01 预加载
+/// 规格：往后 5 集）。窗口随播滑动（换集时调用方重算），集数不够时只返回
+/// 剩余的集，到最后一集时返回空表；只算地址、不建播放器、不下载视频字节。
+List<Chapter> upcomingChapters(
+  List<Chapter> episodes,
+  int index, {
+  int ahead = 5,
+}) {
+  if (episodes.isEmpty || index < 0 || index >= episodes.length) return const [];
+  final end = (index + 1 + ahead).clamp(0, episodes.length);
+  return episodes.sublist(index + 1, end);
+}
+
 /// Page-local address metadata only. Never creates a player or downloads video.
 /// Completed entries are bounded; outstanding demand requests remain joinable
 /// until they finish, even if a quick swipe temporarily leaves their episode.
 class EpisodeSourceCache {
-  static const timeToLive = Duration(minutes: 2);
-  static const capacity = 2;
+  /// 覆盖往后 5 集短剧：5 集 × 每集约 2 分钟。
+  static const timeToLive = Duration(minutes: 10);
+
+  /// 当前集 + 往后 5 集（11-01 预加载规格：总数始终维持 5 集预加载）。
+  static const capacity = 6;
 
   final Future<EpisodeSource> Function(Chapter) _loader;
   final Duration Function() _now;
@@ -254,6 +270,71 @@ class _SourceEntry {
   late final Future<EpisodeSource> future;
 
   _SourceEntry(this.started, this.prefetched);
+}
+
+/// 跨页共享的取流预取存储：信息流里提前取到的下一部第一集地址，供播放页直接用。
+///
+/// 键是 `bookId|itemId`（Chapter 本身不带 bookId，调用方拼；两边都走
+/// [keyFor]，保证拼法一致）。只给 ApiClient 默认路径用：写的一方是信息流
+/// 的 prefetchNextDrama，读的一方是播放页 _episodeSource，且仅当播放页
+/// 的 contentLoader 为空时才读（站点专用 loader 的播放页不读，避免跨站串扰）。
+/// 只存地址、不建播放器、不下载视频字节；TTL 与页内缓存一致（10 分钟）。
+class SharedEpisodePrefetch {
+  static const timeToLive = Duration(minutes: 10);
+
+  /// 往后 3 部 × 每部 1 集，另留余量给滑动时新进窗口的部。
+  static const capacity = 12;
+
+  static final SharedEpisodePrefetch instance = SharedEpisodePrefetch._();
+
+  /// 仅测试用：一个隔离的实例（自己的表 + 自己的时钟）。
+  factory SharedEpisodePrefetch.forTest({required Duration Function() now}) =>
+      SharedEpisodePrefetch._(now: now);
+
+  SharedEpisodePrefetch._({Duration Function()? now})
+    : _now = now ?? _monotonicClock();
+
+  final Duration Function() _now;
+  final _entries = <String, _SharedEntry>{};
+
+  static String keyFor(String bookId, String itemId) => '$bookId|$itemId';
+
+  void put({
+    required String bookId,
+    required String itemId,
+    required EpisodeSource source,
+  }) {
+    _entries.removeWhere((_, entry) => !_fresh(entry));
+    final key = keyFor(bookId, itemId);
+    _entries.remove(key);
+    _entries[key] = _SharedEntry(_now(), source);
+    while (_entries.length > capacity) {
+      _entries.remove(_entries.keys.first);
+    }
+  }
+
+  EpisodeSource? get({required String bookId, required String itemId}) {
+    final key = keyFor(bookId, itemId);
+    final entry = _entries[key];
+    if (entry == null) return null;
+    if (!_fresh(entry)) {
+      _entries.remove(key);
+      return null;
+    }
+    return entry.source;
+  }
+
+  bool _fresh(_SharedEntry entry) => _now() - entry.started < timeToLive;
+
+  /// 仅测试用：清空本实例的表。
+  void clear() => _entries.clear();
+}
+
+class _SharedEntry {
+  final Duration started;
+  final EpisodeSource source;
+
+  _SharedEntry(this.started, this.source);
 }
 
 Duration Function() _monotonicClock() {

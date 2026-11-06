@@ -315,6 +315,37 @@ MediaItem adultRecommendItem(DramaSiteItem item, SourceEntry entry) =>
       source: 'engine:${entry.id}',
     );
 
+/// 核心站推荐卡（通用）：与成人版同一映射，source 打 `engine:<siteId>`，
+/// 点卡时按此前缀分流，客户端经 dramaSiteContentClient 解析到核心阅读客户端。
+MediaItem coreReadingRecommendItem(
+  DramaSiteItem item,
+  String siteId,
+  ContentType type,
+) =>
+    MediaItem(
+      id: item.id,
+      title: item.title,
+      cover: item.cover,
+      author: '',
+      badge: '',
+      ep: item.remark,
+      kind: switch (type) {
+        ContentType.comic => 'manga',
+        ContentType.audio => 'audio',
+        _ => 'book',
+      },
+      seriesId: item.id,
+      source: 'engine:$siteId',
+    );
+
+/// 核心站成人推荐卡：即通用版（成人页沿用此名）。
+MediaItem coreAdultRecommendItem(
+  DramaSiteItem item,
+  String siteId,
+  ContentType type,
+) =>
+    coreReadingRecommendItem(item, siteId, type);
+
 class HomeNotifier extends Notifier<HomeState> {
   static const tabs = ['全部', '小说', '短剧', '漫剧', '漫画', '听书', '视频'];
   static const tabKinds = {

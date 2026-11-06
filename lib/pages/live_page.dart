@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../services/cultivation.dart';
 import '../services/live_sources.dart';
 import 'live_source_page.dart';
+import 'mine_page.dart';
 
 class LivePage extends StatefulWidget {
   const LivePage({super.key});
@@ -18,6 +20,9 @@ class _LivePageState extends State<LivePage> {
   @override
   void initState() {
     super.initState();
+    CultivationService.instance.snapshotNotifier.addListener(
+      _onCultivationChanged,
+    );
     LiveSources.loadImportedChannels().then((channels) {
       if (mounted) {
         setState(() {
@@ -26,6 +31,18 @@ class _LivePageState extends State<LivePage> {
         });
       }
     });
+  }
+
+  void _onCultivationChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    CultivationService.instance.snapshotNotifier.removeListener(
+      _onCultivationChanged,
+    );
+    super.dispose();
   }
 
   Future<void> _importDialog() async {
@@ -66,25 +83,80 @@ class _LivePageState extends State<LivePage> {
     }
   }
 
-  void _play(LiveChannel channel) => openLiveChannel(context, channel);
+  void _play(int index) => openLiveChannel(
+    context,
+    channels: _channels,
+    index: index,
+    // 导入的 m3u 不是内置源，播放页内换源时仍可切到三个内置源。
+    source: const LiveSource(
+      id: 'imported',
+      name: '导入的频道',
+      description: '用户导入的 m3u',
+      protocol: LiveProtocol.list,
+    ),
+  );
+
+  /// 未到元婴期时的上锁页：不露源名与频道，只写还差多少修为。
+  /// 直播里的成人源与影视区一样按修为解锁：修为不到不显示，
+  /// 修为到了才列出来。
+  Widget _lockedBody(BuildContext context) {
+    final snapshot = CultivationService.instance.snapshot;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.lock_outline, size: 48),
+            const SizedBox(height: 16),
+            const Text(
+              '直播源需要元婴期',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '还差 ${snapshot.xpToVideoZone} 修为（约 ${snapshot.episodesToVideoZone} 集短剧）解锁，修为到了自动显示直播源。',
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            FilledButton(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => const MinePage(),
+                ),
+              ),
+              child: const Text('去我的页看进度'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final sources = LiveSources.mainTabSources;
+    // 直播内置源全是成人，元婴期（3000 修为）解锁；修为不到不显示，
+    // 修为到了才列出来。
+    final unlocked = CultivationService.instance.snapshot.unlockedVideo;
+    final sources = unlocked ? LiveSources.builtin : const <LiveSource>[];
     return Scaffold(
       appBar: AppBar(
         title: const Text('直播'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.add),
-            tooltip: '导入 m3u',
-            onPressed: _importDialog,
-          ),
+          if (unlocked)
+            IconButton(
+              icon: const Icon(Icons.add),
+              tooltip: '导入 m3u',
+              onPressed: _importDialog,
+            ),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : ListView(
+      body: !unlocked
+          ? _lockedBody(context)
+          : _loading
+              ? const Center(child: CircularProgressIndicator())
+              : ListView(
               children: [
                 const Padding(
                   padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
@@ -133,18 +205,17 @@ class _LivePageState extends State<LivePage> {
                     padding: EdgeInsets.all(16),
                     child: Text(
                       '暂无导入频道。点右上角加号粘贴一个 m3u 地址导入，'
-                      '频道点开即用原始播放器播。成人直播源不在此页，'
-                      '在首页右上角午夜区里。',
+                      '频道点开即用原始播放器播。',
                     ),
                   ),
-                for (final channel in _channels)
+                for (var i = 0; i < _channels.length; i++)
                   ListTile(
-                    title: Text(channel.title),
-                    subtitle: channel.group.isEmpty
+                    title: Text(_channels[i].title),
+                    subtitle: _channels[i].group.isEmpty
                         ? null
-                        : Text(channel.group),
+                        : Text(_channels[i].group),
                     trailing: const Icon(Icons.play_arrow),
-                    onTap: () => _play(channel),
+                    onTap: () => _play(i),
                   ),
               ],
             ),

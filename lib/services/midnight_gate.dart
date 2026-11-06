@@ -1,46 +1,30 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// 午夜区不再设门：口令与进门密码已移除，成人内容不再被隐藏。
+/// 本类只保留兼容层：所有读到它的地方都视为已开启；旧的持久化键
+/// 若还在，首次加载时清掉，避免旧值继续影响显示。
 class MidnightGate {
   MidnightGate._();
 
   static const key = 'midnightActivated';
 
-  static final ValueNotifier<bool> activated = ValueNotifier<bool>(false);
+  static final ValueNotifier<bool> activated = ValueNotifier<bool>(true);
   static var _loaded = false;
 
   static Future<bool> load() async {
     try {
       final preferences = await SharedPreferences.getInstance();
-      final value = preferences.getBool(key) ?? false;
-      activated.value = value;
-      _loaded = true;
-      return value;
-    } catch (_) {
-      return activated.value;
-    }
+      await preferences.remove(key);
+    } catch (_) {}
+    activated.value = true;
+    _loaded = true;
+    return true;
   }
 
   static Future<void> ensureLoaded() async {
     if (!_loaded) await load();
   }
 
-  static Future<void> save(bool value) async {
-    try {
-      final preferences = await SharedPreferences.getInstance();
-      await preferences.setBool(key, value);
-    } catch (_) {}
-    activated.value = value;
-  }
-
   static bool isAdultName(String name) => name.startsWith('🔞');
-
-  static const passcode = '888888';
-
-  static bool checkPasscode(String input) => input.trim() == passcode;
-
-  static const entryPassword = '123456';
-
-  static bool checkEntryPassword(String input) =>
-      input.trim() == entryPassword;
 }

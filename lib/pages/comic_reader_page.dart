@@ -11,6 +11,7 @@ import '../models/media_item.dart';
 import '../services/api_client.dart';
 import '../services/backend_transport.dart';
 import '../services/comic_page_layout.dart';
+import '../services/cultivation.dart';
 import '../services/fair_memory.dart';
 import '../services/library_store.dart';
 import '../services/chapter_cache_store.dart';

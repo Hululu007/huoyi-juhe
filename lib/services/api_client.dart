@@ -380,6 +380,99 @@ class ApiClient {
     return _decodeAsync(r);
   }
 
+  /// 影视区（核心新增）：自有站分类（芽果首个进核心）。
+  Future<Map<String, dynamic>> dramaCategories(String siteId) async {
+    final r = await _get(_url('/api/v1/drama/categories', {'site_id': siteId}));
+    return _decodeAsync(r);
+  }
+
+  /// 影视区（核心新增）：自有站目录。
+  Future<Map<String, dynamic>> dramaCatalog(
+    String siteId,
+    String categoryId,
+    int page,
+  ) async {
+    final r = await _get(_url('/api/v1/drama/catalog', {
+      'site_id': siteId,
+      'category_id': categoryId,
+      'page': '$page',
+    }));
+    return _decodeAsync(r);
+  }
+
+  /// 影视区（核心新增）：自有站详情。
+  Future<Map<String, dynamic>> dramaDetail(String siteId, String id) async {
+    final r = await _get(_url('/api/v1/drama/detail', {'site_id': siteId, 'id': id}));
+    return _decodeAsync(r);
+  }
+
+  /// 影视区（核心新增）：自有站搜索。
+  Future<Map<String, dynamic>> dramaSearch(String siteId, String query) async {
+    final r = await _get(_url('/api/v1/drama/search', {
+      'site_id': siteId,
+      'query': query,
+    }));
+    return _decodeAsync(r);
+  }
+
+  /// 影视区（核心新增）：自有站取流。
+  Future<Map<String, dynamic>> dramaPlay(String siteId, String videoId) async {
+    final r = await _get(_url('/api/v1/drama/play', {
+      'site_id': siteId,
+      'video_id': videoId,
+    }));
+    return _decodeAsync(r);
+  }
+
+  /// 阅读区（核心新增）：自有站分类（小说/漫画/听书走同一套核心路由）。
+  Future<Map<String, dynamic>> readingCategories(String siteId) async {
+    final r = await _get(_url('/api/v1/reading/categories', {'site_id': siteId}));
+    return _decodeAsync(r);
+  }
+
+  /// 阅读区（核心新增）：自有站目录。
+  Future<Map<String, dynamic>> readingCatalog(
+    String siteId,
+    String categoryId,
+    int page,
+  ) async {
+    final r = await _get(_url('/api/v1/reading/catalog', {
+      'site_id': siteId,
+      'category_id': categoryId,
+      'page': '$page',
+    }));
+    return _decodeAsync(r);
+  }
+
+  /// 阅读区（核心新增）：自有站详情。
+  Future<Map<String, dynamic>> readingDetail(String siteId, String id) async {
+    final r = await _get(
+      _url('/api/v1/reading/detail', {'site_id': siteId, 'id': id}),
+    );
+    return _decodeAsync(r);
+  }
+
+  /// 阅读区（核心新增）：自有站搜索。
+  Future<Map<String, dynamic>> readingSearch(String siteId, String query) async {
+    final r = await _get(_url('/api/v1/reading/search', {
+      'site_id': siteId,
+      'query': query,
+    }));
+    return _decodeAsync(r);
+  }
+
+  /// 阅读区（核心新增）：自有站取流（小说回 novel://、漫画回 pics://、听书回直链音频）。
+  Future<Map<String, dynamic>> readingPlay(
+    String siteId,
+    String episodeId,
+  ) async {
+    final r = await _get(_url('/api/v1/reading/play', {
+      'site_id': siteId,
+      'episode_id': episodeId,
+    }));
+    return _decodeAsync(r);
+  }
+
   /// Search with JSON decoding and model parsing combined into one isolate
   /// hop. This avoids decoding a large response in one isolate and then
   /// copying the resulting map into a second isolate for normalization.

@@ -73,7 +73,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
     expect(find.text('测试站'), findsOneWidget);
     expect(find.text('2 条'), findsOneWidget);
-    expect(find.text('🔞成人站'), findsNothing);
+    // 门已移除：成人站不再隐藏，直接列出。
+    expect(find.text('🔞成人站'), findsOneWidget);
     await tester.tap(find.text('测试站'));
     // 不用 pumpAndSettle：浏览页走注册表解析本地库站，真实 Hive
     // 的平台通道在 widget 测试里不返回，手动 pump 只等 AppBar 出现。

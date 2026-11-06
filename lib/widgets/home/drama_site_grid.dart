@@ -11,7 +11,6 @@ import '../../services/m3u_export_db.dart';
 import '../../services/midnight_gate.dart';
 import '../../services/xbpq_content.dart';
 import '../../services/source_registry.dart';
-import 'drama_site_filter_drawer.dart';
 import 'home_feed_states.dart';
 import 'home_media_card.dart';
 import 'home_shelf.dart';
@@ -25,17 +24,26 @@ class DramaSiteGrid extends StatefulWidget {
     required this.categoryId,
     required this.gridWidth,
     this.client,
+    this.showFilterBar = true,
     this.autoSaveToDb = false,
     this.browseCategory,
     this.dbSink,
+    this.columns = 3,
   });
 
   final String siteId;
   final String categoryId;
   final double gridWidth;
 
+  /// 网格列数：默认 3 列（短剧区、浏览页沿用）；影视页两网格传 4 列。
+  final int columns;
+
   /// 测试注入的客户端；为空时走登记表取客户端。
   final DramaSiteContentClient? client;
+
+  /// 卡片上方筛选行开关：影视页午夜区按原始版不放这一排，
+  /// 分类走右上角分类按钮；其余页默认开。
+  final bool showFilterBar;
 
   /// 浏览自动爬取开关：只在浏览页打开，首页/影视/午夜网格默认不开。
   /// 开启时每页取到的视频列表存进本地库（只插新条，见
@@ -102,66 +110,39 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
     return client.catalog(categoryId, page);
   }
 
-  Widget _filterButtonRow() {
-    final active =
-        _filters.entries.where((entry) => entry.value.isNotEmpty).length;
+  Widget _filterBar() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(homeGutter, 0, homeGutter, 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.end,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          TextButton.icon(
-            onPressed: _openFilterDrawer,
-            icon: const Icon(Icons.tune),
-            label: Text(active > 0 ? '筛选·$active' : '筛选'),
-          ),
+          for (final group in _filterGroups)
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  for (final option in group.options)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: ChoiceChip(
+                        label: Text(option.name),
+                        selected: (_filters[group.key] ?? '') == option.value,
+                        onSelected: (_) {
+                          setState(() {
+                            _filters = {
+                              ..._filters,
+                              group.key: option.value,
+                            };
+                          });
+                          _loadFirst(keepItems: true);
+                        },
+                      ),
+                    ),
+                ],
+              ),
+            ),
         ],
       ),
-    );
-  }
-
-  Future<void> _openFilterDrawer() async {
-    if (_filterGroups.isEmpty || !mounted) return;
-    await showGeneralDialog<void>(
-      context: context,
-      barrierDismissible: true,
-      barrierLabel: '筛选',
-      barrierColor: Colors.black54,
-      transitionDuration: const Duration(milliseconds: 250),
-      pageBuilder: (context, _, _) {
-        final width = MediaQuery.sizeOf(context).width * 0.85;
-        return Align(
-          alignment: Alignment.centerRight,
-          child: SizedBox(
-            width: width > 360 ? 360 : width,
-            height: double.infinity,
-            child: DramaSiteFilterDrawer(
-              groups: _filterGroups,
-              selected: _filters,
-              onSelected: (groupKey, value) {
-                setState(() {
-                  _filters = {..._filters, groupKey: value};
-                });
-                _loadFirst(keepItems: true);
-              },
-              onClear: () {
-                setState(() => _filters = {});
-                _loadFirst(keepItems: true);
-              },
-              onClose: () => Navigator.pop(context),
-            ),
-          ),
-        );
-      },
-      transitionBuilder: (context, animation, _, child) {
-        final offset = Tween<Offset>(
-          begin: const Offset(1, 0),
-          end: Offset.zero,
-        ).animate(
-          CurvedAnimation(parent: animation, curve: Curves.easeOut),
-        );
-        return SlideTransition(position: offset, child: child);
-      },
     );
   }
 
@@ -331,8 +312,8 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
     if (_items.isEmpty) {
       return SliverMainAxisGroup(
         slivers: [
-          if (_filterGroups.isNotEmpty)
-            SliverToBoxAdapter(child: _filterButtonRow()),
+          if (widget.showFilterBar && _filterGroups.isNotEmpty)
+            SliverToBoxAdapter(child: _filterBar()),
           SliverToBoxAdapter(
             child: HomeFeedEmpty(
               title: '暂无内容',
@@ -344,15 +325,26 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
         ],
       );
     }
-    final cardWidth = homeShelfCardWidth(context, widget.gridWidth);
+    // 视频卡片列数固定，不跟随书架的响应列数（窄屏/大字号会掉到
+    // 两列、宽屏会到四列以上）：默认三列（短剧区），影视页传 4 列。
+    final dramaGridColumns = widget.columns;
+    final cardWidth =
+        (widget.gridWidth - (dramaGridColumns - 1) * homeGridGap) /
+        dramaGridColumns;
+    final scaler = MediaQuery.textScalerOf(context);
     return SliverMainAxisGroup(
       slivers: [
-        if (_filterGroups.isNotEmpty)
-          SliverToBoxAdapter(child: _filterButtonRow()),
+        if (widget.showFilterBar && _filterGroups.isNotEmpty)
+          SliverToBoxAdapter(child: _filterBar()),
         SliverPadding(
           padding: const EdgeInsets.symmetric(horizontal: homeGutter),
           sliver: SliverGrid(
-            gridDelegate: homeShelfDelegate(context, widget.gridWidth),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: dramaGridColumns,
+              crossAxisSpacing: homeGridGap,
+              mainAxisSpacing: 20,
+              mainAxisExtent: homeCardExtent(context, cardWidth, scaler),
+            ),
             delegate: SliverChildBuilderDelegate((context, index) {
               final item = _items[index];
               return HomeMediaCard(

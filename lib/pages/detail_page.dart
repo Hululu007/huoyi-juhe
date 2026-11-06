@@ -607,6 +607,9 @@ class _DetailPageState extends State<DetailPage> {
                   item: widget.item,
                   detail: _bookDetail,
                   onOpenAuthor: _openAuthorAction,
+                  onPlay: _isVideo
+                      ? () => unawaited(_openLastPosition())
+                      : null,
                   lastChapterTitle: _latestChapterTitle,
                 ),
               ),

@@ -54,7 +54,7 @@ void main() {
     // 官方书城底色：浅色画布不再用暖纸色 #FCFAF7。
     expect(
       AppTheme.createTheme(Brightness.light).scaffoldBackgroundColor,
-      const Color(0xFFF6F6F6),
+      const Color(0xFFEAF2F8),
     );
   });
 

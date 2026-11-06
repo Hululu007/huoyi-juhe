@@ -68,7 +68,7 @@ void main() {
         kind: SourceKind.builtinDrama,
       ),
     ];
-    final sites = videoPagePlayableSites(entries, true);
+    final sites = videoPagePlayableSites(entries);
     expect(
       sites.map((site) => site.id),
       [
@@ -80,7 +80,7 @@ void main() {
     );
   });
 
-  test('影视区空白规则：午夜未开时成人站不列，打开后列出', () {
+  test('影视区空白规则：成人站直接列出，不再设门', () {
     final entries = [
       _entry(
         id: 'import_adult',
@@ -88,8 +88,7 @@ void main() {
         kind: SourceKind.pyImport,
       ),
     ];
-    expect(videoPagePlayableSites(entries, false), isEmpty);
-    expect(videoPagePlayableSites(entries, true).length, 1);
+    expect(videoPagePlayableSites(entries).length, 1);
   });
 
   test('影视区空白规则：全是内置站时结果为空', () {
@@ -101,6 +100,6 @@ void main() {
         extra: {'builtin': true},
       ),
     ];
-    expect(videoPagePlayableSites(entries, true), isEmpty);
+    expect(videoPagePlayableSites(entries), isEmpty);
   });
 }

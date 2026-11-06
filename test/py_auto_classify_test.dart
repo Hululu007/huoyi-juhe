@@ -107,7 +107,7 @@ void main() {
       ),
     ];
     expect(
-      videoPagePlayableSites(entries, true).map((e) => e.id),
+      videoPagePlayableSites(entries).map((e) => e.id),
       ['py:mixed', 'py:video'],
     );
   });

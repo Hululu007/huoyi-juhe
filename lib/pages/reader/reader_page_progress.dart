@@ -146,6 +146,12 @@ extension _ReaderPageProgress on _ReaderPageState {
             .accumulateReadTime(widget.bookId, 'book', delta)
             .catchError((_) {}),
       );
+      // 修为记账：真实阅读时长 1 分钟 = 1 修为（服务里 ×1.8）。
+      unawaited(
+        CultivationService.instance
+            .addSeconds(CultivationCategory.novel, delta)
+            .catchError((Object _) {}),
+      );
     }
     _readStart = now;
   }
@@ -352,6 +358,12 @@ extension _ReaderPageProgress on _ReaderPageState {
       _settleReadTime();
       await _persistProgress();
       if (!mounted) return;
+      // 读完 1 章小说 +150 修为（翻到下一章即算本章读完）。
+      unawaited(
+        CultivationService.instance
+            .addChapterCompleted(CultivationCategory.novel)
+            .catchError((Object _) {}),
+      );
       final turn = _captureChapterTurn(1);
       _setState(() => _index++);
       await _load(chapterTurn: turn);

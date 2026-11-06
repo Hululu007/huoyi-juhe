@@ -48,6 +48,8 @@ pub fn match_rest_path(path: &str, query: &Params) -> Option<RouteMatch> {
         "articles" => match_articles(tail, query),
         "items" => match_items(tail, query),
         "comments" => match_comments(tail, query),
+        "drama" => match_drama(tail, query),
+        "reading" => match_reading(tail, query),
         "forum-id" => Some(RouteMatch {
             api: "forum_id",
             params: query.clone(),
@@ -288,6 +290,49 @@ fn match_shuqi(parts: &[&str], q: &Params) -> Option<RouteMatch> {
         "book" => "shuqi_book",
         "toc" => "shuqi_toc",
         "chapter" => "shuqi_chapter",
+        _ => return None,
+    };
+    Some(RouteMatch {
+        api,
+        params: q.clone(),
+    })
+}
+
+/// 影视区（我方新增）：`/api/v1/drama/{categories|catalog|detail|search|play}`。
+/// 参数全部走 query（与书旗一致），site_id 指明是哪个自有站。
+fn match_drama(parts: &[&str], q: &Params) -> Option<RouteMatch> {
+    if parts.is_empty() {
+        return None;
+    }
+    let api = match parts[0] {
+        "categories" => "drama_categories",
+        "catalog" => "drama_catalog",
+        "detail" => "drama_detail",
+        "search" => "drama_search",
+        "play" => "drama_play",
+        _ => return None,
+    };
+    Some(RouteMatch {
+        api,
+        params: q.clone(),
+    })
+}
+
+/// 阅读区（我方新增）：`/api/v1/reading/{categories|catalog|detail|search|play}`。
+/// 参数全部走 query，与影视区一致，site_id 指明是哪个自有站。
+/// 另有红果听书中继：`/api/v1/reading/hg_audio?book=..&item=..&tone=..`，
+/// 回整文件 audio/mp4（Range 头目前只给 /src 静态路用，此路无 Range）。
+fn match_reading(parts: &[&str], q: &Params) -> Option<RouteMatch> {
+    if parts.is_empty() {
+        return None;
+    }
+    let api = match parts[0] {
+        "categories" => "reading_categories",
+        "catalog" => "reading_catalog",
+        "detail" => "reading_detail",
+        "search" => "reading_search",
+        "play" => "reading_play",
+        "hg_audio" => "reading_hg_audio",
         _ => return None,
     };
     Some(RouteMatch {

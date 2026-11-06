@@ -137,8 +137,8 @@ void main() {
       onPlay: (index) => played.add(index),
     );
     expect(find.byKey(const ValueKey('series-detail-actions')), findsOneWidget);
-    // 本地详情页明确展示续播集数。
-    expect(find.text('继续播放 · 第5集'), findsOneWidget);
+    // 本地详情页明确展示续播集数。头部钮与底部大播放钮同文案，故两处。
+    expect(find.text('继续播放 · 第5集'), findsNWidgets(2));
     expect(find.text('继续播放 第5集'), findsNothing);
     await tester.tap(find.byKey(const ValueKey('series-detail-play-button')));
     expect(played, [4]);
@@ -150,7 +150,46 @@ void main() {
       detail: seriesDetailFixture(),
       episodes: [for (var i = 0; i < 12; i++) chapterAt(i)],
     );
-    expect(find.text('立即播放'), findsOneWidget);
+    // 头部钮与底部大播放钮同文案，故两处。
+    expect(find.text('立即播放'), findsNWidgets(2));
+  });
+
+  testWidgets('底部大播放钮与头部钮同文案，点击播当前集', (tester) async {
+    final played = <int>[];
+    await pumpSeriesDetail(
+      tester,
+      detail: seriesDetailFixture(),
+      episodes: [for (var i = 0; i < 12; i++) chapterAt(i)],
+      startIndex: 4,
+      onPlay: (index) => played.add(index),
+    );
+    final bottom = find.byKey(
+      const ValueKey('series-detail-bottom-play-button'),
+    );
+    expect(bottom, findsOneWidget);
+    expect(
+      find.descendant(of: bottom, matching: find.text('继续播放 · 第5集')),
+      findsOneWidget,
+    );
+    await tester.tap(bottom);
+    expect(played, [4]);
+  });
+
+  testWidgets('底部大播放钮随当前集禁用', (tester) async {
+    await pumpSeriesDetail(
+      tester,
+      detail: seriesDetailFixture(),
+      episodes: [chapterAt(0, disabled: true)],
+    );
+    final bottom = find.byKey(
+      const ValueKey('series-detail-bottom-play-button'),
+    );
+    final button = tester.widget<FilledButton>(bottom);
+    expect(button.onPressed, isNull);
+    expect(
+      find.descendant(of: bottom, matching: find.text('暂不可播放')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('头部收藏钮写入本机书架并可取消', (tester) async {
@@ -265,6 +304,57 @@ void main() {
     expect(find.text('期待你的第一条剧评'), findsNothing);
   });
 
+  testWidgets('剧评区折叠钮：收起只剩头部，再点展开恢复列表', (tester) async {
+    await pumpSeriesDetail(
+      tester,
+      detail: seriesDetailFixture(),
+      episodes: [for (var i = 0; i < 12; i++) chapterAt(i)],
+      comments: commentsFixture(),
+    );
+    await scrollToWidget(
+      tester,
+      find.byKey(const ValueKey('series-detail-comment-list')),
+    );
+    final fold = find.byKey(const ValueKey('series-detail-comments-fold'));
+    expect(fold, findsOneWidget);
+    expect(
+      find.descendant(of: fold, matching: find.text('收起')),
+      findsOneWidget,
+    );
+    await tester.tap(fold);
+    await tester.pump();
+    expect(find.byKey(const ValueKey('series-detail-comment-list')), findsNothing);
+    expect(find.text('这剧可以看'), findsNothing);
+    expect(
+      find.descendant(of: fold, matching: find.text('展开')),
+      findsOneWidget,
+    );
+    await tester.tap(fold);
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('series-detail-comment-list')),
+      findsOneWidget,
+    );
+    expect(find.text('这剧可以看'), findsOneWidget);
+  });
+
+  testWidgets('剧评区展开时列表竖向滑动', (tester) async {
+    await pumpSeriesDetail(
+      tester,
+      detail: seriesDetailFixture(),
+      episodes: [for (var i = 0; i < 12; i++) chapterAt(i)],
+      comments: commentsFixture(),
+    );
+    await scrollToWidget(
+      tester,
+      find.byKey(const ValueKey('series-detail-comment-list')),
+    );
+    final list = tester.widget<ListView>(
+      find.byKey(const ValueKey('series-detail-comment-list')),
+    );
+    expect(list.scrollDirection, Axis.vertical);
+  });
+
   testWidgets('超过 50 集出现分段条，切段显示对应区间', (tester) async {
     await pumpSeriesDetail(
       tester,
@@ -339,11 +429,13 @@ void main() {
       ),
     );
     await tester.pump();
-    expect(find.text('加载中…'), findsOneWidget);
+    // 加载中时头部钮与底部大播放钮同文案，故两处。
+    expect(find.text('加载中…'), findsNWidgets(2));
     final episodes = [for (var i = 0; i < 120; i++) chapterAt(i)];
     directory.complete([episodes]);
     await tester.pumpAndSettle();
-    expect(find.text('继续播放 · 第96集'), findsOneWidget);
+    // 头部钮与底部大播放钮同文案，故两处。
+    expect(find.text('继续播放 · 第96集'), findsNWidgets(2));
     await tester.tap(find.byKey(const ValueKey('series-detail-play-button')));
     expect(played, 95);
     expect(selectedEpisodes, episodes);
@@ -385,7 +477,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(
         find.text('继续播放 · 第${explicitIndex == null ? 1 : 3}集'),
-        findsOneWidget,
+        // 头部钮与底部大播放钮同文案，故两处。
+        findsNWidgets(2),
       );
     }
   });
@@ -437,7 +530,8 @@ void main() {
     // 重试只在选集区出现一次；播放钮保持不可播文案。
     expect(find.text('重试加载'), findsOneWidget);
     expect(find.byKey(const ValueKey('series-episodes-retry')), findsOneWidget);
-    expect(find.text('暂不可播放'), findsOneWidget);
+    // 头部钮与底部大播放钮同文案，故两处。
+    expect(find.text('暂不可播放'), findsNWidgets(2));
     await scrollToWidget(
       tester,
       find.byKey(const ValueKey('series-episodes-retry')),
@@ -446,7 +540,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(calls, 2);
     expect(find.text('重试加载'), findsNothing);
-    expect(find.text('立即播放'), findsOneWidget);
+    // 头部钮与底部大播放钮同文案，故两处。
+    expect(find.text('立即播放'), findsNWidgets(2));
   });
 
   testWidgets('详情与剧评分别重试，不重复加载成功的目录', (tester) async {
@@ -611,7 +706,7 @@ void main() {
     await tester.pumpAndSettle();
     final bandTop = Color.alphaBlend(
       const Color(0xFF302010).withValues(alpha: 0.10),
-      const Color(0xFFF6F6F6),
+      const Color(0xFFEAF2F8),
     );
     Future<void> checkPixels() async {
       final boundary =
@@ -631,8 +726,8 @@ void main() {
       // 右边缘没有文字/封面：同时覆盖状态栏、返回栏与色带淡出后的画布。
       expect(channel(358, 0, 0), closeTo(bandTop.r * 255, 2));
       // 色带高度 = 安全区顶 32 + 顶栏 52，到这里已经是纯画布。
-      expect(channel(358, 90, 0), closeTo(0xF6, 2));
-      expect(channel(358, 300, 0), closeTo(0xF6, 2));
+      expect(channel(358, 90, 0), closeTo(0xEA, 2));
+      expect(channel(358, 300, 0), closeTo(0xEA, 2));
       // 相邻行不跳变：顶栏边界也不能出现横条。
       for (var y = 1; y < 420; y++) {
         expect(

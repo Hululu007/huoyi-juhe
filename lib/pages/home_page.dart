@@ -11,6 +11,7 @@ import '../services/api_client.dart';
 import '../services/app_log.dart';
 import '../services/book_open_preferences.dart';
 import '../services/chapter_cache_store.dart';
+import '../services/core_novel_categories.dart';
 import '../services/desktop_platform.dart';
 import '../services/drama_site_content.dart';
 import '../services/drama_site_play.dart';
@@ -19,8 +20,9 @@ import '../services/source_registry.dart';
 import '../services/home_continue_preferences.dart';
 import '../services/home_page_affinity.dart';
 import '../services/library_store.dart';
-import '../services/midnight_gate.dart';
 import '../widgets/home/drama_site_grid.dart';
+import '../widgets/home/home_film_zone.dart';
+import '../widgets/site_grid_dialog.dart';
 import '../widgets/home/home_cell_blocks.dart';
 import '../widgets/home/home_cell_renderers.dart';
 import '../widgets/home/home_design.dart';
@@ -34,6 +36,8 @@ import '../widgets/home/home_tab_bar.dart';
 import '../widgets/tab_swipe_area.dart';
 import 'adult_novels_page.dart';
 import 'cached_book_reader.dart';
+import 'category_page.dart';
+import 'core_novel_category_page.dart';
 import 'detail_page.dart';
 import 'rank_page.dart';
 import 'search_page.dart';
@@ -106,6 +110,11 @@ class _HomePageState extends ConsumerState<HomePage> {
   List<DramaSiteCategory>? _engineCategories;
   String _engineCategoriesSiteId = '';
 
+  /// 小说区合并分类：一般小说核心站（去成人站）的分类按名合并，
+  /// 只在小说分类下取一次，取到后分类条用它；取不到时分类条不出现。
+  List<MergedNovelCategory>? _novelCategories;
+  var _loadingNovelCategories = false;
+
   Future<void> _refreshEngineCategories(String siteId) async {
     final custom = SourceRegistry.instance.customById(siteId);
     if (custom == null ||
@@ -132,6 +141,24 @@ class _HomePageState extends ConsumerState<HomePage> {
         _dramaCategoryId = categories.first.id;
       });
     } catch (_) {}
+  }
+
+  Future<void> _refreshNovelCategories() async {
+    if (_novelCategories != null || _loadingNovelCategories) return;
+    _loadingNovelCategories = true;
+    try {
+      final categories = await loadCoreNovelCategories();
+      if (!mounted) return;
+      setState(() {
+        _novelCategories = categories;
+        _loadingNovelCategories = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loadingNovelCategories = false;
+      });
+    }
   }
 
   /// 进过一次内容之后就是「切分类」，不再是冷启动：前者不能铺整页骨架。
@@ -396,7 +423,30 @@ class _HomePageState extends ConsumerState<HomePage> {
                         if (state.tabIndex >= 0 &&
                             state.tabIndex < homeCategories.length &&
                             homeCategories[state.tabIndex].label == '小说')
+                          _novelCategoryStrip(),
+                        if (state.tabIndex >= 0 &&
+                            state.tabIndex < homeCategories.length &&
+                            homeCategories[state.tabIndex].label == '小说')
                           const AdultNovelsEntrySliver(),
+                        if (state.tabIndex >= 0 &&
+                            state.tabIndex < homeCategories.length &&
+                            homeCategories[state.tabIndex].label == '漫画')
+                          const AdultNovelsEntrySliver(
+                            type: ContentType.comic,
+                          ),
+                        if (state.tabIndex >= 0 &&
+                            state.tabIndex < homeCategories.length &&
+                            homeCategories[state.tabIndex].label == '听书')
+                          const AdultNovelsEntrySliver(
+                            type: ContentType.audio,
+                          ),
+                        // 全局「影视」区（用户 2026-11-05 令）：只在推荐页
+                        // 顶部出现，核心里所有站点的视频、小说、漫画、听书
+                        // 都在这里；成人站按修仙境界解锁，未解锁的不显示。
+                        // 放在内容区之外（不进 _contentSlivers 的缓存），
+                        // 跟搜索行、分类条一样属于页面级区块。
+                        if (state.tabIndex == 0)
+                          HomeFilmZone(gridWidth: gridWidth),
                         ...content,
                       ],
                     ),
@@ -417,6 +467,7 @@ class _HomePageState extends ConsumerState<HomePage> {
       child: HomeHero(
         key: _heroKey,
         onSearch: _openSearch,
+        onCategory: _openCategory,
         siteName: tabIndex >= 0 && tabIndex < homeCategories.length && homeCategories[tabIndex].label == '短剧'
             ? dramaSiteById(_dramaSiteId).name
             : null,
@@ -426,42 +477,25 @@ class _HomePageState extends ConsumerState<HomePage> {
     ),
   );
 
-  /// 短剧站点列表：点药丸从底部弹出，点一项即切换药丸并持久化。
+  /// 短剧站点列表：点药丸弹居中弹窗，站点四列网格，
+  /// 点一项即切换药丸并持久化。
   Future<void> _openSiteList() async {
     await SourceRegistry.instance.load();
-    await MidnightGate.ensureLoaded();
     if (!mounted) return;
-    final gateOpen = MidnightGate.activated.value;
     final sites = SourceRegistry.instance
         .visibleDramaSites(
           types: {ContentType.video, ContentType.mixed},
         )
         .where((site) {
-          if (!gateOpen && MidnightGate.isAdultName(site.name)) {
-            return false;
-          }
           final entry = SourceRegistry.instance.customById(site.id);
           if (entry?.kind != SourceKind.legadoImport) return true;
           return entry!.extra['hasExplore'] == true;
         })
         .toList();
-    final picked = await showModalBottomSheet<String>(
+    final picked = await showSiteGridDialog(
       context: context,
-      builder: (sheetContext) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          children: [
-            for (final site in sites)
-              ListTile(
-                title: Text(site.name),
-                trailing: site.id == _dramaSiteId
-                    ? const Icon(Icons.check)
-                    : null,
-                onTap: () => Navigator.pop(sheetContext, site.id),
-              ),
-          ],
-        ),
-      ),
+      sites: [for (final site in sites) (id: site.id, name: site.name)],
+      selectedId: _dramaSiteId,
     );
     if (picked == null || !mounted) return;
     await DramaSitePreferences.save(picked);
@@ -518,6 +552,59 @@ class _HomePageState extends ConsumerState<HomePage> {
                         color: category.id == _dramaCategoryId
                             ? palette.canvas
                             : palette.ink,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 小说区合并分类条：放在分类条下方、内容上方，只在小说分类下出现。
+  /// 分类是一般小说核心站按名合并的（与短剧条同款式，点一项进混排目录页，
+  /// 不在原地过滤）；取不到时不出现，加载中先占 40 高防版式跳动。
+  Widget _novelCategoryStrip() {
+    final palette = HomePalette.of(context);
+    if (_novelCategories == null) {
+      unawaited(_refreshNovelCategories());
+      return const SliverToBoxAdapter(
+        child: SizedBox(height: 40),
+      );
+    }
+    final categories = _novelCategories!;
+    if (categories.isEmpty) return const SliverToBoxAdapter();
+    return SliverToBoxAdapter(
+      child: SizedBox(
+        height: 40,
+        child: ListView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          children: [
+            for (final category in categories)
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: GestureDetector(
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          CoreNovelCategoryPage(category: category),
+                    ),
+                  ),
+                  child: Container(
+                    alignment: Alignment.center,
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    decoration: BoxDecoration(
+                      color: palette.searchBar,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      category.name,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: palette.ink,
                       ),
                     ),
                   ),
@@ -890,6 +977,16 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   SliverToBoxAdapter _bottomSpacer(BuildContext context) =>
       SliverToBoxAdapter(child: SizedBox(height: homeBottomClearance(context)));
+
+  /// 官方搜索行右上角的「分类」入口（`alx.xml` `i_y`）。官方点它走
+  /// `turnToCategoryTab` → `//category` 路由（`BookCategoryActivity` →
+  /// `KmpCategoryFragment`）；这里打开同结构的分类页。
+  void _openCategory() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const CategoryPage()),
+    );
+  }
 
   void _openSearch() {
     Navigator.push(
