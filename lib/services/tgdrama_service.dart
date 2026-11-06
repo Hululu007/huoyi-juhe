@@ -78,6 +78,17 @@ class TgdramaService with WidgetsBindingObserver {
   /// 装包后首次启动时写到插件数据目录，插件一启动就是已登录。
   static const sessionAssetPath = 'assets/tgdrama_session.json';
 
+  /// 插件本地库文件名：与二进制同目录的 tgdrama.db（见
+  /// TgdramaChannelDb）。只读，不写库。
+  static const databaseFileName = 'tgdrama.db';
+
+  /// 插件本地库路径：<supportDir>/tgdrama/tgdrama.db。只拼路径不碰
+  /// 文件系统，文件不一定存在（插件没跑过/没同步过），调用方先判存在。
+  Future<String> databasePath() async {
+    final supportDir = await _supportDirProvider();
+    return '${supportDir.path}/$_binaryDirName/$databaseFileName';
+  }
+
   /// 二进制 MD5（2026-11-06 实测，与 ~/workspace/tgdrama_plugin/
   /// tgdrama-android 一致）；落盘时校验，对不上重拷自愈。
   static const binaryMd5 = 'ae95f3c5b030d90d3af239fc9523e0d0';

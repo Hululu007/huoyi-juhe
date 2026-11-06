@@ -247,7 +247,7 @@ void main() {
       expect(detail.synopsis, contains('TG 频道 ID：-100111'));
       expect(detail.synopsis, contains('128条消息 · 56个视频来源'));
       expect(detail.synopsis, contains('状态：已启用'));
-      expect(detail.synopsis, contains('插件暂未提供按频道列剧的接口'));
+      expect(detail.synopsis, contains('点开该频道可看它收录的剧。'));
     });
 
     test('detail(channel:id) 名空时标题回退、找不到频道抛错', () async {
@@ -287,6 +287,141 @@ void main() {
         throwsA(isA<StateError>()),
       );
       expect(service.calls, 2);
+    });
+  });
+
+  group('频道里的剧（本地库直读）', () {
+    test('parseChannelShows：去重、跳缺 id/缺标题、封面补全、备注共N集', () {
+      final items = TgdramaContentClient.parseChannelShows([
+        {
+          'id': 1,
+          'name': '剧一',
+          'cover_path': '/api/covers/1',
+          'intro': '简介一',
+          'episode_count': 12,
+        },
+        {
+          'id': 2,
+          'name': '剧二',
+          'cover_path': 'covers/2.jpg',
+          'intro': '简介二',
+          'episode_count': 0,
+        },
+        {'id': 1, 'name': '重复剧一', 'episode_count': 3},
+        {'id': '', 'name': '缺 id 跳过'},
+        {'id': 3, 'name': ''},
+        {'id': 4, 'name': '无分集数', 'cover_path': ''},
+      ]);
+      expect(items.length, 3);
+      expect(items[0].id, '1');
+      expect(items[0].title, '剧一');
+      expect(
+        items[0].cover,
+        'http://127.0.0.1:5278/api/covers/1',
+      );
+      expect(items[0].remark, '共12集');
+      expect(items[1].id, '2');
+      expect(items[1].remark, '');
+      expect(items[2].id, '4');
+      expect(items[2].remark, '');
+    });
+
+    test('parseChannelShows：空行与缺失字段容错', () {
+      expect(TgdramaContentClient.parseChannelShows([]), isEmpty);
+      expect(
+        TgdramaContentClient.parseChannelShows([
+          {'id': 9, 'name': '只有 id 与名'},
+        ]).single.title,
+        '只有 id 与名',
+      );
+    });
+
+    test('isChannelItemId 只认 channel: 前缀', () {
+      expect(TgdramaContentClient.isChannelItemId('channel:-100111'), isTrue);
+      expect(TgdramaContentClient.isChannelItemId('channels'), isFalse);
+      expect(TgdramaContentClient.isChannelItemId('123'), isFalse);
+      expect(TgdramaContentClient.isChannelItemId(''), isFalse);
+      expect(TgdramaContentClient.channelItemPrefix, 'channel:');
+    });
+
+    List<DramaSiteItem> shows(int count) => [
+      for (var i = 1; i <= count; i++)
+        DramaSiteItem(id: '$i', title: '剧$i', cover: '', remark: '共3集'),
+    ];
+
+    TgdramaContentClient loaderClient(
+      Future<List<DramaSiteItem>> Function(String, int) loader, {
+      _FakeService? service,
+    }) {
+      return TgdramaContentClient(
+        httpClient: _jsonClient({}),
+        service: service ?? _FakeService(),
+        channelShowsLoader: loader,
+      );
+    }
+
+    test('catalog(channel:id) 走注入的加载器，满 20 条 hasMore 为真', () async {
+      final seen = <(String, int)>[];
+      final client = loaderClient((tgChatId, page) async {
+        seen.add((tgChatId, page));
+        return shows(20);
+      });
+      final page = await client.catalog('channel:-100111', 1);
+      expect(seen.single, ('-100111', 1));
+      expect(page.items.length, 20);
+      expect(page.items.first.id, '1');
+      expect(page.hasMore, isTrue);
+    });
+
+    test('catalog(channel:id) 不满 20 条 hasMore 为假，页码透传', () async {
+      final seen = <(String, int)>[];
+      final client = loaderClient((tgChatId, page) async {
+        seen.add((tgChatId, page));
+        return shows(3);
+      });
+      final page = await client.catalog('channel:-100222', 2);
+      expect(seen.single, ('-100222', 2));
+      expect(page.items.length, 3);
+      expect(page.hasMore, isFalse);
+    });
+
+    test('catalog(channel:id) 加载器返回空页：频道没剧，回空不报错', () async {
+      final client = loaderClient((_, _) async => []);
+      final page = await client.catalog('channel:-100111', 1);
+      expect(page.items, isEmpty);
+      expect(page.hasMore, isFalse);
+    });
+
+    test('catalog(channel:id) 加载器抛错：原样抛 StateError，不回空假装没剧', () async {
+      final client = loaderClient(
+        (_, _) async => throw StateError('TG影视库本地数据库不存在'),
+      );
+      await expectLater(
+        client.catalog('channel:-100111', 1),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('本地数据库不存在'),
+          ),
+        ),
+      );
+    });
+
+    test('catalog(channel:id) 服务未启动时先抛错，不调加载器', () async {
+      var called = false;
+      final client = loaderClient(
+        (_, _) async {
+          called = true;
+          return [];
+        },
+        service: _FakeService(running: false, error: '本地服务未拉起'),
+      );
+      await expectLater(
+        client.catalog('channel:-100111', 1),
+        throwsA(isA<StateError>()),
+      );
+      expect(called, isFalse);
     });
   });
 

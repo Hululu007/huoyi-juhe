@@ -392,6 +392,15 @@ void main() {
     expect(TgdramaService.baseUrl, 'http://127.0.0.1:5278');
     expect(TgdramaService.defaultPort, 5278);
   });
+
+  test('databasePath 指向插件目录下的 tgdrama.db（只拼路径不碰文件）', () async {
+    final service = createService(client: clientFor());
+    expect(
+      await service.databasePath(),
+      '${tempDir.path}/tgdrama/${TgdramaService.databaseFileName}',
+    );
+    expect(TgdramaService.databaseFileName, 'tgdrama.db');
+  });
 }
 
 /// 每个服务实例对应的启动记录（测试内共享，方便断言拉起次数与参数）。

@@ -723,10 +723,8 @@ mod tests {
 
     fn probe_path(name: &str) -> std::path::PathBuf {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("..")
-            .join("..")
-            .join("mycomic_re")
-            .join("probe")
+            .join("testdata")
+            .join("mycomic")
             .join(name)
     }
 

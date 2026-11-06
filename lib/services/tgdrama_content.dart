@@ -5,7 +5,14 @@ import 'package:http/http.dart' as http;
 import 'drama_playback.dart';
 import 'drama_site_content.dart';
 import 'drama_sites.dart';
+import 'tgdrama_channel_db.dart';
 import 'tgdrama_service.dart';
+
+/// 按频道列剧的加载器：(频道 tg_chat_id, 页码) → 该频道的剧。
+/// 默认走本地库直读（见 TgdramaContentClient._defaultChannelShows）；
+/// 测试可注入假实现。
+typedef ChannelShowsLoader =
+    Future<List<DramaSiteItem>> Function(String tgChatId, int page);
 
 /// TG影视库：插件 tgdrama-android 在手机本地跑的 Go 服务
 /// （127.0.0.1:5278），内容走插件接口取，不走核心、不走远程站。
@@ -26,15 +33,39 @@ class TgdramaContentClient implements DramaSiteContentClient {
   static const channelsCategoryId = 'channels';
   static const channelsCategoryName = '频道';
 
-  /// 频道条目 id 前缀：detail() 靠它识别“点开的是频道不是剧”。
-  static const _channelItemPrefix = 'channel:';
+  /// 频道条目 id 前缀：detail()/catalog() 靠它识别“点开的是频道不是剧”。
+  /// 公开给 openDramaSiteItem 用：频道条目点开进频道剧列表页，不进剧详情页。
+  static const channelItemPrefix = 'channel:';
+
+  /// 是否频道条目 id（channel: 前缀）。
+  static bool isChannelItemId(String id) => id.startsWith(channelItemPrefix);
 
   final http.Client _client;
   final TgdramaService _service;
+  final ChannelShowsLoader? _channelShowsLoader;
 
-  TgdramaContentClient({http.Client? httpClient, TgdramaService? service})
-    : _client = httpClient ?? http.Client(),
-      _service = service ?? TgdramaService.instance;
+  TgdramaContentClient({
+    http.Client? httpClient,
+    TgdramaService? service,
+    this._channelShowsLoader,
+  }) : _client = httpClient ?? http.Client(),
+       _service = service ?? TgdramaService.instance;
+
+  /// 默认的按频道列剧：读插件本地库 tgdrama.db（只读），按链路
+  /// 频道 → sources → episodes → shows 查出该频道的剧。
+  /// 库不存在/打不开时抛 StateError（带原因），调用方据此报错或回退。
+  Future<List<DramaSiteItem>> _defaultChannelShows(
+    String tgChatId,
+    int page,
+  ) async {
+    final dbPath = await _service.databasePath();
+    final rows = await TgdramaChannelDb.queryChannelShows(
+      dbPath: dbPath,
+      tgChatId: tgChatId,
+      page: page,
+    );
+    return parseChannelShows(rows);
+  }
 
   Future<void> _ensureRunning() async {
     final ok = await _service.ensureRunning();
@@ -211,7 +242,7 @@ class TgdramaContentClient implements DramaSiteContentClient {
       final name = _stringOf(node['name']);
       items.add(
         DramaSiteItem(
-          id: '$_channelItemPrefix$tgChatId',
+          id: '$channelItemPrefix$tgChatId',
           title: name.isEmpty ? '频道 $tgChatId' : name,
           cover: '',
           remark: _chatRemarkOf(node),
@@ -253,11 +284,39 @@ class TgdramaContentClient implements DramaSiteContentClient {
     return parts.join(' · ');
   }
 
-  /// 频道详情：标题取 name（没有回退“频道 + id”），简介写频道信息
-  /// 与诚实说明——插件暂未提供按频道列剧的接口，这里还列不出该频道
-  /// 收录的剧，该频道收的剧都在「全部」与标签分类里按剧名聚合。
-  /// 分集为空：频道不是剧，没有可播的分集；详情页对空分集显示
-  /// 空选集区，不会崩。
+  /// 频道里剧的行解析（本地库查出的原始行）：id/name 必有其一
+  /// 缺失跳过该条；同剧去重（同一剧在频道里多集只留一条）；
+  /// 封面与列表同规则（cover_path 相对路径按本地服务补全）；
+  /// 备注有分集数写“共N集”，没有写空（intro 太长不放备注，
+  /// 简介在剧详情页看）。episode_count/intro 缺失都容错。
+  static List<DramaSiteItem> parseChannelShows(
+    List<Map<String, Object?>> rows,
+  ) {
+    final seen = <String>{};
+    final items = <DramaSiteItem>[];
+    for (final row in rows) {
+      final node = _asMap(row);
+      final id = _stringOf(node['id']);
+      if (id.isEmpty || !seen.add(id)) continue;
+      final title = _stringOf(node['name'] ?? node['title']);
+      if (title.isEmpty) continue;
+      final episodeCount = _intOf(node['episode_count']);
+      items.add(
+        DramaSiteItem(
+          id: id,
+          title: title,
+          cover: _coverOf(node),
+          remark: episodeCount > 0 ? '共$episodeCount集' : '',
+        ),
+      );
+    }
+    return items;
+  }
+
+  /// 频道详情：标题取 name（没有回退“频道 + id”），简介写频道信息。
+  /// 分集为空：频道不是剧，没有可播的分集；点开频道看它收录的剧
+  /// 走频道剧列表页（catalog('channel:<id>') 读本地库），不走这里。
+  /// 详情页对空分集显示空选集区，不会崩。
   static DramaSiteDetail parseChannelDetail(
     Map<String, dynamic> node,
     String tgChatId,
@@ -284,11 +343,9 @@ class TgdramaContentClient implements DramaSiteContentClient {
       '状态：${_boolOf(node['enabled']) ? '已启用' : '未启用'}${_boolOf(node['syncing']) ? '（同步中）' : ''}',
     );
     lines.add('');
-    lines.add(
-      '插件暂未提供按频道列剧的接口，这里还列不出该频道收录的剧；该频道收的剧都在「全部」与标签分类里按剧名聚合。',
-    );
+    lines.add('点开该频道可看它收录的剧。');
     return DramaSiteDetail(
-      id: '$_channelItemPrefix$tgChatId',
+      id: '$channelItemPrefix$tgChatId',
       title: title,
       cover: '',
       synopsis: lines.join('\n'),
@@ -396,6 +453,12 @@ class TgdramaContentClient implements DramaSiteContentClient {
     if (categoryId == channelsCategoryId) {
       return _channelsCatalog();
     }
+    if (categoryId.startsWith(channelItemPrefix)) {
+      return _channelShowsCatalog(
+        categoryId.substring(channelItemPrefix.length),
+        page,
+      );
+    }
     final p = page < 1 ? 1 : page;
     final query = <String, String>{'page': '$p'};
     if (categoryId.isNotEmpty && categoryId != 'all') {
@@ -417,6 +480,22 @@ class TgdramaContentClient implements DramaSiteContentClient {
     return DramaSiteCatalogPage(items: items, hasMore: hasMore);
   }
 
+  /// 频道里的剧：调加载器（默认读本地库）查该频道收录的剧。
+  /// 库不存在/打不开时加载器抛 StateError（带原因），网格页如实
+  /// 报错，不回空假装频道没剧；库能读但该频道没剧时回空页。
+  /// hasMore 按“满页”算：满 20 条认为还有下一页。
+  Future<DramaSiteCatalogPage> _channelShowsCatalog(
+    String tgChatId,
+    int page,
+  ) async {
+    final loader = _channelShowsLoader ?? _defaultChannelShows;
+    final items = await loader(tgChatId, page < 1 ? 1 : page);
+    return DramaSiteCatalogPage(
+      items: items,
+      hasMore: items.length >= TgdramaChannelDb.pageSize,
+    );
+  }
+
   /// 频道列表：调 /api/chats，一次全量，没有翻页。
   Future<DramaSiteCatalogPage> _channelsCatalog() async {
     final response = await _client.get(Uri.parse('$baseUrl/api/chats'));
@@ -430,8 +509,8 @@ class TgdramaContentClient implements DramaSiteContentClient {
   @override
   Future<DramaSiteDetail> detail(String seriesId) async {
     await _ensureRunning();
-    if (seriesId.startsWith(_channelItemPrefix)) {
-      return _channelDetail(seriesId.substring(_channelItemPrefix.length));
+    if (seriesId.startsWith(channelItemPrefix)) {
+      return _channelDetail(seriesId.substring(channelItemPrefix.length));
     }
     final response = await _client.get(
       Uri.parse('$baseUrl/api/shows/${Uri.encodeComponent(seriesId)}'),

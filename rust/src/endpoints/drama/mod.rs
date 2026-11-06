@@ -197,6 +197,7 @@ mod uudj;
 mod vj69;
 mod vjav;
 mod wnzs;
+mod wohs;
 mod wukong;
 mod wuyetv;
 mod x51;
@@ -568,6 +569,7 @@ fn handle_categories<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, Api
             "uudj" => uudj::categories().await,
             "vjav" => vjav::categories().await,
             "wnzs" => wnzs::categories().await,
+            "wohs" => wohs::categories().await,
             "wukong" => wukong::categories().await,
             "wuyetv" => wuyetv::categories().await,
             "x51" => x51::categories().await,
@@ -780,6 +782,7 @@ fn handle_catalog<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiRes
             "uudj" => uudj::catalog(&category_id, page).await,
             "vjav" => vjav::catalog(&category_id, page).await,
             "wnzs" => wnzs::catalog(&category_id, page).await,
+            "wohs" => wohs::catalog(&category_id, page).await,
             "wukong" => wukong::catalog(&category_id, page).await,
             "wuyetv" => wuyetv::catalog(&category_id, page).await,
             "x51" => x51::catalog(&category_id, page).await,
@@ -994,6 +997,7 @@ fn handle_detail<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResu
             "uudj" => uudj::detail(&id).await,
             "vjav" => vjav::detail(&id).await,
             "wnzs" => wnzs::detail(&id).await,
+            "wohs" => wohs::detail(&id).await,
             "wukong" => wukong::detail(&id).await,
             "wuyetv" => wuyetv::detail(&id).await,
             "x51" => x51::detail(&id).await,
@@ -1208,6 +1212,7 @@ fn handle_search<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResu
             "uudj" => uudj::search(&query).await,
             "vjav" => vjav::search(&query).await,
             "wnzs" => wnzs::search(&query).await,
+            "wohs" => wohs::search(&query).await,
             "wukong" => wukong::search(&query).await,
             "wuyetv" => wuyetv::search(&query).await,
             "x51" => x51::search(&query).await,
@@ -1422,6 +1427,7 @@ fn handle_play<'a>(_ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResult
             "uudj" => uudj::play(&video_id).await,
             "vjav" => vjav::play(&video_id).await,
             "wnzs" => wnzs::play(&video_id).await,
+            "wohs" => wohs::play(&video_id).await,
             "wukong" => wukong::play(&video_id).await,
             "wuyetv" => wuyetv::play(&video_id).await,
             "x51" => x51::play(&video_id).await,

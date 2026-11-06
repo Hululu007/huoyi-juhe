@@ -3560,6 +3560,7 @@ const coreVideoSiteIds = <String>{
   'javtsunami',
   'javsiri',
   'sexkbj',
+  'wohs',
 };
 
 /// 只走核心的午夜视频站：没有 Dart 版客户端，核心报错时直接把错
