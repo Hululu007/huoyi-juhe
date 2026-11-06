@@ -114,7 +114,15 @@ flutter:
     - assets/filters/
     - assets/plugins/
     - assets/onekey_templates.json
+    # 统一分类浏览页数据：200 核心视频站的静态分类按名归并
+    # （127 站有静态 CATS、1600 去重名；73 站无静态分类，见
+    # unified_category_work/NOTES.md）。标签部分预留 "tags"，
+    # 数据到了再接，不阻塞分类。
+    - assets/unified_video_categories.json
     - assets/py_tools/yijianxiepy.py
+    # TG影视库插件 tgdrama-android（Go 写 ARM64，25MB，直连 Telegram，
+    # 本地服务 127.0.0.1:5278；MD5 见 TgdramaService.binaryMd5）。
+    - assets/bin/tgdrama-android
     - assets/images/app_logo.webp
     - assets/images/bubble/
     # 评论/回复正文的官方表情（`emoji_config.json` 的 53 个令牌），

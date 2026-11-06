@@ -111,15 +111,19 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));
 
-    expect(find.text('恭喜突破！'), findsOneWidget);
-    expect(find.textContaining('元婴期'), findsWidgets);
+    expect(find.text('元婴已成，影视区开！'), findsOneWidget);
+    expect(find.text('元婴出窍，天地任逍遥。'), findsOneWidget);
     expect(find.textContaining('影视区（第 1 档站）'), findsOneWidget);
     expect(find.textContaining('直播成人源'), findsOneWidget);
-    expect(find.textContaining('当前总修为 3000'), findsOneWidget);
+    expect(find.textContaining('当前修为 3000'), findsOneWidget);
+    expect(
+      find.textContaining('下一境化神期，还差 5000 修为'),
+      findsOneWidget,
+    );
 
-    await tester.tap(find.text('知道了'));
-    await tester.pump();
-    expect(find.text('恭喜突破！'), findsNothing);
+    await tester.tap(find.text('入境一观'));
+    await tester.pumpAndSettle();
+    expect(find.text('元婴已成，影视区开！'), findsNothing);
   });
 
   testWidgets('升境弹窗：没跨过境界时不弹', (tester) async {
@@ -150,6 +154,6 @@ void main() {
     await tester.pump();
 
     expect(called, isTrue);
-    expect(find.text('恭喜突破！'), findsNothing);
+    expect(find.text('元婴已成，影视区开！'), findsNothing);
   });
 }

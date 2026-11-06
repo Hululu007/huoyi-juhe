@@ -43,17 +43,32 @@ const CATEGORIES: &[(&str, &str)] = &[
     ("t|pacopacomama", "パコパコママ"),
     ("t|mywife", "Mywife"),
     ("t|kin8tengoku", "金8天国"),
-    ("t|%e5%a4%a9%e7%84%b6%e3%82%80%e3%81%99%e3%82%81", "天然むすめ"),
-    ("t|%e3%83%97%e3%83%ac%e3%82%b9%e3%83%86%e3%83%bc%e3%82%b8", "プレステージ"),
-    ("t|sod%e3%82%af%e3%83%aa%e3%82%a8%e3%82%a4%e3%83%88", "SODクリエイト"),
+    (
+        "t|%e5%a4%a9%e7%84%b6%e3%82%80%e3%81%99%e3%82%81",
+        "天然むすめ",
+    ),
+    (
+        "t|%e3%83%97%e3%83%ac%e3%82%b9%e3%83%86%e3%83%bc%e3%82%b8",
+        "プレステージ",
+    ),
+    (
+        "t|sod%e3%82%af%e3%83%aa%e3%82%a8%e3%82%a4%e3%83%88",
+        "SODクリエイト",
+    ),
     ("t|%e3%83%9e%e3%83%89%e3%83%b3%e3%83%8a", "マドンナ"),
-    ("t|%e7%86%9f%e5%a5%b3%e5%80%b6%e6%a5%bd%e9%83%a8", "熟女倶楽部"),
+    (
+        "t|%e7%86%9f%e5%a5%b3%e5%80%b6%e6%a5%bd%e9%83%a8",
+        "熟女倶楽部",
+    ),
     ("t|%e4%ba%ba%e5%a6%bb%e6%96%ac%e3%82%8a", "人妻斬り"),
     ("t|%e5%b7%a8%e4%b9%b3", "巨乳"),
     ("t|julia", "JULIA"),
     ("t|juy", "JUY"),
     ("t|3p%e3%83%bb4p", "3P・4P"),
-    ("t|4%e6%99%82%e9%96%93%e4%bb%a5%e4%b8%8a%e4%bd%9c%e5%93%81", "4時間以上"),
+    (
+        "t|4%e6%99%82%e9%96%93%e4%bb%a5%e4%b8%8a%e4%bd%9c%e5%93%81",
+        "4時間以上",
+    ),
     ("t|leaked", "Leaked 流出"),
     ("t|%e6%96%b0%e4%ba%ba", "新人"),
 ];
@@ -200,10 +215,8 @@ fn parse_list(html: &str) -> Vec<Value> {
     let parts: Vec<&str> = block_re.split(html).collect();
     let title_re =
         Regex::new(r#"<h2 class="post-title"><a\s+href="([^"]+)"[^>]*>(.*?)</a>"#).unwrap();
-    let img_re =
-        Regex::new(r#"<img[^>]+class="[^"]*wp-post-image[^"]*"[^>]*>"#).unwrap();
-    let date_re =
-        Regex::new(r#"class="post-date"[^>]*>\s*([0-9\-]{4,12})"#).unwrap();
+    let img_re = Regex::new(r#"<img[^>]+class="[^"]*wp-post-image[^"]*"[^>]*>"#).unwrap();
+    let date_re = Regex::new(r#"class="post-date"[^>]*>\s*([0-9\-]{4,12})"#).unwrap();
     for block in parts.iter().skip(1) {
         let Some(tc) = title_re.captures(block) else {
             continue;
@@ -267,15 +280,13 @@ fn parse_detail(html: &str, url: &str, wp_content: &str) -> Value {
         .map(|c| abs_url(&c[1]))
         .unwrap_or_default();
     if cover.is_empty() {
-        let img_re =
-            Regex::new(r#"<img[^>]+class="[^"]*wp-post-image[^"]*"[^>]*>"#).unwrap();
+        let img_re = Regex::new(r#"<img[^>]+class="[^"]*wp-post-image[^"]*"[^>]*>"#).unwrap();
         cover = img_re
             .captures(html)
             .map(|c| img_pic(&c[0]))
             .unwrap_or_default();
     }
-    let date_re =
-        Regex::new(r#"class="post-date"[^>]*>\s*([0-9\-]{4,12})"#).unwrap();
+    let date_re = Regex::new(r#"class="post-date"[^>]*>\s*([0-9\-]{4,12})"#).unwrap();
     let date = date_re
         .captures(html)
         .map(|c| c[1].to_string())
@@ -347,16 +358,11 @@ async fn resolve(url: &str) -> ApiResult<String> {
         return Err(ApiError::Internal("JAV380 未找到播放参数".into()));
     };
     let (rand, id, key) = (c[1].to_string(), c[2].to_string(), c[3].to_string());
-    let origin = url
-        .split('/')
-        .take(3)
-        .collect::<Vec<&str>>()
-        .join("/");
+    let origin = url.split('/').take(3).collect::<Vec<&str>>().join("/");
     let mp4 = if url.contains("mp4") { "1" } else { "0" };
     let target = format!("{origin}/get3G.php?rand={rand}&id={id}&key={key}&mp4={mp4}");
     let body = decode_resp(&third(&target).await?);
-    let link_re =
-        Regex::new(r#"https?://[^\\"'<>\s]+\.(m3u8|mp4|txt)(\?|$)"#).unwrap();
+    let link_re = Regex::new(r#"https?://[^\\"'<>\s]+\.(m3u8|mp4|txt)(\?|$)"#).unwrap();
     let mut mp4_link = String::new();
     for c in link_re.captures_iter(&body) {
         let link = c[0].trim_end_matches(['?', '&']).to_string();
@@ -395,9 +401,7 @@ pub(crate) async fn detail(id: &str) -> ApiResult<Value> {
     let slug = slug_of(&url);
     let mut wp_content = String::new();
     if !slug.is_empty() {
-        let api = format!(
-            "{BASE}/wp-json/wp/v2/posts?slug={slug}&_fields=content"
-        );
+        let api = format!("{BASE}/wp-json/wp/v2/posts?slug={slug}&_fields=content");
         if let Ok(resp) = client()?
             .get(&api)
             .header("User-Agent", UA)
@@ -497,10 +501,7 @@ mod tests {
 
     #[test]
     fn slug_of_paths() {
-        assert_eq!(
-            slug_of("https://www.jav380.com/abc-123/"),
-            "abc-123"
-        );
+        assert_eq!(slug_of("https://www.jav380.com/abc-123/"), "abc-123");
         assert_eq!(slug_of("https://www.jav380.com/x/?a=1"), "x");
     }
 

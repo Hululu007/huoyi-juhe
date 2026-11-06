@@ -160,8 +160,7 @@ pub(crate) async fn categories() -> ApiResult<Value> {
         category_json("new", "🔥最新上架"),
         category_json("hot", "🔥熱門播放"),
     ];
-    if let Ok(rows) = wp_arr("/categories?per_page=100&orderby=count&order=desc").await
-    {
+    if let Ok(rows) = wp_arr("/categories?per_page=100&orderby=count&order=desc").await {
         for row in rows {
             let id = int_of(&row, &["id"]);
             let count = int_of(&row, &["count"]);
@@ -169,7 +168,10 @@ pub(crate) async fn categories() -> ApiResult<Value> {
             if id == 0 || name.is_empty() {
                 continue;
             }
-            list.push(category_json(&format!("c{id}"), &format!("{name}（{count}）")));
+            list.push(category_json(
+                &format!("c{id}"),
+                &format!("{name}（{count}）"),
+            ));
         }
     }
     Ok(json!({"categories": list}))
@@ -231,8 +233,7 @@ pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
         .trim()
         .parse()
         .map_err(|_| ApiError::Internal("Avbebe 详情 id 无法识别".to_string()))?;
-    let post =
-        wp_json(&format!("/posts/{id}?_embed=wp:featuredmedia")).await?;
+    let post = wp_json(&format!("/posts/{id}?_embed=wp:featuredmedia")).await?;
     let title = post_title(&post);
     if title.is_empty() {
         return Err(ApiError::Internal("Avbebe 未返回视频资料".into()));
@@ -267,9 +268,7 @@ pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
     let episodes: Vec<Value> = urls
         .iter()
         .enumerate()
-        .map(|(i, url)| {
-            episode_json(url, &format!("正片·线路{}", i + 1), series_id)
-        })
+        .map(|(i, url)| episode_json(url, &format!("正片·线路{}", i + 1), series_id))
         .collect();
     let mut extra = serde_json::Map::new();
     if !year.is_empty() {
@@ -286,8 +285,7 @@ pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
 }
 
 pub(crate) async fn search(query: &str) -> ApiResult<Value> {
-    let encoded: String =
-        url::form_urlencoded::byte_serialize(query.trim().as_bytes()).collect();
+    let encoded: String = url::form_urlencoded::byte_serialize(query.trim().as_bytes()).collect();
     let items = posts(&format!("per_page=20&page=1&search={encoded}")).await?;
     Ok(json!({"items": items}))
 }

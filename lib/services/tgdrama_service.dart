@@ -1,0 +1,397 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:crypto/crypto.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
+import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
+
+/// TG影视库插件（tgdrama-android）本地服务管理。
+///
+/// 插件是 Go 写的 ARM64 二进制，直连 Telegram，对外只暴露一个本地 HTTP
+/// 服务（127.0.0.1:5278）。本服务只管二进制的落盘、启停、健康检查与重拉，
+/// 不碰插件内部的收视频逻辑与账号体系。
+///
+/// 落盘：首次使用时把 asset 里的二进制拷到应用私有目录
+/// `getApplicationSupportDirectory()/tgdrama/tgdrama-android`，MD5 对得上
+/// 复用、对不上重拷自愈（做法同 jar_bridge 的 resolveBuiltinJarAsset），
+/// 再 chmod 755 后用 `Process.start` 拉起来
+/// （参数 `-port 5278 -bind 127.0.0.1`）。
+///
+/// 重拉：应用切后台被系统杀掉后，回到前台（resumed）时若之前启动过，
+/// 自动再调一次 [ensureRunning]。
+///
+/// 本机（x86_64）跑不了这个 ARM64 二进制，测试一律用注入的假进程启动器
+/// 与假 HTTP 客户端，不要真启动二进制、不要联网。
+class TgdramaAuthStatus {
+  const TgdramaAuthStatus({
+    required this.authorized,
+    required this.needPassword,
+    this.message = '',
+  });
+
+  /// 是否已登录（扫码登录完成且会话有效）。
+  final bool authorized;
+
+  /// 是否卡在二步验证，需要提交密码。
+  final bool needPassword;
+
+  /// 服务端给出的提示（message/msg/error 字段，有的话）。
+  final String message;
+}
+
+class TgdramaService with WidgetsBindingObserver {
+  TgdramaService({
+    http.Client? httpClient,
+    Future<Process> Function(List<String> command)? processLauncher,
+    Future<Directory> Function()? supportDirProvider,
+    this._isAndroidProvider,
+    Future<ByteData> Function(String assetPath)? assetLoader,
+  }) : _httpClient = httpClient ?? http.Client(),
+       _processLauncher =
+           processLauncher ?? _defaultProcessLauncher,
+       _supportDirProvider =
+           supportDirProvider ?? getApplicationSupportDirectory,
+       _assetLoader = assetLoader ?? rootBundle.load {
+    try {
+      WidgetsBinding.instance.addObserver(this);
+      _observing = true;
+    } catch (_) {
+      // 测试里若绑定尚未初始化，观察者注册失败也不影响启停本身；
+      // resumed 重拉只是附加能力，不是必经路径。
+      _observing = false;
+    }
+  }
+
+  static const baseUrl = 'http://127.0.0.1:5278';
+  static const defaultPort = 5278;
+
+  /// 打包进安装包的二进制 asset 路径。
+  static const binaryAssetPath = 'assets/bin/tgdrama-android';
+
+  /// 二进制 MD5（2026-11-06 实测，与 ~/workspace/tgdrama_plugin/
+  /// tgdrama-android 一致）；落盘时校验，对不上重拷自愈。
+  static const binaryMd5 = 'ae95f3c5b030d90d3af239fc9523e0d0';
+
+  static const _binaryDirName = 'tgdrama';
+  static const _binaryFileName = 'tgdrama-android';
+
+  /// 健康检查超时：与插件笔记一致，8 秒。
+  static const _healthTimeout = Duration(seconds: 8);
+
+  /// 健康检查轮询：每 500ms 一次，最多 16 次，约 8 秒。
+  static const _healthPollAttempts = 16;
+  static const _healthPollInterval = Duration(milliseconds: 500);
+
+  static final TgdramaService _instance = TgdramaService();
+  static TgdramaService get instance => _instance;
+
+  final http.Client _httpClient;
+  final Future<Process> Function(List<String> command) _processLauncher;
+  final Future<Directory> Function() _supportDirProvider;
+  final bool Function()? _isAndroidProvider;
+  final Future<ByteData> Function(String assetPath) _assetLoader;
+
+  Process? _process;
+  bool _processExited = false;
+  bool _everStarted = false;
+  bool _observing = false;
+  Future<bool>? _starting;
+  String? _lastError;
+
+  /// 最近一次失败的原因（ensureRunning 失败时调用方拿去展示）。
+  String? get lastError => _lastError;
+
+  /// 进程对象非空且未退出。
+  bool get isRunning => _process != null && !_processExited;
+
+  bool get _isAndroid => _isAndroidProvider?.call() ?? Platform.isAndroid;
+
+  static Future<Process> _defaultProcessLauncher(List<String> command) =>
+      Process.start(command.first, command.sublist(1));
+
+  /// 释放观察者（单例不需要调；测试里每个新建实例要在 tearDown 里调）。
+  void dispose() {
+    if (_observing) {
+      try {
+        WidgetsBinding.instance.removeObserver(this);
+      } catch (_) {}
+      _observing = false;
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // 应用切后台被杀、回应用重拉：之前启动过才重拉，没启动过不打扰。
+    if (state == AppLifecycleState.resumed && _everStarted) {
+      unawaited(ensureRunning());
+    }
+  }
+
+  /// 确保本地服务在跑。进程活着且健康检查通过直接回 true；否则解压
+  /// （MD5 校验）、chmod 755、拉起进程，再轮询健康检查（每 500ms 一次，
+  /// 最多约 8 秒）。失败不抛异常，回 false，原因写进 [lastError]。
+  /// 并发调用共享同一次启动，不会重复拉起。
+  Future<bool> ensureRunning() async {
+    if (_starting != null) return _starting!;
+    final starting = _ensureRunning();
+    _starting = starting;
+    try {
+      return await starting;
+    } finally {
+      _starting = null;
+    }
+  }
+
+  Future<bool> _ensureRunning() async {
+    if (!_isAndroid) {
+      _lastError = 'TG影视库本地服务仅支持 Android';
+      return false;
+    }
+    if (isRunning) {
+      if (await healthCheck()) return true;
+      // 进程在但健康检查不通：先杀掉旧进程再重拉，避免端口被占。
+      await stop();
+    }
+    _lastError = null;
+    late final String binaryPath;
+    try {
+      binaryPath = await _resolveBinary();
+    } catch (error) {
+      _lastError = 'TG影视库二进制解压失败：$error';
+      return false;
+    }
+    try {
+      final chmodResult = await Process.run('chmod', ['755', binaryPath]);
+      if (chmodResult.exitCode != 0) {
+        _lastError = 'TG影视库二进制授权失败：chmod 退出码 '
+            '${chmodResult.exitCode}';
+        return false;
+      }
+    } catch (error) {
+      _lastError = 'TG影视库二进制授权失败：$error';
+      return false;
+    }
+    try {
+      final process = await _processLauncher([
+        binaryPath,
+        '-port',
+        '$defaultPort',
+        '-bind',
+        '127.0.0.1',
+      ]);
+      _trackProcess(process);
+    } catch (error) {
+      _lastError = 'TG影视库本地服务启动失败：$error';
+      return false;
+    }
+    _everStarted = true;
+    for (var attempt = 0; attempt < _healthPollAttempts; attempt++) {
+      if (await healthCheck()) {
+        _lastError = null;
+        return true;
+      }
+      if (!isRunning) {
+        _lastError = 'TG影视库本地服务进程已退出';
+        return false;
+      }
+      if (attempt < _healthPollAttempts - 1) {
+        await Future.delayed(_healthPollInterval);
+      }
+    }
+    _lastError = 'TG影视库本地服务健康检查超时（$baseUrl 未在 8 秒内就绪）';
+    return false;
+  }
+
+  /// 健康检查：GET /，8 秒超时，200 算通，其余（包括连不上）算不通。
+  Future<bool> healthCheck() async {
+    try {
+      final response = await _httpClient
+          .get(Uri.parse('$baseUrl/'))
+          .timeout(_healthTimeout);
+      return response.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 登录状态：GET /api/auth/status。响应形状未完全确认，多键容错解析：
+  /// authorized 字段试 authorized/logged_in/loggedIn/authenticated/
+  /// is_authorized；status/phase/state 字符串为 authorized/ok/logged_in/
+  /// authenticated 也算已登录；needPassword 试 need_password/needPassword/
+  /// password_required，或 status/phase/state 为 need_password/password/
+  /// password_required。解析失败或非 200 一律按未登录回，不抛异常。
+  Future<TgdramaAuthStatus> authStatus() async {
+    try {
+      final response = await _httpClient
+          .get(Uri.parse('$baseUrl/api/auth/status'))
+          .timeout(_healthTimeout);
+      if (response.statusCode != 200) {
+        return TgdramaAuthStatus(
+          authorized: false,
+          needPassword: false,
+          message: 'HTTP ${response.statusCode}',
+        );
+      }
+      final decoded = jsonDecode(response.body);
+      if (decoded is! Map<String, dynamic>) {
+        return const TgdramaAuthStatus(
+          authorized: false,
+          needPassword: false,
+        );
+      }
+      return _parseAuthStatus(decoded);
+    } catch (_) {
+      return const TgdramaAuthStatus(authorized: false, needPassword: false);
+    }
+  }
+
+  TgdramaAuthStatus _parseAuthStatus(Map<String, dynamic> body) {
+    var authorized = false;
+    for (final key in const [
+      'authorized',
+      'logged_in',
+      'loggedIn',
+      'authenticated',
+      'is_authorized',
+    ]) {
+      if (body[key] == true) authorized = true;
+    }
+    var needPassword = false;
+    for (final key in const [
+      'need_password',
+      'needPassword',
+      'password_required',
+    ]) {
+      if (body[key] == true) needPassword = true;
+    }
+    final phase = _phaseString(body);
+    if (phase != null) {
+      if (const {
+        'authorized',
+        'ok',
+        'logged_in',
+        'loggedin',
+        'authenticated',
+      }.contains(phase)) {
+        authorized = true;
+      }
+      if (const {
+        'need_password',
+        'password',
+        'password_required',
+      }.contains(phase)) {
+        needPassword = true;
+      }
+    }
+    final message = _firstString(body, const ['message', 'msg', 'error']);
+    return TgdramaAuthStatus(
+      authorized: authorized,
+      needPassword: needPassword,
+      message: message,
+    );
+  }
+
+  /// status/phase/state 三个键，取到的字符串统一小写去空格。
+  String? _phaseString(Map<String, dynamic> body) {
+    final raw = _firstString(body, const ['status', 'phase', 'state']);
+    if (raw.isEmpty) return null;
+    return raw.trim().toLowerCase();
+  }
+
+  String _firstString(Map<String, dynamic> body, List<String> keys) {
+    for (final key in keys) {
+      final value = body[key];
+      if (value is String && value.isNotEmpty) return value;
+    }
+    return '';
+  }
+
+  /// 开始一次扫码登录会话：GET /api/auth/qr。200 即算成功，不解析返回体；
+  /// 非 200 抛 StateError（带状态码）。
+  Future<void> startQrLogin() async {
+    final response = await _httpClient
+        .get(Uri.parse('$baseUrl/api/auth/qr'))
+        .timeout(_healthTimeout);
+    if (response.statusCode != 200) {
+      throw StateError(
+        '扫码登录启动失败：HTTP ${response.statusCode}',
+      );
+    }
+  }
+
+  /// 扫码二维码图片地址；调用方拼 ?t=时间戳防缓存。
+  String get qrImageUrl => '$baseUrl/api/auth/qr.png';
+
+  /// 提交二步验证密码：POST /api/auth/password，JSON 体 {"password": ...}。
+  /// 非 200 抛 StateError，带上状态码与体里 message/msg/error 字段（有的话）。
+  Future<void> submitPassword(String password) async {
+    final response = await _httpClient
+        .post(
+          Uri.parse('$baseUrl/api/auth/password'),
+          headers: const {'Content-Type': 'application/json'},
+          body: jsonEncode({'password': password}),
+        )
+        .timeout(_healthTimeout);
+    if (response.statusCode == 200) return;
+    var detail = '';
+    try {
+      final decoded = jsonDecode(response.body);
+      if (decoded is Map<String, dynamic>) {
+        detail = _firstString(decoded, const ['message', 'msg', 'error']);
+      }
+    } catch (_) {}
+    throw StateError(
+      '二步验证密码提交失败：HTTP ${response.statusCode}'
+      '${detail.isEmpty ? '' : '，$detail'}',
+    );
+  }
+
+  /// 杀掉已启动的进程（若有）。进程不存在时什么也不做。
+  Future<void> stop() async {
+    final process = _process;
+    _process = null;
+    _processExited = false;
+    if (process == null) return;
+    try {
+      process.kill();
+    } catch (_) {}
+  }
+
+  void _trackProcess(Process process) {
+    _process = process;
+    _processExited = false;
+    unawaited(
+      process.exitCode.then((_) {
+        if (identical(_process, process)) {
+          _process = null;
+          _processExited = true;
+        }
+      }),
+    );
+  }
+
+  /// 二进制落盘：应用私有目录 tgdrama/tgdrama-android；已存在且 MD5
+  /// 对得上复用，对不上重拷自愈（同 jar_bridge 的 resolveBuiltinJarAsset）。
+  Future<String> _resolveBinary() async {
+    final supportDir = await _supportDirProvider();
+    final dir = Directory('${supportDir.path}/$_binaryDirName');
+    if (!await dir.exists()) await dir.create(recursive: true);
+    final target = File('${dir.path}/$_binaryFileName');
+    if (await target.exists()) {
+      try {
+        final current = md5.convert(await target.readAsBytes()).toString();
+        if (current == binaryMd5) return target.path;
+      } catch (_) {
+        // 读不到或算不出 MD5：当作损坏，重拷。
+      }
+    }
+    final bytes = await _assetLoader(binaryAssetPath);
+    await target.writeAsBytes(
+      bytes.buffer.asUint8List(bytes.offsetInBytes, bytes.lengthInBytes),
+    );
+    return target.path;
+  }
+}

@@ -1,0 +1,372 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:crypto/crypto.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:fqapp/services/tgdrama_service.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+
+/// TgdramaService 测试：全程假依赖，不联网、不真启动二进制。
+///
+/// - 进程启动器是假的（只记调用参数、不拉真进程）；
+/// - HTTP 是 MockClient（按路径回固定响应）；
+/// - 二进制 asset 由测试直接读树里的文件喂给服务（不走 flutter test 的
+///   asset 打包）；
+/// - 平台用 isAndroidProvider 强制为 Android（本机是 x86_64 Linux，
+///   Platform.isAndroid 本来是 false，服务会直接拒绝启动）。
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  late Directory tempDir;
+  late List<TgdramaService> created;
+
+  setUp(() async {
+    tempDir = await Directory.systemTemp.createTemp('fqapp_tgdrama_test_');
+    created = [];
+  });
+
+  tearDown(() async {
+    for (final service in created) {
+      await service.stop();
+      service.dispose();
+    }
+    try {
+      await tempDir.delete(recursive: true);
+    } on FileSystemException {
+      // 忽略：临时目录残留不让测试变红。
+    }
+  });
+
+  Future<ByteData> realBinaryBytes(String assetPath) async {
+    expect(assetPath, TgdramaService.binaryAssetPath);
+    final bytes = await File(assetPath).readAsBytes();
+    return ByteData.view(Uint8List.fromList(bytes).buffer);
+  }
+
+  TgdramaService createService({
+    required MockClient client,
+    _FakeProcess Function()? processFactory,
+    Future<ByteData> Function(String assetPath)? assetLoader,
+    bool Function()? isAndroidProvider,
+  }) {
+    final launches = <List<String>>[];
+    final service = TgdramaService(
+      httpClient: client,
+      processLauncher: (command) async {
+        launches.add(List<String>.from(command));
+        return processFactory?.call() ?? _FakeProcess();
+      },
+      supportDirProvider: () async => tempDir,
+      isAndroidProvider: isAndroidProvider ?? () => true,
+      assetLoader: assetLoader ?? realBinaryBytes,
+    );
+    serviceLaunches[service] = launches;
+    created.add(service);
+    return service;
+  }
+
+  MockClient clientFor({
+    int healthStatus = 200,
+    Map<String, dynamic>? authBody,
+    int authStatusCode = 200,
+    int qrStatus = 200,
+    int passwordStatus = 200,
+    Map<String, dynamic>? passwordBody,
+  }) {
+    return MockClient((http.Request request) async {
+      final path = request.url.path;
+      if (path == '/') {
+        return http.Response('', healthStatus);
+      }
+      if (path == '/api/auth/status') {
+        return http.Response(
+          jsonEncode(authBody ?? {'authorized': true}),
+          authStatusCode,
+          headers: const {'content-type': 'application/json'},
+        );
+      }
+      if (path == '/api/auth/qr') {
+        return http.Response('', qrStatus);
+      }
+      if (path == '/api/auth/password') {
+        // Response 默认 latin1 编码，中文体须走 bytes + utf8，否则构造时
+        // 直接抛 ArgumentError。
+        return http.Response.bytes(
+          utf8.encode(jsonEncode(passwordBody ?? {'ok': true})),
+          passwordStatus,
+          headers: const {
+            'content-type': 'application/json; charset=utf-8',
+          },
+        );
+      }
+      return http.Response('not found', 404);
+    });
+  }
+
+  test('未启动时 ensureRunning 解压+chmod+启动+健康检查通过，第二次不再重复启动',
+      () async {
+    final service = createService(client: clientFor());
+    expect(await service.ensureRunning(), isTrue);
+    expect(service.isRunning, isTrue);
+    expect(service.lastError, isNull);
+
+    final launches = serviceLaunches[service]!;
+    expect(launches.length, 1);
+    final binaryPath =
+        '${tempDir.path}/tgdrama/tgdrama-android';
+    expect(launches.single, [
+      binaryPath,
+      '-port',
+      '5278',
+      '-bind',
+      '127.0.0.1',
+    ]);
+
+    // 二进制已落盘，且 MD5 与打包的二进制一致。
+    final binaryFile = File(binaryPath);
+    expect(await binaryFile.exists(), isTrue);
+    expect(
+      md5.convert(await binaryFile.readAsBytes()).toString(),
+      TgdramaService.binaryMd5,
+    );
+
+    // 已在跑：第二次 ensureRunning 直接回 true，不再拉进程。
+    expect(await service.ensureRunning(), isTrue);
+    expect(launches.length, 1);
+  });
+
+  test('已落盘且 MD5 对得上时复用，不重拷；对不上重拷自愈', () async {
+    var assetLoads = 0;
+    Future<ByteData> countingLoader(String assetPath) async {
+      assetLoads++;
+      return realBinaryBytes(assetPath);
+    }
+
+    // 先放一份内容不对的旧文件。
+    final dir = Directory('${tempDir.path}/tgdrama');
+    await dir.create(recursive: true);
+    await File('${dir.path}/tgdrama-android').writeAsBytes([1, 2, 3]);
+
+    final service = createService(
+      client: clientFor(),
+      assetLoader: countingLoader,
+    );
+    expect(await service.ensureRunning(), isTrue);
+    expect(assetLoads, 1);
+    expect(
+      md5
+          .convert(
+            await File('${dir.path}/tgdrama-android').readAsBytes(),
+          )
+          .toString(),
+      TgdramaService.binaryMd5,
+    );
+
+    // 第二次：MD5 已对上，asset 不再加载。
+    final second = createService(
+      client: clientFor(),
+      assetLoader: countingLoader,
+    );
+    expect(await second.ensureRunning(), isTrue);
+    expect(assetLoads, 1);
+  });
+
+  test('健康检查一直失败回 false 且 lastError 有内容', () async {
+    final service = createService(client: clientFor(healthStatus: 500));
+    expect(await service.ensureRunning(), isFalse);
+    expect(service.lastError, isNotNull);
+    expect(service.lastError, isNotEmpty);
+    expect(serviceLaunches[service]!.length, 1);
+  });
+
+  test('进程启动后立刻退出回 false 且 lastError 说明进程已退出', () async {
+    final process = _FakeProcess();
+    final service = createService(
+      client: clientFor(healthStatus: 500),
+      processFactory: () => process,
+    );
+    final running = service.ensureRunning();
+    // 进程在第一次健康检查前就退出：轮询应立刻收尾，不用等满 8 秒。
+    process.exitNow(1);
+    expect(await running, isFalse);
+    expect(service.lastError, contains('已退出'));
+  });
+
+  test('非 Android 直接回 false，lastError 写明仅支持 Android，不拉进程',
+      () async {
+    final service = createService(
+      client: clientFor(),
+      isAndroidProvider: () => false,
+    );
+    expect(await service.ensureRunning(), isFalse);
+    expect(service.lastError, contains('仅支持 Android'));
+    expect(serviceLaunches[service], isEmpty);
+  });
+
+  test('authStatus 多键解析：authorized 各形状都算已登录', () async {
+    const bodies = [
+      {'authorized': true},
+      {'logged_in': true},
+      {'loggedIn': true},
+      {'authenticated': true},
+      {'is_authorized': true},
+      {'status': 'authorized'},
+      {'status': 'ok'},
+      {'status': 'logged_in'},
+      {'phase': 'authorized'},
+      {'state': 'logged_in'},
+    ];
+    for (final body in bodies) {
+      final service = createService(client: clientFor(authBody: body));
+      final status = await service.authStatus();
+      expect(status.authorized, isTrue, reason: '$body');
+      expect(status.needPassword, isFalse, reason: '$body');
+    }
+  });
+
+  test('authStatus 多键解析：need_password 各形状都算需二步验证', () async {
+    const bodies = [
+      {'need_password': true},
+      {'needPassword': true},
+      {'password_required': true},
+      {'status': 'need_password'},
+      {'status': 'password'},
+      {'phase': 'password_required'},
+    ];
+    for (final body in bodies) {
+      final service = createService(client: clientFor(authBody: body));
+      final status = await service.authStatus();
+      expect(status.needPassword, isTrue, reason: '$body');
+      expect(status.authorized, isFalse, reason: '$body');
+    }
+  });
+
+  test('authStatus 未登录/解析失败/非 200 都按未登录回，不抛异常', () async {
+    final empty = createService(client: clientFor(authBody: {}));
+    final emptyStatus = await empty.authStatus();
+    expect(emptyStatus.authorized, isFalse);
+    expect(emptyStatus.needPassword, isFalse);
+
+    final denied = createService(
+      client: clientFor(authBody: {'authorized': false}),
+    );
+    expect((await denied.authStatus()).authorized, isFalse);
+
+    final httpError = createService(
+      client: clientFor(authStatusCode: 500, authBody: {'authorized': true}),
+    );
+    final httpErrorStatus = await httpError.authStatus();
+    expect(httpErrorStatus.authorized, isFalse);
+    expect(httpErrorStatus.message, contains('500'));
+
+    final badJson = createService(
+      client: MockClient((_) async => http.Response('not json', 200)),
+    );
+    expect((await badJson.authStatus()).authorized, isFalse);
+  });
+
+  test('submitPassword 非 200 抛 StateError，带状态码与服务端 message', () async {
+    final service = createService(
+      client: clientFor(
+        passwordStatus: 401,
+        passwordBody: {'message': '密码错误'},
+      ),
+    );
+    await expectLater(
+      service.submitPassword('wrong'),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          allOf(contains('401'), contains('密码错误')),
+        ),
+      ),
+    );
+  });
+
+  test('submitPassword 200 正常返回；startQrLogin 200 成功、非 200 抛错',
+      () async {
+    final service = createService(client: clientFor());
+    await service.submitPassword('correct');
+    await service.startQrLogin();
+
+    final failing = createService(client: clientFor(qrStatus: 503));
+    await expectLater(
+      failing.startQrLogin(),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          contains('503'),
+        ),
+      ),
+    );
+  });
+
+  test('stop 杀掉已启动的进程，isRunning 变 false', () async {
+    final process = _FakeProcess();
+    final service = createService(
+      client: clientFor(),
+      processFactory: () => process,
+    );
+    expect(await service.ensureRunning(), isTrue);
+    expect(service.isRunning, isTrue);
+    await service.stop();
+    expect(process.killed, isTrue);
+    expect(service.isRunning, isFalse);
+  });
+
+  test('stop 在未启动时什么也不做；qrImageUrl 拼对地址', () async {
+    final service = createService(client: clientFor());
+    await service.stop();
+    expect(service.isRunning, isFalse);
+    expect(
+      service.qrImageUrl,
+      '${TgdramaService.baseUrl}/api/auth/qr.png',
+    );
+    expect(TgdramaService.baseUrl, 'http://127.0.0.1:5278');
+    expect(TgdramaService.defaultPort, 5278);
+  });
+}
+
+/// 每个服务实例对应的启动记录（测试内共享，方便断言拉起次数与参数）。
+final Map<TgdramaService, List<List<String>>> serviceLaunches = {};
+
+/// 假进程：不拉真进程，只记录 kill，并可由测试主动让它退出。
+class _FakeProcess implements Process {
+  _FakeProcess();
+
+  final Completer<int> _exitCode = Completer<int>();
+  bool killed = false;
+
+  @override
+  Stream<List<int>> get stderr => const Stream<List<int>>.empty();
+
+  @override
+  Stream<List<int>> get stdout => const Stream<List<int>>.empty();
+
+  @override
+  IOSink get stdin => IOSink(StreamController<List<int>>());
+
+  @override
+  int get pid => 12345;
+
+  @override
+  Future<int> get exitCode => _exitCode.future;
+
+  /// 测试主动让进程退出（模拟应用切后台被系统杀掉等情况）。
+  void exitNow(int code) {
+    if (!_exitCode.isCompleted) _exitCode.complete(code);
+  }
+
+  @override
+  bool kill([ProcessSignal signal = ProcessSignal.sigterm]) {
+    killed = true;
+    exitNow(-signal.hashCode);
+    return true;
+  }
+}

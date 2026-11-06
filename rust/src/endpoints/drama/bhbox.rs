@@ -20,7 +20,9 @@ use serde_json::{json, Value};
 use crate::crypto::{aes_cbc_decrypt, pkcs7_unpad};
 use crate::error::{ApiError, ApiResult};
 
-use super::{arr_of, category_json, client, episode_json, get, int_of, item_json, text_of, with_query};
+use super::{
+    arr_of, category_json, client, episode_json, get, int_of, item_json, text_of, with_query,
+};
 
 const HOSTS: &[&str] = &[
     "https://bh3780.top",
@@ -47,8 +49,28 @@ static BASE: Mutex<Option<(String, Instant)>> = Mutex::new(None);
 /// /api/configs 的 home_tags 与 hot_search_words，核心侧用静态表，
 /// 不动态拉取。
 const TAGS: &[&str] = &[
-    "黑丝", "制服", "巨乳", "人妻", "自拍", "国产视频", "中文字幕", "高清原片", "白丝", "偷拍", "户外",
-    "女神", "美腿足交", "反差", "口交", "内射", "情侣", "女仆", "护士", "老师", "秘书", "熟女",
+    "黑丝",
+    "制服",
+    "巨乳",
+    "人妻",
+    "自拍",
+    "国产视频",
+    "中文字幕",
+    "高清原片",
+    "白丝",
+    "偷拍",
+    "户外",
+    "女神",
+    "美腿足交",
+    "反差",
+    "口交",
+    "内射",
+    "情侣",
+    "女仆",
+    "护士",
+    "老师",
+    "秘书",
+    "熟女",
 ];
 
 fn headers(base: &str) -> Vec<(String, String)> {
@@ -90,20 +112,16 @@ fn decrypt_data(data: &str, enc_header: &str) -> ApiResult<Value> {
         return Err(ApiError::Internal("笔盒响应加密算法无法识别".into()));
     }
     let raw = if enc_kind.eq_ignore_ascii_case("base64") {
-        base64::Engine::decode(
-            &base64::engine::general_purpose::STANDARD,
-            data.trim(),
-        )
-        .map_err(|_| ApiError::Internal("笔盒响应 base64 解码失败".into()))?
+        base64::Engine::decode(&base64::engine::general_purpose::STANDARD, data.trim())
+            .map_err(|_| ApiError::Internal("笔盒响应 base64 解码失败".into()))?
     } else {
-        hex::decode(data.trim())
-            .map_err(|_| ApiError::Internal("笔盒响应 hex 解码失败".into()))?
+        hex::decode(data.trim()).map_err(|_| ApiError::Internal("笔盒响应 hex 解码失败".into()))?
     };
     if raw.len() < 32 {
         return Err(ApiError::Internal("笔盒响应密文过短".into()));
     }
-    let key = hex::decode(AES_KEY_HEX)
-        .map_err(|_| ApiError::Internal("笔盒密钥格式错误".into()))?;
+    let key =
+        hex::decode(AES_KEY_HEX).map_err(|_| ApiError::Internal("笔盒密钥格式错误".into()))?;
     let plain = aes_cbc_decrypt(&raw[16..], &key, &raw[..16]);
     let unpadded = pkcs7_unpad(&plain, 16);
     let text = String::from_utf8_lossy(unpadded).trim().to_string();
@@ -496,9 +514,7 @@ async fn parse_real(from: &str, play_url: &str) -> ApiResult<String> {
     let body: Value = serde_json::from_str(&text)?;
     let code = int_of(&body, &["code"]);
     if code != 0 && code != 200 {
-        return Err(ApiError::Internal(format!(
-            "笔盒解析报错（{code}）"
-        )));
+        return Err(ApiError::Internal(format!("笔盒解析报错（{code}）")));
     }
     let data = match get(&body, "data") {
         Some(d) => d.clone(),

@@ -319,6 +319,9 @@ const dramaSites = [
   DramaSite('javtsunami', '🔞JAV Tsunami'),
   DramaSite('javsiri', '🔞JAVSiri'),
   DramaSite('sexkbj', '🔞SexKbj'),
+  // TG影视库：本地插件站（127.0.0.1:5278），不是核心远程站，
+  // 不计 200 数、不进修仙分档；分类默认只有“全部”。
+  DramaSite('tgdrama', 'TG影视库'),
 ];
 
 List<DramaSite> _extraDramaSites = const [];

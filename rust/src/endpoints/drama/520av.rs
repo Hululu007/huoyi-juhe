@@ -28,7 +28,7 @@ use serde_json::{json, Value};
 
 use crate::error::{ApiError, ApiResult};
 
-use super::{category_json, client, episode_json, get, item_json, text_of, arr_of};
+use super::{arr_of, category_json, client, episode_json, get, item_json, text_of};
 
 const SITES: &[&str] = &["https://www.520avtv.com", "https://520avtv.com"];
 const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
@@ -136,10 +136,8 @@ fn parse_cards(html: &str, limit: usize) -> Vec<Value> {
 fn parse_actors(html: &str) -> Vec<Value> {
     let mut items = Vec::new();
     let mut seen: Vec<String> = Vec::new();
-    let re = Regex::new(
-        r#"<a[^>]+href="[^"]*/video/actor/([^"']+)"[^>]*>([^<]{1,40})</a>"#,
-    )
-    .unwrap();
+    let re =
+        Regex::new(r#"<a[^>]+href="[^"]*/video/actor/([^"']+)"[^>]*>([^<]{1,40})</a>"#).unwrap();
     for c in re.captures_iter(html) {
         let slug = c[1].trim().to_string();
         let name = strip_tags(&c[2]);
@@ -156,10 +154,9 @@ fn parse_actors(html: &str) -> Vec<Value> {
 fn parse_articles(html: &str) -> Vec<Value> {
     let mut items = Vec::new();
     let mut seen: Vec<String> = Vec::new();
-    let re = Regex::new(
-        r#"href="(https?://[^"]*/article/content/erotica/(\d+))"[^>]*>\s*([^<]{2,80})"#,
-    )
-    .unwrap();
+    let re =
+        Regex::new(r#"href="(https?://[^"]*/article/content/erotica/(\d+))"[^>]*>\s*([^<]{2,80})"#)
+            .unwrap();
     for c in re.captures_iter(html) {
         let id = c[2].to_string();
         if seen.contains(&id) {
@@ -202,8 +199,7 @@ fn parse_video(html: &str, id: &str, slug: &str) -> Value {
             title = title[..pos].trim().to_string();
         }
     }
-    let desc_re =
-        Regex::new(r#"<meta[^>]*name="description"[^>]*content="([^"]*)""#).unwrap();
+    let desc_re = Regex::new(r#"<meta[^>]*name="description"[^>]*content="([^"]*)""#).unwrap();
     let synopsis = desc_re
         .captures(html)
         .map(|c| strip_tags(&c[1]))
@@ -278,15 +274,13 @@ fn parse_article(html: &str, id: &str) -> Value {
             .unwrap_or_default();
     }
     let body_re =
-        Regex::new(r#"(?s)<div[^>]*class="[^"]*article-content[^"]*"[^>]*>(.*?)</div>"#)
-            .unwrap();
+        Regex::new(r#"(?s)<div[^>]*class="[^"]*article-content[^"]*"[^>]*>(.*?)</div>"#).unwrap();
     let mut synopsis = body_re
         .captures(html)
         .map(|c| strip_tags(&c[1]))
         .unwrap_or_default();
     if synopsis.is_empty() {
-        let desc_re =
-            Regex::new(r#"<meta[^>]*name="description"[^>]*content="([^"]*)""#).unwrap();
+        let desc_re = Regex::new(r#"<meta[^>]*name="description"[^>]*content="([^"]*)""#).unwrap();
         synopsis = desc_re
             .captures(html)
             .map(|c| strip_tags(&c[1]))
@@ -337,8 +331,7 @@ async fn search_items(query: &str) -> ApiResult<Vec<Value>> {
             }
         }
     }
-    let enc: String =
-        url::form_urlencoded::byte_serialize(query.as_bytes()).collect();
+    let enc: String = url::form_urlencoded::byte_serialize(query.as_bytes()).collect();
     if let Ok((_, html)) = fetch_page(&format!("/video/search?search={enc}")).await {
         let items = parse_cards(&html, 0);
         if !items.is_empty() {
@@ -382,8 +375,7 @@ pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
         }
         (items, true)
     } else if let Some(name) = category_id.strip_prefix("act:") {
-        let enc: String =
-            url::form_urlencoded::byte_serialize(name.as_bytes()).collect();
+        let enc: String = url::form_urlencoded::byte_serialize(name.as_bytes()).collect();
         let (_, html) = fetch_page(&format!("/video/actor/{enc}/{page}")).await?;
         let items = parse_cards(&html, 0);
         (items, true)

@@ -33,6 +33,7 @@ import 'settings_category_page.dart';
 import 'source_management_page.dart';
 import 'system_tts_settings_page.dart';
 import 'text_replacement_page.dart';
+import 'tgdrama_login_page.dart';
 
 /// Settings home: a list of category entries (PiliPlus multi-level
 /// navigation). Each category opens its own CommonSetting-style page.
@@ -110,12 +111,12 @@ class SettingsPage extends StatelessWidget {
       SettingsCategory(
         icon: LucideIcons.sparkles,
         title: '修仙',
-        subtitle: '修为、境界与新人兑换码',
+        subtitle: '修为、境界与新人礼包',
         items: [
           SettingsItem(
             icon: LucideIcons.gift,
-            title: '新人兑换码',
-            subtitle: 'VIP666→筑基、VIP888→结丹、VIP6666→元婴、VIP8888→化神',
+            title: '新人礼包',
+            subtitle: '开局四道机缘，输码直升化神',
             onTap: (context, _) => _showRedeemCodeDialog(context),
           ),
           SettingsItem(
@@ -154,6 +155,15 @@ class SettingsPage extends StatelessWidget {
             onTap: (context, _) => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const OneKeyPyPage()),
+            ),
+          ),
+          SettingsItem(
+            icon: LucideIcons.send,
+            title: 'Telegram 登录',
+            subtitle: 'TG影视库登录：扫码或手机号登录',
+            onTap: (context, _) => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const TgdramaLoginPage()),
             ),
           ),
         ],
@@ -271,7 +281,7 @@ class SettingsPage extends StatelessWidget {
 
   // ── 修仙 ──────────────────────────────────────────────────────────────
 
-  /// 新人兑换码：输码把修为直接补到目标境界。
+  /// 新人礼包：输码把修为直接补到目标境界。
   /// VIP666→筑基 300、VIP888→结丹 1000、VIP6666→元婴 3000、
   /// VIP8888→化神 8000；每个码只能用一次，已达到目标境界时不消耗。
   /// 兑换成功后升境解锁弹窗由壳层修为监听自动弹，这里只报兑换结果。
@@ -284,14 +294,19 @@ class SettingsPage extends StatelessWidget {
         final used = CultivationService.instance.usedCodes;
         return StatefulBuilder(
           builder: (dialogContext, setDialogState) => AlertDialog(
-            title: const Text('新人兑换码'),
+            title: const Text('新人礼包 · 天赐机缘'),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '当前总修为 ${snapshot.totalXp} · ${snapshot.realm.displayName}',
+                  '当前修为 ${snapshot.totalXp} · ${snapshot.realm.displayName}',
                   style: const TextStyle(fontSize: 13),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  '凡人修仙，机缘先行。四道口令，各领一次，修为直补到对应境界。',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -306,14 +321,34 @@ class SettingsPage extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  'VIP666→筑基、VIP888→结丹、VIP6666→元婴、VIP8888→化神，'
-                  '每个码只能用一次。',
+                  'VIP666 · 筑基礼包——“一枚筑基丹，服之立筑基。”'
+                  '修为直达 300，新开漫画区。',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                const Text(
+                  'VIP888 · 结丹礼包——“金丹大道，一步结丹。”'
+                  '修为直达 1000，新开听书区。',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                const Text(
+                  'VIP6666 · 元婴礼包——“元婴出窍，影视区开。”'
+                  '修为直达 3000，新开影视区第 1 档站与直播成人源。',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                const Text(
+                  'VIP8888 · 化神礼包——“化神在即，全境洞开。”'
+                  '修为直达 8000，新开影视全部分类、称号与第 2 档站。',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  '每道机缘仅可领取一次；已到该境界，不消耗。',
                   style: TextStyle(fontSize: 12, color: Colors.grey),
                 ),
                 if (used.isNotEmpty) ...[
                   const SizedBox(height: 8),
                   Text(
-                    '已用过：${used.join('、')}',
+                    '已领机缘：${used.join('、')}',
                     style: const TextStyle(fontSize: 12, color: Colors.grey),
                   ),
                 ],
@@ -322,13 +357,13 @@ class SettingsPage extends StatelessWidget {
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(dialogContext).pop(false),
-                child: const Text('取消'),
+                child: const Text('暂不领'),
               ),
               FilledButton(
                 onPressed: controller.text.trim().isEmpty
                     ? null
                     : () => Navigator.of(dialogContext).pop(true),
-                child: const Text('兑换'),
+                child: const Text('领取机缘'),
               ),
             ],
           ),
@@ -342,11 +377,13 @@ class SettingsPage extends StatelessWidget {
     if (!context.mounted) return;
     final message = switch (result.result) {
       CultivationRedeemResult.success =>
-        '兑换成功！修为已补到 ${result.targetXp}（${realmForXp(result.newXp).displayName}）',
-      CultivationRedeemResult.invalid => '兑换码不对，请检查后重试',
-      CultivationRedeemResult.alreadyUsed => '这个码已经用过了',
+        '机缘已至！修为直达 ${result.targetXp}，'
+        '今为${realmForXp(result.newXp).displayName}。',
+      CultivationRedeemResult.invalid => '口令不对。道友再核对一遍？',
+      CultivationRedeemResult.alreadyUsed => '此机缘已领过，不可再领。',
       CultivationRedeemResult.alreadyAtRealm =>
-        '已经达到或超过该境界，不用兑换',
+        '道友已是${realmForXp(result.targetXp).badgeLine1}之上，'
+        '此码留待后来人，不消耗。',
     };
     ScaffoldMessenger.of(
       context,

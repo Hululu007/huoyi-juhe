@@ -36,7 +36,9 @@ use serde_json::{json, Value};
 
 use crate::error::{ApiError, ApiResult};
 
-use super::{arr_of, category_json, client, episode_json, get, int_of, item_json, text_of, with_query};
+use super::{
+    arr_of, category_json, client, episode_json, get, int_of, item_json, text_of, with_query,
+};
 
 /// jar 的 SEED 宿主（ZakaSec.s(355..358)）。
 const HOSTS: &[&str] = &[
@@ -63,7 +65,14 @@ fn unwrap(body: &str) -> ApiResult<Value> {
     let code = int_of(&env, &["code"]);
     if code != 200 {
         let msg = text_of(&env, &["message"]);
-        return Err(ApiError::Internal(format!("Uu 接口返回 {code}{}", if msg.is_empty() { String::new() } else { format!("：{msg}") })));
+        return Err(ApiError::Internal(format!(
+            "Uu 接口返回 {code}{}",
+            if msg.is_empty() {
+                String::new()
+            } else {
+                format!("：{msg}")
+            }
+        )));
     }
     let data = text_of(&env, &["data"]);
     let key = text_of(&env, &["key"]);
@@ -85,7 +94,8 @@ fn unwrap(body: &str) -> ApiResult<Value> {
         .enumerate()
         .map(|(i, b)| b ^ kb[i % kb.len()])
         .collect();
-    let text = String::from_utf8(plain).map_err(|_| ApiError::Internal("Uu 信封异或后非 UTF-8".into()))?;
+    let text =
+        String::from_utf8(plain).map_err(|_| ApiError::Internal("Uu 信封异或后非 UTF-8".into()))?;
     let value: Value = serde_json::from_str(&text)?;
     Ok(value)
 }
@@ -150,7 +160,10 @@ async fn token() -> ApiResult<String> {
         let ttl = int_of(&body, &["accessTokenTtl"]);
         let ttl = if ttl > 120 { ttl - 60 } else { 1800 };
         if let Ok(mut guard) = TOKEN.lock() {
-            *guard = Some((access.clone(), Instant::now() + Duration::from_secs(ttl as u64)));
+            *guard = Some((
+                access.clone(),
+                Instant::now() + Duration::from_secs(ttl as u64),
+            ));
         }
         return Ok(access);
     }
@@ -220,7 +233,11 @@ async fn cdn_pic() -> (String, String) {
         }
     }
     if let Ok(mut guard) = CDN.lock() {
-        *guard = Some((pic.clone(), bucket.clone(), Instant::now() + Duration::from_secs(3600)));
+        *guard = Some((
+            pic.clone(),
+            bucket.clone(),
+            Instant::now() + Duration::from_secs(3600),
+        ));
     }
     (pic, bucket)
 }
@@ -371,13 +388,23 @@ pub(crate) async fn categories() -> ApiResult<Value> {
 
 pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
     let (kind, tid) = split_category(category_id.trim());
-    let kind = if kind.is_empty() { "last".to_string() } else { kind };
+    let kind = if kind.is_empty() {
+        "last".to_string()
+    } else {
+        kind
+    };
     let page = if page < 1 { 1 } else { page };
     let query = list_query(&kind, &tid, page);
-    let qref: Vec<(&str, &str)> = query.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    let qref: Vec<(&str, &str)> = query
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
     let (body, _host) = get_data("/api/v2/home/public/video/list", &qref).await?;
     let total = int_of(&body, &["total"]);
-    let rows = get(&body, "list").and_then(arr_of).cloned().unwrap_or_default();
+    let rows = get(&body, "list")
+        .and_then(arr_of)
+        .cloned()
+        .unwrap_or_default();
     let (pic, bucket) = cdn_pic().await;
     let items = catalog_items(&rows, &pic, &bucket);
     let shown = (page - 1) * PAGE_SIZE + items.len() as i64;
@@ -390,11 +417,7 @@ pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
     if sid.is_empty() {
         return Err(ApiError::Internal("Uu 缺少影片 id".into()));
     }
-    let (body, _host) = get_data(
-        "/api/v2/home/public/video/long/detail",
-        &[("id", sid)],
-    )
-    .await?;
+    let (body, _host) = get_data("/api/v2/home/public/video/long/detail", &[("id", sid)]).await?;
     let title = text_of(&body, &["title"]);
     if title.is_empty() {
         return Err(ApiError::Internal("Uu 未返回影片标题".into()));
@@ -450,7 +473,10 @@ pub(crate) async fn search(query: &str) -> ApiResult<Value> {
         ],
     )
     .await?;
-    let rows = get(&body, "list").and_then(arr_of).cloned().unwrap_or_default();
+    let rows = get(&body, "list")
+        .and_then(arr_of)
+        .cloned()
+        .unwrap_or_default();
     let (pic, bucket) = cdn_pic().await;
     let items = catalog_items(&rows, &pic, &bucket);
     Ok(json!({"items": items}))
@@ -583,8 +609,14 @@ mod tests {
 
     #[test]
     fn split_category_shapes() {
-        assert_eq!(split_category("cate@347"), ("cate".to_string(), "347".to_string()));
-        assert_eq!(split_category("last@0"), ("last".to_string(), "0".to_string()));
+        assert_eq!(
+            split_category("cate@347"),
+            ("cate".to_string(), "347".to_string())
+        );
+        assert_eq!(
+            split_category("last@0"),
+            ("last".to_string(), "0".to_string())
+        );
         assert_eq!(split_category(""), (String::new(), String::new()));
     }
 
@@ -597,7 +629,10 @@ mod tests {
         let items = catalog_items(&rows, "https://jqsp.xn--xhq15jk0k96h.cn", "encryption-ts");
         assert_eq!(items.len(), 1);
         assert_eq!(items[0]["id"], "124664");
-        assert_eq!(items[0]["title"], "抖音纯欲系女网红 周梓萌 最新福利合集流出");
+        assert_eq!(
+            items[0]["title"],
+            "抖音纯欲系女网红 周梓萌 最新福利合集流出"
+        );
         assert_eq!(
             items[0]["cover"],
             "https://jqsp.xn--xhq15jk0k96h.cn/encryption-ts/uploads/file/20261105/e2c75c99651e41e18d9a8c57b09be0a7_compress.jpg.enc"
@@ -669,4 +704,3 @@ mod tests {
         assert_eq!(f.matches('-').count(), 4);
     }
 }
-

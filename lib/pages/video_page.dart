@@ -52,6 +52,7 @@ List<DramaSite> videoZoneSites() {
     'yeguo',
     'yaguo',
     'niuguo',
+    'tgdrama',
     ...coreVideoSiteIds,
   };
   return [for (final site in dramaSites) if (ids.contains(site.id)) site];
