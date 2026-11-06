@@ -1,0 +1,2848 @@
+{
+ "version": "2026-11-06",
+ "total_templates": 112,
+ "cms_templates": 6,
+ "shared_api_templates": 7,
+ "site_templates": 99,
+ "templates": [
+  {
+   "id": "apple_cms_v10",
+   "kind": "cms",
+   "cms_type": "apple_cms_v10",
+   "name": "Apple CMS V10 JSON",
+   "detection": {
+    "probe": [
+     "GET {base}/api.php/provide/vod?ac=list",
+     "GET {base}/api.php/provide/vod/at/json?ac=list",
+     "GET {base}/provide/vod?ac=list",
+     "GET {base}/api/vod?ac=list"
+    ],
+    "match": "response is JSON and has a 'list' key",
+    "page_feature": "none needed, pure JSON API"
+   },
+   "extraction": {
+    "categories": "ac=list returns 'class' array: type_id/type_name",
+    "list": "ac=videolist&t={type_id}&pg={page} -> 'list' array, fields vod_id/vod_name/vod_pic/vod_remarks/vod_year",
+    "detail": "ac=detail&ids={id} -> vod_play_from/vod_play_url; split lines by '$$$', episodes by '#', each 'name$url'",
+    "search": "ac=videolist&wd={keyword}&pg={page}",
+    "stream": "vod_play_url is usually a direct m3u8/mp4; return as-is with parse=0 when direct, else follow the site player page"
+   },
+   "sources": [
+    "yijianxiepy.py"
+   ],
+   "verified": true,
+   "note": "Probe this first for any unknown site: cheapest and most reliable CMS signal."
+  },
+  {
+   "id": "tvbox_api",
+   "kind": "cms",
+   "cms_type": "tvbox_api",
+   "name": "YSTV shared TVBox API",
+   "detection": {
+    "probe": [
+     "GET {api_host}/api/tvbox/home?nav=1"
+    ],
+    "match": "response is JSON with a nav list; api host is often a different domain from the site (e.g. tv506.ystv.top, api3.bwkhawkdv.cc)",
+    "page_feature": "site pages reference /api/tvbox/ endpoints"
+   },
+   "extraction": {
+    "categories": "/api/tvbox/home?nav=1 -> nav list",
+    "list": "/api/tvbox/list?cid={cid}&pg={page}",
+    "detail": "/api/tvbox/detail?id={id}",
+    "search": "/api/tvbox/search?wd={keyword}",
+    "stream": "/api/tvbox/play?id={id} -> play URL; or /api/msv/resolve?slug={slug}"
+   },
+   "sources": [
+    "591av.py",
+    "ZakaAdult.py",
+    "ZakaJavRank.py",
+    "ZakaMissav.py",
+    "av6k.py",
+    "avjoy.py",
+    "cporn.py",
+    "goodav.py",
+    "hanime.py",
+    "netflav.py",
+    "okxxx.py",
+    "ptt01.py",
+    "sporn.py",
+    "xanimu.py",
+    "xvideo.py",
+    "xx01.py",
+    "yporn.py"
+   ],
+   "verified": true,
+   "note": "Biggest merge: 17 sites share one backend. The api host is the fingerprint, not the site domain."
+  },
+  {
+   "id": "maccms_html",
+   "kind": "cms",
+   "cms_type": "maccms_html",
+   "name": "MacCMS HTML routes",
+   "detection": {
+    "probe": [
+     "GET {base}/ (homepage)"
+    ],
+    "match": "homepage HTML contains links matching /vod/detail/, /vod/play/, /vod/type/, /vod/search/ or /voddetail/, /vodplay/, /vodtype/, /vodsearch/ or /index.php/vod/",
+    "page_feature": "vod detail/play/type/search link pattern"
+   },
+   "extraction": {
+    "categories": "nav links /vod/type/id/{id}.html or /vodtype/{id}/",
+    "list": "/vod/type/id/{id}-{page}.html or /vodtype/{id}-{page}/, parse video cards (title, cover, link)",
+    "detail": "/vod/detail/id/{id}.html or /voddetail/{id}/, parse title/cover/desc and play lines /vod/play/id/{id}-1-{ep}.html",
+    "search": "/vod/search/wd/{keyword}.html or /vodsearch/-------------.html?wd={keyword}",
+    "stream": "from the play page extract the video URL (JS var or iframe src); direct m3u8/mp4 when present"
+   },
+   "sources": [
+    "Chengren91.py",
+    "Zaka17rip.py",
+    "ZakaDsd.py",
+    "Zaka321av.py",
+    "Zaka69ck.py",
+    "ZakaCn.py",
+    "zakapuapua.py",
+    "gqck.py",
+    "rouav.py",
+    "xhy11.py",
+    "aihi.py"
+   ],
+   "verified": true,
+   "note": "Covers both /vod/ and /index.php/vod/ route styles and the /voddetail/ short style."
+  },
+  {
+   "id": "wordpress",
+   "kind": "cms",
+   "cms_type": "wordpress",
+   "name": "WordPress wp-json",
+   "detection": {
+    "probe": [
+     "GET {base}/wp-json/wp/v2/"
+    ],
+    "match": "response is JSON describing wp types/posts",
+    "page_feature": "wp-json endpoint present"
+   },
+   "extraction": {
+    "categories": "/wp-json/wp/v2/categories",
+    "list": "/wp-json/wp/v2/posts?categories={id}&page={page}&per_page=20",
+    "detail": "/wp-json/wp/v2/posts/{id} -> content.rendered, parse video embeds/iframes",
+    "search": "/wp-json/wp/v2/posts?search={keyword}",
+    "stream": "from post content extract the video URL or iframe src"
+   },
+   "sources": [
+    "Zaka69vj.py",
+    "ZakaAvbebe.py",
+    "ZakaJav380.py",
+    "coolinet.py"
+   ],
+   "verified": true,
+   "note": "69vj verified; the other three are drafts but share the same wp-json shape."
+  },
+  {
+   "id": "nextjs",
+   "kind": "cms",
+   "cms_type": "nextjs",
+   "name": "Next.js SSR",
+   "detection": {
+    "probe": [
+     "GET {base}/ (homepage)"
+    ],
+    "match": "homepage HTML contains /_next/static/ or __NEXT_DATA__",
+    "page_feature": "Next.js static chunks and SSR data"
+   },
+   "extraction": {
+    "categories": "nav links or SSR data (props.pageProps)",
+    "list": "category pages, parse from __NEXT_DATA__ JSON or HTML cards",
+    "detail": "detail page SSR data; the real cover is the vodPic field in SSR data",
+    "search": "search page with a desktop UA",
+    "stream": "play address kept as-is, do not rewrite to /vodplay-*.html; take it from SSR data"
+   },
+   "sources": [
+    "yijianxiepy.py"
+   ],
+   "verified": false,
+   "note": "No pure Next.js site in the collected set is verified yet; tool probe only."
+  },
+  {
+   "id": "generic_html",
+   "kind": "cms",
+   "cms_type": "generic_html",
+   "name": "Generic HTML sniffing (fallback)",
+   "detection": {
+    "probe": [
+     "GET {base}/ (homepage)"
+    ],
+    "match": "always applies when no other template matches",
+    "page_feature": "none specific"
+   },
+   "extraction": {
+    "categories": "nav links clustered by path pattern; numeric IDs and nav text both tried",
+    "list": "link-path clustering to find detail pages; pagination candidates rotated until a non-empty page is found",
+    "detail": "multi-template episode extraction; title/cover/desc from common selectors",
+    "search": "multi-candidate search URLs, first non-empty wins",
+    "stream": "from the play/detail page extract the first playable URL (m3u8/mp4/iframe); direct links returned with parse=0"
+   },
+   "sources": [
+    "yijianxiepy.py"
+   ],
+   "verified": false,
+   "note": "Fallback for all custom HTML sites. Per-site verification is still needed after generation."
+  },
+  {
+   "id": "api_haijiao",
+   "kind": "shared_api",
+   "cms_type": "custom_api",
+   "name": "Haijiao/HJ1 API",
+   "detection": {
+    "probe": [
+     "GET https://api1.ogokfmrx.com"
+    ],
+    "match": "site uses this api host: https://api1.ogokfmrx.com",
+    "page_feature": "shared api host"
+   },
+   "extraction": {
+    "categories": "/api.php/api/api/original/topic",
+    "list": "/api.php/api/api/mv/list_construct",
+    "detail": "/api.php/api/api/mv/getDetail",
+    "search": "/api.php/api/api/mv/search",
+    "stream": "from getDetail response"
+   },
+   "sources": [
+    "ZakaHaijiao.py",
+    "ZakaHj1.py"
+   ],
+   "verified": false,
+   "note": "Both sites hit the same api host; drafts, exit blocked."
+  },
+  {
+   "id": "api_tudou",
+   "kind": "shared_api",
+   "cms_type": "custom_api",
+   "name": "Tudou/XJH5 API",
+   "detection": {
+    "probe": [
+     "GET https://videoh5.86027a.xyz"
+    ],
+    "match": "site uses this api host: https://videoh5.86027a.xyz",
+    "page_feature": "shared api host"
+   },
+   "extraction": {
+    "categories": "/api/video/category",
+    "list": "/api/video/category",
+    "detail": "/api/video/v2/detail",
+    "search": "site search endpoint",
+    "stream": "/api/user/getVideoUrl"
+   },
+   "sources": [
+    "zakatudou.py",
+    "zakaxjh5.py"
+   ],
+   "verified": true,
+   "note": "Both sites verified (in the 31 verified set)."
+  },
+  {
+   "id": "api_fq",
+   "kind": "shared_api",
+   "cms_type": "custom_api",
+   "name": "FQ/KP14 API",
+   "detection": {
+    "probe": [
+     "GET site_id based api"
+    ],
+    "match": "site uses this api host: site_id based api",
+    "page_feature": "shared api host"
+   },
+   "extraction": {
+    "categories": "/api/vod/video?page={p}&per_page=20&site_id={n}",
+    "list": "/api/vod/video?page={p}&per_page=20&site_id={n}",
+    "detail": "/api/vod/video/{id}?site_id={n}",
+    "search": "/search/vod/?search={kw}&page={p}&per_page=20&site_id={n}",
+    "stream": "from detail response"
+   },
+   "sources": [
+    "zakafq.py",
+    "zakakp14.py"
+   ],
+   "verified": false,
+   "note": "Same endpoint shape, different site_id."
+  },
+  {
+   "id": "api_sihu",
+   "kind": "shared_api",
+   "cms_type": "custom_api",
+   "name": "Sihu API",
+   "detection": {
+    "probe": [
+     "GET https://www.4hu.tv"
+    ],
+    "match": "site uses this api host: https://www.4hu.tv",
+    "page_feature": "shared api host"
+   },
+   "extraction": {
+    "categories": "/json/category-list.json",
+    "list": "/json/category/",
+    "detail": "site detail page",
+    "search": "/api/v2/search?keyword={kw}",
+    "stream": "from detail response"
+   },
+   "sources": [
+    "zakasihu.py",
+    "zakasihucdn.py"
+   ],
+   "verified": false,
+   "note": "Same host and same json category files."
+  },
+  {
+   "id": "api_lissav",
+   "kind": "shared_api",
+   "cms_type": "custom_api",
+   "name": "Lissav API",
+   "detection": {
+    "probe": [
+     "GET https://lissav.com"
+    ],
+    "match": "site uses this api host: https://lissav.com",
+    "page_feature": "shared api host"
+   },
+   "extraction": {
+    "categories": "site nav",
+    "list": "site list",
+    "detail": "site detail page",
+    "search": "site search",
+    "stream": "/api/video/stream"
+   },
+   "sources": [
+    "ZakaLissav.py",
+    "ZakaLissavCn.py"
+   ],
+   "verified": true,
+   "note": "lissavcn is in core and verified; same stream endpoint."
+  },
+  {
+   "id": "api_caoliu",
+   "kind": "shared_api",
+   "cms_type": "custom_api",
+   "name": "Caoliu/ThePorny AES API",
+   "detection": {
+    "probe": [
+     "GET v2.* hosts (8 hosts rotate)"
+    ],
+    "match": "site uses this api host: v2.* hosts (8 hosts rotate)",
+    "page_feature": "shared api host"
+   },
+   "extraction": {
+    "categories": "30 categories from the api",
+    "list": "24 items per page",
+    "detail": "/sevenVideos/{id}?server=hd1",
+    "search": "/searchSevenVideos",
+    "stream": "POST v2.* /js, header 'Bearer undefined' (literal), response AES-256 decrypted; signed URL valid about 6800s, fetch fresh each time; rotate hosts on blocked 403"
+   },
+   "sources": [
+    "caoliu.py",
+    "theporny.py"
+   ],
+   "verified": true,
+   "note": "caoliu in core, 8/8 tests. Anonymous full-length stream; the 120s preview limit is only in the site player."
+  },
+  {
+   "id": "api_av18",
+   "kind": "shared_api",
+   "cms_type": "custom_api",
+   "name": "AV18 player API",
+   "detection": {
+    "probe": [
+     "GET https://www.18av.ws"
+    ],
+    "match": "site uses this api host: https://www.18av.ws",
+    "page_feature": "shared api host"
+   },
+   "extraction": {
+    "categories": "site nav lists",
+    "list": "/zh/censored_list/all/{page}.html and maker lists",
+    "detail": "site detail page",
+    "search": "site search",
+    "stream": "/js/player/play.php?numresolution="
+   },
+   "sources": [
+    "av18av.py",
+    "av18avmcg.py"
+   ],
+   "verified": true,
+   "note": "av18av verified; av18avmcg is the same player on another domain."
+  },
+  {
+   "id": "site_zakagetav",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "Getav",
+   "detection": {
+    "probe": [
+     "GET https://getav.me/"
+    ],
+    "match": "exact domain match: getav.me",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/api/codes?limit=100&sort=popular; /api/genres?limit=100&sort=popular&locale=zh-CN; /api/movies/"
+   },
+   "sources": [
+    "ZakaGetav.py"
+   ],
+   "verified": true,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakahgdj",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "黄果短剧",
+   "detection": {
+    "probe": [
+     "GET https://huangguoai.com/"
+    ],
+    "match": "exact domain match: huangguoai.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/search/?keyword="
+   },
+   "sources": [
+    "ZakaHgdj.py"
+   ],
+   "verified": true,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakahuangguo",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "https:",
+   "detection": {
+    "probe": [
+     "GET https://ccaed.h2na6qa39.cc/"
+    ],
+    "match": "exact domain match: ccaed.h2na6qa39.cc",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/api/videos/; /api/videos/category/; /api/videos/category/ai-duanju?size=1&page=1"
+   },
+   "sources": [
+    "ZakaHuangguo.py"
+   ],
+   "verified": true,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zaka52av",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "Zaka52av",
+   "detection": {
+    "probe": [
+     "GET https://www.52av.one/"
+    ],
+    "match": "exact domain match: www.52av.one",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/api/; /search.php?mod=forum&srchtxt="
+   },
+   "sources": [
+    "Zaka52av.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakaavcnn",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "🆕🔞AVCNN┃番号女优",
+   "detection": {
+    "probe": [
+     "GET https://avcnn.com/"
+    ],
+    "match": "exact domain match: avcnn.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/api/v1/article-video/; /api/v1/article/; /category/longfilm?tagUuid="
+   },
+   "sources": [
+    "ZakaAvcnn.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakabaoyu",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "🆕🔞鲍鱼盒子┃App直连",
+   "detection": {
+    "probe": [
+     "GET https://103.44.236.131/"
+    ],
+    "match": "exact domain match: 103.44.236.131",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/api/category/category_video?category_id=; /api/index/word_search?keyword=; /api/live/plat/list"
+   },
+   "sources": [
+    "ZakaBaoyu.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakahgdjapp",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "黄果短剧App",
+   "detection": {
+    "probe": [
+     "GET {base}/"
+    ],
+    "match": "domain from the site file",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/api/v1; /search_v3/search"
+   },
+   "sources": [
+    "ZakaHgdjApp.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakahgdjv",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "https:",
+   "detection": {
+    "probe": [
+     "GET https://crksapp.sexbar.site/"
+    ],
+    "match": "exact domain match: crksapp.sexbar.site",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/api/m3u8/decode/by/id?videoId=; /api/search/keyWord?pageSize=20&page=%d&searchWord=%s&searchType=3&shortDrama=true; /api/sys/live"
+   },
+   "sources": [
+    "ZakaHgdjV.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakahuangdou",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "https:",
+   "detection": {
+    "probe": [
+     "GET https://cocoaview.cc/"
+    ],
+    "match": "exact domain match: cocoaview.cc",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/api/drama/detail; /api/drama/hls/; /api/drama/list"
+   },
+   "sources": [
+    "ZakaHuangdou.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakajavplay",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "ZakaJavPlay",
+   "detection": {
+    "probe": [
+     "GET https://ja6play.com/"
+    ],
+    "match": "exact domain match: ja6play.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/api/get_m3u8.php?hid=; /cn/category; /cn/category/"
+   },
+   "sources": [
+    "ZakaJavPlay.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakajavher",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "JavHer",
+   "detection": {
+    "probe": [
+     "GET https://javher.com/"
+    ],
+    "match": "exact domain match: javher.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/api/video/"
+   },
+   "sources": [
+    "ZakaJavher.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakakm2",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "https:",
+   "detection": {
+    "probe": [
+     "GET https://119.28.28.28/"
+    ],
+    "match": "exact domain match: 119.28.28.28",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/api/video/index; /api/video/info"
+   },
+   "sources": [
+    "ZakaKm2.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakapektino",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "推特涩涩",
+   "detection": {
+    "probe": [
+     "GET https://pektino.com/"
+    ],
+    "match": "exact domain match: pektino.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/api/media?; /api/tags; /search?tag="
+   },
+   "sources": [
+    "ZakaPektino.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakaqysq",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "妻友社区",
+   "detection": {
+    "probe": [
+     "GET https://drle7efgg9244.cloudfront.net/"
+    ],
+    "match": "exact domain match: drle7efgg9244.cloudfront.net",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/api/app/media/play; /api/app/media/short/%s?page=%d&limit=%d; /api/app/ping/config"
+   },
+   "sources": [
+    "ZakaQysq.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakautube",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "https:",
+   "detection": {
+    "probe": [
+     "GET https://bak.vkxrpigoi.cc/"
+    ],
+    "match": "exact domain match: bak.vkxrpigoi.cc",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/api.php/api/index/index; /api.php/api/live/detail; /api.php/api/live/index"
+   },
+   "sources": [
+    "ZakaUtube.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakauu",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "Uu视频",
+   "detection": {
+    "probe": [
+     "GET https://aad.ubh19fa.com/"
+    ],
+    "match": "exact domain match: aad.ubh19fa.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/api/v2/home/public/aed/channel/domain; /api/v2/home/public/cdn/image/index; /api/v2/home/public/cdn/index"
+   },
+   "sources": [
+    "ZakaUu.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_bhbox",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "笔盒",
+   "detection": {
+    "probe": [
+     "GET https://bh9085.top/"
+    ],
+    "match": "exact domain match: bh9085.top",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/api/configs?platformType=h5; /api/vod/detail/; /api/vod/latest?page=%d&limit=30"
+   },
+   "sources": [
+    "bhbox.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_dage",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "dage.py",
+   "detection": {
+    "probe": [
+     "GET https://dage.one/"
+    ],
+    "match": "exact domain match: dage.one",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/api/index.json; /api/lists/; /api/play/"
+   },
+   "sources": [
+    "dage.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_hgkpz",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "hgkpz",
+   "detection": {
+    "probe": [
+     "GET https://huanguaa.jykvyq.cn/"
+    ],
+    "match": "exact domain match: huanguaa.jykvyq.cn",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/api/vip/v1/ai/register; /api/vip/v1/video/cateVideoList; /api/vip/v1/video/detail"
+   },
+   "sources": [
+    "hgkpz.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_wuyetv",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "午夜TV",
+   "detection": {
+    "probe": [
+     "GET https://api8.wuye.tv/"
+    ],
+    "match": "exact domain match: api8.wuye.tv",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/api/list/index?cinema=2&page=%d&cid=%s&size=30&isn=0&isfree=-1; /v3/list/MainMenuV3?cinema=2; /v3/video/play?id="
+   },
+   "sources": [
+    "wuyetv.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakaaiye",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "zakaaiye.py",
+   "detection": {
+    "probe": [
+     "GET https://0826.aiyejikou0003.com/"
+    ],
+    "match": "exact domain match: 0826.aiyejikou0003.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/api/home/indextypelist?types=1&type=0; /api/vod/clever?wd=; /api/vod/info?id="
+   },
+   "sources": [
+    "zakaaiye.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakajavverse",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "zakajavverse.py",
+   "detection": {
+    "probe": [
+     "GET https://javverse.com/"
+    ],
+    "match": "exact domain match: javverse.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/api/video/line2; /api/video/sessions; /api/works/"
+   },
+   "sources": [
+    "zakajavverse.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakapigav",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "🔞PIGAV┃朱古力",
+   "detection": {
+    "probe": [
+     "GET https://pigav.com/"
+    ],
+    "match": "exact domain match: pigav.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/api/v1/search/videos?search=; /api/v1/video-channels/; /api/v1/video-channels?start=0&count=20&sort=-updatedAt"
+   },
+   "sources": [
+    "zakapigav.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakav01",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "av01search:",
+   "detection": {
+    "probe": [
+     "GET https://www.av01.media/"
+    ],
+    "match": "exact domain match: www.av01.media",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/videos/search?lang=cn; https://www.av01.media/api/v1"
+   },
+   "sources": [
+    "zakav01.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakawnzs",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "WNZS",
+   "detection": {
+    "probe": [
+     "GET https://wnzsapia.yasqhm.cn/"
+    ],
+    "match": "exact domain match: wnzsapia.yasqhm.cn",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/api/ai/register?appkey=; /api/video/cateVideoList; /api/video/detail"
+   },
+   "sources": [
+    "zakawnzs.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakaykf",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "快播至臻版",
+   "detection": {
+    "probe": [
+     "GET https://dy.ykfryrx.cn/"
+    ],
+    "match": "exact domain match: dy.ykfryrx.cn",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/api/"
+   },
+   "sources": [
+    "zakaykf.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zaketxfans",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "api:search:",
+   "detection": {
+    "probe": [
+     "GET https://txfansmm.com/"
+    ],
+    "match": "exact domain match: txfansmm.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/api/login/device; /api/post/detail; /api/search/post"
+   },
+   "sources": [
+    "zaketxfans.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakadayday",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "zakadayday.py",
+   "detection": {
+    "probe": [
+     "GET https://vjav.tube/"
+    ],
+    "match": "exact domain match: vjav.tube",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/api/json/video/86400/0/%d/%s.json; /api/json/videos2/14400/str/%s/25/top-country.sg.%d.all...json; /api/json/videos2/14400/str/relevance/25/top-country.sg.1.all...json?s="
+   },
+   "sources": [
+    "zakadayday.py"
+   ],
+   "verified": true,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_aimove",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "🔞新黄果短剧",
+   "detection": {
+    "probe": [
+     "GET https://aimove.click/"
+    ],
+    "match": "exact domain match: aimove.click",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/api/dramas; /api/dramas/; /api/dramas/categories"
+   },
+   "sources": [
+    "aimove.py"
+   ],
+   "verified": true,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_badyi",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "🔞八度影院",
+   "detection": {
+    "probe": [
+     "GET https://badyi.cc/"
+    ],
+    "match": "exact domain match: badyi.cc",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/api/search.php?q="
+   },
+   "sources": [
+    "badyi.py"
+   ],
+   "verified": true,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_hgdj58",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "🔞黄果短剧",
+   "detection": {
+    "probe": [
+     "GET https://a2.hgdjap2.com/"
+    ],
+    "match": "exact domain match: a2.hgdjap2.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/api/v1; /api/v1/; /api/v1/auth/guest"
+   },
+   "sources": [
+    "hgdj58.py"
+   ],
+   "verified": true,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_hongluo",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "🔞红裸短剧（成人）",
+   "detection": {
+    "probe": [
+     "GET https://hongluo.co/"
+    ],
+    "match": "exact domain match: hongluo.co",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/api/play/; /api/series/; https://hongluo.co/api/catalog"
+   },
+   "sources": [
+    "hongluo.py"
+   ],
+   "verified": true,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_huai",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "🔞欢爱",
+   "detection": {
+    "probe": [
+     "GET https://sjgyoptiq.hjfwoz.com/"
+    ],
+    "match": "exact domain match: sjgyoptiq.hjfwoz.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/api/cache/common; /api/film-b/buy?vodId=; /api/film-b/paginate"
+   },
+   "sources": [
+    "huai.py"
+   ],
+   "verified": true,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_huangguotv",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "🔞黄果TV短剧",
+   "detection": {
+    "probe": [
+     "GET https://huangguotv.com/"
+    ],
+    "match": "exact domain match: huangguotv.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/api/search?; /category/33"
+   },
+   "sources": [
+    "huangguotv.py"
+   ],
+   "verified": true,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakaav91",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "https:",
+   "detection": {
+    "probe": [
+     "GET https://api3.bwkhawkdv.cc/"
+    ],
+    "match": "exact domain match: api3.bwkhawkdv.cc",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/api.php; https://api3.bwkhawkdv.cc"
+   },
+   "sources": [
+    "ZakaAv91.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakahjapp",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "ZakaHjApp",
+   "detection": {
+    "probe": [
+     "GET https://bapi.pyvllsdyh3.com/"
+    ],
+    "match": "exact domain match: bapi.pyvllsdyh3.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/post/list; https://api.ww5api.com"
+   },
+   "sources": [
+    "ZakaHjApp.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakalxs",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "https:",
+   "detection": {
+    "probe": [
+     "GET https://api.yewlowxe.cc/"
+    ],
+    "match": "exact domain match: api.yewlowxe.cc",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/api.php?t=; https://api.yewlowxe.cc"
+   },
+   "sources": [
+    "ZakaLxs.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakasex8",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "https:",
+   "detection": {
+    "probe": [
+     "GET https://kongsjieie.bar/"
+    ],
+    "match": "exact domain match: kongsjieie.bar",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "site-specific"
+   },
+   "sources": [
+    "ZakaSex8.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_dsav",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "dsav.py",
+   "detection": {
+    "probe": [
+     "GET https://dsav.app/"
+    ],
+    "match": "exact domain match: dsav.app",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/videos/search?id=; /videos/search?page=%d&page_size=20; /videos/search?q="
+   },
+   "sources": [
+    "dsav.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_thdh",
+   "kind": "site",
+   "cms_type": "custom_api",
+   "name": "thdh",
+   "detection": {
+    "probe": [
+     "GET https://thdhhaj.xyz/"
+    ],
+    "match": "exact domain match: thdhhaj.xyz",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "site-specific"
+   },
+   "sources": [
+    "thdh.py"
+   ],
+   "verified": true,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakajavwine",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "🆕🔞JAV.WINE┃日系高清",
+   "detection": {
+    "probe": [
+     "GET https://jav.wine/"
+    ],
+    "match": "exact domain match: jav.wine",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "site-specific"
+   },
+   "sources": [
+    "ZakaJavwine.py"
+   ],
+   "verified": true,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakapornhub",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "KEY=",
+   "detection": {
+    "probe": [
+     "GET https://cn.pornhub1.icu/"
+    ],
+    "match": "exact domain match: cn.pornhub1.icu",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/video/search?search="
+   },
+   "sources": [
+    "ZakaPornhub.py"
+   ],
+   "verified": true,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakarou",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "ZakaRou.py",
+   "detection": {
+    "probe": [
+     "GET https://rou1.art/"
+    ],
+    "match": "exact domain match: rou1.art",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/search?q="
+   },
+   "sources": [
+    "ZakaRou.py"
+   ],
+   "verified": true,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakasupjav",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "ZakaSupjav.py",
+   "detection": {
+    "probe": [
+     "GET https://py.fzcrym.link/"
+    ],
+    "match": "exact domain match: py.fzcrym.link",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/category/"
+   },
+   "sources": [
+    "ZakaSupjav.py"
+   ],
+   "verified": true,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakaxhamster",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "ZakaXhamster.py",
+   "detection": {
+    "probe": [
+     "GET https://zh.xhamster1.cc/"
+    ],
+    "match": "exact domain match: zh.xhamster1.cc",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/search/"
+   },
+   "sources": [
+    "ZakaXhamster.py"
+   ],
+   "verified": true,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_airav",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "airav.py",
+   "detection": {
+    "probe": [
+     "GET https://airav.io/"
+    ],
+    "match": "exact domain match: airav.io",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/list?idx=; /list?sort=; /search_result?kw="
+   },
+   "sources": [
+    "airav.py"
+   ],
+   "verified": true,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zaka123av",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "Zaka123av.py",
+   "detection": {
+    "probe": [
+     "GET https://123av.com/"
+    ],
+    "match": "exact domain match: 123av.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/en/search?keyword="
+   },
+   "sources": [
+    "Zaka123av.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakajable",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "ZakaJable.py",
+   "detection": {
+    "probe": [
+     "GET https://jable1.com/"
+    ],
+    "match": "exact domain match: jable1.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/search/"
+   },
+   "sources": [
+    "ZakaJable.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakajavhd",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "🆕🔞JavHD中文字幕┃日本管",
+   "detection": {
+    "probe": [
+     "GET https://javhd.today/"
+    ],
+    "match": "exact domain match: javhd.today",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "site-specific"
+   },
+   "sources": [
+    "ZakaJavhd.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakamjv011",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "https:",
+   "detection": {
+    "probe": [
+     "GET https://mjv011.com/"
+    ],
+    "match": "exact domain match: mjv011.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "site-specific"
+   },
+   "sources": [
+    "ZakaMjv011.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakapb",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "ZakaPb.py",
+   "detection": {
+    "probe": [
+     "GET https://pb365.top/"
+    ],
+    "match": "exact domain match: pb365.top",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/list-1.htm; /list-1.htm?sort=hot; /search-"
+   },
+   "sources": [
+    "ZakaPb.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakawhos",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "ZakaWhos.py",
+   "detection": {
+    "probe": [
+     "GET https://whos.tv/"
+    ],
+    "match": "exact domain match: whos.tv",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "site-specific"
+   },
+   "sources": [
+    "ZakaWhos.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_av18avmcg",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "🆕🔞18AV主站┃本地代理",
+   "detection": {
+    "probe": [
+     "GET https://18av.mm-cg.com/"
+    ],
+    "match": "exact domain match: 18av.mm-cg.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/js/player/play.php?numresolution="
+   },
+   "sources": [
+    "av18avmcg.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_avbigplat",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "avbigplat.py",
+   "detection": {
+    "probe": [
+     "GET https://www.9sex.tv/"
+    ],
+    "match": "exact domain match: www.9sex.tv",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/tw/search?q="
+   },
+   "sources": [
+    "avbigplat.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_go2av",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "go2av.py",
+   "detection": {
+    "probe": [
+     "GET https://go2av.com/"
+    ],
+    "match": "exact domain match: go2av.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/a/censored/list_6_%d.html; /a/ch/list_5_%d.html; /a/uncensored/list_7_%d.html"
+   },
+   "sources": [
+    "go2av.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_jav777",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "jav777.py",
+   "detection": {
+    "probe": [
+     "GET https://www.jav777.xyz/"
+    ],
+    "match": "exact domain match: www.jav777.xyz",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/category/"
+   },
+   "sources": [
+    "jav777.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_mmtv7",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "mmtv7.py",
+   "detection": {
+    "probe": [
+     "GET https://7mmtv.sx/"
+    ],
+    "match": "exact domain match: 7mmtv.sx",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/en/searchall_search/all/"
+   },
+   "sources": [
+    "mmtv7.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zaka520av",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "520AV影城",
+   "detection": {
+    "probe": [
+     "GET https://520avtv.com/"
+    ],
+    "match": "exact domain match: 520avtv.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/video/category/%s/; /video/category/%s/%d; /video/category/1/"
+   },
+   "sources": [
+    "zaka520av.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakajavmap",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "🔞JAVMAP┃日本AV大全",
+   "detection": {
+    "probe": [
+     "GET https://javmap.com/"
+    ],
+    "match": "exact domain match: javmap.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/e/search/index.php"
+   },
+   "sources": [
+    "zakajavmap.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_jav",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "jav.py",
+   "detection": {
+    "probe": [
+     "GET https://j-av.com/"
+    ],
+    "match": "exact domain match: j-av.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/player/; /player/twvid/sw.php?id="
+   },
+   "sources": [
+    "jav.py"
+   ],
+   "verified": true,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zggjav",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "zggjav.py",
+   "detection": {
+    "probe": [
+     "GET https://ggjav.com/"
+    ],
+    "match": "exact domain match: ggjav.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/main/search?string="
+   },
+   "sources": [
+    "zggjav.py"
+   ],
+   "verified": true,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_91crdjai",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "🔞91成人短剧",
+   "detection": {
+    "probe": [
+     "GET https://91crdjai.com/"
+    ],
+    "match": "exact domain match: 91crdjai.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/search/"
+   },
+   "sources": [
+    "91crdjai.py"
+   ],
+   "verified": true,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_dabaitu",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "🔞大白兔漫社",
+   "detection": {
+    "probe": [
+     "GET https://dabaitu-mh.cc/"
+    ],
+    "match": "exact domain match: dabaitu-mh.cc",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "site-specific"
+   },
+   "sources": [
+    "dabaitu.py"
+   ],
+   "verified": true,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_hbook",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "🔞HBook",
+   "detection": {
+    "probe": [
+     "GET https://hbook.tv/"
+    ],
+    "match": "exact domain match: hbook.tv",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "site-specific"
+   },
+   "sources": [
+    "hbook.py"
+   ],
+   "verified": true,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_iqqr2",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "iQQTV",
+   "detection": {
+    "probe": [
+     "GET https://iqqr2.org/"
+    ],
+    "match": "exact domain match: iqqr2.org",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "site-specific"
+   },
+   "sources": [
+    "iqqr2.py"
+   ],
+   "verified": true,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_jav188",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "🔞AV18.Live",
+   "detection": {
+    "probe": [
+     "GET https://jav188.net/"
+    ],
+    "match": "exact domain match: jav188.net",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/category.php?cate=1; /category.php?cate=2; /category.php?cate=3"
+   },
+   "sources": [
+    "jav188.py"
+   ],
+   "verified": true,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_swagr",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "SWAG资源合集",
+   "detection": {
+    "probe": [
+     "GET https://zi.ri511.xyz/"
+    ],
+    "match": "exact domain match: zi.ri511.xyz",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/category; /category/; /search?content="
+   },
+   "sources": [
+    "swagr.py"
+   ],
+   "verified": true,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_tanhua91",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "🔞九色",
+   "detection": {
+    "probe": [
+     "GET https://www.91tanhua196.sbs/"
+    ],
+    "match": "exact domain match: www.91tanhua196.sbs",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/search?keywords=; /video/category/"
+   },
+   "sources": [
+    "tanhua91.py"
+   ],
+   "verified": true,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakahjw",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "海角网",
+   "detection": {
+    "probe": [
+     "GET https://hjw01.com/"
+    ],
+    "match": "exact domain match: hjw01.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/search/"
+   },
+   "sources": [
+    "ZakaHjw.py"
+   ],
+   "verified": true,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakahl365",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "https:",
+   "detection": {
+    "probe": [
+     "GET https://hl365.com/"
+    ],
+    "match": "exact domain match: hl365.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/category/; /search/"
+   },
+   "sources": [
+    "ZakaHl365.py"
+   ],
+   "verified": true,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakajavrate",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "ZakaJavrate.py",
+   "detection": {
+    "probe": [
+     "GET https://www.javrate.com/"
+    ],
+    "match": "exact domain match: www.javrate.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/actor/list/; /actor/list/1-0-1.html; /actor/list/1-1-1.html"
+   },
+   "sources": [
+    "ZakaJavrate.py"
+   ],
+   "verified": true,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_wukong",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "Wukong",
+   "detection": {
+    "probe": [
+     "GET https://3ng23h0f.niumochishi06.sbs/"
+    ],
+    "match": "exact domain match: 3ng23h0f.niumochishi06.sbs",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/play/; /vod/"
+   },
+   "sources": [
+    "Wukong.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakaavple",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "🆕🔞AVPle┃免盾直取",
+   "detection": {
+    "probe": [
+     "GET https://avple.ystv.top/"
+    ],
+    "match": "exact domain match: avple.ystv.top",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/list?cat=; /search?kw="
+   },
+   "sources": [
+    "ZakaAvple.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakacrdj",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "Crdj",
+   "detection": {
+    "probe": [
+     "GET https://91crdj.com/"
+    ],
+    "match": "exact domain match: 91crdj.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/search"
+   },
+   "sources": [
+    "ZakaCrdj.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakacucumber",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "https:",
+   "detection": {
+    "probe": [
+     "GET https://cuke01.live/"
+    ],
+    "match": "exact domain match: cuke01.live",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/actor/movie/list; /es/mov/search; /home/actor/list"
+   },
+   "sources": [
+    "ZakaCucumber.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakahddj",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "Hddj",
+   "detection": {
+    "probe": [
+     "GET {base}/"
+    ],
+    "match": "domain from the site file",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "site-specific"
+   },
+   "sources": [
+    "ZakaHddj.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakahsck",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "Hsck",
+   "detection": {
+    "probe": [
+     "GET https://hsck123.com/"
+    ],
+    "match": "exact domain match: hsck123.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "site-specific"
+   },
+   "sources": [
+    "ZakaHsck.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakajavguru",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "ZakaJavguru",
+   "detection": {
+    "probe": [
+     "GET https://jav.guru/"
+    ],
+    "match": "exact domain match: jav.guru",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/category/"
+   },
+   "sources": [
+    "ZakaJavguru.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakajm",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "Jm",
+   "detection": {
+    "probe": [
+     "GET https://javmenu.com/"
+    ],
+    "match": "exact domain match: javmenu.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "site-specific"
+   },
+   "sources": [
+    "ZakaJm.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakamd",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "https:",
+   "detection": {
+    "probe": [
+     "GET https://spi.d5c4a712.com/"
+    ],
+    "match": "exact domain match: spi.d5c4a712.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/video/list; /video/listcache"
+   },
+   "sources": [
+    "ZakaMd.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakamirror",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "Mirror",
+   "detection": {
+    "probe": [
+     "GET https://www.thisav.my/"
+    ],
+    "match": "exact domain match: www.thisav.my",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "site-specific"
+   },
+   "sources": [
+    "ZakaMirror.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakamissavoff",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "MissavOff",
+   "detection": {
+    "probe": [
+     "GET https://missav.live/"
+    ],
+    "match": "exact domain match: missav.live",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "site-specific"
+   },
+   "sources": [
+    "ZakaMissavOff.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakanjav",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "🆕🔞nJAV┃中字无码",
+   "detection": {
+    "probe": [
+     "GET https://www.njav.com/"
+    ],
+    "match": "exact domain match: www.njav.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "site-specific"
+   },
+   "sources": [
+    "ZakaNjav.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakaxj",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "https:",
+   "detection": {
+    "probe": [
+     "GET https://lw7k481j3l003h95pnwf.xjspapps.com/"
+    ],
+    "match": "exact domain match: lw7k481j3l003h95pnwf.xjspapps.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/search?page=%d&wd=%s; /special/listing-0-0-1; /vod/%s-0-0-0-0-0-0-0-0-0-%d"
+   },
+   "sources": [
+    "ZakaXj.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_kuaihuo",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "es:",
+   "detection": {
+    "probe": [
+     "GET https://tbryy.opsizte.com/"
+    ],
+    "match": "exact domain match: tbryy.opsizte.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "https://ser.m3u8111222333.com/.netlify/functions/search"
+   },
+   "sources": [
+    "kuaihuo.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_missavt",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "missavt",
+   "detection": {
+    "probe": [
+     "GET https://missavt.com/"
+    ],
+    "match": "exact domain match: missavt.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/search/"
+   },
+   "sources": [
+    "missavt.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_pj5ti",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "pj5ti.py",
+   "detection": {
+    "probe": [
+     "GET https://www.pj5ti.com/"
+    ],
+    "match": "exact domain match: www.pj5ti.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/videos/play"
+   },
+   "sources": [
+    "pj5ti.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_qishe",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "qishe",
+   "detection": {
+    "probe": [
+     "GET https://qs.qsh52693.org.cn/"
+    ],
+    "match": "exact domain match: qs.qsh52693.org.cn",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "site-specific"
+   },
+   "sources": [
+    "qishe.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zaka_yue2",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "阅妹阁模块2",
+   "detection": {
+    "probe": [
+     "GET https://javdb.com/"
+    ],
+    "match": "exact domain match: javdb.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "site-specific"
+   },
+   "sources": [
+    "zaka-yue2.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zaka99jj",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "zaka99jj.py",
+   "detection": {
+    "probe": [
+     "GET https://www.99jj25.com/"
+    ],
+    "match": "exact domain match: www.99jj25.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "site-specific"
+   },
+   "sources": [
+    "zaka99jj.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakaaoxx69",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "🔞AOXX69┃亞洲綜合",
+   "detection": {
+    "probe": [
+     "GET https://www.aoxx69.app/"
+    ],
+    "match": "exact domain match: www.aoxx69.app",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "site-specific"
+   },
+   "sources": [
+    "zakaaoxx69.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakajuyin",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "zakajuyin.py",
+   "detection": {
+    "probe": [
+     "GET https://juy2.cc/"
+    ],
+    "match": "exact domain match: juy2.cc",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/list/video/"
+   },
+   "sources": [
+    "zakajuyin.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakaseku",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "阅妹阁",
+   "detection": {
+    "probe": [
+     "GET https://tv506.ystv.top/"
+    ],
+    "match": "exact domain match: tv506.ystv.top",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "site-specific"
+   },
+   "sources": [
+    "zakaseku.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakaxj",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "香蕉视频",
+   "detection": {
+    "probe": [
+     "GET https://lw7k481j3l003h95pnwf.xjspapps.com/"
+    ],
+    "match": "exact domain match: lw7k481j3l003h95pnwf.xjspapps.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/search?page=%d&wd=%s; /special/listing-0-0-%d; /vod/"
+   },
+   "sources": [
+    "zakaxj.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_zakaxszav",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "zakaxszav.py",
+   "detection": {
+    "probe": [
+     "GET https://cn.xsz-av.com/"
+    ],
+    "match": "exact domain match: cn.xsz-av.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/search/videos/"
+   },
+   "sources": [
+    "zakaxszav.py"
+   ],
+   "verified": false,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_jack20",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "jack20.py",
+   "detection": {
+    "probe": [
+     "GET https://20jack.com/"
+    ],
+    "match": "exact domain match: 20jack.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/player-x.php?q="
+   },
+   "sources": [
+    "jack20.py"
+   ],
+   "verified": true,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_duanjuone",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "🔞短剧one",
+   "detection": {
+    "probe": [
+     "GET https://duanju.one/"
+    ],
+    "match": "exact domain match: duanju.one",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/player/drama/"
+   },
+   "sources": [
+    "duanjuone.py"
+   ],
+   "verified": true,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_hgtvim",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "🔞黄果短剧HGTV",
+   "detection": {
+    "probe": [
+     "GET https://hgtv.im/"
+    ],
+    "match": "exact domain match: hgtv.im",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/category/; /play/; /search/"
+   },
+   "sources": [
+    "hgtvim.py"
+   ],
+   "verified": true,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  },
+  {
+   "id": "site_nvdi",
+   "kind": "site",
+   "cms_type": "custom_html",
+   "name": "女帝",
+   "detection": {
+    "probe": [
+     "GET https://greplhggmqxb8hcj.nvdi81ptfe3lhved.com/"
+    ],
+    "match": "exact domain match: greplhggmqxb8hcj.nvdi81ptfe3lhved.com",
+    "page_feature": "site-specific"
+   },
+   "extraction": {
+    "categories": "site-specific",
+    "list": "site-specific",
+    "detail": "site-specific",
+    "search": "site-specific",
+    "stream": "/category.html?cat=%s&pageNo=%d&pageSize=20; /search.html?keyword=%s&pageNo=%d&pageSize=20; /search.html?keyword=%s&pageNo=1&pageSize=20"
+   },
+   "sources": [
+    "nvdi.py"
+   ],
+   "verified": true,
+   "note": "Singleton: no other collected site shares this extraction pattern."
+  }
+ ]
+}

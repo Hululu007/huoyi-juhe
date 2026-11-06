@@ -113,6 +113,8 @@ flutter:
     - assets/config/device_pool.example.json
     - assets/filters/
     - assets/plugins/
+    - assets/onekey_templates.json
+    - assets/py_tools/yijianxiepy.py
     - assets/images/app_logo.webp
     - assets/images/bubble/
     # 评论/回复正文的官方表情（`emoji_config.json` 的 53 个令牌），
