@@ -598,9 +598,6 @@ Future<void> openDramaSitePlayback(
             eps: chapters,
             startIndex: safeIndex,
             shortSeries: true,
-            // 影视区专属：原生播失败（解码失败）时切 MPV 兜底页。
-            // 短剧不走这里，不传即关。
-            mpvFallbackEnabled: true,
             onAddToShelf: () => addToShelf(kind: shelfKind('video')),
             initialSeriesDetail: initialDetail,
             seriesLoader: initialDetail == null
