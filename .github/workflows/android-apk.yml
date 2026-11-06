@@ -47,7 +47,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  FLUTTER_VERSION: '3.44.6'
+  # r12: 3.44.6 cannot resolve the lockfile — image_picker_ios and
+  # webview_flutter_wkwebview (transitive deps of the new image_picker /
+  # webview_flutter) require Flutter >=3.47.0. Local dev SDK is 3.47.8.
+  FLUTTER_VERSION: '3.47.8'
   # Pinned flutter_rust_bridge toolchain. The Rust crate, the generated bindings
   # and the codegen binary must all be the same version.
   FRB_VERSION: '2.13.0'
