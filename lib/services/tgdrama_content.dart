@@ -315,7 +315,7 @@ class TgdramaContentClient implements DramaSiteContentClient {
 
   /// 频道详情：标题取 name（没有回退“频道 + id”），简介写频道信息。
   /// 分集为空：频道不是剧，没有可播的分集；点开频道看它收录的剧
-  /// 走频道剧列表页（catalog('channel:<id>') 读本地库），不走这里。
+  /// 走频道剧列表页（catalog('channel:id') 读本地库），不走这里。
   /// 详情页对空分集显示空选集区，不会崩。
   static DramaSiteDetail parseChannelDetail(
     Map<String, dynamic> node,

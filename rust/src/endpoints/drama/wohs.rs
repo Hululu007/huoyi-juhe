@@ -162,9 +162,7 @@ fn slug_of(s: &str) -> String {
 /// jar 的 timeOf：首个 `h:mm:ss`。
 fn time_of(s: &str) -> String {
     let re = Regex::new(r"(\d{1,2}:\d{2}:\d{2})").unwrap();
-    re.captures(s)
-        .map(|c| c[1].to_string())
-        .unwrap_or_default()
+    re.captures(s).map(|c| c[1].to_string()).unwrap_or_default()
 }
 
 /// jar 的 secOf：`h:mm:ss` 转秒数。
@@ -199,8 +197,7 @@ fn enc(parts: &[&str]) -> String {
 
 /// jar 的 dec：base64url（无填充）解开后按 \x1f 切分。
 fn dec(id: &str) -> Vec<String> {
-    let decoded = match base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(id.as_bytes())
-    {
+    let decoded = match base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(id.as_bytes()) {
         Ok(b) => b,
         Err(_) => {
             return Vec::new();
@@ -455,34 +452,28 @@ fn parse_video_info(html: &str) -> VideoInfo {
     if let Some(c) = h1_re.captures(html) {
         info.title = strip_tags(&c[1]);
     }
-    let desc_re =
-        Regex::new(r#"<meta name="description" content="([^"]{0,400})""#).unwrap();
+    let desc_re = Regex::new(r#"<meta name="description" content="([^"]{0,400})""#).unwrap();
     if let Some(c) = desc_re.captures(html) {
         info.content = c[1].trim().to_string();
     }
-    let cover_re =
-        Regex::new(r"(https://v\.hersav\.me/images/av/[a-f0-9]+\.jpg)").unwrap();
+    let cover_re = Regex::new(r"(https://v\.hersav\.me/images/av/[a-f0-9]+\.jpg)").unwrap();
     if let Some(c) = cover_re.captures(html) {
         info.cover = c[1].to_string();
     }
-    let preview_re =
-        Regex::new(r#"data-preview-source="(https?://[^"]+\.m3u8[^"]*)""#).unwrap();
+    let preview_re = Regex::new(r#"data-preview-source="(https?://[^"]+\.m3u8[^"]*)""#).unwrap();
     if let Some(c) = preview_re.captures(html) {
         info.m3u8 = c[1].to_string();
     } else {
-        let fallback_re =
-            Regex::new(r"(https://v\.hersav\.me/[a-f0-9]+/[a-f0-9]+\.m3u8)").unwrap();
+        let fallback_re = Regex::new(r"(https://v\.hersav\.me/[a-f0-9]+/[a-f0-9]+\.m3u8)").unwrap();
         if let Some(c) = fallback_re.captures(html) {
             info.m3u8 = c[1].to_string();
         }
     }
-    let min_re =
-        Regex::new(r"时长[：:]?</span>\s*<span[^>]*>([^<]{1,24})</span>").unwrap();
+    let min_re = Regex::new(r"时长[：:]?</span>\s*<span[^>]*>([^<]{1,24})</span>").unwrap();
     if let Some(c) = min_re.captures(html) {
         info.minutes = c[1].trim().to_string();
     }
-    let date_re =
-        Regex::new(r"发行日期</span>\s*<span[^>]*>([^<]{4,24})</span>").unwrap();
+    let date_re = Regex::new(r"发行日期</span>\s*<span[^>]*>([^<]{4,24})</span>").unwrap();
     if let Some(c) = date_re.captures(html) {
         info.date = c[1].trim().to_string();
     } else {
@@ -626,7 +617,12 @@ pub(crate) async fn detail(id: &str) -> ApiResult<Value> {
             } else {
                 slug.clone()
             };
-            let cover = videos.first().and_then(|v| v.get("cover")).and_then(|c| c.as_str()).unwrap_or("").to_string();
+            let cover = videos
+                .first()
+                .and_then(|v| v.get("cover"))
+                .and_then(|c| c.as_str())
+                .unwrap_or("")
+                .to_string();
             let mut episodes = Vec::new();
             for (i, v) in videos.iter().enumerate() {
                 let vid = v.get("id").and_then(|x| x.as_str()).unwrap_or("");

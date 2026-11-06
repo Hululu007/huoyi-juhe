@@ -82,7 +82,7 @@ class TgdramaService with WidgetsBindingObserver {
   /// TgdramaChannelDb）。只读，不写库。
   static const databaseFileName = 'tgdrama.db';
 
-  /// 插件本地库路径：<supportDir>/tgdrama/tgdrama.db。只拼路径不碰
+  /// 插件本地库路径：supportDir/tgdrama/tgdrama.db。只拼路径不碰
   /// 文件系统，文件不一定存在（插件没跑过/没同步过），调用方先判存在。
   Future<String> databasePath() async {
     final supportDir = await _supportDirProvider();
