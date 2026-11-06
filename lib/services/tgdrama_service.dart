@@ -8,6 +8,8 @@ import 'package:flutter/widgets.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
+import 'tgdrama_credentials.dart';
+
 /// TG影视库插件（tgdrama-android）本地服务管理。
 ///
 /// 插件是 Go 写的 ARM64 二进制，直连 Telegram，对外只暴露一个本地 HTTP
@@ -69,7 +71,12 @@ class TgdramaService with WidgetsBindingObserver {
   static const defaultPort = 5278;
 
   /// 打包进安装包的二进制 asset 路径。
-  static const binaryAssetPath = 'assets/bin/tgdrama-android';
+  static const binaryAssetPath = 'assets/tgdrama/tgdrama-android';
+
+  /// 预置登录会话 asset 路径（构建期由 Telethon 会话转换生成，
+  /// 构建期临时文件，.gitignore 隔离、绝不提交）。
+  /// 装包后首次启动时写到插件数据目录，插件一启动就是已登录。
+  static const sessionAssetPath = 'assets/tgdrama_session.json';
 
   /// 二进制 MD5（2026-11-06 实测，与 ~/workspace/tgdrama_plugin/
   /// tgdrama-android 一致）；落盘时校验，对不上重拷自愈。
@@ -163,6 +170,10 @@ class TgdramaService with WidgetsBindingObserver {
       _lastError = 'TG影视库二进制解压失败：$error';
       return false;
     }
+    // 预置会话与凭证：首次启动把包里的 session.json 写到插件数据目录
+    //（已登录就不覆盖），并补 config.yaml 的 Telegram API 凭证。
+    // 全部 best-effort：失败不拦启动，登录页仍可扫码/输手机号重登。
+    await _seedSessionAndConfig(File(binaryPath).parent);
     try {
       final chmodResult = await Process.run('chmod', ['755', binaryPath]);
       if (chmodResult.exitCode != 0) {
@@ -393,5 +404,34 @@ class TgdramaService with WidgetsBindingObserver {
       bytes.buffer.asUint8List(bytes.offsetInBytes, bytes.lengthInBytes),
     );
     return target.path;
+  }
+
+  /// 预置会话与凭证（首次启动，best-effort，失败不拦插件启动）。
+  ///
+  /// ①会话：插件数据目录下还没有 session.json 时，把安装包里带的
+  /// 预置 session.json（assets/tgdrama_session.json，构建期由用户
+  /// 自己的 Telethon 会话转换生成）写进去，插件一启动就是已登录。
+  /// 已有 session.json（用户已扫码/输手机号登过）绝不覆盖。
+  /// ②凭证：config.yaml 缺失或无 api_id/api_hash 时，用构建期注入的
+  /// 凭证写一份（见 TgdramaCredentials）。
+  /// 会话文件只写进应用私有目录，不打印、不记日志。
+  Future<void> _seedSessionAndConfig(Directory tgdramaDir) async {
+    try {
+      final sessionFile = File('${tgdramaDir.path}/session.json');
+      if (!await sessionFile.exists()) {
+        try {
+          final bytes = await _assetLoader(sessionAssetPath);
+          await sessionFile.writeAsBytes(
+            bytes.buffer.asUint8List(bytes.offsetInBytes, bytes.lengthInBytes),
+            flush: true,
+          );
+        } catch (_) {
+          // 包里没打预置会话（构建期未生成）：跳过，登录页仍可扫码重登。
+        }
+      }
+    } catch (_) {}
+    try {
+      await TgdramaCredentials.ensureConfigYaml(tgdramaDir);
+    } catch (_) {}
   }
 }

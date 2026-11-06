@@ -84,3 +84,7 @@ _sessionzip/
 
 # 代理执行入口含本地资料路径与内部判据编号，与 docs/ 同样只保留在本地。
 /AGENTS.md
+
+# TG影视库预置登录会话：完整的 Telegram 登录态，绝不提交。
+# 构建期由转换脚本（本地）或 TG_SESSION_JSON_B64 密钥（CI）生成。
+assets/tgdrama_session.json

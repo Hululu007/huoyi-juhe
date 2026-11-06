@@ -42,6 +42,23 @@ void main() {
   });
 
   Future<ByteData> realBinaryBytes(String assetPath) async {
+    if (assetPath == TgdramaService.sessionAssetPath) {
+      // 预置会话：测试用假会话字节（不读树里真实的 session.json，
+      // 不碰用户真会话；只验“原样写进去”与“已有不覆盖”）。
+      const fakeSession =
+          '{"Version":1,"Data":{"Config":{},"DC":5,"Addr":"1.2.3.4:443",'
+          '"AuthKey":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+          'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+          'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+          'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+          'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+          'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+          'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",'
+          '"AuthKeyID":"AAAAAAAAAAA=","Salt":0}}';
+      return ByteData.view(
+        Uint8List.fromList(utf8.encode(fakeSession)).buffer,
+      );
+    }
     expect(assetPath, TgdramaService.binaryAssetPath);
     final bytes = await File(assetPath).readAsBytes();
     return ByteData.view(Uint8List.fromList(bytes).buffer);
@@ -140,9 +157,14 @@ void main() {
   });
 
   test('已落盘且 MD5 对得上时复用，不重拷；对不上重拷自愈', () async {
-    var assetLoads = 0;
+    var binaryLoads = 0;
+    var sessionLoads = 0;
     Future<ByteData> countingLoader(String assetPath) async {
-      assetLoads++;
+      if (assetPath == TgdramaService.sessionAssetPath) {
+        sessionLoads++;
+      } else {
+        binaryLoads++;
+      }
       return realBinaryBytes(assetPath);
     }
 
@@ -156,7 +178,9 @@ void main() {
       assetLoader: countingLoader,
     );
     expect(await service.ensureRunning(), isTrue);
-    expect(assetLoads, 1);
+    expect(binaryLoads, 1);
+    // 首次启动：预置会话也从 asset 写一份（session.json 原先不存在）。
+    expect(sessionLoads, 1);
     expect(
       md5
           .convert(
@@ -166,13 +190,50 @@ void main() {
       TgdramaService.binaryMd5,
     );
 
-    // 第二次：MD5 已对上，asset 不再加载。
+    // 第二次：二进制 MD5 已对上、会话已存在，asset 不再加载。
     final second = createService(
       client: clientFor(),
       assetLoader: countingLoader,
     );
     expect(await second.ensureRunning(), isTrue);
-    expect(assetLoads, 1);
+    expect(binaryLoads, 1);
+    expect(sessionLoads, 1);
+  });
+
+  test('首次启动把预置 session.json 写进插件目录，已有会话不覆盖', () async {
+    final service = createService(client: clientFor());
+    expect(await service.ensureRunning(), isTrue);
+    final sessionFile = File('${tempDir.path}/tgdrama/session.json');
+    expect(await sessionFile.exists(), isTrue);
+    // 与测试注入的假会话字节一致（只比字节，不打印内容）。
+    final written = await sessionFile.readAsString();
+    expect(written, contains('"Version":1'));
+    expect(written, contains('"DC":5'));
+
+    // 已有会话：改写内容后重跑 ensureRunning，不应被覆盖。
+    await sessionFile.writeAsBytes([7, 7, 7]);
+    final second = createService(client: clientFor());
+    expect(await second.ensureRunning(), isTrue);
+    expect(await sessionFile.readAsBytes(), [7, 7, 7]);
+  });
+
+  test('包里没有预置会话时启动仍成功（best-effort，不拦插件）', () async {
+    Future<ByteData> noSessionLoader(String assetPath) async {
+      if (assetPath == TgdramaService.sessionAssetPath) {
+        throw StateError('no session asset');
+      }
+      return realBinaryBytes(assetPath);
+    }
+
+    final service = createService(
+      client: clientFor(),
+      assetLoader: noSessionLoader,
+    );
+    expect(await service.ensureRunning(), isTrue);
+    expect(
+      await File('${tempDir.path}/tgdrama/session.json').exists(),
+      isFalse,
+    );
   });
 
   test('健康检查一直失败回 false 且 lastError 有内容', () async {

@@ -1,6 +1,10 @@
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
+
+import 'tgdrama_credentials.dart';
 
 /// 手机号登录是否可用，以及给用户看的中文原因。
 class PhoneLoginAvailability {
@@ -23,72 +27,180 @@ class PhoneLoginAvailability {
 /// 不自己拼 MTProto、不在 Dart 里算验证码、不写假的成功。
 class TgdramaPhoneLoginService {
   TgdramaPhoneLoginService({
-    Directory? docsDir,
+    Directory? supportDir,
     String? helperPath,
     String? configPath,
     String? sessionPath,
     String? statePath,
     Future<ProcessResult> Function(String executable, List<String> args)?
         runProcess,
-  })  : _docsDirOverride = docsDir,
+    Future<ByteData> Function(String assetPath)? assetLoader,
+    this._bundledApiId,
+    this._bundledApiHash,
+  })  : _supportDirOverride = supportDir,
         _helperPathOverride = helperPath,
         _configPathOverride = configPath,
         _sessionPathOverride = sessionPath,
         _statePathOverride = statePath,
-        _runProcess = runProcess ?? Process.run;
+        _runProcess = runProcess ?? Process.run,
+        _assetLoader = assetLoader ?? rootBundle.load;
 
-  final Directory? _docsDirOverride;
+  final Directory? _supportDirOverride;
   final String? _helperPathOverride;
   final String? _configPathOverride;
   final String? _sessionPathOverride;
   final String? _statePathOverride;
   final Future<ProcessResult> Function(String executable, List<String> args)
       _runProcess;
+  final Future<ByteData> Function(String assetPath) _assetLoader;
 
+  /// 构建期注入的凭证（测试注入用；运行时默认读
+  /// TgdramaCredentials 的 --dart-define 值）。
+  final String? _bundledApiId;
+  final String? _bundledApiHash;
+
+  static const String helperAssetPath = 'assets/tgdrama/tgphone';
   static const String helperRelativePath = 'tgdrama/tgphone';
   static const String configRelativePath = 'tgdrama/config.yaml';
   static const String sessionRelativePath = 'tgdrama/session.json';
   static const String stateRelativePath = 'tgdrama/phone_login_state.json';
 
-  Future<Directory> _docsDir() async {
-    final override = _docsDirOverride;
+  /// 助手与插件共用一个私有目录：getApplicationSupportDirectory()
+  /// 下的 tgdrama/（插件二进制也在该目录，见 TgdramaService），
+  /// 这样助手写的 session.json 与插件读的是同一份。
+  Future<Directory> _supportDir() async {
+    final override = _supportDirOverride;
     if (override != null) return override;
-    return getApplicationDocumentsDirectory();
+    return getApplicationSupportDirectory();
+  }
+
+  Future<Directory> _tgdramaDir() async {
+    final support = await _supportDir();
+    return Directory('${support.path}/tgdrama');
   }
 
   Future<String> _helperPath() async {
     final override = _helperPathOverride;
     if (override != null) return override;
-    final docs = await _docsDir();
-    return '${docs.path}/$helperRelativePath';
+    final dir = await _tgdramaDir();
+    return '${dir.path}/tgphone';
   }
 
   Future<String> _configPath() async {
     final override = _configPathOverride;
     if (override != null) return override;
-    final docs = await _docsDir();
-    return '${docs.path}/$configRelativePath';
+    final dir = await _tgdramaDir();
+    return '${dir.path}/config.yaml';
   }
 
   Future<String> _sessionPath() async {
     final override = _sessionPathOverride;
     if (override != null) return override;
-    final docs = await _docsDir();
-    return '${docs.path}/$sessionRelativePath';
+    final dir = await _tgdramaDir();
+    return '${dir.path}/session.json';
   }
 
   Future<String> _statePath() async {
     final override = _statePathOverride;
     if (override != null) return override;
-    final docs = await _docsDir();
-    return '${docs.path}/$stateRelativePath';
+    final dir = await _tgdramaDir();
+    return '${dir.path}/phone_login_state.json';
   }
 
-  /// 检查手机号登录能不能用。检查两项：
+  /// 构建期注入的凭证（测试可注入假凭证；运行时读 --dart-define）。
+  String get _apiId => _bundledApiId ?? TgdramaCredentials.apiId;
+  String get _apiHash => _bundledApiHash ?? TgdramaCredentials.apiHash;
+
+  /// 把助手与凭证就绪：①助手不在时从 assets 解出 tgphone 并给执行权限；
+  /// ②config.yaml 缺失或无凭证时，用构建期凭证写一份。
+  /// 任一步失败都吞掉（调用方按“不可用”如实报，不抛异常）。
+  /// 返回：就绪后助手与凭证是否都齐。
+  Future<bool> ensureReady() async {
+    var helperOk = false;
+    var credsOk = false;
+    try {
+      helperOk = await _ensureHelperExtracted();
+    } catch (_) {
+      helperOk = false;
+    }
+    try {
+      final dir = await _tgdramaDir();
+      credsOk = await _ensureConfigYaml(dir);
+    } catch (_) {
+      credsOk = false;
+    }
+    return helperOk && credsOk;
+  }
+
+  /// 助手不在时从 assets 解出 tgphone，字节比对自愈，给执行权限。
+  /// 返回：解完后助手文件是否存在。
+  Future<bool> _ensureHelperExtracted() async {
+    final path = await _helperPath();
+    final file = File(path);
+    try {
+      final bytes = (await _assetLoader(helperAssetPath)).buffer.asUint8List();
+      final digest = md5.convert(bytes).toString();
+      if (await file.exists()) {
+        final current = md5.convert(await file.readAsBytes()).toString();
+        if (current == digest) {
+          return true;
+        }
+      }
+      await file.parent.create(recursive: true);
+      await file.writeAsBytes(bytes, flush: true);
+      try {
+        await Process.run('chmod', ['755', path]);
+      } catch (_) {}
+      return await file.exists();
+    } catch (_) {
+      return await file.exists();
+    }
+  }
+
+  /// config.yaml 缺失或无凭证时写一份（用构建期凭证）。
+  /// 返回：写完（或原有）后 config.yaml 是否含有凭证。
+  Future<bool> _ensureConfigYaml(Directory tgdramaDir) async {
+    final configFile = File('${tgdramaDir.path}/config.yaml');
+    try {
+      if (await configFile.exists()) {
+        final text = await configFile.readAsString();
+        final creds = parseTelegramCredentials(text);
+        if (creds.$1 != null &&
+            creds.$1!.isNotEmpty &&
+            creds.$2 != null &&
+            creds.$2!.isNotEmpty) {
+          return true;
+        }
+      }
+    } catch (_) {}
+    final apiId = _apiId;
+    final apiHash = _apiHash;
+    if (apiId.isEmpty || apiHash.isEmpty) return false;
+    try {
+      await tgdramaDir.create(recursive: true);
+      await configFile.writeAsString(
+        TgdramaCredentials.buildConfigYaml(
+          apiId: apiId,
+          apiHash: apiHash,
+          dataDir: tgdramaDir.path,
+        ),
+        flush: true,
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 检查手机号登录能不能用。先 best-effort 调 ensureReady()
+  ///（解助手、补 config），再检查两项：
   /// ①助手程序在不在（应用私有目录 tgdrama/tgphone）；
   /// ②插件 config.yaml 里有没有 telegram.api_id/api_hash。
   /// 任一项缺失即不可用，reason 是给用户看的中文原因。
   Future<PhoneLoginAvailability> checkAvailability() async {
+    try {
+      await ensureReady();
+    } catch (_) {}
     final helper = File(await _helperPath());
     if (!await helper.exists()) {
       return const PhoneLoginAvailability(

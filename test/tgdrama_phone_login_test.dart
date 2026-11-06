@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fqapp/services/tgdrama_phone_login.dart';
@@ -14,8 +15,20 @@ void main() {
     if (await tempDir.exists()) await tempDir.delete(recursive: true);
   });
 
-  TgdramaPhoneLoginService serviceWith() {
-    return TgdramaPhoneLoginService(docsDir: tempDir);
+  /// 默认 assetLoader 抛错（模拟构建期未打助手进包），这样已有测试
+  /// 只验文件在不在，不依赖真实 asset 包。
+  TgdramaPhoneLoginService serviceWith({
+    Future<ByteData> Function(String assetPath)? assetLoader,
+    String? bundledApiId,
+    String? bundledApiHash,
+  }) {
+    return TgdramaPhoneLoginService(
+      supportDir: tempDir,
+      assetLoader:
+          assetLoader ?? (_) async => throw StateError('no asset in test'),
+      bundledApiId: bundledApiId,
+      bundledApiHash: bundledApiHash,
+    );
   }
 
   Future<void> putHelper() async {
@@ -64,6 +77,57 @@ void main() {
       final service = serviceWith();
       final result = await service.checkAvailability();
       expect(result.available, isTrue);
+    });
+  });
+
+  group('ensureReady', () {
+    test('asset 里有助手 + 注入凭证时，解出助手、写好 config，变可用', () async {
+      final service = serviceWith(
+        assetLoader: (_) async =>
+            ByteData.view(Uint8List.fromList([1, 2, 3, 4]).buffer),
+        bundledApiId: '123456',
+        bundledApiHash: 'abcdef0123456789abcdef0123456789',
+      );
+      final ready = await service.ensureReady();
+      expect(ready, isTrue);
+      final helper = File('${tempDir.path}/tgdrama/tgphone');
+      expect(await helper.exists(), isTrue);
+      expect(await helper.readAsBytes(), [1, 2, 3, 4]);
+      final config = File('${tempDir.path}/tgdrama/config.yaml');
+      expect(await config.exists(), isTrue);
+      final text = await config.readAsString();
+      expect(text, contains('api_id: 123456'));
+      expect(text, contains('api_hash: abcdef0123456789abcdef0123456789'));
+      final availability = await service.checkAvailability();
+      expect(availability.available, isTrue);
+    });
+
+    test('助手解出来了但没有凭证时，仍不可用', () async {
+      final service = serviceWith(
+        assetLoader: (_) async =>
+            ByteData.view(Uint8List.fromList([9, 9, 9]).buffer),
+      );
+      final ready = await service.ensureReady();
+      expect(ready, isFalse);
+      final availability = await service.checkAvailability();
+      expect(availability.available, isFalse);
+      expect(availability.reason, contains('Telegram API 凭证'));
+    });
+
+    test('已有 config 带凭证时不覆盖，助手仍解', () async {
+      await putConfig(
+        'telegram:\n  api_id: 777\n  api_hash: deadbeef\n',
+      );
+      final service = serviceWith(
+        assetLoader: (_) async =>
+            ByteData.view(Uint8List.fromList([5, 6]).buffer),
+        bundledApiId: '123456',
+        bundledApiHash: 'abcdef',
+      );
+      final ready = await service.ensureReady();
+      expect(ready, isTrue);
+      final config = File('${tempDir.path}/tgdrama/config.yaml');
+      expect(await config.readAsString(), contains('api_id: 777'));
     });
   });
 

@@ -122,7 +122,15 @@ flutter:
     - assets/py_tools/yijianxiepy.py
     # TG影视库插件 tgdrama-android（Go 写 ARM64，25MB，直连 Telegram，
     # 本地服务 127.0.0.1:5278；MD5 见 TgdramaService.binaryMd5）。
-    - assets/bin/tgdrama-android
+    - assets/tgdrama/tgdrama-android
+    # TG影视库手机号登录助手 tgphone（Go 写 ARM64，18.6MB，见
+    # ~/workspace/tgdrama_work/phone_helper/；首次用时解到私有目录）。
+    - assets/tgdrama/tgphone
+    # TG影视库预置登录会话（构建期由用户自己的 Telethon 会话转换生成，
+    # 构建期临时文件，.gitignore 隔离、绝不提交；CI 从 TG_SESSION_JSON_B64
+    # 密钥解出。缺失时构建失败，须先生成，见
+    # ~/workspace/tgdrama_work/convert_telethon_session.py）。
+    - assets/tgdrama_session.json
     - assets/images/app_logo.webp
     - assets/images/bubble/
     # 评论/回复正文的官方表情（`emoji_config.json` 的 53 个令牌），
