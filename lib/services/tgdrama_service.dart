@@ -19,8 +19,10 @@ import 'tgdrama_credentials.dart';
 /// 落盘：首次使用时把 asset 里的二进制拷到应用私有目录
 /// `getApplicationSupportDirectory()/tgdrama/tgdrama-android`，MD5 对得上
 /// 复用、对不上重拷自愈（做法同 jar_bridge 的 resolveBuiltinJarAsset），
-/// 再 chmod 755 后用 `Process.start` 拉起来
-/// （参数 `-port 5278 -bind 127.0.0.1`）。
+/// 再 chmod 755、验执行位后用 `Process.start` 拉起来
+/// （参数 `-port 5278 -bind 127.0.0.1`）。鸿蒙卓易通容器里直接执行受限
+/// 时（chmod 完了仍不可执行），改走系统链接器 `/system/bin/linker64`
+/// 兜底拉起（插件是动态链接的程序，链接器只需读文件就能跑）。
 ///
 /// 重拉：应用切后台被系统杀掉后，回到前台（resumed）时若之前启动过，
 /// 自动再调一次 [ensureRunning]。
@@ -51,12 +53,15 @@ class TgdramaService with WidgetsBindingObserver {
     Future<Directory> Function()? supportDirProvider,
     this._isAndroidProvider,
     Future<ByteData> Function(String assetPath)? assetLoader,
+    bool Function(String path)? isExecutableChecker,
   }) : _httpClient = httpClient ?? http.Client(),
        _processLauncher =
            processLauncher ?? _defaultProcessLauncher,
        _supportDirProvider =
            supportDirProvider ?? getApplicationSupportDirectory,
-       _assetLoader = assetLoader ?? rootBundle.load {
+       _assetLoader = assetLoader ?? rootBundle.load,
+       _isExecutableChecker =
+           isExecutableChecker ?? _defaultIsExecutable {
     try {
       WidgetsBinding.instance.addObserver(this);
       _observing = true;
@@ -96,6 +101,11 @@ class TgdramaService with WidgetsBindingObserver {
   static const _binaryDirName = 'tgdrama';
   static const _binaryFileName = 'tgdrama-android';
 
+  /// 系统链接器：鸿蒙卓易通容器里直接执行受限（chmod 755 后文件仍不可
+  /// 执行），插件是动态链接的程序，链接器只需读文件就能跑，不用执行位。
+  /// 直接启动被拒时改走它兜底拉起。
+  static const linker64Path = '/system/bin/linker64';
+
   /// 健康检查超时：与插件笔记一致，8 秒。
   static const _healthTimeout = Duration(seconds: 8);
 
@@ -111,6 +121,7 @@ class TgdramaService with WidgetsBindingObserver {
   final Future<Directory> Function() _supportDirProvider;
   final bool Function()? _isAndroidProvider;
   final Future<ByteData> Function(String assetPath) _assetLoader;
+  final bool Function(String path) _isExecutableChecker;
 
   Process? _process;
   bool _processExited = false;
@@ -129,6 +140,24 @@ class TgdramaService with WidgetsBindingObserver {
 
   static Future<Process> _defaultProcessLauncher(List<String> command) =>
       Process.start(command.first, command.sublist(1));
+
+  /// 所有者执行位有没有真的加上（chmod 完了也不一定，容器里可能不生效）。
+  static bool _defaultIsExecutable(String path) {
+    try {
+      return (File(path).statSync().mode & 0x40) != 0;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 启动失败是不是“没权限”（errno 13 / Permission denied）。
+  static bool _isPermissionDenied(Object error) {
+    if (error is ProcessException) {
+      if (error.errorCode == 13) return true;
+      return error.message.toLowerCase().contains('permission denied');
+    }
+    return error.toString().toLowerCase().contains('permission denied');
+  }
 
   /// 释放观察者（单例不需要调；测试里每个新建实例要在 tearDown 里调）。
   void dispose() {
@@ -149,8 +178,9 @@ class TgdramaService with WidgetsBindingObserver {
   }
 
   /// 确保本地服务在跑。进程活着且健康检查通过直接回 true；否则解压
-  /// （MD5 校验）、chmod 755、拉起进程，再轮询健康检查（每 500ms 一次，
-  /// 最多约 8 秒）。失败不抛异常，回 false，原因写进 [lastError]。
+  /// （MD5 校验）、chmod 755、验执行位、拉起进程（直接启动被拒时改走
+  /// 系统链接器兜底），再轮询健康检查（每 500ms 一次，最多约 8 秒）。
+  /// 失败不抛异常，回 false，原因写进 [lastError]。
   /// 并发调用共享同一次启动，不会重复拉起。
   Future<bool> ensureRunning() async {
     if (_starting != null) return _starting!;
@@ -196,18 +226,43 @@ class TgdramaService with WidgetsBindingObserver {
       _lastError = 'TG影视库二进制授权失败：$error';
       return false;
     }
-    try {
-      final process = await _processLauncher([
-        binaryPath,
-        '-port',
-        '$defaultPort',
-        '-bind',
-        '127.0.0.1',
-      ]);
-      _trackProcess(process);
-    } catch (error) {
-      _lastError = 'TG影视库本地服务启动失败：$error';
-      return false;
+    // 容器里 chmod 完了执行位也可能没加上：先验一下，没加上就直接走
+    // 链接器兜底，不浪费一次注定被拒的直接启动。
+    final directExecutable = _isExecutableChecker(binaryPath);
+    final launchArgs = <String>[
+      '-port',
+      '$defaultPort',
+      '-bind',
+      '127.0.0.1',
+    ];
+    var launched = false;
+    if (directExecutable) {
+      try {
+        final process = await _processLauncher([binaryPath, ...launchArgs]);
+        _trackProcess(process);
+        launched = true;
+      } catch (error) {
+        if (!_isPermissionDenied(error)) {
+          _lastError = 'TG影视库本地服务启动失败：$error';
+          return false;
+        }
+        // 直接启动被拒（容器里执行受限）：改走系统链接器兜底。
+      }
+    }
+    if (!launched) {
+      try {
+        final process = await _processLauncher([
+          linker64Path,
+          binaryPath,
+          ...launchArgs,
+        ]);
+        _trackProcess(process);
+      } catch (error) {
+        _lastError = directExecutable
+            ? 'TG影视库本地服务启动失败：直接启动被拒，链接器兜底也失败：$error'
+            : 'TG影视库本地服务启动失败：链接器兜底启动失败：$error';
+        return false;
+      }
     }
     _everStarted = true;
     for (var attempt = 0; attempt < _healthPollAttempts; attempt++) {

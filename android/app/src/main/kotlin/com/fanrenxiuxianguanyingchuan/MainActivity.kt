@@ -44,6 +44,8 @@ class MainActivity : FlutterActivity() {
         flutterEngine.plugins.add(EinkRefreshPlugin())
         // 小米澎湃 OS 公平运行内存：收 TRIM/KILL 广播，转发 Dart 处理后回系统。
         flutterEngine.plugins.add(FairMemoryPlugin())
+        // TDLib 登录桥（应用内扫码登录，不起插件进程；与插件路并列）。
+        flutterEngine.plugins.add(TdlibPlugin())
         // 蜘蛛引擎：Python 蜘蛛走 Chaquopy，jar 蜘蛛走 Dex 加载，JS 蜘蛛走 QuickJS。
         JarBridge.register(flutterEngine.dartExecutor.binaryMessenger, this)
         PyBridge(this).register(flutterEngine.dartExecutor.binaryMessenger)

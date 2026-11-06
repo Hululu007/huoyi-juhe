@@ -2,7 +2,9 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fqapp/services/tgdrama_account.dart';
 import 'package:fqapp/services/tgdrama_phone_login.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   late Directory tempDir;
@@ -21,6 +23,9 @@ void main() {
     Future<ByteData> Function(String assetPath)? assetLoader,
     String? bundledApiId,
     String? bundledApiHash,
+    Future<ProcessResult> Function(String executable, List<String> args)?
+        runProcess,
+    TgdramaAccountStore? accountStore,
   }) {
     return TgdramaPhoneLoginService(
       supportDir: tempDir,
@@ -28,6 +33,8 @@ void main() {
           assetLoader ?? (_) async => throw StateError('no asset in test'),
       bundledApiId: bundledApiId,
       bundledApiHash: bundledApiHash,
+      runProcess: runProcess,
+      accountStore: accountStore,
     );
   }
 
@@ -41,6 +48,18 @@ void main() {
     final file = File('${tempDir.path}/tgdrama/config.yaml');
     await file.create(recursive: true);
     await file.writeAsString(content);
+  }
+
+  Future<void> putConfigWithCreds() async {
+    await putConfig(
+      'telegram:\n  api_id: 123456\n  api_hash: 0123456789abcdef0123456789abcdef\n',
+    );
+  }
+
+  Future<TgdramaAccountStore> mockStore() async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    return TgdramaAccountStore(prefs: prefs);
   }
 
   group('checkAvailability', () {
@@ -154,6 +173,100 @@ void main() {
           ),
         ),
       );
+    });
+  });
+
+  group('linker fallback', () {
+    test('直接跑助手被拒时改走链接器兜底，发码成功', () async {
+      await putHelper();
+      await putConfigWithCreds();
+      final calls = <String>[];
+      final service = serviceWith(
+        runProcess: (executable, args) async {
+          calls.add(executable);
+          if (executable == TgdramaPhoneLoginService.linker64Path) {
+            // 模拟助手写出 state 文件。
+            final state = File(
+              '${tempDir.path}/tgdrama/phone_login_state.json',
+            );
+            await state.writeAsString('{"phone_code_hash": "abc123"}');
+            return ProcessResult(0, 0, '', '');
+          }
+          throw ProcessException(executable, args, 'Permission denied', 13);
+        },
+      );
+      await service.sendCode('13800000000');
+      expect(calls.length, 2);
+      expect(calls[1], TgdramaPhoneLoginService.linker64Path);
+    });
+
+    test('直接跑助手报非权限错时不走链接器，直接抛', () async {
+      await putHelper();
+      await putConfigWithCreds();
+      final calls = <String>[];
+      final service = serviceWith(
+        runProcess: (executable, args) async {
+          calls.add(executable);
+          throw ProcessException(
+            executable,
+            args,
+            'No such file or directory',
+            2,
+          );
+        },
+      );
+      await expectLater(
+        service.sendCode('13800000000'),
+        throwsA(isA<ProcessException>()),
+      );
+      expect(calls.length, 1);
+    });
+
+    test('直接与链接器都被拒时抛错', () async {
+      await putHelper();
+      await putConfigWithCreds();
+      final service = serviceWith(
+        runProcess: (executable, args) async {
+          throw ProcessException(executable, args, 'Permission denied', 13);
+        },
+      );
+      await expectLater(
+        service.sendCode('13800000000'),
+        throwsA(isA<ProcessException>()),
+      );
+    });
+  });
+
+  group('verifyCode saves account label', () {
+    test('验证码登录成功后存下脱敏手机号', () async {
+      final store = await mockStore();
+      await putHelper();
+      await putConfigWithCreds();
+      final state = File('${tempDir.path}/tgdrama/phone_login_state.json');
+      await state.writeAsString('{"phone_code_hash": "abc123"}');
+      final service = serviceWith(
+        runProcess: (_, _) async => ProcessResult(0, 0, '', ''),
+        accountStore: store,
+      );
+      await service.verifyCode(phone: '13812345678', code: '123456');
+      expect(await store.readLabel(), '+86 138****5678');
+    });
+
+    test('验证码登录失败时不存标签', () async {
+      final store = await mockStore();
+      await putHelper();
+      await putConfigWithCreds();
+      final state = File('${tempDir.path}/tgdrama/phone_login_state.json');
+      await state.writeAsString('{"phone_code_hash": "abc123"}');
+      final service = serviceWith(
+        runProcess: (_, _) async => ProcessResult(1, 1, 'error', ''),
+        accountStore: store,
+      );
+      await expectLater(
+        service.verifyCode(phone: '13812345678', code: '000000'),
+        throwsA(isA<StateError>()),
+      );
+      expect(await store.readLabel(), isNull);
     });
   });
 

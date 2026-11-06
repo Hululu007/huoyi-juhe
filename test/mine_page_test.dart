@@ -235,6 +235,17 @@ Future<DetailPage> _openRankedTitle(WidgetTester tester, String title) async {
   await tester.pumpAndSettle();
   final row = find.text(title);
   await tester.scrollUntilVisible(row, 200);
+  // TEMP-DBG v4: extra drags + ListView global rect
+  ScrollPosition dbgPos() => tester
+      .state<ScrollableState>(find.byType(Scrollable).first)
+      .position;
+  for (var i = 0; i < 4; i++) {
+    final lvTop = tester.getTopLeft(find.byType(ListView).first).dy;
+    // ignore: avoid_print
+    print('DBG $title extra$i: center=${row.evaluate().isEmpty ? 'none' : tester.getCenter(row)} lvTop=$lvTop pixels=${dbgPos().pixels} max=${dbgPos().maxScrollExtent}');
+    await tester.drag(find.byType(ListView).first, const Offset(0, -200));
+    await tester.pump();
+  }
   final context = tester.element(find.byType(MinePage));
   await tester.tap(row);
   await tester.pump();

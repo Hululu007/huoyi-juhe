@@ -4,6 +4,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'tgdrama_account.dart';
 import 'tgdrama_credentials.dart';
 
 /// 手机号登录是否可用，以及给用户看的中文原因。
@@ -37,13 +38,15 @@ class TgdramaPhoneLoginService {
     Future<ByteData> Function(String assetPath)? assetLoader,
     this._bundledApiId,
     this._bundledApiHash,
+    TgdramaAccountStore? accountStore,
   })  : _supportDirOverride = supportDir,
         _helperPathOverride = helperPath,
         _configPathOverride = configPath,
         _sessionPathOverride = sessionPath,
         _statePathOverride = statePath,
         _runProcess = runProcess ?? Process.run,
-        _assetLoader = assetLoader ?? rootBundle.load;
+        _assetLoader = assetLoader ?? rootBundle.load,
+        _accountStore = accountStore ?? TgdramaAccountStore();
 
   final Directory? _supportDirOverride;
   final String? _helperPathOverride;
@@ -53,6 +56,11 @@ class TgdramaPhoneLoginService {
   final Future<ProcessResult> Function(String executable, List<String> args)
       _runProcess;
   final Future<ByteData> Function(String assetPath) _assetLoader;
+  final TgdramaAccountStore _accountStore;
+
+  /// 系统链接器兜底：见 TgdramaService.linker64Path（容器里直接执行受限
+  /// 时用它拉起动态链接的助手，不用执行位）。
+  static const linker64Path = '/system/bin/linker64';
 
   /// 构建期注入的凭证（测试注入用；运行时默认读
   /// TgdramaCredentials 的 --dart-define 值）。
@@ -237,8 +245,7 @@ class TgdramaPhoneLoginService {
     if (normalized.isEmpty) {
       throw StateError('请先输入手机号');
     }
-    final helper = await _helperPath();
-    final result = await _runProcess(helper, [
+    final result = await _runHelper([
       'send-code',
       '--phone',
       normalized,
@@ -300,12 +307,17 @@ class TgdramaPhoneLoginService {
     if (pwd.isNotEmpty) {
       args.addAll(['--password', pwd]);
     }
-    final helper = await _helperPath();
-    final result = await _runProcess(helper, args);
+    final result = await _runHelper(args);
     _throwIfHelperFailed(result, '登录失败');
     // 助手成功后应删 state 文件；还在就顺手删掉，不让旧凭证残留。
     try {
       if (await state.exists()) await state.delete();
+    } catch (_) {}
+    // 登录成功：把脱敏手机号存下来，我的页显示 TG 账号用。
+    try {
+      await _accountStore.saveLabel(
+        TgdramaAccountStore.maskPhone(normalizePhone(phone)),
+      );
     } catch (_) {}
   }
 
@@ -383,6 +395,27 @@ class TgdramaPhoneLoginService {
     final match =
         RegExp(r'"phone_code_hash"\s*:\s*"([^"]*)"').firstMatch(stateJson);
     return match?.group(1);
+  }
+
+  /// 跑助手：直接跑被拒（容器里执行受限）时改走系统链接器兜底。
+  /// 助手是动态链接的 Go 程序，链接器只需读文件就能跑，不用执行位。
+  Future<ProcessResult> _runHelper(List<String> args) async {
+    final helper = await _helperPath();
+    try {
+      return await _runProcess(helper, args);
+    } on ProcessException catch (error) {
+      if (!_isPermissionDenied(error)) rethrow;
+    }
+    return _runProcess(linker64Path, [helper, ...args]);
+  }
+
+  /// 启动失败是不是“没权限”（errno 13 / Permission denied）。
+  static bool _isPermissionDenied(Object error) {
+    if (error is ProcessException) {
+      if (error.errorCode == 13) return true;
+      return error.message.toLowerCase().contains('permission denied');
+    }
+    return error.toString().toLowerCase().contains('permission denied');
   }
 
   void _throwIfHelperFailed(ProcessResult result, String action) {

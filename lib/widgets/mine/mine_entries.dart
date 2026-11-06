@@ -76,12 +76,16 @@ Future<void> _showCacheChoices(BuildContext context) async {
 class MineEntryRow extends StatelessWidget {
   final IconData icon;
   final String label;
+
+  /// 行尾小字（有就显示在标题与箭头之间，如登录状态），没有不占位。
+  final String? trailing;
   final VoidCallback onTap;
 
   const MineEntryRow({
     super.key,
     required this.icon,
     required this.label,
+    this.trailing,
     required this.onTap,
   });
 
@@ -110,6 +114,22 @@ class MineEntryRow extends StatelessWidget {
                   ),
                 ),
               ),
+              if (trailing != null) ...[
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    trailing!,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: palette.muted,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.right,
+                  ),
+                ),
+              ],
+              const SizedBox(width: 4),
               Icon(LucideIcons.chevron_right, size: 16, color: palette.muted),
             ],
           ),

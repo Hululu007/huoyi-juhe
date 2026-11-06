@@ -67,19 +67,23 @@ void main() {
   TgdramaService createService({
     required MockClient client,
     _FakeProcess Function()? processFactory,
+    Future<Process> Function(List<String> command)? processLauncher,
     Future<ByteData> Function(String assetPath)? assetLoader,
     bool Function()? isAndroidProvider,
+    bool Function(String path)? isExecutableChecker,
   }) {
     final launches = <List<String>>[];
     final service = TgdramaService(
       httpClient: client,
       processLauncher: (command) async {
         launches.add(List<String>.from(command));
+        if (processLauncher != null) return processLauncher(command);
         return processFactory?.call() ?? _FakeProcess();
       },
       supportDirProvider: () async => tempDir,
       isAndroidProvider: isAndroidProvider ?? () => true,
       assetLoader: assetLoader ?? realBinaryBytes,
+      isExecutableChecker: isExecutableChecker,
     );
     serviceLaunches[service] = launches;
     created.add(service);
@@ -391,6 +395,78 @@ void main() {
     );
     expect(TgdramaService.baseUrl, 'http://127.0.0.1:5278');
     expect(TgdramaService.defaultPort, 5278);
+  });
+
+  test('执行位没加上时直接走链接器兜底，不试直接启动', () async {
+    final service = createService(
+      client: clientFor(),
+      isExecutableChecker: (_) => false,
+    );
+    expect(await service.ensureRunning(), isTrue);
+    final launches = serviceLaunches[service]!;
+    expect(launches.length, 1);
+    expect(launches.single.first, TgdramaService.linker64Path);
+    expect(launches.single[1], '${tempDir.path}/tgdrama/tgdrama-android');
+    expect(launches.single.sublist(2), ['-port', '5278', '-bind', '127.0.0.1']);
+  });
+
+  test('直接启动被拒时改走链接器兜底，仍能跑起来', () async {
+    var directAttempts = 0;
+    final service = createService(
+      client: clientFor(),
+      processLauncher: (command) async {
+        if (command.first == TgdramaService.linker64Path) {
+          return _FakeProcess();
+        }
+        directAttempts++;
+        throw ProcessException(
+          command.first,
+          command.sublist(1),
+          'Permission denied',
+          13,
+        );
+      },
+    );
+    expect(await service.ensureRunning(), isTrue);
+    expect(directAttempts, 1);
+    final launches = serviceLaunches[service]!;
+    expect(launches.length, 2);
+    expect(launches[1].first, TgdramaService.linker64Path);
+    expect(launches[1][1], '${tempDir.path}/tgdrama/tgdrama-android');
+  });
+
+  test('直接被拒且链接器也失败时回 false，lastError 说明两处都失败', () async {
+    final service = createService(
+      client: clientFor(),
+      processLauncher: (command) async {
+        throw ProcessException(
+          command.first,
+          command.sublist(1),
+          'Permission denied',
+          13,
+        );
+      },
+    );
+    expect(await service.ensureRunning(), isFalse);
+    expect(service.lastError, contains('链接器'));
+    expect(serviceLaunches[service]!.length, 2);
+  });
+
+  test('直接启动报非权限错时不走链接器兜底', () async {
+    final service = createService(
+      client: clientFor(),
+      processLauncher: (command) async {
+        throw ProcessException(
+          command.first,
+          command.sublist(1),
+          'No such file or directory',
+          2,
+        );
+      },
+    );
+    expect(await service.ensureRunning(), isFalse);
+    expect(service.lastError, contains('No such file or directory'));
+    expect(serviceLaunches[service]!.length, 1);
   });
 
   test('databasePath 指向插件目录下的 tgdrama.db（只拼路径不碰文件）', () async {
