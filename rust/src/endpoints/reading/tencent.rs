@@ -1399,15 +1399,15 @@ pub(crate) async fn play(video_id: &str) -> ApiResult<Value> {
 mod tests {
     use super::*;
 
-    const CHAPTER1: &str = include_str!("../../../../../mycomic_re/probe/tx_chapter.bin");
-    const CHAPTER3: &str = include_str!("../../../../../mycomic_re/probe/tx_cid3.html");
-    const CHAPTER1B: &str = include_str!("../../../../../mycomic_re/probe/tx_cid2b.html");
-    const CHAPTER_LIVE: &str = include_str!("../../../../../mycomic_re/probe/tx_live_cid2.html");
-    const DETAIL: &str = include_str!("../../../../../mycomic_re/probe/tx_detail.bin");
-    const SEARCH: &str = include_str!("../../../../../mycomic_re/probe/tengxun_search.bin");
-    const RANK: &str = include_str!("../../../../../mycomic_re/probe/tx_rank.bin");
-    const THEME101: &str = include_str!("../../../../../mycomic_re/probe/tx_theme101.html");
-    const IMAGES1: &str = include_str!("../../../../../mycomic_re/probe/tx_images.json");
+    const CHAPTER1: &str = include_str!("../../../testdata/mycomic/tx_chapter.bin");
+    const CHAPTER3: &str = include_str!("../../../testdata/mycomic/tx_cid3.html");
+    const CHAPTER1B: &str = include_str!("../../../testdata/mycomic/tx_cid2b.html");
+    const CHAPTER_LIVE: &str = include_str!("../../../testdata/mycomic/tx_live_cid2.html");
+    const DETAIL: &str = include_str!("../../../testdata/mycomic/tx_detail.bin");
+    const SEARCH: &str = include_str!("../../../testdata/mycomic/tengxun_search.bin");
+    const RANK: &str = include_str!("../../../testdata/mycomic/tx_rank.bin");
+    const THEME101: &str = include_str!("../../../testdata/mycomic/tx_theme101.html");
+    const IMAGES1: &str = include_str!("../../../testdata/mycomic/tx_images.json");
 
     fn eval_str(expr: &str) -> String {
         eval_js(expr).unwrap().to_js_string()

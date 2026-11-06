@@ -20,6 +20,15 @@ import 'tgdrama_service.dart';
 class TgdramaContentClient implements DramaSiteContentClient {
   static const baseUrl = TgdramaService.baseUrl;
 
+  /// 「频道」分类 id：只在本客户端内部识别，不发给 /api/shows。
+  /// 标签 id 几乎不可能是纯 ASCII 的 channels；万一撞了，
+  /// categories() 里以标签为准、不重复加。
+  static const channelsCategoryId = 'channels';
+  static const channelsCategoryName = '频道';
+
+  /// 频道条目 id 前缀：detail() 靠它识别“点开的是频道不是剧”。
+  static const _channelItemPrefix = 'channel:';
+
   final http.Client _client;
   final TgdramaService _service;
 
@@ -47,6 +56,14 @@ class TgdramaContentClient implements DramaSiteContentClient {
   static int _intOf(dynamic value) {
     if (value is num) return value.toInt();
     return int.tryParse(_stringOf(value)) ?? 0;
+  }
+
+  /// 开关字段容错：true/false、1/0、'1'/'true' 都接受。
+  static bool _boolOf(dynamic value) {
+    if (value is bool) return value;
+    if (value is num) return value != 0;
+    final text = _stringOf(value).toLowerCase();
+    return text == '1' || text == 'true' || text == 'yes' || text == 'on';
   }
 
   static Map<String, dynamic> _asMap(dynamic value) {

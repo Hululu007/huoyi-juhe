@@ -1,0 +1,554 @@
+
+<!--headTrap<body></body><head></head><html></html>-->
+
+<!-- seo tdk rebuild trigger 2026-07-08 v2 fix-inline -->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <!-- fragBegin: withOutDynamicConfig -->
+<meta name="viewport" content="width=device-width,initial-scale=1.0,minimum-scale=1.0,maximum-scale=1.0,user-scalable=no" />
+<!-- fragBegin: withOutViewPort -->
+
+<meta charset="UTF-8" />
+<!-- 性能优化：提前与关键第三方/静态源建立连接 -->
+<link rel="dns-prefetch" href="https://aegis.cdn-go.cn" />
+<link rel="preconnect" href="https://aegis.cdn-go.cn" crossorigin />
+<link rel="dns-prefetch" href="https://galileotelemetry.tencent.com" />
+<link rel="preconnect" href="https://galileotelemetry.tencent.com" crossorigin />
+<link rel="dns-prefetch" href="https://m.ac.qq.com" />
+<link rel="preconnect" href="https://m.ac.qq.com" crossorigin />
+<!-- 性能优化：提前下载关键脚本，与 HTML 解析并行（end-of-body 脚本 defer 收益极小且会破坏依赖 ek 的页面脚本，故用 preload 等价替代） -->
+<link rel="preload" href="//gtimgcdn.ac.qq.com/h5/public/js/core_a6f1993fc6e1c391.js" as="script" crossorigin />
+<!-- Released by: AcDeployment System -->
+
+<!-- 百度站长工具校验代码 -->
+<meta name="baidu-site-verification" content="iCOfamZT3B" />
+
+<!-- 关闭iOS电话号码识别、配置状态栏效果 -->
+<meta name="format-detection" content="telephone=no" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="white" />
+
+<!-- iOS主屏&书签图标 -->
+<link rel="apple-touch-icon-precomposed" sizes="57x57" href="//gtimgcdn.ac.qq.com/h5/public/images/touch-icon-iphone-114_35ef6fea80e50951.png" />
+<link rel="apple-touch-icon-precomposed" sizes="114x114" href="//gtimgcdn.ac.qq.com/h5/public/images/touch-icon-iphone-114_35ef6fea80e50951.png" />
+<link rel="apple-touch-icon-precomposed" sizes="72x72" href="//gtimgcdn.ac.qq.com/h5/public/images/touch-icon-ipad-144_784fdda39985ba20.png" />
+<link rel="apple-touch-icon-precomposed" sizes="144x144" href="//gtimgcdn.ac.qq.com/h5/public/images/touch-icon-ipad-144_784fdda39985ba20.png" />
+<link rel="shortcut icon" href="//gtimgcdn.ac.qq.com/h5/public/images/touch-icon-iphone-114_35ef6fea80e50951.png">
+<link rel="shortcut icon" sizes="196x196" href="//gtimgcdn.ac.qq.com/h5/public/images/touch-icon-iphone-196_271259d431f48a94.png">
+
+<!-- QQ浏览器锁定竖屏、全屏、应用模式 -->
+<!--<meta name="x5-orientation" content="portrait"/>-->
+<!--<meta name="x5-fullscreen" content="true"/>-->
+<meta name="x5-pagetype" content="webapp" />
+
+<!-- UC浏览器锁定竖屏、全屏、应用模式 -->
+<!--<meta name="screen-orientation" content="portrait"/>-->
+<!--<meta name="full-screen" content="yes"/>-->
+<!--<meta name="browsermode" content="application"/>-->
+
+<!-- 分享信息 -->
+<meta itemprop="image" content="https://gtimgcdn.ac.qq.com/h5/public/images/share-icon_7ee367fb9d2965dc.png" />
+<meta itemprop="name" content="腾讯动漫" />
+<!--TDK 页：name=description 由各页 _htmlConfig 输出，此处只留结构化 itemprop 避免重复-->
+<meta itemprop="description" content="中国最大最权威的正版动漫网站，连载众多原创国漫，原创动画，正版日漫等海内外最热正版动漫内容" />
+
+<!--运营商限制-->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src *.qq.com *.gtimg.com *.gtimg.cn *.qpic.cn *.qlogo.cn *.idqqimg.com 'self' data: callclient: txcomic: txcomicin: txcomicout: mtt: jsbridge: TcsJSBridge: 'unsafe-inline' 'unsafe-eval' https:; img-src *.qq.com *.gtimg.com *.gtimg.cn *.qpic.cn *.qlogo.cn *.idqqimg.com 'self' data: callclient: txcomic: txcomicin: txcomicout: mtt: jsbridge: TcsJSBridge: 'unsafe-inline' 'unsafe-eval' https:; media-src http: https:"/>
+
+
+<meta name="page-name" content="rank" />
+
+<!-- 通用样式与脚本 -->
+<link rel="stylesheet" href="//gtimgcdn.ac.qq.com/h5/public/css/core_dab5503a7e8aba63.css" />
+<script>
+  window.CLIENT_URL_ANDROID = '';
+  window.CLIENT_URL_IOS = '';
+
+  window.pageAction = window.pageAction || {};
+window.presetPageAction = window.presetPageAction || {};
+;
+  /**
+ * Created by krimeshu on 2016/6/6.
+ */
+
+(function () {
+    function Blocker(opts) {
+        opts = opts || {};
+        var timeKey = opts.timeKey || 'default';
+
+        this.KEY = 'H5_BLOCKER-' + timeKey;
+        this.EXPIRE_DAYS = 2;
+        // this.BLOCK_TIME = ['00:00', '23:59'];
+    }
+
+    Blocker.prototype = {
+        check: function () {
+            var isPad = this.isPad(),
+                hasBlocked = this.getCookie(this.KEY),
+                // now = new Date(),
+                // today = [now.getFullYear(), now.getMonth() + 1, now.getDate()].join('/'),
+                // blockTimeStart = new Date(today + ' ' + this.BLOCK_TIME[0]),
+                // blockTimeEnd = new Date(today + ' ' + this.BLOCK_TIME[1]),
+                // isBlockTime = now >= blockTimeStart && now < blockTimeEnd;
+                isBlockTime = true;
+            return (!isPad && !hasBlocked && isBlockTime);
+        },
+        checkAndGo: function () {
+            if (this.check()) {
+                this.rememberBlocked();
+                this.goBlockPage();
+            }
+        },
+        checkAndDialog: function () {
+            if (this.check()) {
+                this.rememberBlocked();
+                this.showBlockDialog();
+            }
+        },
+        rememberBlocked: function () {
+            var expire = this.EXPIRE_DAYS * 24 * 60;
+            this.setCookie(this.KEY, new Date().getTime(), expire, '.m.ac.qq.com', '/');
+        },
+        goBlockPage: function () {
+            var channelIDs = { 'index': 1 },
+                channelID = channelIDs['rank'];
+            window.location.href = '/block.html?retUrl=' + encodeURIComponent(window.location.href) +
+                (channelID ? '&channelID=' + channelID : '');
+        },
+        showBlockDialog: function () {
+            var self = this,
+                dialog = window.blockDialog;
+            if (dialog) {
+                dialog.open();
+            } else {
+                window.setTimeout(function () {
+                    self.showBlockDialog();
+                }, 50);
+            }
+        },
+        getCookie: function (key) {
+            var allcookies = document.cookie;
+            var cookiesReg = new RegExp('(^|;)\\s*' + key + '\\s*(=\\s*([^;$]*?))?(;|$)');
+            var groups = cookiesReg.exec(allcookies);
+            return decodeURIComponent(groups ? (groups[3] || '') : '');
+        },
+        setCookie: function (key, value, expires, domain, path) {
+            var values = [key + '=' + encodeURIComponent(value)];
+            if (expires) {
+                if (typeof expires === 'number') {
+                    var expiresTime = new Date();
+                    expiresTime.setMinutes(expiresTime.getMinutes() + expires);
+                    values.push('expires=' + expiresTime.toGMTString());
+                } else {
+                    values.push('expires=' + expires);
+                }
+            }
+            values.push('domain=' + (domain || '.ac.qq.com'));
+            values.push('path=' + (path || '/'));
+            document.cookie = values.join(';');
+        },
+        isPad: function () {
+            var ua = window.navigator.userAgent;
+            return /(^| |\()iPad(;| |\/|$)/.test(ua);
+        }
+    };
+
+    window.Blocker = Blocker;
+})();;
+</script>
+<!-- fragEnd: withOutDynamicConfig -->
+
+
+  <script>
+    window.CLIENT_URL_ANDROID = 'http://m.ac.qq.com/apkSet/qqcomic_android_dm5004.apk';
+    window.CLIENT_URL_IOS = 'https://itunes.apple.com/app/apple-store/id569387346?pt=604140&ct=h5zhuzhan1&mt=8';
+
+    (function autoBlock() {
+      // 拦截类型：页面、忽略、对话框（默认）
+      var specBlockType = {
+        'index': 'ignore',
+        'chapter': 'ignore',
+        'comic_info': 'ignore'
+      };
+      // 根据页面名称确定拦截类型，并做处理
+      var blockType = specBlockType['rank'];
+      // 微博里不适合跳转拦截页，强制改为弹窗
+      if (/(^| )(Weibo)( |\/|$|\()/i.test(navigator.userAgent)) {
+        blockType = null;
+      }
+      switch (blockType) {
+        case 'page':
+          new Blocker().checkAndGo();
+          break;
+        case 'ignore':
+          break;
+        default:
+          new Blocker().checkAndDialog();
+          break;
+      }
+    })();
+  </script>
+  <!-- fragEnd: withOutViewPort -->
+    <link type="text/css" rel="stylesheet" href="//gtimgcdn.ac.qq.com/h5/rank/css/rank_e0546d208821ca50.css">
+    
+<!--SEO TDK：无极命中用配置文案，未命中回退默认文案-->
+<title>漫画排行榜_最权威的漫画真香榜_腾讯动漫官网</title>
+<meta name="keywords" content="漫画排行榜,真香榜,好看的漫画,热门漫画,腾讯动漫" />
+<meta name="description" content="腾讯动漫真香榜排行榜，实时更新最热门、最好看的正版漫画榜单，涵盖月票榜、飙升榜、新作榜、畅销榜、top100、男生榜、女生榜，发现值得追的高分漫画" />
+<link rel="canonical" href="https://m.ac.qq.com/rank/zhenxiang">
+
+</head>
+<body>
+<!-- 顶栏 -->
+<header class="top-bar #bar_style#">
+    <a class="btn-top back">[返回]</a>
+
+    <h1 class="top-title">排行榜</h1>
+
+    <div class="top-logo">[腾讯动漫LOGO]</div>
+
+    <div class="padding"></div>
+    <a class="btn-top open-app" href="javascript:void(0)" data-button-id="10032">打开APP</a>
+    <a class="btn-top search" href="/search/index">[搜索]</a>
+    <a class="btn-top menu">[菜单]</a>
+</header>
+<!-- 导航菜单 -->
+<div class="nav-menu-box">
+    <div class="nav-menu-bg"></div>
+    <div class="nav-menu">
+        <ul class="nav-list">
+            <li class="item" data-name="index" data-button-id="10031">
+                <a class="link" href="/">
+                    <i class="icon index">[首页]</i>
+                    <span class="name">首页</span>
+                </a>
+            </li>
+            <li class="item" data-name="category" data-button-id="10006">
+                <a class="link" href="/category/index">
+                    <i class="icon category">[分]</i>
+                    <span class="name">分类</span>
+                </a>
+            </li>
+            <li class="item" data-name="rank" data-button-id="10007">
+                <a class="link" href="/rank/biaosheng">
+                    <i class="icon rank">[奖]</i>
+                    <span class="name">排行</span>
+                </a>
+            </li>
+            <li class="item" data-name="bookshelf" data-button-id="10003">
+                <a class="link top-bar-collect" href="javascript:void(0)">
+                    <i class="icon collect">[袋]</i>
+                    <span class="name">收藏</span>
+                </a>
+            </li>
+            <li class="item" data-name="history" data-button-id="10004">
+                <a class="link" href="/bookshelf/index?type=his">
+                    <i class="icon history">[钟]</i>
+                    <span class="name">历史</span>
+                </a>
+            </li>
+            <li class="item" data-name="support" data-button-id="10008">
+                <a class="link support" href="javascript:void(0);">
+                    <i class="icon feedback">[反馈]</i>
+                    <span class="name">反馈</span>
+                </a>
+            </li>
+        </ul>
+        <a class="btn-home" href="javascript:void(0)" data-button-id="10009">[个人中心]</a>
+    </div>
+</div>
+<!--头部切换页签部分-->
+<section class="rank-tab under-top-bar">
+    <div class="tab-list">
+        <a id="tab_update" class="tab-list-item" data-type="rise">飙升榜</a>
+        <a id="tab_pay" class="tab-list-item" data-type="pay">畅销榜</a>
+        <a id="tab_hot" class="tab-list-item" data-type="new">新作榜</a>
+        <a id="tab_mt" class="tab-list-item" data-type="hot">真香榜</a>
+    </div>
+</section>
+
+<!--头部top3部分-->
+<section class="rank-top3">
+    <div class="top3-box" data-type="rise">
+            </div>
+    <div class="top3-box" data-type="pay">
+            </div>
+    <div class="top3-box" data-type="new">
+            </div>
+    <div class="top3-box" data-type="hot">
+                
+<div class="top3-box-item top3-box-item2">
+    <a class="comic-link" href="/comic/index/id/540929">
+        <img class="comic-cover" src="https://manhua.acimg.cn/vertical/0/17_17_12_c6fc22757938b66e82007fa289ad16f7.jpg/210" alt="">
+        <strong class="comic-title">黑色四叶草</strong>
+        <small class="comic-update">更新到393话</small>
+    </a>
+</div>
+<div class="top3-box-item top3-box-item1">
+    <a class="comic-link" href="/comic/index/id/548731">
+        <img class="comic-cover" src="https://manhua.acimg.cn/vertical/0/21_14_21_96ed95f31667b3966cb0e0521ce13703_1498026084112.jpg/210" alt="">
+        <strong class="comic-title">绝世武神</strong>
+        <small class="comic-update">更新到1261话</small>
+    </a>
+</div>
+<div class="top3-box-item top3-box-item3">
+    <a class="comic-link" href="/comic/index/id/622498">
+        <img class="comic-cover" src="https://manhua.acimg.cn/vertical/0/17_14_44_a6d04f2d871d1d2d62111cdf166950de_1497681863781.jpg/210" alt="">
+        <strong class="comic-title">星武神诀</strong>
+        <small class="comic-update">更新到1020话</small>
+    </a>
+</div>
+
+            </div>
+</section>
+
+<!--下方的排序列表部分-->
+<section class="rank-orderedList">
+    <div id="list_rise_box" class="comic-list-box" data-type="rise">
+        <ul class="comic-list" id="list_rise">
+                    </ul>
+    </div>
+    <div id="list_pay_box" class="comic-list-box" data-type="pay">
+        <ul class="comic-list" id="list_pay">
+                    </ul>
+    </div>
+    <div id="list_new_box" class="comic-list-box" data-type="new">
+        <ul class="comic-list" id="list_new">
+                    </ul>
+    </div>
+    <div id="list_hot_box" class="comic-list-box" data-type="hot">
+        <ul class="comic-list" id="list_hot">
+                        <li class="comic-item">
+    <a class="comic-link" href="/comic/index/id/532071">
+        <div class="comic-cover">
+            <img class="cover-image" src="https://manhua.acimg.cn/vertical/0/09_19_45_66475f22d332829be7f69cc2e0712c15_1520595905537.jpg/210" loading="lazy">
+        </div>
+        <div class="comic-info">
+            <strong class="comic-title">应声入网!</strong>
+            <small class="comic-update">更新到315话</small>
+            <small class="comic-tag">战斗 热血</small>
+            <small class="comic-desc">一个名叫路一凡的平凡少年，以为考上了新桥高中就能安心的打篮球了，但是却没想到...</small>
+            <i class="comic-index"></i>
+        </div>
+    </a>
+</li>
+<li class="comic-item">
+    <a class="comic-link" href="/comic/index/id/641466">
+        <div class="comic-cover">
+            <img class="cover-image" src="https://manhua.acimg.cn/vertical/0/10_14_45_13c4f798e0420c9c341ded5b0891b391_1568097949132.jpg/210" loading="lazy">
+        </div>
+        <div class="comic-info">
+            <strong class="comic-title">大反派名单（史上最强反派）</strong>
+            <small class="comic-update">更新到154话</small>
+            <small class="comic-tag">复仇 战斗</small>
+            <small class="comic-desc">最危险的头号反派，学的只是地摊拳谱的花架子武术？灵气复苏异能涌现，一场传统武术和超能力的对抗正式打响。每周五更新！</small>
+            <i class="comic-index"></i>
+        </div>
+    </a>
+</li>
+<li class="comic-item">
+    <a class="comic-link" href="/comic/index/id/622694">
+        <div class="comic-cover">
+            <img class="cover-image" src="https://manhua.acimg.cn/vertical/0/28_18_31_7569bccb7a83b52059366564fbb02fc6_1530181873492.jpg/210" loading="lazy">
+        </div>
+        <div class="comic-info">
+            <strong class="comic-title">谢文东</strong>
+            <small class="comic-update">更新到343话</small>
+            <small class="comic-tag">战斗 权谋</small>
+            <small class="comic-desc">刀出男儿必见血，人挡杀人，佛挡杀佛！
+谁敢拦我宏图霸业？！
+周三，周五更新
+官方1群：QQ:466594606（已满）
+官方2群：QQ：685014229</small>
+            <i class="comic-index"></i>
+        </div>
+    </a>
+</li>
+<li class="comic-item">
+    <a class="comic-link" href="/comic/index/id/547344">
+        <div class="comic-cover">
+            <img class="cover-image" src="https://manhua.acimg.cn/vertical/0/08_13_15_c3ff56919cbfcafe27b2c64218aa03d7_1512710130024.jpg/210" loading="lazy">
+        </div>
+        <div class="comic-info">
+            <strong class="comic-title">修真四万年（别名：星域四万年）</strong>
+            <small class="comic-update">更新到374话</small>
+            <small class="comic-tag">机甲 战斗</small>
+            <small class="comic-desc">“倘若这宇宙，真是一片残酷血腥的黑暗森林，我们修真者，也会燃烧自己的生命，绽放出微弱的火花！”  修真40000年代，一个普普通通的边境少年，咆哮星辰，主宰银河的热血传奇！【每周一、四更新】【QQ粉丝①群：315829091  ②群：315481097】</small>
+            <i class="comic-index"></i>
+        </div>
+    </a>
+</li>
+<li class="comic-item">
+    <a class="comic-link" href="/comic/index/id/547341">
+        <div class="comic-cover">
+            <img class="cover-image" src="https://manhua.acimg.cn/vertical/0/11_16_13_631c751bdea5acd92ad222f5311afd6e_1610352817031.jpg/210" loading="lazy">
+        </div>
+        <div class="comic-info">
+            <strong class="comic-title">神医嫡女</strong>
+            <small class="comic-update">更新到651话</small>
+            <small class="comic-tag">古风 大女主</small>
+            <small class="comic-desc">duang的一声穿越，中西医双料圣手凤羽珩分分钟成了大顺朝的受虐嫡女，想杀我？一手术刀就扎你个半身不遂！药房随身，名利在手，连皇上都要跟我套近乎！流氓王爷你是在拿我开心吗？</small>
+            <i class="comic-index"></i>
+        </div>
+    </a>
+</li>
+<li class="comic-item">
+    <a class="comic-link" href="/comic/index/id/540833">
+        <div class="comic-cover">
+            <img class="cover-image" src="https://manhua.acimg.cn/vertical/0/12_10_26_8d5761321206b4d2eb19a4fc420ede77_1520821603121.jpg/210" loading="lazy">
+        </div>
+        <div class="comic-info">
+            <strong class="comic-title">无罪之城</strong>
+            <small class="comic-update">更新到471话</small>
+            <small class="comic-tag">战斗 热血</small>
+            <small class="comic-desc">精英特种兵唐柯被指派了一项新任务，他要只身前往一栋住满了重罪犯的大楼，还要靠自己把这些罪犯全部“劝”走……这怎么想怎么不靠谱啊！还好一进门就遇到了萝莉……咦？！</small>
+            <i class="comic-index"></i>
+        </div>
+    </a>
+</li>
+<li class="comic-item">
+    <a class="comic-link" href="/comic/index/id/635245">
+        <div class="comic-cover">
+            <img class="cover-image" src="https://manhua.acimg.cn/vertical/0/24_14_05_036cf4dbc82d77e739d5b518e09628bb_1550988312176.jpg/210" loading="lazy">
+        </div>
+        <div class="comic-info">
+            <strong class="comic-title">诡案调查组</strong>
+            <small class="comic-update">更新到125话</small>
+            <small class="comic-tag">推理 惊悚</small>
+            <small class="comic-desc">恐怖源于真实......十年前某医学院女生宿舍发生一起诡异的凶杀案，受害者的心脏被“人”生吃。却无人听到一点惨叫声？难道真的是鬼怪在作祟么？面对一宗宗诡异离奇的超自然案件，为避免引起市民的不安和恐慌，公安厅厅长秘密下令成立“诡案调查组”对其进行调查。</small>
+            <i class="comic-index"></i>
+        </div>
+    </a>
+</li>
+
+                    </ul>
+    </div>
+</section>
+
+</body>
+<script src="//gtimgcdn.ac.qq.com/h5/public/js/core_a6f1993fc6e1c391.js" crossorigin></script>
+<!-- 性能优化：Aegis 为纯监控 SDK，与页面逻辑无依赖，改为 async 异步加载，不阻塞解析/渲染 -->
+<script src="https://aegis.cdn-go.cn/aegis-sdk-v2/2.6.6/aegis.min.js" async crossorigin></script>
+<script>
+  // async 加载后 Aegis 就绪时机不确定，用守卫函数初始化：已就绪立即执行，否则脚本 onload 后执行
+  (function initAegis() {
+    var setup = function () {
+      window.AegisV2 = new Aegis({
+        id: 'SDK-fcff5b43ec0e24a56dd6',
+        hostUrl: {
+            url: 'https://galileotelemetry.tencent.com/collect',
+        },
+        plugin: {
+            device: true,
+            close: true,
+            aid: true,
+            fId: false,
+            ie: false,
+            pv: true,
+            spa: true,
+            error: true,
+            assetSpeed: true,
+            pagePerformance: true,
+            webVitals: true,
+            session: true,
+            api: {
+                // injectTraceHeader: 'traceparent', // session串联后端
+                // injectTraceUrls: [/xxxx.com/, /xxx.com/, /xxx.com/],
+            },
+        },
+      });
+    };
+    if (typeof window.Aegis === 'function') {
+      setup();
+    } else {
+      var s = document.querySelector('script[src*="aegis-sdk-v2"]');
+      if (s) {
+        s.addEventListener('load', setup);
+      } else {
+        window.addEventListener('load', function () {
+          if (typeof window.Aegis === 'function') { setup(); }
+        });
+      }
+    }
+  })();
+</script>
+<script>
+
+    window.HOT_TAG_ROOT = 'h5_v3.';
+
+    ek.share.setShare({
+        link: ek.url.appendQueryString(window.location.href, {'shared': 1}),
+        img_url: $('meta[itemprop="image"]').attr('content'),
+        title: $('meta[itemprop="name"]').attr('content'),
+        desc: $('meta[itemprop="description"]').attr('content'),
+        callback: function (res) {
+            console.log('分享结果：', res);
+        }
+    });
+
+    ek.ping.init({
+        androidAppUrl: CLIENT_URL_ANDROID || 'http://m.ac.qq.com/apkSet/qqcomic_android_dm2309.apk',
+        iOSAppUrl: CLIENT_URL_IOS || 'https://itunes.apple.com/us/app/teng-xun-wei-man/id569387346?ls=1&mt=8',
+        virtualUrl: function () {
+            var pathName = ek.url.getPathName();
+            var pathArgs = pathName.split('/');
+            if (/^\/Chapter\/index/i.test(pathName)) {
+                // 浏览页特殊处理
+                pathArgs[1] = 'Comic';
+                pathArgs[2] = 'view';
+            } else if (/^\/Bookshelf\/index/i.test(pathName)) {
+                // 书架特殊处理
+                var type = ek.url.getQueryString('type') || 'fav';  // 只做统计，不输出、不执行
+                pathArgs[1] += '_' + type;
+            } else if (!pathArgs[1] && !pathArgs[2]) {
+                // 首页补全处理
+                pathArgs = '/Index/index'.split('/');
+            } else if (!pathArgs[2]) {
+                // 其它补全处理
+                pathArgs.push('index');
+            }
+            // 掌火特殊处理
+            // 合作渠道页面全部下线   20190731  janwardchen
+            // var isCfApp = /CfApp( |\/|$)/i.test(window.navigator.userAgent);
+            // var client = isCfApp ? 'cfApp' : ek.clientType;
+            var client = ek.clientType;
+            pathArgs.splice(3, 0, 'client');
+            pathArgs.splice(4, 0, client);
+            return pathArgs.join('/');
+        },
+        virtualDomain: 'm.ac.qq.com',
+        downAppTag: function () {
+            // 根据页面名称生成下载的按键统计标记
+            var pageName = $('meta[name="page-name"]').attr('content');
+            return ['h5_v3_app_down', pageName, ek.clientType, ek.os].join('.');
+        },
+        // 初始化完毕后上报页面访问URL
+        reportVisit: true
+    });
+
+// 百度统计
+(function () {
+    window._hmt = window._hmt || [];
+    var hm = document.createElement("script");
+    hm.src = "https://hm.baidu.com/hm.js?ec3f5ac09e24d85ebdb0954b1670c12b";
+    var s = document.getElementsByTagName("script")[0];
+    s.parentNode.insertBefore(hm, s);
+})();
+
+</script>
+
+<script type="text/javascript">
+    var pg_Rank = new BIU.Page({
+        name: 'Page_Rank',
+        type: 'hot',
+        pageIndex: '1' | 0,
+        pageSize: '10' | 0
+    });
+</script>
+<script type="text/javascript" src="//gtimgcdn.ac.qq.com/h5/rank/js/rank_b36c53024e123863.js"></script>
+</html>
+
+<!--tailTrap<body></body><head></head><html></html>-->

@@ -414,9 +414,9 @@ pub(crate) async fn play(video_id: &str) -> ApiResult<Value> {
 mod tests {
     use super::*;
 
-    const SEARCH_SAMPLE: &str = include_str!("../../../../../mycomic_re/probe/dmla_search.bin");
-    const DETAIL_SAMPLE: &str = include_str!("../../../../../mycomic_re/probe/dmla_detail.bin");
-    const CHAPTER_SAMPLE: &str = include_str!("../../../../../mycomic_re/probe/dm_chapter.bin");
+    const SEARCH_SAMPLE: &str = include_str!("../../../testdata/mycomic/dmla_search.bin");
+    const DETAIL_SAMPLE: &str = include_str!("../../../testdata/mycomic/dmla_detail.bin");
+    const CHAPTER_SAMPLE: &str = include_str!("../../../testdata/mycomic/dm_chapter.bin");
 
     #[test]
     fn search_sample_parses_21_items_first_5667() {
