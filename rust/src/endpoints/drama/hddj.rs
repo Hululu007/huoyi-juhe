@@ -686,9 +686,7 @@ async fn post_playback(url: &str) -> ApiResult<String> {
         .map_err(|e| ApiError::Internal(e.to_string()))?;
     let status = resp.status().as_u16();
     if status != 200 {
-        return Err(ApiError::Internal(format!(
-            "黄豆短剧取流 HTTP {status}"
-        )));
+        return Err(ApiError::Internal(format!("黄豆短剧取流 HTTP {status}")));
     }
     resp.text()
         .await
@@ -808,19 +806,13 @@ mod tests {
     #[test]
     fn playback_src_prefers_data_src() {
         let resp = "{\"data\":{\"mode\":1,\"manifest_method\":\"GET\",\"cdn\":{\"m3u8Enabled\":true},\"streams\":{\"main\":\"https://cdn.example.com/main.m3u8\",\"hevc\":\"\"},\"src\":\"https://cdn.example.com/1.m3u8\",\"srcHevc\":\"\"},\"status\":1}";
-        assert_eq!(
-            playback_src(resp),
-            "https://cdn.example.com/1.m3u8"
-        );
+        assert_eq!(playback_src(resp), "https://cdn.example.com/1.m3u8");
     }
 
     #[test]
     fn playback_src_falls_back_to_streams_main() {
         let resp = "{\"data\":{\"streams\":{\"main\":\"https://cdn.example.com/main.m3u8\"},\"src\":\"\",\"srcHevc\":\"\"},\"status\":1}";
-        assert_eq!(
-            playback_src(resp),
-            "https://cdn.example.com/main.m3u8"
-        );
+        assert_eq!(playback_src(resp), "https://cdn.example.com/main.m3u8");
     }
 
     #[test]
