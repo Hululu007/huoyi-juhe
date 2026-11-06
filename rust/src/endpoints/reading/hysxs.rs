@@ -11,6 +11,7 @@
 //! 钉选核心签名里没有，省略。
 
 use std::sync::Mutex;
+use std::time::Duration;
 
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -137,7 +138,19 @@ fn cached_host() -> Option<String> {
 
 async fn resolve_host() -> Option<String> {
     for h in HOSTS {
-        let html = fetch_raw(&format!("https://{h}/ting/index.php")).await;
+        // 单域名探活限 5 秒：共享客户端的单次请求上限是 20 秒，14 个
+        // 候选域名逐个探活时，首个域名在手机弱网上 hanging 住就会把
+        // Dart 侧 30 秒的单站预算吃光，整站被静默判空；5 秒探不活
+        // 就换下一个，活域名（实测 62.hysxs.work 首个即活）不受影响。
+        let html = match tokio::time::timeout(
+            Duration::from_secs(5),
+            fetch_raw(&format!("https://{h}/ting/index.php")),
+        )
+        .await
+        {
+            Ok(html) => html,
+            Err(_) => String::new(),
+        };
         if alive(&html) {
             if let Ok(mut g) = HOST.lock() {
                 *g = Some(h.to_string());

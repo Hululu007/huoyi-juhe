@@ -180,8 +180,12 @@ dependencies {
     implementation("com.google.code.gson:gson:2.10.1")
 
     // Media3 ExoPlayer — NativePlayerPlugin host for short-drama playback.
+    // media3-exoplayer-hls 必须在：原生播放器用默认 MediaSourceFactory，
+    // 无此模块时任何 .m3u8 都建不出 HLS 源，报“视频解析失败/格式不支持”。
+    // 火蚁TV 同款依赖里有这一行，本树此前漏了。
     val media3Version = "1.4.1"
     implementation("androidx.media3:media3-exoplayer:$media3Version")
+    implementation("androidx.media3:media3-exoplayer-hls:$media3Version")
     implementation("androidx.media3:media3-common:$media3Version")
     implementation("androidx.media3:media3-datasource:$media3Version")
 

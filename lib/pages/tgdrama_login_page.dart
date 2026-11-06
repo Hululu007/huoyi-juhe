@@ -157,6 +157,18 @@ class _TgdramaLoginPageState extends State<TgdramaLoginPage> {
       _qrError = null;
       _loginSuccess = false;
     });
+    // 扫码先验服务：服务死着直接显示 lastError（带退出码与进程日志尾巴，
+    // 上一批修好的那个），不等 GET /api/auth/qr 的 8 秒超时、也不让用户
+    // 看到裸 TimeoutException。服务活着才继续调 startQrLogin。
+    final running = await _service.ensureRunning();
+    if (!mounted) return;
+    if (!running) {
+      setState(() {
+        _qrBusy = false;
+        _qrError = _service.lastError ?? '本地服务未启动';
+      });
+      return;
+    }
     try {
       await _service.startQrLogin();
     } catch (e) {
@@ -748,7 +760,6 @@ class _TgdramaLoginPageState extends State<TgdramaLoginPage> {
                 },
               ),
               const SizedBox(height: 8),
-              const Text('用手机 Telegram 扫码（设置 → 设备 → 关联桌面设备）。'),
               const SizedBox(height: 4),
               const Text('二维码过期会自动刷新，不用手动重生成。'),
             ],
@@ -1277,7 +1288,6 @@ class _TgdramaLoginPageState extends State<TgdramaLoginPage> {
           children: [
             Text('扫码登录', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
-            const Text('用手机 Telegram 扫码（设置 → 设备 → 关联桌面设备）。'),
             const SizedBox(height: 12),
             if (_qrActive) ...[
               Center(

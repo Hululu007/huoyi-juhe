@@ -6,6 +6,7 @@ import '../models/media_item.dart';
 import '../services/drama_site_content.dart';
 import '../services/drama_site_play.dart';
 import '../services/source_registry.dart';
+import '../widgets/home/home_design.dart';
 import '../widgets/home/home_media_card.dart';
 import 'home_provider.dart';
 
@@ -150,16 +151,30 @@ class _AdultTypeGridState extends State<_AdultTypeGrid> {
         SourceRegistry.instance.custom,
         types: {widget.type},
       );
+
+      /// 首分类第一页：只取首分类时，首分类恰好为空（站方改版、该分类
+      /// 下线）整站就被判空。按序试前四个分类，拿到非空第一页即停；
+      /// 'author' 是 hsvoice31 的主播索引，里面是 folder 项不是作品，
+      /// 跳过（作品分类 home/toplist/latest 都在它之前或之后）。
+      Future<List<DramaSiteItem>> firstPageItems(
+        DramaSiteContentClient client,
+      ) async {
+        final categories = await client.categories();
+        for (final category in categories.take(4)) {
+          if (category.id == 'author') continue;
+          final page = await client.catalog(category.id, 1);
+          if (page.items.isNotEmpty) return page.items.take(20).toList();
+        }
+        return const [];
+      }
+
       Future<List<MediaItem>> fetch(SourceEntry entry) async {
         try {
           final client = await SourceRegistry.instance.clientFor(entry.id);
           if (client == null) return const [];
-          final categories = await client.categories();
-          if (categories.isEmpty) return const [];
-          final page = await client.catalog(categories.first.id, 1);
+          final items = await firstPageItems(client);
           return [
-            for (final item in page.items.take(20))
-              adultRecommendItem(item, entry),
+            for (final item in items) adultRecommendItem(item, entry),
           ];
         } catch (_) {
           return const [];
@@ -175,11 +190,9 @@ class _AdultTypeGridState extends State<_AdultTypeGrid> {
         try {
           final client = readingSiteContentClient(siteId);
           if (client == null) return const [];
-          final categories = await client.categories();
-          if (categories.isEmpty) return const [];
-          final page = await client.catalog(categories.first.id, 1);
+          final items = await firstPageItems(client);
           return [
-            for (final item in page.items.take(20))
+            for (final item in items)
               coreAdultRecommendItem(item, siteId, widget.type),
           ];
         } catch (_) {
@@ -187,8 +200,12 @@ class _AdultTypeGridState extends State<_AdultTypeGrid> {
         }
       }
 
+      /// 单站 30 秒封顶：hsvoice31 取目录要连走两趟上游（混淆壳首页 +
+      /// 解码 JS），hysxs 首跑要逐个探活候选域名，15 秒在手机弱网上
+      /// 不够，两站都会被静默判空。30 秒仍比单次请求 20 秒上限宽，
+      /// 两站并行跑，总墙钟不超 30 秒。
       Future<List<MediaItem>> timed(Future<List<MediaItem>> f) => f.timeout(
-        const Duration(seconds: 15),
+        const Duration(seconds: 30),
         onTimeout: () => const <MediaItem>[],
       );
 
@@ -254,17 +271,238 @@ class _AdultTypeGridState extends State<_AdultTypeGrid> {
     return GridView.builder(
       key: Key('adult-grid-${widget.type.name}'),
       padding: const EdgeInsets.all(16),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 2,
         mainAxisSpacing: 12,
         crossAxisSpacing: 12,
-        childAspectRatio: 0.55,
+        // 小说路与原始小说界面同一套格子：核心小说分类页
+        // （CoreNovelCategoryPage）就是 2 列 / 16 边距 / 12 间距 /
+        // 0.55。HomeMediaCard 在 390 宽手机上要 309px 高，0.55 的格子
+        // 314.5px 刚好装下（0.62 只有 279px，会裁掉约 30px 作者行，
+        // 见 test/preview_capture_test.dart 文件头的已知现状）。
+        // 漫画 / 听书路沿用 D 路排行榜卡的 0.52，不动。
+        childAspectRatio: widget.type == ContentType.novel ? 0.55 : 0.52,
       ),
       itemCount: _items.length,
       itemBuilder: (context, index) {
         final item = _items[index];
-        return HomeMediaCard(item: item, onTap: () => _openItem(item));
+        // 小说路：原始小说界面，与小说 tab / 核心小说分类页同一套——
+        // HomeMediaCard（5/7 封面 + 两行 15sp 标题 + 作者 / 推荐 /
+        // 评分副标题行），外面再叠名次角标与热度行（见 _AdultNovelCard），
+        // 不用排行榜样式卡。漫画 / 听书路不动，仍用下面的 _AdultRankCard。
+        if (widget.type == ContentType.novel) {
+          return _AdultNovelCard(
+            item: item,
+            rank: index + 1,
+            onTap: () => _openItem(item),
+          );
+        }
+        return _AdultRankCard(
+          item: item,
+          rank: index + 1,
+          onTap: () => _openItem(item),
+        );
       },
     );
   }
+}
+
+/// 小说路卡：原始小说界面 HomeMediaCard + 名次角标 + 热度行。
+///
+/// HomeMediaCard 本身不改（核心小说分类页共用同一套，见
+/// CoreNovelCategoryPage），角标与热度行只叠在成人小说页这一路：
+/// 角标用 Stack 叠在封面左上角，热度行接在卡片下方。
+///
+/// 名次是混排后的真实列表位置（第 1 张卡 TOP 1、第 2 张 TOP 2，以此
+/// 类推，每张卡都有，不是只前三名——与首页排行榜 _RankCover 只前三名
+/// 戴角标不同）；样式照 _RankCover 的 TOP 角标（黑底白字、左上 6/6、
+/// 10sp 加粗），不另发明样式。成人取数不带 tag（见 home_provider.dart
+/// 的 adultRecommendItem / coreAdultRecommendItem），封面左上不会与
+/// HomeMediaCard 的 tag 角标撞上。
+///
+/// 热度行只在站方给了数据时出现（_heatLine：rankTags.first 优先，
+/// 没有时看备注 ep——`^[\d.]+万$` 的播放量补「热度」二字，其他备注
+/// 原样显示，都没有就不渲染该行，不编假数字）。副标题行仍由
+/// HomeMediaCard 内部按作者 · 首条推荐 · 评分渲染，全空不渲染。
+///
+/// 高度账（390 宽手机，格子 314.5px）：封面 242.2 + 8 + 标题 40.5 =
+/// 290.5，副标题行与热度行各 18.3。生产数据下作者 / 评分 / 推荐 /
+/// rankTags 全空、只有备注 ep 会触发热度行，卡片 308.8px 仍装得下，
+/// 与原来带副标题行的卡片同高；只有两者同时出现（取数层补回作者 /
+/// 评分后才可能）才会超格子约 13px，届时须同步调格子，不在本项范围。
+class _AdultNovelCard extends StatelessWidget {
+  const _AdultNovelCard({
+    required this.item,
+    required this.rank,
+    required this.onTap,
+  });
+
+  final MediaItem item;
+  final int rank;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = HomePalette.of(context);
+    final heat = _heatLine(item);
+    return Stack(
+      children: [
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            HomeMediaCard(item: item, onTap: onTap),
+            if (heat.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                heat,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11,
+                  height: 1.3,
+                  color: palette.muted,
+                ),
+              ),
+            ],
+          ],
+        ),
+        Positioned(
+          left: 6,
+          top: 6,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+            decoration: BoxDecoration(
+              color: const Color(0xB3000000),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              'TOP $rank',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 10,
+                height: 1.1,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.2,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 排行榜同款卡：封面 + TOP 角标 + 标题 + 热度行。
+///
+/// 照首页排行榜的样子画：封面左上角 TOP 1/2/3 黑底白字角标（只前三名
+/// 有，见 home_cell_blocks.dart 的 _RankCover）、标题两行、下方一行
+/// 热度数字。名次就是混排后的顺序（核心站在前，登记源在后）。
+///
+/// 只给漫画 / 听书路用。小说路不用它：小说路用上面的 _AdultNovelCard
+///（同一套 HomeMediaCard，外面叠名次角标与热度行），与小说 tab /
+/// 核心小说分类页一模一样。
+class _AdultRankCard extends StatelessWidget {
+  const _AdultRankCard({
+    required this.item,
+    required this.rank,
+    required this.onTap,
+  });
+
+  final MediaItem item;
+  final int rank;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = HomePalette.of(context);
+    final scaler = MediaQuery.textScalerOf(context);
+    final meta = _heatLine(item);
+    return HomePressable(
+      key: ValueKey('adult-rank-$rank'),
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      semanticLabel: '第$rank名 ${item.title}',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AspectRatio(
+            aspectRatio: 5 / 7,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  StoryCover(item: item, cacheWidth: 200),
+                  if (rank <= 3)
+                    Positioned(
+                      left: 6,
+                      top: 6,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xB3000000),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          'TOP $rank',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            height: 1.1,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.2,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: scaler.scale(13) * 1.35 * 2,
+            child: Text(
+              item.title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 13,
+                height: 1.35,
+                fontWeight: FontWeight.w600,
+                color: palette.ink,
+              ),
+            ),
+          ),
+          if (meta.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              meta,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11,
+                height: 1.3,
+                color: palette.muted,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// 热度行：排行标签优先（服务端给的「9179万热度」这类原文）；没有时看
+/// 备注：站方给的播放量（hsvoice31 的「17万」）补「热度」二字；其他
+/// 备注（时长「10:48」、集数）原样显示，不硬凑热度；都没有就不渲染该行。
+String _heatLine(MediaItem item) {
+  if (item.rankTags.isNotEmpty) return item.rankTags.first;
+  final ep = item.ep;
+  if (ep.isEmpty) return '';
+  if (RegExp(r'^[\d.]+万$').hasMatch(ep)) return '$ep热度';
+  return ep;
 }

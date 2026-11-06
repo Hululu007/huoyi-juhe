@@ -881,7 +881,7 @@ class _SearchPageState extends State<SearchPage> {
     if (_siteResults.isEmpty) {
       return _resultsShell(
         context,
-        const Center(child: Text('站源里没有搜到相关短剧')),
+        const Center(child: Text('站源里没有搜到相关内容')),
       );
     }
     return _resultsShell(

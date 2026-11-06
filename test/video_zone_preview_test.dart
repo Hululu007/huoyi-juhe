@@ -11,6 +11,7 @@ import 'package:fqapp/pages/category_page.dart';
 import 'package:fqapp/services/drama_playback.dart';
 import 'package:fqapp/services/drama_site_content.dart';
 import 'package:fqapp/services/drama_sites.dart';
+import 'package:fqapp/services/unified_video_categories.dart';
 import 'package:fqapp/services/video_category_tags.dart';
 import 'package:fqapp/widgets/home/drama_site_grid.dart';
 
@@ -204,6 +205,10 @@ void main() {
           child: CategoryPage(
             videoSiteId: 'seed_91crdjai',
             openVideoTab: true,
+            // 统一资产默认走 rootBundle，在 widget 测试的 fake async 下
+            // 读不到会挂起：这里直接给 empty，走单站模式（本站四组），
+            // 本预览验的就是单站模式。
+            unifiedLoader: () async => UnifiedVideoCategories.empty,
             videoLoader: (_) async => const VideoCategoryData(
               siteId: 'seed_91crdjai',
               siteName: '🔞91成人短剧',

@@ -43,14 +43,17 @@ class LiveSource {
 }
 
 class LiveChannel {
-  const LiveChannel({
+  LiveChannel({
     required this.title,
     required this.url,
     this.group = '',
     this.sourceId = '',
     this.token = '',
     this.subtitle = '',
-  });
+    this.cover = '',
+    this.number = '',
+    List<String>? urls,
+  }) : urls = (urls == null || urls.isEmpty) ? [url] : List.unmodifiable(urls);
 
   final String title;
   final String url;
@@ -58,27 +61,60 @@ class LiveChannel {
   final String sourceId;
   final String token;
   final String subtitle;
+  final String cover;
+
+  /// 火蚁TV 的 urls：直连型源（pingtai / list）单条地址时就是 [url]；
+  /// 平台型源或带代理前缀的列表源可有多条，播放页「线路」按钮按它切线。
+  /// 修仙版现有源都只给一条（见 live_platform 的取数），这里先把字段与
+  /// 切线通路按火蚁TV 形态接好，有多条数据的源进来即能用。
+  final List<String> urls;
+
+  /// 火蚁TV 的频道序号：平台源按接口行序编号（rtmp 沉底前编，
+  /// 展示顺序里编号不一定连续）；列表源按 m3u 行序编号，
+  /// 有 tvg-chno 时用它。空时展示用显示位序兜底。
+  final String number;
+
+  /// 收藏去重键，与火蚁TV 的 makeKey 同形：源、分组、频道名。
+  String get key => makeKey(sourceId, group, title);
+
+  static String makeKey(String source, String group, String name) =>
+      '$source\u0000$group\u0000$name';
+
+  /// 火蚁TV 的 logo 就是房间图，与这里的 cover 同源。
+  String get logo => cover;
+
+  String get label => number.isEmpty ? title : '$number  $title';
 
   Map<String, dynamic> toJson() => {
     'title': title,
     'url': url,
+    'urls': urls,
     'group': group,
     'sourceId': sourceId,
     'token': token,
     'subtitle': subtitle,
+    'cover': cover,
+    'number': number,
   };
 
   static LiveChannel? fromJson(Map<String, dynamic> json) {
     final title = json['title'] as String? ?? '';
     final url = json['url'] as String? ?? '';
-    if (title.isEmpty || !url.toLowerCase().startsWith('http')) return null;
+    if (title.isEmpty || !url.contains('://')) return null;
+    final urls = (json['urls'] as List?)
+        ?.whereType<String>()
+        .where((value) => value.isNotEmpty)
+        .toList();
     return LiveChannel(
       title: title,
       url: url,
+      urls: urls,
       group: json['group'] as String? ?? '',
       sourceId: json['sourceId'] as String? ?? '',
       token: json['token'] as String? ?? '',
       subtitle: json['subtitle'] as String? ?? '',
+      cover: json['cover'] as String? ?? '',
+      number: json['number'] as String? ?? '',
     );
   }
 }
@@ -87,36 +123,41 @@ List<LiveChannel> parseM3u(String text, {String sourceId = ''}) {
   final channels = <LiveChannel>[];
   String? pendingTitle;
   var pendingGroup = '';
+  String? pendingNumber;
+  var number = 0;
   for (final rawLine in text.split('\n')) {
     final line = rawLine.trim();
     if (line.isEmpty) continue;
     if (line.startsWith('#EXTINF')) {
-      final groupMatch = RegExp(
-        r'group-title="([^"]*)"',
-      ).firstMatch(line);
+      final groupMatch = RegExp(r'group-title="([^"]*)"').firstMatch(line);
       pendingGroup = groupMatch?.group(1) ?? '';
+      final chnoMatch = RegExp(r'tvg-chno="([^"]*)"').firstMatch(line);
+      final chno = chnoMatch?.group(1)?.trim() ?? '';
+      pendingNumber = chno.isEmpty ? null : chno.padLeft(3, '0');
       final comma = line.indexOf(',');
-      pendingTitle = comma >= 0
-          ? line.substring(comma + 1).trim()
-          : '未命名频道';
+      pendingTitle = comma >= 0 ? line.substring(comma + 1).trim() : '未命名频道';
       continue;
     }
     if (line.startsWith('#')) continue;
     if (!line.toLowerCase().startsWith('http')) {
       pendingTitle = null;
       pendingGroup = '';
+      pendingNumber = null;
       continue;
     }
+    number++;
     channels.add(
       LiveChannel(
         title: pendingTitle ?? line,
         url: line,
         group: pendingGroup,
         sourceId: sourceId,
+        number: pendingNumber ?? number.toString().padLeft(3, '0'),
       ),
     );
     pendingTitle = null;
     pendingGroup = '';
+    pendingNumber = null;
   }
   return channels;
 }
@@ -152,9 +193,7 @@ class LiveSources {
       name: '百年直播',
       description: '百年直播 · 多平台聚合 · 实时开播',
       protocol: LiveProtocol.pingtai,
-      endpoints: [
-        'http://api.vipmisss.com:81/xcdsw',
-      ],
+      endpoints: ['http://api.vipmisss.com:81/xcdsw'],
       adult: true,
     ),
     LiveSource(
@@ -180,9 +219,7 @@ class LiveSources {
     final endpoint = source.endpoint;
     final String text;
     if (endpoint.startsWith('asset://')) {
-      text = await rootBundle.loadString(
-        endpoint.substring('asset://'.length),
-      );
+      text = await rootBundle.loadString(endpoint.substring('asset://'.length));
     } else {
       final response = await http
           .get(Uri.parse(endpoint), headers: source.headers)
@@ -192,21 +229,21 @@ class LiveSources {
       }
       text = response.body;
     }
-    return parseM3u(
-      text,
-      sourceId: source.id,
-    ).map((channel) {
+    return parseM3u(text, sourceId: source.id).map((channel) {
       return LiveChannel(
         title: channel.title,
         url: channel.url,
         group: channel.group.isEmpty ? source.group : channel.group,
         sourceId: source.id,
+        number: channel.number,
       );
     }).toList();
   }
 
-  static List<LiveSource> get midnightSources =>
-      [for (final source in builtin) if (source.adult) source];
+  static List<LiveSource> get midnightSources => [
+    for (final source in builtin)
+      if (source.adult) source,
+  ];
 
   static const _m3uKey = 'juhe_live_m3u_channels';
   static const _m3uUrlKey = 'juhe_live_m3u_url';

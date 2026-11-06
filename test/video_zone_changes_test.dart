@@ -10,6 +10,7 @@ import 'package:fqapp/services/drama_playback.dart';
 import 'package:fqapp/services/drama_site_content.dart';
 import 'package:fqapp/services/drama_sites.dart';
 import 'package:fqapp/services/source_registry.dart';
+import 'package:fqapp/services/unified_video_categories.dart';
 import 'package:fqapp/services/video_category_tags.dart';
 import 'package:fqapp/widgets/home/drama_site_grid.dart';
 
@@ -131,7 +132,7 @@ void main() {
       ),
       _entry(
         id: 'seed_91crdjai',
-        name: '🔞91成人短剧',
+        name: '🔞91成人影院',
         kind: SourceKind.pyImport,
         extra: {'builtin': true, 'contentType': 'video'},
       ),
@@ -151,6 +152,28 @@ void main() {
       ids.indexOf('seed_91crdjai'),
       greaterThan(ids.indexOf('jar:zakatv:demo')),
     );
+  });
+
+  test('短剧名内置导入站不进影视区站表', () {
+    final entries = [
+      _entry(
+        id: 'jar:zakatv:demo',
+        name: '预置 jar 站',
+        kind: SourceKind.jarImport,
+        extra: {'builtin': true, 'contentType': 'video'},
+      ),
+      _entry(
+        id: 'seed_91crdjai',
+        name: '🔞91成人短剧',
+        kind: SourceKind.pyImport,
+        extra: {'builtin': true, 'contentType': 'video'},
+      ),
+    ];
+    final ids =
+        unifiedVideoZoneSites(entries).map((site) => site.id).toList();
+    // 显示名带「短剧」即短剧站，归短剧区，不进影视区。
+    expect(ids, contains('jar:zakatv:demo'));
+    expect(ids, isNot(contains('seed_91crdjai')));
   });
 
   testWidgets('影视页网格 4 列，默认仍 3 列', (tester) async {
@@ -200,6 +223,10 @@ void main() {
         home: CategoryPage(
           videoSiteId: 'seed_91crdjai',
           openVideoTab: true,
+          // 统一资产默认走 rootBundle，在 widget 测试的 fake async 下
+          // 读不到会挂起：这里直接给 empty，走单站模式（本站四组），
+          // 本用例验的就是单站模式。
+          unifiedLoader: () async => UnifiedVideoCategories.empty,
           videoLoader: (_) async => const VideoCategoryData(
             siteId: 'seed_91crdjai',
             siteName: '🔞91成人短剧',

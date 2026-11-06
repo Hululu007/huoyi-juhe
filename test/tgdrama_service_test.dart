@@ -18,6 +18,7 @@ import 'package:http/testing.dart';
 ///   asset 打包）；
 /// - 平台用 isAndroidProvider 强制为 Android（本机是 x86_64 Linux，
 ///   Platform.isAndroid 本来是 false，服务会直接拒绝启动）。
+/// - 另验工作目录（启动时必须钉在插件目录）与进程日志/退出码抓取。
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -67,17 +68,25 @@ void main() {
   TgdramaService createService({
     required MockClient client,
     _FakeProcess Function()? processFactory,
-    Future<Process> Function(List<String> command)? processLauncher,
+    Future<Process> Function(
+      List<String> command, {
+      String? workingDirectory,
+    })?
+    processLauncher,
     Future<ByteData> Function(String assetPath)? assetLoader,
     bool Function()? isAndroidProvider,
     bool Function(String path)? isExecutableChecker,
   }) {
     final launches = <List<String>>[];
+    final launchDirs = <String?>[];
     final service = TgdramaService(
       httpClient: client,
-      processLauncher: (command) async {
+      processLauncher: (command, {String? workingDirectory}) async {
         launches.add(List<String>.from(command));
-        if (processLauncher != null) return processLauncher(command);
+        launchDirs.add(workingDirectory);
+        if (processLauncher != null) {
+          return processLauncher(command, workingDirectory: workingDirectory);
+        }
         return processFactory?.call() ?? _FakeProcess();
       },
       supportDirProvider: () async => tempDir,
@@ -86,6 +95,7 @@ void main() {
       isExecutableChecker: isExecutableChecker,
     );
     serviceLaunches[service] = launches;
+    serviceLaunchDirs[service] = launchDirs;
     created.add(service);
     return service;
   }
@@ -146,6 +156,11 @@ void main() {
       '-bind',
       '127.0.0.1',
     ]);
+    // 工作目录钉在插件目录：插件的数据目录默认就是当前工作目录。
+    expect(
+      serviceLaunchDirs[service]!.single,
+      '${tempDir.path}/tgdrama',
+    );
 
     // 二进制已落盘，且 MD5 与打包的二进制一致。
     final binaryFile = File(binaryPath);
@@ -259,6 +274,31 @@ void main() {
     process.exitNow(1);
     expect(await running, isFalse);
     expect(service.lastError, contains('已退出'));
+    expect(service.lastError, contains('退出码 1'));
+    expect(service.lastExitCode, 1);
+  });
+
+  test('进程退出时 lastError 带退出码与进程日志尾巴，plugin.log 落盘', () async {
+    final process = _FakeProcess(
+      stderrLines: ['linker: Permission denied'],
+    );
+    final service = createService(
+      client: clientFor(healthStatus: 500),
+      processFactory: () => process,
+    );
+    final running = service.ensureRunning();
+    process.exitNow(1);
+    expect(await running, isFalse);
+    expect(service.lastError, contains('已退出'));
+    expect(service.lastError, contains('退出码 1'));
+    expect(service.lastError, contains('Permission denied'));
+    expect(service.lastExitCode, 1);
+    expect(service.lastLogTail, contains('Permission denied'));
+    final logFile = File('${tempDir.path}/tgdrama/plugin.log');
+    expect(await logFile.exists(), isTrue);
+    // IOSink 关流是异步落盘，等一拍再读内容。
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    expect(await logFile.readAsString(), contains('Permission denied'));
   });
 
   test('非 Android 直接回 false，lastError 写明仅支持 Android，不拉进程',
@@ -408,13 +448,17 @@ void main() {
     expect(launches.single.first, TgdramaService.linker64Path);
     expect(launches.single[1], '${tempDir.path}/tgdrama/tgdrama-android');
     expect(launches.single.sublist(2), ['-port', '5278', '-bind', '127.0.0.1']);
+    expect(
+      serviceLaunchDirs[service]!.single,
+      '${tempDir.path}/tgdrama',
+    );
   });
 
   test('直接启动被拒时改走链接器兜底，仍能跑起来', () async {
     var directAttempts = 0;
     final service = createService(
       client: clientFor(),
-      processLauncher: (command) async {
+      processLauncher: (command, {String? workingDirectory}) async {
         if (command.first == TgdramaService.linker64Path) {
           return _FakeProcess();
         }
@@ -438,7 +482,7 @@ void main() {
   test('直接被拒且链接器也失败时回 false，lastError 说明两处都失败', () async {
     final service = createService(
       client: clientFor(),
-      processLauncher: (command) async {
+      processLauncher: (command, {String? workingDirectory}) async {
         throw ProcessException(
           command.first,
           command.sublist(1),
@@ -455,7 +499,7 @@ void main() {
   test('直接启动报非权限错时不走链接器兜底', () async {
     final service = createService(
       client: clientFor(),
-      processLauncher: (command) async {
+      processLauncher: (command, {String? workingDirectory}) async {
         throw ProcessException(
           command.first,
           command.sublist(1),
@@ -482,18 +526,32 @@ void main() {
 /// 每个服务实例对应的启动记录（测试内共享，方便断言拉起次数与参数）。
 final Map<TgdramaService, List<List<String>>> serviceLaunches = {};
 
+/// 每个服务实例对应的启动工作目录记录（与 serviceLaunches 一一对应）。
+final Map<TgdramaService, List<String?>> serviceLaunchDirs = {};
+
 /// 假进程：不拉真进程，只记录 kill，并可由测试主动让它退出。
 class _FakeProcess implements Process {
-  _FakeProcess();
+  _FakeProcess({List<String> stdoutLines = const [], List<String> stderrLines = const []})
+    : _stdoutController = StreamController<List<int>>(),
+      _stderrController = StreamController<List<int>>() {
+    for (final line in stdoutLines) {
+      _stdoutController.add(utf8.encode(line));
+    }
+    for (final line in stderrLines) {
+      _stderrController.add(utf8.encode(line));
+    }
+  }
 
   final Completer<int> _exitCode = Completer<int>();
+  final StreamController<List<int>> _stdoutController;
+  final StreamController<List<int>> _stderrController;
   bool killed = false;
 
   @override
-  Stream<List<int>> get stderr => const Stream<List<int>>.empty();
+  Stream<List<int>> get stderr => _stderrController.stream;
 
   @override
-  Stream<List<int>> get stdout => const Stream<List<int>>.empty();
+  Stream<List<int>> get stdout => _stdoutController.stream;
 
   @override
   IOSink get stdin => IOSink(StreamController<List<int>>());

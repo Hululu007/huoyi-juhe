@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fqapp/pages/category_page.dart';
+import 'package:fqapp/pages/search_page.dart';
 import 'package:fqapp/pages/unified_browse_content_page.dart';
 import 'package:fqapp/services/drama_playback.dart';
 import 'package:fqapp/services/drama_site_content.dart';
@@ -173,7 +174,7 @@ void main() {
     expect(find.byType(UnifiedBrowseContentPage), findsOneWidget);
   });
 
-  testWidgets('标签组出现，点标签进汇总（只收可浏览的）', (tester) async {
+  testWidgets('标签组出现，点标签进站源搜索（只收可浏览的）', (tester) async {
     await pump(tester);
 
     expect(find.text('标签'), findsWidgets);
@@ -182,10 +183,30 @@ void main() {
     await tester.tap(
       find.byKey(const ValueKey('category_tile_unified_tag_可看标签')),
     );
-    await tester.pumpAndSettle();
+    // 站源搜索会拉全站取数，不等它跑完：只验路由——点标签打开的是
+    // 站源搜索页（SearchPage，站源页签），查询词就是标签名，不再是
+    // 多站内容汇总页。
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
 
-    expect(find.byType(UnifiedBrowseContentPage), findsOneWidget);
-    expect(find.text('a 站作品'), findsOneWidget);
+    expect(find.byType(SearchPage), findsOneWidget);
+    expect(find.byType(UnifiedBrowseContentPage), findsNothing);
+    expect(find.text('可看标签'), findsWidgets);
+    // 站源页签在 400 宽的横向栏可视区外：把测试面加宽到 800，
+    // 7 个页签一次排下，再断言「站源」chip 是选中态。
+    await tester.binding.setSurfaceSize(const Size(800, 800));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is ChoiceChip &&
+            widget.selected &&
+            widget.label is Text &&
+            (widget.label as Text).data == '站源',
+      ),
+      findsOneWidget,
+    );
   });
 }
 

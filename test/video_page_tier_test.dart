@@ -5,16 +5,13 @@ import 'package:fqapp/services/cultivation.dart';
 import 'package:fqapp/services/drama_site_content.dart';
 
 /// 影视页按境界过滤：成人站按修为分 4 档自动解锁，未解锁的站完全
-/// 不在列表里出现（不灰掉、不占位、不露站名）；非成人站（5 个果站，
-/// 不在核心登记表里）原样保留。
+/// 不在列表里出现（不灰掉、不占位、不露站名）；TG影视库不分档，
+/// 原样保留；5 个果站是短剧站，已从影视区摘掉（短剧归短剧区）。
 void main() {
-  test('修为 0 时只剩 5 个果站，成人站一个都不露', () {
+  test('修为 0 时只剩 TG影视库，成人站一个都不露', () {
     final visible = visibleVideoZoneSites(const [], 0);
     final ids = visible.map((site) => site.id).toSet();
-    expect(
-      ids,
-      containsAll(['huangdou', 'huangju', 'yeguo', 'yaguo', 'niuguo']),
-    );
+    expect(ids, {'tgdrama'});
     expect(ids.contains('missav'), isFalse);
     expect(ids.contains('javrate'), isFalse);
     expect(ids.contains('aiye'), isFalse);

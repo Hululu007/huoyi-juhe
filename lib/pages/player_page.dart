@@ -20,6 +20,7 @@ import '../services/cultivation.dart';
 import '../services/player_panel_preferences.dart';
 import '../services/watched_episodes.dart';
 import 'listen_mode_page.dart';
+import 'mpv_fallback_player_page.dart';
 import '../services/episode_source_cache.dart';
 import '../services/fair_memory.dart';
 import '../services/drama_cache_preferences.dart';
@@ -104,6 +105,13 @@ class PlayerPage extends StatefulWidget {
   /// 靠这个参数在进页时置全屏态。
   final bool openFullScreen;
 
+  /// 影视区专属 MPV 兜底开关（默认关）：只有 `openDramaSitePlayback`
+  /// 的影视链路传 true。短剧入口不传，永远不走 MPV。
+  /// 开启时，原生播放器报解码失败（`PlaybackIssue.decoding`）且静默
+  /// 重试耗尽后，自动推 MPV 兜底页（每集只推一次）；网络 / 超时 /
+  /// 取流失败不切 MPV，加密流（keyHex 非空）MPV 页内如实报错。
+  final bool mpvFallbackEnabled;
+
   /// 离线下载引擎与缓存的注入缝（测试用）。缺省用全局单例 —— 生产环境
   /// 下载队列就是进程级的一个，测试里换成假实现才不碰 Hive 与真网。
   final DramaDownloader? downloader;
@@ -130,6 +138,7 @@ class PlayerPage extends StatefulWidget {
     this.cultivationCategory = CultivationCategory.video,
     this.aiGenerated = false,
     this.openFullScreen = false,
+    this.mpvFallbackEnabled = false,
     this.onAddToShelf,
     this.downloader,
     this.store,
@@ -166,6 +175,14 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   NativePlayer? _pendingAutoplay;
   PlaybackIssue? _error;
   int _loadGeneration = 0;
+
+  /// MPV 兜底已推过的集（按 itemId 计）：一集只推一次，MPV 页返回后
+  /// 不再自动重推，用户在错误卡上点重试才回到原生播放器。
+  final Set<String> _mpvTriedItemIds = {};
+
+  /// 最近一次触发 MPV 兜底的原生失败原因（issue / 错误码 / 状态码），
+  /// 记日志并透传给 MPV 页展示，不参与判定。
+  String _mpvFallbackReason = '';
   final Stopwatch _watchTime = Stopwatch();
   final List<StreamSubscription<dynamic>> _subs = [];
   Future<void> _releases = Future<void>.value();
@@ -1504,6 +1521,57 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       _error = PlaybackIssue.fromError(error);
       _initVideo = false;
       _playing = false;
+    });
+    _maybeOpenMpvFallback(_error!, errorCode, httpStatusCode);
+  }
+
+  /// 影视区 MPV 兜底切换（只在 [_fail] 落点触发一次判断）。
+  ///
+  /// 触发条件（缺一不可，判定沿用现有的 [PlaybackIssue] / 原生错误码
+  /// 映射，不自造新判定）：
+  /// ① `mpvFallbackEnabled`（只有影视链路开）；② `contentLoader` 非空
+  /// （MPV 页复用同一条取流回调）；③ issue 是 `decoding`（Media3
+  /// 错误码 2003 / 3001–3004 / 4001–4005 映射而来，即「格式不支持」；
+  /// 网络 / 超时 / 取流失败换 MPV 也播不了，不切）；④ 本集没推过。
+  /// 注意 [_fail] 只在静默重试耗尽后才到，MPV 不是抢跑，是原生已尽力
+  /// 后的兜底。切之前把失败原因记进日志与 [_mpvFallbackReason]。
+  void _maybeOpenMpvFallback(
+    PlaybackIssue issue,
+    int? errorCode,
+    int? httpStatusCode,
+  ) {
+    if (!widget.mpvFallbackEnabled ||
+        widget.contentLoader == null ||
+        issue != PlaybackIssue.decoding ||
+        widget.eps.isEmpty ||
+        !mounted) {
+      return;
+    }
+    final episode = widget.eps[_index];
+    if (!_mpvTriedItemIds.add(episode.itemId)) return;
+    _mpvFallbackReason =
+        'issue=${issue.name} errorCode=${errorCode ?? '-'} '
+        'httpStatus=${httpStatusCode ?? '-'} episode=${episode.title}';
+    AppLog.w('mpv-fallback', _mpvFallbackReason);
+    final contentLoader = widget.contentLoader!;
+    final startIndex = _index;
+    final eps = widget.eps;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(
+        Navigator.push(
+          context,
+          MaterialPageRoute<void>(
+            builder: (_) => MpvFallbackPlayerPage(
+              title: widget.title,
+              eps: eps,
+              startIndex: startIndex,
+              contentLoader: contentLoader,
+              fallbackReason: _mpvFallbackReason,
+            ),
+          ),
+        ),
+      );
     });
   }
 

@@ -57,8 +57,14 @@ app.*.map.json
 
 # Rust 原生核心（rust/）与 C 加密库都可由源码重建，不提交生成的 .so。
 # shortplay 加密库由 native/ 中的 C 源码通过 CMake 构建。
+# 例外：下面三个 TDLib 预编译库没有源码、仓里重建不了（Telegram X
+# 改名后的 OpenSSL + TDLib JNI），缺了它们应用内 TDLib 登录直接报
+# libcryptox.so not found，必须入库，Gradle 才会打进 APK 的 lib/ 里。
 /assets/config/device_pool.json
 /android/app/src/main/jniLibs/*/*.so
+!/android/app/src/main/jniLibs/arm64-v8a/libtdjni.so
+!/android/app/src/main/jniLibs/arm64-v8a/libcryptox.so
+!/android/app/src/main/jniLibs/arm64-v8a/libsslx.so
 
 # 正式签名材料：真品放在仓库之外，见 docs/release-signing.md。
 # android/keystore.properties 只是本机构建用的副本，绝不能入库。

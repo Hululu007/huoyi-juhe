@@ -1,10 +1,12 @@
 import 'dart:async';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../models/media_item.dart';
 import '../models/playlet_comment.dart';
-import '../models/series_detail.dart' show SeriesDetail, SeriesRelateBook;
+import '../models/series_detail.dart'
+    show CastMember, SeriesDetail, SeriesRelateBook;
 import '../models/related_series.dart';
 import '../widgets/player/related_series_sheet.dart';
 import '../services/api_client.dart';
@@ -18,6 +20,7 @@ import '../widgets/home/home_design.dart';
 import '../widgets/player/playlet_comment_panel.dart';
 import '../widgets/player/story_player_panel.dart' show SeriesStatus;
 import '../widgets/series_detail/series_detail_book.dart';
+import '../widgets/series_detail/series_detail_common.dart';
 import '../widgets/series_detail/series_detail_episodes.dart';
 import '../widgets/series_detail/series_detail_hero.dart';
 import '../widgets/series_detail/series_detail_info.dart';
@@ -26,6 +29,25 @@ import '../widgets/series_detail/series_detail_theme.dart';
 import '../widgets/series_detail/series_detail_top_bar.dart';
 import 'detail_page.dart' show openBookDetail;
 import 'player_page.dart' show PlayerPage;
+
+/// 影视区（外站）详情数据：从 `DramaSiteDetail` 直译过来，不经过短剧的
+/// `SeriesDetail`（短剧详情接口没有站原字段）。
+///
+/// 字段来源：`synopsis` = 站详情简介；`extra` = 站原字段（演员 / 年份 /
+/// 地区 / 分类 / 播放线路名等，键就是源字段名）；`stills` = 详情页自带
+/// 剧照（核心详情 `extra['stills']`、TVBox 详情 `stills` 字段），
+/// 没有的站为空，详情页不画剧照区。
+class FilmSiteDetail {
+  const FilmSiteDetail({
+    this.synopsis = '',
+    this.extra = const {},
+    this.stills = const [],
+  });
+
+  final String synopsis;
+  final Map<String, String> extra;
+  final List<String> stills;
+}
 
 /// 短剧详情：版式照 PR #200（`feat/series-detail-redesign`，提交 `2c3a3e3`）
 /// 定稿的设计稿右机——设计稿本身不在仓库里，版式规则以下面这段为准。
@@ -54,6 +76,7 @@ class SeriesDetailPage extends StatefulWidget {
     this.commentLoader,
     this.directoryLoader,
     this.onPlayEpisode,
+    this.siteDetailLoader,
     this.onOpenRelatedSeries,
     this.engineSiteId = '',
     this.shelfKind = 'video',
@@ -104,6 +127,11 @@ class SeriesDetailPage extends StatefulWidget {
   /// 详情时传入「关闭详情 + 切集」，不叠第二个播放器。
   final ValueChanged<int>? onPlayEpisode;
 
+  /// 影视区专属：外站详情加载器（`openDramaSiteItem` 传，内部调站
+  /// `detail`，与 `directoryLoader` 共用同一份缓存详情，不多请求一次）。
+  /// 为空 = 短剧入口，简介 / 线路 / 剧照三区一律不画，短剧流程零改动。
+  final Future<FilmSiteDetail> Function(String seriesId)? siteDetailLoader;
+
   @override
   State<SeriesDetailPage> createState() => _SeriesDetailPageState();
 }
@@ -133,6 +161,14 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
   bool _episodesDone = false;
   PlayletCommentPage? _comments;
 
+  /// 影视区站详情（简介 / 原字段 / 剧照）：短剧入口不加载。
+  FilmSiteDetail? _filmDetail;
+  bool _filmDetailDone = false;
+  bool _filmDetailFailed = false;
+
+  /// 有站详情加载器 = 影视区入口；短剧入口 loader 为空。
+  bool get _isFilmSite => widget.siteDetailLoader != null;
+
   final ScrollController _scroll = ScrollController();
 
   @override
@@ -151,6 +187,7 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
     if (!_detailDone) unawaited(_loadDetail());
     unawaited(_loadEpisodes());
     unawaited(_loadComments());
+    if (_isFilmSite) unawaited(_loadFilmDetail());
   }
 
   @override
@@ -220,6 +257,102 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
         _detailFailed = true;
       });
     }
+  }
+
+  Future<void> _loadFilmDetail() async {
+    final loader = widget.siteDetailLoader;
+    if (loader == null) return;
+    setState(() {
+      _filmDetailDone = false;
+      _filmDetailFailed = false;
+    });
+    try {
+      final detail = await _request(() => loader(widget.seriesId));
+      if (!mounted) return;
+      setState(() {
+        _filmDetail = detail;
+        _filmDetailDone = true;
+        _filmDetailFailed = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _filmDetailDone = true;
+        _filmDetailFailed = true;
+      });
+    }
+  }
+
+  /// 影视区站原字段（短剧入口 `_filmDetail` 为 null 时返回空串）。
+  String _filmExtra(String key) => _filmDetail?.extra[key] ?? '';
+
+  List<String> _splitFilmField(String value) => value
+      .split(RegExp(r'[,，、/｜|]+'))
+      .map((part) => part.trim())
+      .where((part) => part.isNotEmpty)
+      .toList(growable: false);
+
+  /// 影视区播放线路名：站原字段 `vod_play_from` / `play_from` / `from` /
+  /// `source`（多线路用 `$$$` 隔开，见 TVBox `vod_play_from`）。
+  /// 没有线路信息的站默认一行「在线播放」；注意这只是展示行——多线路的
+  /// 选集本就按线路名前缀拼在集名里（`线路-集名`），不另做线路筛选，
+  /// 选集仍走现有选集区。
+  List<String> _filmLines() {
+    for (final key in const [
+      'vod_play_from',
+      'play_from',
+      'from',
+      'source',
+    ]) {
+      final raw = _filmExtra(key);
+      if (raw.isEmpty) continue;
+      final lines = raw
+          .split('\$\$\$')
+          .expand((part) => part.split(','))
+          .map((part) => part.trim())
+          .where((part) => part.isNotEmpty)
+          .toList(growable: false);
+      if (lines.isNotEmpty) return lines.toSet().toList(growable: false);
+    }
+    return const ['在线播放'];
+  }
+
+  /// 影视区头项状态行：集数标签 + 年份 / 地区 / 备注（站原字段）。
+  String _filmStatusLine() {
+    final parts = <String>[];
+    if (_detail.episodeLabel.isNotEmpty) parts.add(_detail.episodeLabel);
+    for (final key in const ['year', 'area', 'remarks']) {
+      final value = _filmExtra(key);
+      if (value.isNotEmpty) parts.add(value);
+    }
+    return parts.join(' · ');
+  }
+
+  /// 影视区头项分类标签：站原字段 `category` + `tags`。
+  List<String> _filmCategories() {
+    final seen = <String>{};
+    final result = <String>[];
+    for (final value in [
+      _filmExtra('category'),
+      _filmExtra('tags'),
+    ]) {
+      for (final part in _splitFilmField(value)) {
+        if (seen.add(part)) result.add(part);
+      }
+    }
+    return result;
+  }
+
+  /// 影视区演员：站原字段 `actor` / `actress`，逗号 / 顿号分隔。
+  List<CastMember> _filmCast() {
+    final seen = <String>{};
+    final result = <CastMember>[];
+    for (final key in const ['actor', 'actress']) {
+      for (final name in _splitFilmField(_filmExtra(key))) {
+        if (seen.add(name)) result.add(CastMember(actor: name));
+      }
+    }
+    return result;
   }
 
   Future<void> _loadComments() async {
@@ -450,17 +583,26 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
                     controller: _scroll,
                     slivers: [
                       SliverToBoxAdapter(child: _hero()),
-                      SliverToBoxAdapter(child: _episodeSection()),
-                      SliverToBoxAdapter(child: _introSection()),
-                      SliverToBoxAdapter(child: _reviewsSection()),
-                      if (_detail.originalBook != null)
-                        SliverToBoxAdapter(
-                          child: SeriesDetailBookSection(
-                            book: _detail.originalBook!,
-                            onOpen: () =>
-                                _openOriginalBook(_detail.originalBook!),
+                      if (_isFilmSite) ...[
+                        // 影视区顺序：头项 → 简介 → 播放线路 + 选集 → 本片剧照。
+                        // 剧评 / 原著是短剧专属，影视区没有评论源，不画。
+                        SliverToBoxAdapter(child: _filmIntroSection()),
+                        SliverToBoxAdapter(child: _filmLineSection()),
+                        SliverToBoxAdapter(child: _episodeSection()),
+                        SliverToBoxAdapter(child: _filmStillsSection()),
+                      ] else ...[
+                        SliverToBoxAdapter(child: _episodeSection()),
+                        SliverToBoxAdapter(child: _introSection()),
+                        SliverToBoxAdapter(child: _reviewsSection()),
+                        if (_detail.originalBook != null)
+                          SliverToBoxAdapter(
+                            child: SeriesDetailBookSection(
+                              book: _detail.originalBook!,
+                              onOpen: () =>
+                                  _openOriginalBook(_detail.originalBook!),
+                            ),
                           ),
-                        ),
+                      ],
                       const SliverToBoxAdapter(child: SizedBox(height: 24)),
                     ],
                   ),
@@ -537,8 +679,10 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
     builder: (context, _, _) => SeriesDetailHero(
       title: _titleText,
       coverUrl: ApiClient.instance.absoluteUrl(_coverText),
-      statusLine: _statusLine(),
-      categories: _detail.categories,
+      // 影视区：状态行 / 分类标签走站原字段（年份 / 地区 / 备注 / 分类），
+      // 短剧走详情接口的原字段。
+      statusLine: _isFilmSite ? _filmStatusLine() : _statusLine(),
+      categories: _isFilmSite ? _filmCategories() : _detail.categories,
       playLabel: _playLabel,
       playEnabled: _playable,
       onPlay: () => _play(_currentIndex),
@@ -576,6 +720,173 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
     cast: _detail.cast,
     onRetry: () => unawaited(_loadDetail()),
   );
+
+  /// 影视区简介：简介与演员都走站详情（`synopsis` / `actor` 原字段），
+  /// 复用短剧简介区同一套展开 / 演员横排版式。站详情没回来时整块不画，
+  /// 只有真的请求失败才给区块内重试。
+  Widget _filmIntroSection() => SeriesDetailIntroSection(
+    loading: !_filmDetailDone,
+    failed: _filmDetailFailed,
+    intro: _filmDetail?.synopsis ?? '',
+    cast: _filmCast(),
+    onRetry: () => unawaited(_loadFilmDetail()),
+  );
+
+  /// 影视区播放线路行：`播放线路：在线播放` + 选集（选集区紧跟其后）。
+  /// 线路名取站原字段，多线路只展示（选集已按线路名前缀合并），不做
+  /// 线路筛选；没有线路信息的站默认一行「在线播放」。
+  Widget _filmLineSection() {
+    final palette = HomePalette.of(context);
+    final lines = _filmLines();
+    return SeriesSection(
+      key: const ValueKey('series-detail-play-lines'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SeriesSectionHeader(title: '播放线路'),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '播放线路：',
+                style: TextStyle(
+                  fontSize: 13,
+                  height: 1.5,
+                  color: palette.muted,
+                ),
+              ),
+              Expanded(
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (var i = 0; i < lines.length; i++)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: i == 0 ? seriesAccent(palette) : palette.soft,
+                          borderRadius: BorderRadius.circular(99),
+                        ),
+                        child: Text(
+                          lines[i],
+                          style: TextStyle(
+                            fontSize: 12,
+                            height: 1.5,
+                            color: i == 0
+                                ? seriesOnAccent(palette)
+                                : palette.ink,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (lines.length > 1)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                '多线路剧集已合并显示，集名带线路前缀',
+                style: TextStyle(
+                  fontSize: 12,
+                  height: 1.5,
+                  color: palette.muted,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// 影视区本片剧照：取详情页自带剧照（`FilmSiteDetail.stills`），横排
+  /// 滑动，点一张全屏看。站没给剧照就不画本区，不拿封面冒充。
+  Widget _filmStillsSection() {
+    final stills = _filmDetail?.stills ?? const <String>[];
+    if (stills.isEmpty) {
+      return const SizedBox.shrink(
+        key: ValueKey('series-detail-stills-section'),
+      );
+    }
+    return SeriesSection(
+      key: const ValueKey('series-detail-stills-section'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SeriesSectionHeader(title: '本片剧照'),
+          SizedBox(
+            height: 96,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: stills.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 8),
+              itemBuilder: (_, i) {
+                final url = ApiClient.instance.absoluteUrl(stills[i]);
+                return GestureDetector(
+                  onTap: () => _openStill(url),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: CachedNetworkImage(
+                      imageUrl: url,
+                      width: 160,
+                      height: 96,
+                      fit: BoxFit.cover,
+                      placeholder: (_, _) =>
+                          const SizedBox(width: 160, height: 96),
+                      errorWidget: (_, _, _) => const SizedBox(
+                        width: 160,
+                        height: 96,
+                        child: Icon(Icons.broken_image),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _openStill(String url) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: Colors.black,
+        insetPadding: const EdgeInsets.all(16),
+        child: Stack(
+          children: [
+            InteractiveViewer(
+              child: CachedNetworkImage(
+                imageUrl: url,
+                fit: BoxFit.contain,
+                errorWidget: (_, _, _) => const Padding(
+                  padding: EdgeInsets.all(32),
+                  child: Text(
+                    '剧照加载失败',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 8,
+              right: 8,
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white),
+                onPressed: () => Navigator.pop(dialogContext),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _reviewsSection() => SeriesDetailReviews(
     comments: _comments?.comments ?? const <PlayletComment>[],

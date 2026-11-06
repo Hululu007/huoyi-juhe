@@ -41,8 +41,9 @@ import 'unified_browse_content_page.dart';
 /// 内容随当前视频站变化（本站分类 + 提取的标签/主题/角色/情节，
 /// 成人站的热门标签里追加「熟女」），点 chip 进视频搜索。
 /// 影视页右上角分类按钮直接以该频道打开本页。
-/// 标签部分预留：统一数据里 `tags` 到了就多一组「标签」，点标签
-/// 同样进多站内容汇总（只收 browsable 为真的标签）。
+/// 标签部分：统一数据里 `tags` 到了就多一组「标签」，点标签
+/// 走站源搜索（核心 catalog() 只认分类 id，标签的完整站内链接
+/// 当分类 id 传过去拼不出地址；只收 browsable 为真的标签）。
 class CategoryPage extends StatefulWidget {
   const CategoryPage({
     super.key,
@@ -547,8 +548,10 @@ class _CategoryPageState extends State<CategoryPage> {
     _openSearch();
   }
 
-  /// chip 点击分发：统一模式的分类/标签 chip 进多站内容汇总页；
-  /// 其余 chip（小说频道、单站模式）沿用老行为，进视频/图书搜索。
+  /// chip 点击分发：统一模式的分类 chip 进多站内容汇总页；
+  /// 统一模式的标签 chip 与本站模式的 chip 进站源搜索（标签词
+  /// 当关键词搜）；其余 chip（小说频道等）沿用老行为，进视频/
+  /// 图书搜索。
   void _onTileTap(CategoryTile tile) {
     if (_isVideoTab && _unifiedMode) {
       final data = _unifiedData;
@@ -567,24 +570,33 @@ class _CategoryPageState extends State<CategoryPage> {
         return;
       }
       if (tile.dim == 'unified_tag' && data != null) {
-        final entries = [
-          for (final tag in data.tagSitesFor(tile.name))
-            UnifiedCategorySite(siteId: tag.siteId, path: tag.url),
-        ];
-        if (entries.isEmpty) return;
-        Navigator.of(context).push(
-          MaterialPageRoute<void>(
-            builder: (_) => UnifiedBrowseContentPage(
-              title: tile.name,
-              entries: entries,
-              clientForSite: widget.unifiedClientForSite,
-            ),
-          ),
-        );
+        // 标签不走多站汇总页：核心 catalog() 只认分类 id，标签的
+        // 完整站内链接当分类 id 传过去拼不出地址，回空；改走站源搜索。
+        _openSiteSearch(tile.name);
         return;
       }
     }
+    if (_isVideoTab && !_unifiedMode) {
+      // 本站模式的标签也不走番茄搜索：番茄后端只有短剧数据，
+      // 电影/剧集类标签词在那里搜不到（原始短剧搜得到、电影搜
+      // 不到就是这么来的）；改走站源搜索。
+      _openSiteSearch(tile.name);
+      return;
+    }
     _openSearch(query: tile.name);
+  }
+
+  /// 标签点开走站源搜索（[SearchCategory.sites]）：按站分组调各站
+  /// 自己的搜索接口，标签词当关键词搜，有结果的站才列出来。
+  void _openSiteSearch(String query) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SearchPage(
+          initialQuery: query,
+          initialCategory: SearchCategory.sites,
+        ),
+      ),
+    );
   }
 
   void _openSearch({String? query}) {

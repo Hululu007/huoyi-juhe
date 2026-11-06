@@ -20,9 +20,16 @@ import 'tgdrama_credentials.dart';
 /// `getApplicationSupportDirectory()/tgdrama/tgdrama-android`，MD5 对得上
 /// 复用、对不上重拷自愈（做法同 jar_bridge 的 resolveBuiltinJarAsset），
 /// 再 chmod 755、验执行位后用 `Process.start` 拉起来
-/// （参数 `-port 5278 -bind 127.0.0.1`）。鸿蒙卓易通容器里直接执行受限
+/// （参数 `-port 5278 -bind 127.0.0.1`，工作目录钉在插件目录——
+/// 插件的数据目录默认就是当前工作目录，session.json、config.yaml、
+/// tgdrama.db 都在工作目录里找；不钉工作目录，预置会话白写不说，
+/// 工作目录不可写时建库失败还会直接退出）。鸿蒙卓易通容器里直接执行受限
 /// 时（chmod 完了仍不可执行），改走系统链接器 `/system/bin/linker64`
 /// 兜底拉起（插件是动态链接的程序，链接器只需读文件就能跑）。
+///
+/// 诊断：进程的标准输出/错误输出实时收进内存尾巴（最多 4000 字）并
+/// 写进插件目录的 plugin.log；进程退出时退出码与日志尾巴拼进
+/// [lastError]，登录页直接显示，不再只报一句“进程已退出”。
 ///
 /// 重拉：应用切后台被系统杀掉后，回到前台（resumed）时若之前启动过，
 /// 自动再调一次 [ensureRunning]。
@@ -49,11 +56,14 @@ class TgdramaAuthStatus {
 class TgdramaService with WidgetsBindingObserver {
   TgdramaService({
     http.Client? httpClient,
-    Future<Process> Function(List<String> command)? processLauncher,
+    Future<Process> Function(List<String> command, {String? workingDirectory})?
+    processLauncher,
     Future<Directory> Function()? supportDirProvider,
     this._isAndroidProvider,
     Future<ByteData> Function(String assetPath)? assetLoader,
     bool Function(String path)? isExecutableChecker,
+    Future<ProcessResult> Function(String executable, List<String> args)?
+    chmodRunner,
   }) : _httpClient = httpClient ?? http.Client(),
        _processLauncher =
            processLauncher ?? _defaultProcessLauncher,
@@ -61,7 +71,8 @@ class TgdramaService with WidgetsBindingObserver {
            supportDirProvider ?? getApplicationSupportDirectory,
        _assetLoader = assetLoader ?? rootBundle.load,
        _isExecutableChecker =
-           isExecutableChecker ?? _defaultIsExecutable {
+           isExecutableChecker ?? _defaultIsExecutable,
+       _chmodRunner = chmodRunner ?? Process.run {
     try {
       WidgetsBinding.instance.addObserver(this);
       _observing = true;
@@ -94,9 +105,10 @@ class TgdramaService with WidgetsBindingObserver {
     return '${supportDir.path}/$_binaryDirName/$databaseFileName';
   }
 
-  /// 二进制 MD5（2026-11-06 实测，与 ~/workspace/tgdrama_plugin/
-  /// tgdrama-android 一致）；落盘时校验，对不上重拷自愈。
-  static const binaryMd5 = 'ae95f3c5b030d90d3af239fc9523e0d0';
+  /// 二进制 MD5（2.0.0 自写重建版，2026-11-06 实测，与
+  /// ~/workspace/tgdrama_rebuild/tgdrama-android 一致，含新增的
+  /// POST /api/chats/refresh）；落盘时校验，对不上重拷自愈。
+  static const binaryMd5 = 'cd1ad61c28e2b14a4b93fed143064ad6';
 
   static const _binaryDirName = 'tgdrama';
   static const _binaryFileName = 'tgdrama-android';
@@ -105,6 +117,12 @@ class TgdramaService with WidgetsBindingObserver {
   /// 执行），插件是动态链接的程序，链接器只需读文件就能跑，不用执行位。
   /// 直接启动被拒时改走它兜底拉起。
   static const linker64Path = '/system/bin/linker64';
+
+  /// 授权用的 chmod 绝对路径：容器里 PATH 未必含 chmod，绝对路径优先。
+  static const _chmodPath = '/system/bin/chmod';
+
+  /// 进程日志尾巴最多留多少字（登录页展示 + plugin.log 之外，内存里只留尾巴）。
+  static const _maxLogChars = 4000;
 
   /// 健康检查超时：与插件笔记一致，8 秒。
   static const _healthTimeout = Duration(seconds: 8);
@@ -117,11 +135,17 @@ class TgdramaService with WidgetsBindingObserver {
   static TgdramaService get instance => _instance;
 
   final http.Client _httpClient;
-  final Future<Process> Function(List<String> command) _processLauncher;
+  final Future<Process> Function(
+    List<String> command, {
+    String? workingDirectory,
+  })
+  _processLauncher;
   final Future<Directory> Function() _supportDirProvider;
   final bool Function()? _isAndroidProvider;
   final Future<ByteData> Function(String assetPath) _assetLoader;
   final bool Function(String path) _isExecutableChecker;
+  final Future<ProcessResult> Function(String executable, List<String> args)
+  _chmodRunner;
 
   Process? _process;
   bool _processExited = false;
@@ -129,17 +153,32 @@ class TgdramaService with WidgetsBindingObserver {
   bool _observing = false;
   Future<bool>? _starting;
   String? _lastError;
+  int? _lastExitCode;
+  final StringBuffer _logBuffer = StringBuffer();
+  IOSink? _logSink;
 
   /// 最近一次失败的原因（ensureRunning 失败时调用方拿去展示）。
   String? get lastError => _lastError;
+
+  /// 进程最近的标准输出/错误输出尾巴（最多 4000 字）。
+  String get lastLogTail => _logBuffer.toString();
+
+  /// 进程最近一次的退出码（没退过为 null）。
+  int? get lastExitCode => _lastExitCode;
 
   /// 进程对象非空且未退出。
   bool get isRunning => _process != null && !_processExited;
 
   bool get _isAndroid => _isAndroidProvider?.call() ?? Platform.isAndroid;
 
-  static Future<Process> _defaultProcessLauncher(List<String> command) =>
-      Process.start(command.first, command.sublist(1));
+  static Future<Process> _defaultProcessLauncher(
+    List<String> command, {
+    String? workingDirectory,
+  }) => Process.start(
+    command.first,
+    command.sublist(1),
+    workingDirectory: workingDirectory,
+  );
 
   /// 所有者执行位有没有真的加上（chmod 完了也不一定，容器里可能不生效）。
   static bool _defaultIsExecutable(String path) {
@@ -215,17 +254,15 @@ class TgdramaService with WidgetsBindingObserver {
     //（已登录就不覆盖），并补 config.yaml 的 Telegram API 凭证。
     // 全部 best-effort：失败不拦启动，登录页仍可扫码/输手机号重登。
     await _seedSessionAndConfig(File(binaryPath).parent);
-    try {
-      final chmodResult = await Process.run('chmod', ['755', binaryPath]);
-      if (chmodResult.exitCode != 0) {
-        _lastError = 'TG影视库二进制授权失败：chmod 退出码 '
-            '${chmodResult.exitCode}';
-        return false;
-      }
-    } catch (error) {
-      _lastError = 'TG影视库二进制授权失败：$error';
-      return false;
-    }
+    // 插件的数据目录默认就是当前工作目录：启动时必须把工作目录钉在
+    // 插件目录，否则插件在别处建库/找配置，预置会话白写不说，工作
+    // 目录不可写时建库失败还会直接退出——这就是 13 轮包“进程已退出”
+    // 的主因（之前启动没传 workingDirectory）。
+    final workDir = File(binaryPath).parent;
+    // 授权分三档试：绝对路径 chmod 优先（容器里 PATH 未必含 chmod），
+    // 再试 PATH 里的 chmod，最后 777；执行位还是没加上也不硬拦——
+    // 链接器兜底不需要执行位，失败原因记进备注里。
+    final execNote = await _ensureExecutable(binaryPath);
     // 容器里 chmod 完了执行位也可能没加上：先验一下，没加上就直接走
     // 链接器兜底，不浪费一次注定被拒的直接启动。
     final directExecutable = _isExecutableChecker(binaryPath);
@@ -238,12 +275,16 @@ class TgdramaService with WidgetsBindingObserver {
     var launched = false;
     if (directExecutable) {
       try {
-        final process = await _processLauncher([binaryPath, ...launchArgs]);
-        _trackProcess(process);
+        final process = await _processLauncher(
+          [binaryPath, ...launchArgs],
+          workingDirectory: workDir.path,
+        );
+        _trackProcess(process, workDir);
         launched = true;
       } catch (error) {
         if (!_isPermissionDenied(error)) {
-          _lastError = 'TG影视库本地服务启动失败：$error';
+          _lastError = 'TG影视库本地服务启动失败：$error'
+              '${execNote == null ? '' : '（$execNote）'}';
           return false;
         }
         // 直接启动被拒（容器里执行受限）：改走系统链接器兜底。
@@ -251,16 +292,16 @@ class TgdramaService with WidgetsBindingObserver {
     }
     if (!launched) {
       try {
-        final process = await _processLauncher([
-          linker64Path,
-          binaryPath,
-          ...launchArgs,
-        ]);
-        _trackProcess(process);
+        final process = await _processLauncher(
+          [linker64Path, binaryPath, ...launchArgs],
+          workingDirectory: workDir.path,
+        );
+        _trackProcess(process, workDir);
       } catch (error) {
         _lastError = directExecutable
             ? 'TG影视库本地服务启动失败：直接启动被拒，链接器兜底也失败：$error'
             : 'TG影视库本地服务启动失败：链接器兜底启动失败：$error';
+        if (execNote != null) _lastError = '$_lastError（$execNote）';
         return false;
       }
     }
@@ -271,14 +312,14 @@ class TgdramaService with WidgetsBindingObserver {
         return true;
       }
       if (!isRunning) {
-        _lastError = 'TG影视库本地服务进程已退出';
+        _lastError = 'TG影视库本地服务进程已退出${_exitDetail()}';
         return false;
       }
       if (attempt < _healthPollAttempts - 1) {
         await Future.delayed(_healthPollInterval);
       }
     }
-    _lastError = 'TG影视库本地服务健康检查超时（$baseUrl 未在 8 秒内就绪）';
+    _lastError = 'TG影视库本地服务健康检查超时（$baseUrl 未在 8 秒内就绪）${_exitDetail()}';
     return false;
   }
 
@@ -431,23 +472,108 @@ class TgdramaService with WidgetsBindingObserver {
     final process = _process;
     _process = null;
     _processExited = false;
-    if (process == null) return;
+    if (process == null) {
+      _closeLogSink();
+      return;
+    }
     try {
       process.kill();
     } catch (_) {}
+    _closeLogSink();
   }
 
-  void _trackProcess(Process process) {
+  void _trackProcess(Process process, Directory workDir) {
     _process = process;
     _processExited = false;
+    _lastExitCode = null;
+    _logBuffer.clear();
+    try {
+      _logSink = File(
+        '${workDir.path}/plugin.log',
+      ).openWrite(mode: FileMode.write);
+    } catch (_) {
+      _logSink = null;
+    }
+    void appendChunk(String chunk) {
+      if (chunk.isEmpty) return;
+      _logBuffer.write(chunk);
+      if (_logBuffer.length > _maxLogChars) {
+        final kept = _logBuffer.toString().substring(
+          _logBuffer.length - _maxLogChars,
+        );
+        _logBuffer
+          ..clear()
+          ..write(kept);
+      }
+      try {
+        _logSink?.write(chunk);
+      } catch (_) {}
+    }
+
+    process.stdout.transform(utf8.decoder).listen(appendChunk, onError: (_) {});
+    process.stderr.transform(utf8.decoder).listen(appendChunk, onError: (_) {});
     unawaited(
-      process.exitCode.then((_) {
+      process.exitCode.then((code) {
+        _lastExitCode = code;
         if (identical(_process, process)) {
           _process = null;
           _processExited = true;
         }
+        _closeLogSink();
       }),
     );
+  }
+
+  void _closeLogSink() {
+    final sink = _logSink;
+    _logSink = null;
+    try {
+      sink?.close();
+    } catch (_) {}
+  }
+
+  /// 进程已退出/健康检查超时时，lastError 后面拼的诊断尾巴：
+  /// 退出码 + 进程日志尾巴（有就拼，没有就空串）。
+  String _exitDetail() {
+    final parts = <String>[];
+    if (_lastExitCode != null) parts.add('退出码 $_lastExitCode');
+    final tail = lastLogTail.trim();
+    if (tail.isNotEmpty) parts.add('进程日志：$tail');
+    if (parts.isEmpty) return '';
+    return '（${parts.join('；')}）';
+  }
+
+  /// 授权：三档试 chmod（绝对路径优先，容器里 PATH 未必含 chmod），
+  /// 每档成功后验执行位；执行位加上即回 null。全部试完执行位仍
+  /// 没加上时回备注（不抛错、不拦启动：链接器兜底不需要执行位，
+  /// 备注拼进启动失败信息里）。
+  Future<String?> _ensureExecutable(String binaryPath) async {
+    const attempts = [
+      (_chmodPath, '755'),
+      ('chmod', '755'),
+      (_chmodPath, '777'),
+    ];
+    for (final attempt in attempts) {
+      try {
+        final result = await _chmodRunner(attempt.$1, [attempt.$2, binaryPath]);
+        if (result.exitCode != 0) continue;
+      } catch (_) {
+        continue;
+      }
+      if (_isExecutableChecker(binaryPath)) return null;
+    }
+    if (_isExecutableChecker(binaryPath)) return null;
+    final mode = await _fileModeOctal(binaryPath);
+    return '二进制文件未含执行位（mode $mode），已尝试链接器兜底启动';
+  }
+
+  Future<String> _fileModeOctal(String path) async {
+    try {
+      final stat = await File(path).stat();
+      return (stat.mode & 0x1FF).toRadixString(8).padLeft(3, '0');
+    } catch (_) {
+      return '未知';
+    }
   }
 
   /// 二进制落盘：应用私有目录 tgdrama/tgdrama-android；已存在且 MD5
@@ -487,10 +613,13 @@ class TgdramaService with WidgetsBindingObserver {
       if (!await sessionFile.exists()) {
         try {
           final bytes = await _assetLoader(sessionAssetPath);
-          await sessionFile.writeAsBytes(
-            bytes.buffer.asUint8List(bytes.offsetInBytes, bytes.lengthInBytes),
-            flush: true,
+          final raw = bytes.buffer.asUint8List(
+            bytes.offsetInBytes,
+            bytes.lengthInBytes,
           );
+          if (_looksLikeSession(raw)) {
+            await sessionFile.writeAsBytes(raw, flush: true);
+          }
         } catch (_) {
           // 包里没打预置会话（构建期未生成）：跳过，登录页仍可扫码重登。
         }
@@ -499,5 +628,19 @@ class TgdramaService with WidgetsBindingObserver {
     try {
       await TgdramaCredentials.ensureConfigYaml(tgdramaDir);
     } catch (_) {}
+  }
+
+  bool _looksLikeSession(List<int> raw) {
+    try {
+      final decoded = jsonDecode(utf8.decode(raw));
+      if (decoded is! Map<String, dynamic>) return false;
+      if (decoded['Version'] != 1) return false;
+      final data = decoded['Data'];
+      if (data is! Map<String, dynamic>) return false;
+      final authKey = data['AuthKey'];
+      return authKey is String && authKey.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
   }
 }

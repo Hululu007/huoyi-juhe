@@ -260,6 +260,32 @@ void main() {
     expect(find.text('重试'), findsOneWidget);
   });
 
+  testWidgets('扫码先验服务：服务死着点开始扫码直接显示 lastError，不调扫码接口',
+      (tester) async {
+    await pumpPage(tester);
+
+    // 服务在页面打开后死了：再点开始扫码，先验 ensureRunning。
+    fakeService.running = false;
+    fakeService.errorOverride =
+        'TG影视库本地服务进程已退出（退出码 1；进程日志：listen tcp: bind: address already in use）';
+
+    await tester.tap(find.text('开始扫码'));
+    await tester.pump();
+    await tester.pump();
+
+    // 直接显示 lastError，不等 GET /api/auth/qr 的 8 秒超时、
+    // 不调 startQrLogin、不出二维码，按钮仍可再点。
+    expect(fakeService.qrStarted, isFalse);
+    expect(
+      find.text(
+        'TG影视库本地服务进程已退出（退出码 1；进程日志：listen tcp: bind: address already in use）',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('等待扫码…（最多 5 分钟）'), findsNothing);
+    expect(find.text('开始扫码'), findsOneWidget);
+  });
+
   testWidgets('扫码流程：点开始扫码出二维码，轮询成功显示登录成功', (tester) async {
     await pumpPage(tester);
 

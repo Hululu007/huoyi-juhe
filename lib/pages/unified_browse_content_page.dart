@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/media_item.dart';
@@ -120,6 +122,26 @@ class _UnifiedBrowseContentPageState
         _error = '这些站现在都打不开，稍后再试';
       }
     });
+    // 这一批一个站都没取到、后面还有站：自动续取下一批，不用
+    // 用户连点 5 次「加载更多站点」才看到内容；取到内容就停，
+    // 剩下的站仍由用户点「加载更多站点」接着取。
+    if (mounted && got.isEmpty && _hasMoreSites) {
+      unawaited(_loadBatch());
+    }
+  }
+
+  /// 全部取完仍无内容时的「重试」：从第一批站重新取一遍。
+  /// 直接调 [_loadBatch] 重试是没用的——取完后 [_hasMoreSites]
+  /// 已为假，[_loadBatch] 开头就直接返回，按钮点了也没反应。
+  Future<void> _retry() async {
+    if (_loading || _loadingMore) return;
+    setState(() {
+      _sections.clear();
+      _fetched = 0;
+      _failed = 0;
+      _error = null;
+    });
+    await _loadBatch();
   }
 
   /// 取一站该分类/标签的首页；取不到返回 null（由调用方跳过计数）。
@@ -158,7 +180,7 @@ class _UnifiedBrowseContentPageState
                     icon: Icons.cloud_off,
                     title: _error!,
                     actionLabel: '重试',
-                    onAction: _loadBatch,
+                    onAction: _retry,
                   ),
                 )
               : LayoutBuilder(

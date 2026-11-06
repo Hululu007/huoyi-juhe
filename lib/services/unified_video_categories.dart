@@ -2,18 +2,20 @@ import 'dart:convert';
 
 import 'package:flutter/services.dart';
 
-/// 统一分类浏览页数据：200 核心视频站的静态分类按名归并。
+/// 统一分类浏览页数据：201 核心视频站的静态分类按名归并。
 ///
 /// 数据来自 `assets/unified_video_categories.json`（由
 /// `unified_category_work/generate_unified_asset.py` 从 Rust 模块的
 /// 静态 CATS 抽取生成，Dart 侧不写死分类名；分类变了重新生成一遍即可）。
-/// 现状：127 站有静态 CATS（2838 条，1600 去重名），73 站无静态
-/// CATS（动态分类，这次进不来，见 `sitesWithoutCategories` 与工作笔记）。
+/// 现状：127 站有静态 CATS（2838 条，1600 去重名）；标签已接进
+/// （2026-11-06，`~/workspace/tpd_harvest/all_stations_tags.json`，
+/// 50 站、38205 名、40648 条，只收 `browsable` 为真的）；53 站既无
+/// 静态 CATS 也无可用标签（见 `sitesWithoutCategories` 与工作笔记
+/// `unified_category_work/tags_notes.md`），另 21 站只有标签、没有
+/// 静态 CATS。
 ///
 /// 统一页分分类 + 标签两部分（用户 2026-11-06 定）：分类一组、标签
-/// 一组并列。标签数据（`~/workspace/tpd_harvest/all_stations_tags.json`）
-/// 还没到，资产里 `tags` 目前为空；标签到了按下面格式接进来即可，
-/// 不用改结构：
+/// 一组并列。标签格式如下，不用改结构：
 ///
 /// ```json
 /// "tags": {
@@ -70,7 +72,8 @@ class UnifiedVideoCategories {
   /// 标签名 -> 有它的站（只含 `browsable` 为真的站）。
   final Map<String, List<UnifiedTagSite>> tags;
 
-  /// 无静态分类的站 id（动态分类，这次进不来；如实记下，不丢）。
+  /// 既无静态分类、也无可用标签的站 id（动态分类或无标签体系；
+  /// 如实记下，不丢；只有标签、没有静态分类的站不在里面）。
   final List<String> sitesWithoutCategories;
 
   /// 有静态分类的站数。

@@ -621,6 +621,9 @@ pub(crate) async fn detail(series_id: &str) -> ApiResult<Value> {
             if play_base.is_empty() {
                 play_base = format!("{HOST}/video/{id_num}/");
             }
+            // playBase 站内是相对路径（/video/<id>/），分集地址必须拼
+            // 成绝对地址，否则取流侧收到的相对地址无法请求。
+            let play_base = abs_url(&play_base);
             if remark.is_empty() {
                 if !eps.is_empty() {
                     remark = format!("共 {} 集", eps.len());
@@ -664,7 +667,57 @@ pub(crate) async fn search(query: &str) -> ApiResult<Value> {
 }
 
 /// 取流：.m3u8 直传；否则抓播放页，blob 取 bestSrc，无则
-/// playbackEndpoint 模板换 __EP__ 再请求，取 data.src。
+/// POST playbackEndpoint 模板换 __EP__ 再请求，取 data.src。
+/// 注意：站方 2026-11-05 改版后该接口只接受 POST（JSON 空体），
+/// GET 直接回 404 页面；回包 data.src 即签名 m3u8，无则取
+/// data.streams.main。
+/// 取流接口只接受 POST：按站方现行 nine-play.js 的 services/playback
+/// 做法，JSON 空体 POST 到 playbackEndpoint，200 才算成功。
+async fn post_playback(url: &str) -> ApiResult<String> {
+    let resp = client()?
+        .post(url)
+        .header("User-Agent", UA)
+        .header("Accept", "application/json, text/plain, */*")
+        .header("Referer", format!("{HOST}/"))
+        .header("Content-Type", "application/json")
+        .json(&json!({}))
+        .send()
+        .await
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
+    let status = resp.status().as_u16();
+    if status != 200 {
+        return Err(ApiError::Internal(format!(
+            "黄豆短剧取流 HTTP {status}"
+        )));
+    }
+    resp.text()
+        .await
+        .map_err(|e| ApiError::Internal(e.to_string()))
+}
+
+/// 取流回包取地址：data.src → data.streams.main → data.srcHevc →
+/// 正则兜底；回包是 {"data": {...}, "status": 1} 的包壳。
+fn playback_src(resp: &str) -> String {
+    if let Ok(body) = serde_json::from_str::<Value>(resp) {
+        let data = get(&body, "data").cloned().unwrap_or(Value::Null);
+        let s = text_of(&data, &["src"]);
+        if !s.is_empty() {
+            return clean(&s);
+        }
+        if let Some(streams) = get(&data, "streams") {
+            let s = text_of(streams, &["main"]);
+            if !s.is_empty() {
+                return clean(&s);
+            }
+        }
+        let s = text_of(&data, &["srcHevc"]);
+        if !s.is_empty() {
+            return clean(&s);
+        }
+    }
+    clean(&sv_raw(resp, "src"))
+}
+
 pub(crate) async fn play(video_id: &str) -> ApiResult<Value> {
     if video_id.contains(".m3u8") {
         return Ok(json!({
@@ -677,7 +730,12 @@ pub(crate) async fn play(video_id: &str) -> ApiResult<Value> {
             "黄豆短剧小说章节需阅读核心打开，影视区无法播放".into(),
         ));
     }
-    let page = get_text(video_id).await?;
+    let video_id = if video_id.starts_with("http") {
+        video_id.to_string()
+    } else {
+        abs_url(video_id)
+    };
+    let page = get_text(&video_id).await?;
     let b = blob(&page, "playbackEndpoint");
     let mut src = best_src(&b);
     if src.is_empty() {
@@ -687,15 +745,14 @@ pub(crate) async fn play(video_id: &str) -> ApiResult<Value> {
     if src.is_empty() {
         let ep = Regex::new("/video/\\d+/(\\d{1,4})/")
             .ok()
-            .and_then(|re| re.captures(video_id))
+            .and_then(|re| re.captures(&video_id))
             .map(|cap| cap[1].to_string())
             .unwrap_or_else(|| "1".to_string());
         let template = sv_raw(&page, "playbackEndpoint");
         if !template.is_empty() {
             let api = format!("{}{}", HOST, template.replace("__EP__", &ep));
-            if let Ok(resp) = get_text(&api).await {
-                src = sv_raw(&resp, "src");
-                src = clean(&src);
+            if let Ok(resp) = post_playback(&api).await {
+                src = playback_src(&resp);
             }
         }
     }
@@ -745,6 +802,24 @@ mod tests {
         assert_eq!(
             nums(page, "/video/27522/(\\d{1,4})/"),
             vec!["2".to_string(), "10".to_string()]
+        );
+    }
+
+    #[test]
+    fn playback_src_prefers_data_src() {
+        let resp = "{\"data\":{\"mode\":1,\"manifest_method\":\"GET\",\"cdn\":{\"m3u8Enabled\":true},\"streams\":{\"main\":\"https://cdn.example.com/main.m3u8\",\"hevc\":\"\"},\"src\":\"https://cdn.example.com/1.m3u8\",\"srcHevc\":\"\"},\"status\":1}";
+        assert_eq!(
+            playback_src(resp),
+            "https://cdn.example.com/1.m3u8"
+        );
+    }
+
+    #[test]
+    fn playback_src_falls_back_to_streams_main() {
+        let resp = "{\"data\":{\"streams\":{\"main\":\"https://cdn.example.com/main.m3u8\"},\"src\":\"\",\"srcHevc\":\"\"},\"status\":1}";
+        assert_eq!(
+            playback_src(resp),
+            "https://cdn.example.com/main.m3u8"
         );
     }
 

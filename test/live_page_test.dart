@@ -5,7 +5,8 @@ import 'package:fqapp/services/cultivation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// 直播页的数据走修仙境界：未到元婴期（3000 修为）时只显示上锁提示，
-/// 不露源名与频道；到了元婴期正常显示四个内置源。
+/// 不露源名与频道；到了元婴期正常显示四个内置源（按火蚁TV：源名在
+/// 当前卡「切换直播源」框里，不再是横向源 chips）。
 void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
@@ -58,10 +59,16 @@ void main() {
     await tester.pump();
 
     expect(find.text('直播源需要元婴期'), findsNothing);
+    // 源 chips 已按火蚁TV去掉：源名只在当前卡 caption 与「切换直播源」框里，
+    // 不再以独立 Text 出现在页上。
+    expect(find.text('内置直播源'), findsNothing);
+    await tester.tap(find.byTooltip('切换直播源'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.text('切换直播源'), findsOneWidget);
     expect(find.text('秀果'), findsOneWidget);
     expect(find.text('欲火聚合'), findsOneWidget);
     expect(find.text('百年直播'), findsOneWidget);
     expect(find.text('成人点播'), findsOneWidget);
-    expect(find.text('内置直播源'), findsOneWidget);
   });
 }

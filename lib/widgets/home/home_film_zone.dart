@@ -1,35 +1,31 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../../models/media_item.dart';
 import '../../pages/video_page.dart';
 import '../../services/cultivation.dart';
 import '../../services/drama_site_content.dart';
-import 'drama_site_grid.dart';
+import '../../services/drama_site_play.dart';
 import 'home_design.dart';
+import 'home_feed_states.dart';
+import 'home_media_card.dart';
 import 'home_shelf.dart';
 
-/// 影视区站条目的类型后缀（药丸上的小字）：视频不带后缀，
-/// 小说 / 漫画 / 听书带。
-String filmZoneKindLabel(String kind) => switch (kind) {
-  'novel' => '小说',
-  'comic' => '漫画',
-  'audio' => '听书',
-  _ => '视频',
-};
-
-/// 推荐页顶部的全局「影视」区：核心里所有站点的视频、小说、漫画、
-/// 听书都在这里，不用逐区切换。站表读核心登记表动态取（见
-/// [visibleFilmZoneSites]），加站减站自动跟着变。
+/// 推荐页顶部的「影视」区：短剧区后面平铺推荐影视。
 ///
-/// 版式跟影视页午夜区同款：标题「影视」+ 站点药丸横滑条 + 当前站
-/// 的内容网格（4 列，分类走各站自己的首分类）。点药丸切站，
-/// 切站即换网格；修为到了新档位，解锁的站自动出现在药丸条里，
-/// 未解锁的站完全不显示。
+/// 不再是一排站点圆片、站点也不当一级分类：直接从已解锁的影视站
+/// 里取内容，拼成一张视频卡片网格（三列）平铺展示，卡片点开走
+/// 原站详情页（与影视页网格同路）。
 ///
-/// 网格只在点过药丸后才挂（不点不取数）：推荐页打开时不额外发
-/// 请求，取数只在用户点站时触发；没点之前药丸条下面只留一行提示。
+/// 取数方式：每次取窗口内 3 个站的「全部」分类第 1 页（并行，单站
+/// 30 秒超时），每站最多留 6 张，拼成一屏推荐；某站取不到就跳过
+/// 该站（页脚记一笔，不卡住整区）。点「换一批」换下 3 个站；
+/// 修为到了新档位，解锁的站自动进池子，未解锁的站完全不显示。
 ///
-/// 阅读站与视频站同 id 时（如红果听书 hongguo 与视频红果同 id），
-/// 网格按站类型显式取阅读客户端，不跟视频客户端撞 id。
+/// 只放影视（电影/剧集）：短剧站已从影视区站表摘掉（见
+/// [visibleVideoZoneSites]），阅读站也不在这里（小说/漫画/听书
+/// 走各自的分站区）；短剧区本身原样不动。
 class HomeFilmZone extends StatefulWidget {
   const HomeFilmZone({
     super.key,
@@ -43,37 +39,77 @@ class HomeFilmZone extends StatefulWidget {
   /// 注入可见站表（页测用）：为空时按当前修为从核心登记表现取。
   final List<({String id, String name, String kind})>? sites;
 
-  /// 注入取数客户端（页测用）：为空时网格按站 id 自行取客户端，
-  /// 阅读站走阅读客户端。
+  /// 注入取数客户端（页测用）：为空时按站 id 自行取客户端。
   final DramaSiteContentClient? Function(String siteId)? clientForSite;
 
   @override
   State<HomeFilmZone> createState() => _HomeFilmZoneState();
 }
 
-class _HomeFilmZoneState extends State<HomeFilmZone> {
-  String? _selectedId;
+/// 一窗取的站数：3 站拼一屏推荐，又不至于一次拉爆。
+const int _filmWindowSize = 3;
 
-  List<({String id, String name, String kind})> get _sites =>
-      widget.sites ??
-      visibleFilmZoneSites(
-        CultivationService.instance.snapshot.totalXp,
-      );
+/// 每站最多留的卡片数：3 站 × 6 张 = 一屏 18 张。
+const int _filmItemsPerSite = 6;
+
+/// 一站取到的推荐卡片。
+class _FilmSiteItems {
+  const _FilmSiteItems({required this.siteId, required this.items});
+
+  final String siteId;
+  final List<DramaSiteItem> items;
+}
+
+class _HomeFilmZoneState extends State<HomeFilmZone> {
+  int _windowStart = 0;
+  List<_FilmSiteItems> _sections = [];
+  int _failed = 0;
+  bool _loading = false;
+  bool _loaded = false;
+
+  /// 取数代次：修为变化/换站表时新一轮取数自增，旧一轮回来时
+  /// 代次对不上就丢弃，不拿旧窗口覆盖新池子。
+  int _loadGeneration = 0;
+
+  /// 影视池：只留视频站（kind == 'video'），短剧与阅读站不在此列。
+  List<({String id, String name, String kind})> get _pool {
+    final sites =
+        widget.sites ??
+        visibleFilmZoneSites(
+          CultivationService.instance.snapshot.totalXp,
+        );
+    return [for (final site in sites) if (site.kind == 'video') site];
+  }
+
+  List<({String id, String name, String kind})> get _window {
+    final pool = _pool;
+    if (pool.isEmpty) return const [];
+    if (pool.length <= _filmWindowSize) return pool;
+    final start = _windowStart % pool.length;
+    return [
+      for (var i = 0; i < _filmWindowSize; i++)
+        pool[(start + i) % pool.length],
+    ];
+  }
 
   @override
   void initState() {
     super.initState();
-    // 注入站表时由调用方控制列表，不跟修为走；现取时修为变化要重建，
-    // 解锁的新站自动出现。
     if (widget.sites == null) {
       CultivationService.instance.snapshotNotifier.addListener(
         _onCultivationChanged,
       );
     }
+    // 打开推荐页即取第一窗推荐，不等用户点站。
+    unawaited(_loadWindow());
   }
 
   void _onCultivationChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    // 修为变化（解锁新档位）时池子变了：窗口回首窗，重新取数，
+    // 解锁的新站自动出现在推荐里，未解锁的站完全不显示。
+    _windowStart = 0;
+    unawaited(_loadWindow());
   }
 
   @override
@@ -89,42 +125,104 @@ class _HomeFilmZoneState extends State<HomeFilmZone> {
   @override
   void didUpdateWidget(HomeFilmZone oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.sites != oldWidget.sites && widget.sites != null) {
-      // 注入站表换了：已选站不在新表里时回落到首站。
-      if (_selectedId != null &&
-          !widget.sites!.any((site) => site.id == _selectedId)) {
-        _selectedId = null;
-      }
+    if (widget.sites != oldWidget.sites) {
+      _windowStart = 0;
+      unawaited(_loadWindow());
     }
   }
 
-  String? get _selectedSiteId {
-    final sites = _sites;
-    if (sites.isEmpty) return null;
-    final selected = _selectedId;
-    if (selected != null && sites.any((site) => site.id == selected)) {
-      return selected;
-    }
-    // 没点过药丸时不默认选站、不挂网格（不取数）；点过之后才显示
-    // 该站的网格。
-    return null;
-  }
-
-  DramaSiteContentClient? _clientFor(String siteId, String kind) {
+  DramaSiteContentClient? _clientFor(String siteId) {
     final injected = widget.clientForSite;
     if (injected != null) return injected(siteId);
-    if (kind != 'video') return readingSiteContentClient(siteId);
-    return null;
+    return dramaSiteContentClient(siteId);
+  }
+
+  Future<_FilmSiteItems?> _fetchOne(
+    ({String id, String name, String kind}) site,
+  ) async {
+    try {
+      final client = _clientFor(site.id);
+      if (client == null) return null;
+      // 先取真实首分类再取列表：核心站登记里只有「全部」兜底，
+      // `catalog('all')` 对多数核心站是空的（mjv011 的 all 地址
+      // 只回 1822 字节跳转页、avyan 回「系统提示」页）。分类
+      // 15 秒内取不到就回落 'all'，行为与原来一致。
+      var categoryId = 'all';
+      try {
+        final categories = await client
+            .categories()
+            .timeout(const Duration(seconds: 15));
+        final usable = categories
+            .where((c) => c.id.isNotEmpty && c.id != 'all')
+            .toList();
+        if (usable.isNotEmpty) {
+          categoryId = usable.first.id;
+        } else if (categories.isNotEmpty) {
+          categoryId = categories.first.id;
+        }
+      } catch (_) {}
+      final page = await client
+          .catalog(categoryId, 1)
+          .timeout(const Duration(seconds: 30));
+      if (page.items.isEmpty) return null;
+      return _FilmSiteItems(
+        siteId: site.id,
+        items: page.items.take(_filmItemsPerSite).toList(),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _loadWindow() async {
+    final window = _window;
+    if (window.isEmpty) return;
+    final generation = ++_loadGeneration;
+    setState(() {
+      _loading = true;
+      _failed = 0;
+    });
+    final results = await Future.wait([
+      for (final site in window) _fetchOne(site),
+    ]);
+    if (!mounted || generation != _loadGeneration) return;
+    final got = <_FilmSiteItems>[];
+    var failed = 0;
+    for (final result in results) {
+      if (result == null) {
+        failed++;
+      } else {
+        got.add(result);
+      }
+    }
+    setState(() {
+      _sections = got;
+      _failed = failed;
+      _loading = false;
+      _loaded = true;
+    });
+  }
+
+  void _nextWindow() {
+    final pool = _pool;
+    if (pool.length <= _filmWindowSize) return;
+    setState(() {
+      _windowStart = (_windowStart + _filmWindowSize) % pool.length;
+      _sections = [];
+      _loaded = false;
+    });
+    unawaited(_loadWindow());
   }
 
   @override
   Widget build(BuildContext context) {
-    final sites = _sites;
+    final pool = _pool;
     final palette = HomePalette.of(context);
-    final selectedId = _selectedSiteId;
-    final selectedKind = selectedId == null
-        ? 'video'
-        : sites.firstWhere((site) => site.id == selectedId).kind;
+    const columns = 3;
+    final cardWidth =
+        (widget.gridWidth - (columns - 1) * homeGridGap) / columns;
+    final scaler = MediaQuery.textScalerOf(context);
+    final total = _sections.fold<int>(0, (sum, s) => sum + s.items.length);
     return SliverMainAxisGroup(
       slivers: [
         SliverToBoxAdapter(
@@ -133,78 +231,96 @@ class _HomeFilmZoneState extends State<HomeFilmZone> {
             title: '影视',
           ),
         ),
-        if (sites.isEmpty)
+        if (pool.isEmpty)
           const SliverToBoxAdapter(
             child: Padding(
               padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: Text('暂无可显示的站点'),
+              child: Text('暂无可显示的影视站'),
+            ),
+          )
+        else if (_loading && !_loaded)
+          const SliverToBoxAdapter(child: HomeFeedLoading())
+        else if (total == 0)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('推荐影视暂时取不到，稍后再试一次。'),
+                  const SizedBox(height: 8),
+                  OutlinedButton(
+                    onPressed: _loading ? null : _loadWindow,
+                    child: const Text('重试'),
+                  ),
+                ],
+              ),
             ),
           )
         else ...[
+          for (final section in _sections)
+            SliverPadding(
+              padding: const EdgeInsets.symmetric(horizontal: homeGutter),
+              sliver: SliverGrid(
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: columns,
+                  crossAxisSpacing: homeGridGap,
+                  mainAxisSpacing: 20,
+                  mainAxisExtent: homeCardExtent(
+                    context,
+                    cardWidth,
+                    scaler,
+                  ),
+                ),
+                delegate: SliverChildBuilderDelegate((context, index) {
+                  final item = section.items[index];
+                  return HomeMediaCard(
+                    item: MediaItem(
+                      id: item.id,
+                      title: item.title,
+                      cover: item.cover,
+                      author: '',
+                      badge: '',
+                      ep: item.remark,
+                      kind: 'video',
+                    ),
+                    coverWidth: cardWidth,
+                    onTap: () => openDramaSiteItem(
+                      context,
+                      section.siteId,
+                      item,
+                    ),
+                  );
+                }, childCount: section.items.length),
+              ),
+            ),
           SliverToBoxAdapter(
-            child: SizedBox(
-              height: 40,
-              child: ListView(
-                key: const Key('film-zone-site-strip'),
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+              child: Row(
                 children: [
-                  for (final site in sites)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: GestureDetector(
-                        key: Key('film-zone-site-${site.id}'),
-                        onTap: () =>
-                            setState(() => _selectedId = site.id),
-                        child: Container(
-                          alignment: Alignment.center,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                          ),
-                          decoration: BoxDecoration(
-                            color: site.id == selectedId
-                                ? palette.ink
-                                : palette.searchBar,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            site.kind == 'video'
-                                ? site.name
-                                : '${site.name}·${filmZoneKindLabel(site.kind)}',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: site.id == selectedId
-                                  ? palette.canvas
-                                  : palette.ink,
-                            ),
-                          ),
+                  if (_failed > 0)
+                    Expanded(
+                      child: Text(
+                        '$_failed 个站取不到，已跳过',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: palette.muted,
                         ),
                       ),
+                    )
+                  else
+                    const Spacer(),
+                  if (pool.length > _filmWindowSize)
+                    OutlinedButton(
+                      key: const ValueKey('film-zone-next-batch'),
+                      onPressed: _loading ? null : _nextWindow,
+                      child: Text(_loading ? '加载中…' : '换一批'),
                     ),
                 ],
               ),
             ),
           ),
-          if (selectedId != null)
-            DramaSiteGrid(
-              key: ValueKey('film-zone-grid-$selectedId'),
-              siteId: selectedId,
-              categoryId: 'all',
-              gridWidth: widget.gridWidth,
-              showFilterBar: false,
-              columns: 4,
-              client: _clientFor(selectedId, selectedKind),
-            )
-          else
-            const SliverToBoxAdapter(
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
-                child: Text(
-                  '点一个站点看内容',
-                  style: TextStyle(fontSize: 13),
-                ),
-              ),
-            ),
         ],
       ],
     );

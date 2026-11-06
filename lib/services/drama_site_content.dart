@@ -54,6 +54,11 @@ class DramaSiteDetail {
   /// 详情页原字段扩展：通用列之外的站原字段（演员、年份、地区、
   /// 播放线路等），按站原样保留，键就是源字段名。
   final Map<String, String> extra;
+
+  /// 本片剧照（详情页自带）：核心详情 `extra['stills']` 列表、
+  /// TVBox 详情 `stills` / `vod_stills` 字段。没有的站为空，
+  /// 详情页不画剧照区，不冒充。
+  final List<String> stills;
   final List<DramaSiteEpisode> episodes;
 
   const DramaSiteDetail({
@@ -62,8 +67,34 @@ class DramaSiteDetail {
     required this.cover,
     this.synopsis = '',
     this.extra = const {},
+    this.stills = const [],
     required this.episodes,
   });
+}
+
+/// 详情剧照解析（核心 / TVBox 两路共用）：列表原样取；字符串按
+/// `$$$` / `#` / 逗号 / 换行拆，只留 http(s) 地址，去重保序。
+List<String> parseDetailStills(dynamic value) {
+  final raw = <String>[];
+  if (value is List) {
+    for (final entry in value) {
+      raw.add(entry.toString().trim());
+    }
+  } else if (value is String) {
+    raw.addAll(value.split(RegExp(r'\$\$\$|#|,|\n')));
+  }
+  final seen = <String>{};
+  final stills = <String>[];
+  for (final url in raw) {
+    final trimmed = url.trim();
+    if (trimmed.isEmpty) continue;
+    if (!trimmed.startsWith('http://') &&
+        !trimmed.startsWith('https://')) {
+      continue;
+    }
+    if (seen.add(trimmed)) stills.add(trimmed);
+  }
+  return stills;
 }
 
 class DramaSiteCatalogPage {
@@ -3748,12 +3779,19 @@ class CoreDramaContentClient implements DramaSiteContentClient {
       for (final entry in _asMap(payload['extra']).entries) {
         extra[entry.key.toString()] = _stringOf(entry.value);
       }
+      // 剧照不进 extra 字符串：列表 toString 会变成 "[url, url]"，
+      // 单独走 stills 字段；详情顶层带 stills 的站也认。
+      final stills = parseDetailStills(
+        _asMap(payload['extra'])['stills'] ?? payload['stills'],
+      );
+      extra.remove('stills');
       return DramaSiteDetail(
         id: _stringOf(payload['id']),
         title: _stringOf(payload['title']),
         cover: _stringOf(payload['cover']),
         synopsis: _stringOf(payload['synopsis']),
         extra: extra,
+        stills: stills,
         episodes: [
           for (final entry in rows)
             DramaSiteEpisode(

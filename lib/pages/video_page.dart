@@ -4,12 +4,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/cultivation.dart';
 import '../services/drama_sites.dart';
 import '../services/drama_site_content.dart';
-import '../services/live_sources.dart';
 import '../services/source_registry.dart';
 import '../widgets/home/drama_site_grid.dart';
 import '../widgets/site_grid_dialog.dart';
 import 'category_page.dart';
-import 'live_source_page.dart';
 import 'local_library_page.dart';
 import 'source_management_page.dart';
 
@@ -42,20 +40,36 @@ List<SourceEntry> midnightJarVideoSites(List<SourceEntry> entries) {
   ];
 }
 
-/// 影视区内置站：核心影视区首批修复好能播的站（芽果走核心，其余
-/// 走原 Dart 客户端；昨天 6 站进核心后再追加）。顺序跟短剧区登记表
-/// 一致，只列这 5 个，不动主列表“只列用户导入站”的规则。
+/// 影视区不含短剧：5 个果站（黄豆/剧果/野果/芽果/牛果）是短剧站，
+/// 显示名带「短剧」的站也是短剧站，两者都不进影视区。短剧区
+/// （短剧 tab）原样不动，这里只管影视区自己的站表，不碰短剧区。
+const _shortDramaVideoSiteIds = <String>{
+  'huangdou',
+  'huangju',
+  'yeguo',
+  'yaguo',
+  'niuguo',
+};
+
+/// 该站是不是影视站（电影/剧集）：短剧站返回 false。
+/// 判据只有两条——5 个果站 id、显示名含「短剧」；其余站原样保留，
+/// 不按分类名/标题再筛。
+bool isFilmVideoSite(String id, String name) =>
+    !_shortDramaVideoSiteIds.contains(id) && !name.contains('短剧');
+
+/// 影视区内置站：核心影视站（只留影视，短剧已摘掉；黄豆等 5 个
+/// 果站是短剧站，不进核心也不在这里）+ TG影视库。顺序跟登记表
+/// 一致，只列影视站，不动主列表“只列用户导入站”的规则。
 List<DramaSite> videoZoneSites() {
   const ids = {
-    'huangdou',
-    'huangju',
-    'yeguo',
-    'yaguo',
-    'niuguo',
     'tgdrama',
     ...coreVideoSiteIds,
   };
-  return [for (final site in dramaSites) if (ids.contains(site.id)) site];
+  return [
+    for (final site in dramaSites)
+      if (ids.contains(site.id) && isFilmVideoSite(site.id, site.name))
+        site,
+  ];
 }
 
 /// 内置导入视频站：随包发布的 py / 阅读 JSON 站（builtin=true，
@@ -74,9 +88,10 @@ List<SourceEntry> builtinImportedVideoSites(List<SourceEntry> entries) {
   ];
 }
 
-/// 影视区统一站表：午夜区就是影视区，不再分两块。内置影视区 5 站
+/// 影视区统一站表：午夜区就是影视区，不再分两块。内置影视站
 /// 在前、午夜 jar 视频站次之、内置导入视频站在后，按 id 去重，
-/// 供统一切换器与网格共用。
+/// 供统一切换器与网格共用。三路都只留影视站，显示名带「短剧」
+/// 的一律摘掉（短剧归短剧区，影视区只放影视）。
 List<({String id, String name})> unifiedVideoZoneSites(
   List<SourceEntry> customEntries,
 ) {
@@ -86,9 +101,11 @@ List<({String id, String name})> unifiedVideoZoneSites(
     if (seen.add(site.id)) out.add((id: site.id, name: site.name));
   }
   for (final entry in midnightJarVideoSites(customEntries)) {
+    if (!isFilmVideoSite(entry.id, entry.name)) continue;
     if (seen.add(entry.id)) out.add((id: entry.id, name: entry.name));
   }
   for (final entry in builtinImportedVideoSites(customEntries)) {
+    if (!isFilmVideoSite(entry.id, entry.name)) continue;
     if (seen.add(entry.id)) out.add((id: entry.id, name: entry.name));
   }
   return out;
@@ -116,7 +133,7 @@ List<({String id, String name})> visibleVideoZoneSites(
 /// 阅读站按登记表顺序拼在一起，视频在前、阅读在后；阅读内部按
 /// 小说、漫画、听书的登记顺序。
 ///
-/// 视频站用 [visibleVideoZoneSites]（5 个果站 + 核心视频站，按修为
+/// 视频站用 [visibleVideoZoneSites]（核心影视站，已摘短剧，按修为
 /// 分 4 档）；阅读成人站按在阅读登记表里的下标分同样的 4 档
 /// （[adultTierForIndex] / [adultTierUnlocked]），非成人阅读站
 /// 始终显示。未解锁的站完全不出现，不灰掉、不占位、不露站名。
@@ -154,6 +171,13 @@ class _VideoPageState extends State<VideoPage> {
   bool _loading = true;
   String? _selectedId;
   String? _videoZoneId;
+
+  /// 午夜区当前站的真实首分类（核心站登记里只有「全部」兜底，
+  /// `catalog('all')` 对多数核心站是空的——mjv011 的 all 地址
+  /// 只回 1822 字节的跳转页、avyan 回「系统提示」页，取不到卡片；
+  /// 先调 `categories()` 取真实首分类再取列表。取不到时回落 'all'。
+  String? _videoZoneCategoryId;
+  int _videoZoneCategoryGeneration = 0;
 
   @override
   void initState() {
@@ -203,14 +227,42 @@ class _VideoPageState extends State<VideoPage> {
           ? savedVideoZoneId
           : (videoZone.isEmpty ? null : videoZone.first.id);
     });
+    final zoneId = _videoZoneId;
+    if (zoneId != null) _resolveVideoZoneCategory(zoneId);
+  }
+
+  /// 给午夜区当前站取真实首分类：核心站登记里只有「全部」兜底，
+  /// 直接 `catalog('all')` 多数站是空的。15 秒内取不到就回落 'all'，
+  /// 网格行为与原来一致。切站后旧站的结果不落地（代次号守）。
+  Future<void> _resolveVideoZoneCategory(String siteId) async {
+    final generation = ++_videoZoneCategoryGeneration;
+    String? resolved;
+    try {
+      final client = dramaSiteContentClient(siteId);
+      if (client != null) {
+        final categories = await client
+            .categories()
+            .timeout(const Duration(seconds: 15));
+        final usable = categories
+            .where((c) => c.id.isNotEmpty && c.id != 'all')
+            .toList();
+        resolved = usable.isNotEmpty
+            ? usable.first.id
+            : (categories.isNotEmpty ? categories.first.id : null);
+      }
+    } catch (_) {
+      resolved = null;
+    }
+    if (!mounted || generation != _videoZoneCategoryGeneration) return;
+    setState(() => _videoZoneCategoryId = resolved);
   }
 
   List<SourceEntry> _playableSites() {
     return videoPagePlayableSites(SourceRegistry.instance.custom);
   }
 
-  /// 午夜区站切换（午夜区就是影视区，统一表含内置 5 站 + 午夜
-  /// jar 视频站）：点药丸弹居中弹窗，站点四列网格，点一项即切换
+  /// 午夜区站切换（午夜区就是影视区，统一表含核心影视站 + 午夜
+  /// jar 视频站 + 内置导入视频站）：点药丸弹居中弹窗，站点四列网格，点一项即切换
   /// 并持久化。分类走右上角分类按钮进分类页（卡片上方不再放分类
   /// 这一排，分类弹窗已废弃）。
   Future<void> _openVideoZoneSiteSwitcher() async {
@@ -228,7 +280,11 @@ class _VideoPageState extends State<VideoPage> {
       await preferences.setString(_videoZoneSiteKey, picked);
     } catch (_) {}
     if (mounted) {
-      setState(() => _videoZoneId = picked);
+      setState(() {
+        _videoZoneId = picked;
+        _videoZoneCategoryId = null;
+      });
+      _resolveVideoZoneCategory(picked);
     }
   }
 
@@ -260,12 +316,9 @@ class _VideoPageState extends State<VideoPage> {
       for (final entry in SourceRegistry.instance.custom)
         if (entry.kind == SourceKind.remoteJson && entry.enabled) entry,
     ];
-    final midnightSources = LiveSources.midnightSources;
-    // 影视区只列已解锁的站（未解锁的完全隐藏）；成人直播源到元婴期
-    // 才出现，修为不到时连这一节都不显示。
+    // 影视区只列已解锁的站（未解锁的完全隐藏）；直播源不在影视区
+    // 出现（秀果/欲火聚合/百年直播只在直播 tab，影视区不混直播）。
     final xp = CultivationService.instance.snapshot.totalXp;
-    final unlockedVideo =
-        CultivationService.instance.snapshot.unlockedVideo;
     final unifiedSites = visibleVideoZoneSites(
       SourceRegistry.instance.custom,
       xp,
@@ -370,12 +423,14 @@ class _VideoPageState extends State<VideoPage> {
                   ),
                 ),
                 DramaSiteGrid(
-                  key: ValueKey('video-zone-$_videoZoneId'),
+                  key: ValueKey(
+                    'video-zone-$_videoZoneId-${_videoZoneCategoryId ?? 'all'}',
+                  ),
                   siteId: _videoZoneId!,
-                  categoryId: 'all',
+                  categoryId: _videoZoneCategoryId ?? 'all',
                   gridWidth: width,
                   showFilterBar: false,
-                  columns: 4,
+                  columns: 3,
                 ),
               ],
               SliverToBoxAdapter(
@@ -400,7 +455,8 @@ class _VideoPageState extends State<VideoPage> {
                   child: Padding(
                     padding: EdgeInsets.all(16),
                     child: Text(
-                      '暂无可播放的影视站源。去站源管理添加 MacCMS 站点，'
+                      '暂无你导入的影视站源。核心影视站见上方午夜区；'
+                      '要加站去站源管理添加 MacCMS 站点，'
                       '或导入 Python / Jar / JS 蜘蛛（引擎仅支持 Android）。',
                     ),
                   ),
@@ -411,42 +467,8 @@ class _VideoPageState extends State<VideoPage> {
                   siteId: _selectedId!,
                   categoryId: 'all',
                   gridWidth: width,
-                  columns: 4,
+                  columns: 3,
                 ),
-              if (unlockedVideo && midnightSources.isNotEmpty) ...[
-                const SliverToBoxAdapter(
-                  child: Padding(
-                    padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
-                    child: Text(
-                      '成人直播源',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ),
-                SliverList.builder(
-                  itemCount: midnightSources.length,
-                  itemBuilder: (context, index) {
-                    final source = midnightSources[index];
-                    return ListTile(
-                      title: Text(source.name),
-                      subtitle: Text(
-                        '${source.description}。点开看分类与频道。',
-                      ),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute<void>(
-                          builder: (_) =>
-                              LiveSourceBrowsePage(source: source),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ],
               if (remoteJson.isNotEmpty)
                 SliverToBoxAdapter(
                   child: Padding(

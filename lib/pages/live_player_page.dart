@@ -4,18 +4,24 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../services/live_platform.dart';
+import '../services/live_sleep_timer.dart';
 import '../services/live_sources.dart';
+import '../services/live_speed_tracker.dart';
 import '../services/native_player.dart';
-import '../services/playback_issue.dart';
 import '../services/player_system_ui.dart';
-import '../widgets/player/player_feedback.dart';
+import 'live_status_panel.dart';
 
-/// 直播专用播放器：不走通用点播 PlayerPage。
+/// 直播全屏播放页：对齐火蚁TV live_player_screen.dart 的手机端控件层。
 ///
 /// 画面直接用 NativePlayer（与点播同一路原生播放器），只做直播要做的事：
-/// 上/下一个频道、频道列表、切换直播源、全屏、静音、后台继续播（切后台不暂停，
-/// 原生播放器继续出声；退出本页时才释放播放器）。
-/// 直播没有进度条与选集面板，顶栏只显示频道名与「直播中」。
+/// 上/下一个频道、频道列表、切换线路、睡眠定时、全屏、方向跟随画面比例。
+/// 直播没有进度条与选集面板；顶栏只显示频道名与源名。
+/// 控件布局照火蚁TV 复用的点播 PlayerControls（手机端）：
+/// 顶栏 [返回 + 标题 + 旋转]，中部 [上一集 / 播放 / 下一集]，
+/// 工具行 [睡眠定时 | 倍速 1x | 线路 | 选集]。
+/// 方向跟随画面比例：竖屏流全屏仍是竖屏，横屏流全屏是横屏；
+/// 用户按过旋转按钮后以手动选择为准，不再自动跟随。
+/// 返回键两步走：先退出沉浸式（恢复系统栏），再按退出本页。
 class LivePlayerPage extends StatefulWidget {
   const LivePlayerPage({
     super.key,
@@ -37,20 +43,31 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
   late int _index;
   late LiveSource _source;
 
+  final _sleepTimer = LiveSleepTimer.instance;
+  final _speedTracker = LiveSpeedTracker();
+
   NativePlayer? _player;
   List<StreamSubscription<dynamic>> _subs = [];
   int _generation = 0;
+  int _route = 0;
   bool _initVideo = true;
-  PlaybackIssue? _error;
+  String? _error;
   bool _playing = false;
-  bool _muted = false;
-  // 火蚁TV 的直播播放器一点开就是全屏横屏（直播全屏），本页照此做：
-  // 进页即沉浸 + 锁横屏，返回键先退回竖屏、再按退出。
-  bool _fullscreen = true;
   bool _controlsVisible = true;
   Timer? _hideTimer;
+  bool _panel = false;
+  bool _immersed = false;
+  bool _landscape = true;
+  bool _rotated = false;
 
   LiveChannel get _channel => _channels[_index];
+
+  void _pauseForSleep() {
+    unawaited(_player?.pause());
+  }
+
+  // 睡眠定时到期时调的暂停动作：存成字段，dispose 时按身份比对清掉。
+  late final VoidCallback _pauseForSleepHandler = _pauseForSleep;
 
   @override
   void initState() {
@@ -58,14 +75,23 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
     _channels = widget.channels;
     _index = widget.startIndex.clamp(0, widget.channels.length - 1);
     _source = widget.source;
+    _sleepTimer.addListener(_sleepChanged);
+    _sleepTimer.pausePlayback = _pauseForSleepHandler;
     unawaited(_loadChannel(_index));
     unawaited(_enterFullscreenSystemUi());
     _scheduleHide();
   }
 
-  Future<void> _loadChannel(int index) async {
+  void _sleepChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _loadChannel(int index, {bool keepRoute = false}) async {
     final generation = ++_generation;
     final channel = _channels[index];
+    _sleepTimer.clearSleepPaused();
+    _speedTracker.reset();
+    if (!keepRoute) _route = 0;
     _teardownPlayer();
     setState(() {
       _index = index;
@@ -77,13 +103,18 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
     _player = player;
     _subscribe(player, generation);
     try {
-      await player.create(channel.url, '');
+      // 平台房间地址是明文 http FLV：直接给 ExoPlayer 会被 App 的明文
+      // 策略拦掉（列表能拉、一点播就失败），先走本地中继转成 127.0.0.1。
+      // 多线路频道按当前线路取地址（火蚁TV playRoute 语义）；单线路
+      // 频道 urls 只有一条，_route 恒为 0。
+      final route = _route.clamp(0, channel.urls.length - 1);
+      final playUrl = await playableLiveUrl(channel.urls[route]);
+      await player.create(playUrl, '');
       if (!_isCurrentLoad(generation, player)) {
         await player.dispose();
         return;
       }
       if (player.lastError case final Object error) throw error;
-      await player.setVolume(_muted ? 0 : 1);
       if (!_isCurrentLoad(generation, player)) return;
       await player.play();
       if (!_isCurrentLoad(generation, player)) return;
@@ -92,7 +123,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
       if (!_isCurrentLoad(generation, player)) return;
       if (mounted) {
         setState(() {
-          _error = PlaybackIssue.fromError(error);
+          _error = error.toString();
           _initVideo = false;
         });
       }
@@ -110,6 +141,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
       player.firstFrameStream.listen((_) {
         if (_isCurrentLoad(generation, player) && mounted) {
           setState(() => _initVideo = false);
+          _followVideoRatio(player);
         }
       }),
       player.playingStream.listen((playing) {
@@ -121,12 +153,15 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
         if (_isCurrentLoad(generation, player) && mounted) setState(() {});
       }),
       player.videoSizeStream.listen((_) {
-        if (_isCurrentLoad(generation, player) && mounted) setState(() {});
+        if (_isCurrentLoad(generation, player) && mounted) {
+          setState(() {});
+          _followVideoRatio(player);
+        }
       }),
       player.errorStream.listen((error) {
         if (_isCurrentLoad(generation, player) && mounted) {
           setState(() {
-            _error = PlaybackIssue.fromError(error);
+            _error = error.toString();
             _initVideo = false;
           });
         }
@@ -144,13 +179,85 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
     if (player != null) unawaited(player.dispose());
   }
 
+  /// 全屏方向跟随画面比例：竖屏流全屏仍是竖屏，横屏流全屏是横屏。
+  /// 用户按过旋转按钮后以手动选择为准，不再自动跟随。
+  void _followVideoRatio(NativePlayer player) {
+    if (_rotated) return;
+    final width = player.videoWidth;
+    final height = player.videoHeight;
+    if (width <= 0 || height <= 0) return;
+    final landscape = width >= height;
+    if (landscape == _landscape) return;
+    _landscape = landscape;
+    unawaited(_applyOrientation());
+  }
+
+  Future<void> _toggleRotate() async {
+    _rotated = true;
+    setState(() => _landscape = !_landscape);
+    await _applyOrientation();
+    await PlayerSystemUi.hide();
+    _immersed = true;
+  }
+
+  Future<void> _applyOrientation() async {
+    try {
+      await SystemChrome.setPreferredOrientations(
+        _landscape
+            ? const [
+                DeviceOrientation.landscapeLeft,
+                DeviceOrientation.landscapeRight,
+              ]
+            : const [
+                DeviceOrientation.portraitUp,
+                DeviceOrientation.portraitDown,
+              ],
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _enterFullscreenSystemUi() async {
+    await PlayerSystemUi.hide();
+    _immersed = true;
+    await _applyOrientation();
+  }
+
+  Future<void> _exitFullscreenSystemUi() async {
+    try {
+      await SystemChrome.setPreferredOrientations(const <DeviceOrientation>[]);
+    } catch (_) {}
+    await PlayerSystemUi.show();
+    _immersed = false;
+  }
+
+  void _scheduleHide() {
+    _hideTimer?.cancel();
+    if (_panel) return;
+    _hideTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted) {
+        setState(() => _controlsVisible = false);
+      }
+    });
+  }
+
+  void _toggleControls() {
+    setState(() => _controlsVisible = !_controlsVisible);
+    if (_controlsVisible) _scheduleHide();
+  }
+
+  void _showControls() {
+    if (!_controlsVisible) {
+      setState(() => _controlsVisible = true);
+    }
+    _scheduleHide();
+  }
+
   void _switchChannel(int index) {
     if (index < 0 || index >= _channels.length || index == _index) return;
     unawaited(_loadChannel(index));
   }
 
-  void _nextChannel() =>
-      _switchChannel((_index + 1) % _channels.length);
+  void _nextChannel() => _switchChannel((_index + 1) % _channels.length);
 
   void _prevChannel() =>
       _switchChannel((_index - 1 + _channels.length) % _channels.length);
@@ -158,6 +265,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
   Future<void> _togglePlay() async {
     final player = _player;
     if (player == null) return;
+    _sleepTimer.clearSleepPaused();
     if (_playing) {
       await player.pause();
     } else {
@@ -165,92 +273,154 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
     }
   }
 
-  Future<void> _toggleMute() async {
-    final player = _player;
-    final muted = !_muted;
-    setState(() => _muted = muted);
-    if (player != null) {
-      try {
-        await player.setVolume(muted ? 0 : 1);
-      } catch (_) {}
+  Future<void> _showSleepTimer() async {
+    _panel = true;
+    await showLiveSleepTimerDialog(context);
+    _panel = false;
+    if (mounted) {
+      setState(() {});
+      _showControls();
     }
   }
 
-  Future<void> _toggleFullscreen() async {
-    final entering = !_fullscreen;
-    setState(() {
-      _fullscreen = entering;
-      _controlsVisible = true;
-    });
-    if (entering) {
-      await _enterFullscreenSystemUi();
-      _scheduleHide();
-    } else {
-      await _exitFullscreenSystemUi();
-    }
-    if (mounted) setState(() {});
+  void _showSpeedToast() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('直播不支持变速'),
+        duration: Duration(seconds: 2),
+      ),
+    );
   }
 
-  Future<void> _enterFullscreenSystemUi() async {
-    await PlayerSystemUi.hide();
-    try {
-      await SystemChrome.setPreferredOrientations([
-        DeviceOrientation.landscapeLeft,
-        DeviceOrientation.landscapeRight,
-      ]);
-    } catch (_) {}
-  }
-
-  Future<void> _exitFullscreenSystemUi() async {
-    try {
-      await SystemChrome.setPreferredOrientations(
-        const <DeviceOrientation>[],
+  /// 火蚁TV _selectRoute：多线路弹线路选择表，单线路 toast。
+  /// 修仙版现有源都只给一条线路，平时走 toast；切线通路与线路表按
+  /// 火蚁TV 形态接好，有多条数据的源进来即能用。
+  Future<void> _selectRoute() async {
+    final channel = _channel;
+    if (channel.urls.length < 2) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('当前频道只有一条线路'),
+          duration: Duration(seconds: 2),
+        ),
       );
-    } catch (_) {}
-    await PlayerSystemUi.show();
-  }
-
-  void _scheduleHide() {
-    _hideTimer?.cancel();
-    if (!_fullscreen) return;
-    _hideTimer = Timer(const Duration(seconds: 3), () {
-      if (mounted && _fullscreen) {
-        setState(() => _controlsVisible = false);
-      }
-    });
-  }
-
-  void _toggleControls() {
-    if (!_fullscreen) return;
-    setState(() => _controlsVisible = !_controlsVisible);
-    if (_controlsVisible) _scheduleHide();
+      return;
+    }
+    _panel = true;
+    final picked = await showModalBottomSheet<int>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: const Color(0xFF1B1B1F),
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var index = 0; index < channel.urls.length; index++)
+              ListTile(
+                dense: true,
+                leading: const Icon(Icons.route_rounded),
+                title: Text(
+                  '线路 ${index + 1}',
+                  style: const TextStyle(color: Colors.white),
+                ),
+                onTap: () => Navigator.pop(context, index),
+              ),
+          ],
+        ),
+      ),
+    );
+    _panel = false;
+    if (!mounted) return;
+    setState(() {});
+    _showControls();
+    if (picked != null && picked != _route) {
+      _route = picked;
+      unawaited(_loadChannel(_index, keepRoute: true));
+    }
   }
 
   Future<void> _openChannelSheet() async {
-    final picked = await showModalBottomSheet<_LivePick>(
+    _panel = true;
+    final picked = await showModalBottomSheet<int>(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      builder: (_) => _LiveChannelSheet(
-        source: _source,
-        channels: _channels,
-        index: _index,
+      showDragHandle: true,
+      backgroundColor: const Color(0xFF1B1B1F),
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${_source.name} · ${_channels.length} 个频道',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Flexible(
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: _channels.length,
+                itemBuilder: (context, index) {
+                  final channel = _channels[index];
+                  final selected = index == _index;
+                  return ListTile(
+                    dense: true,
+                    selected: selected,
+                    title: Text(
+                      channel.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                    onTap: () => Navigator.pop(context, index),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
       ),
     );
-    if (picked == null || !mounted) return;
-    setState(() {
-      _source = picked.source;
-      _channels = picked.channels;
-    });
-    await _loadChannel(picked.index);
+    _panel = false;
+    if (!mounted) return;
+    setState(() {});
+    _showControls();
+    if (picked != null) _switchChannel(picked);
+  }
+
+  void _exit() {
+    Navigator.maybePop(context);
+  }
+
+  void _liveBack() {
+    if (_immersed) {
+      unawaited(PlayerSystemUi.show());
+      setState(() => _immersed = false);
+      return;
+    }
+    _exit();
   }
 
   @override
   void dispose() {
     _hideTimer?.cancel();
-    if (_fullscreen) {
-      unawaited(_exitFullscreenSystemUi());
+    _speedTracker.dispose();
+    _sleepTimer.removeListener(_sleepChanged);
+    if (_sleepTimer.pausePlayback == _pauseForSleepHandler) {
+      _sleepTimer.pausePlayback = null;
     }
+    unawaited(_exitFullscreenSystemUi());
     _teardownPlayer();
     super.dispose();
   }
@@ -259,32 +429,12 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
   Widget build(BuildContext context) {
     final channel = _channel;
     return PopScope(
-      canPop: !_fullscreen,
-      onPopInvokedWithResult: (didPop, _) async {
-        if (!didPop && _fullscreen) await _toggleFullscreen();
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _liveBack();
       },
       child: Scaffold(
         backgroundColor: Colors.black,
-        appBar: _fullscreen
-            ? null
-            : AppBar(
-                backgroundColor: Colors.black,
-                foregroundColor: Colors.white,
-                title: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(channel.title),
-                    Text(
-                      _source.name,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Colors.white70,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
         body: Stack(
           fit: StackFit.expand,
           children: [
@@ -302,28 +452,38 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
               behavior: HitTestBehavior.opaque,
               child: _videoArea(),
             ),
-            if (_fullscreen && _controlsVisible) ...[
-              _fullscreenTopBar(channel),
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: _bottomBar(),
-              ),
-            ] else if (!_fullscreen)
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: _bottomBar(),
-              ),
+            if (_error != null)
+              Positioned.fill(
+                child: ColoredBox(
+                  color: Colors.black.withValues(alpha: .82),
+                  child: Theme(
+                    data: ThemeData.dark(),
+                    child: LiveStatusPanel(
+                      title: '直播暂时中断',
+                      message: _error!,
+                      icon: Icons.wifi_off_rounded,
+                      action: '重新连接',
+                      onRetry: () =>
+                          unawaited(_loadChannel(_index, keepRoute: true)),
+                      secondaryAction: TextButton(
+                        onPressed: _openChannelSheet,
+                        child: const Text('换个频道'),
+                      ),
+                    ),
+                  ),
+                ),
+              )
+            else if (_controlsVisible) ...[
+              _topBar(channel),
+              Positioned(left: 0, right: 0, bottom: 0, child: _bottomBar()),
+            ],
           ],
         ),
       ),
     );
   }
 
-  Widget _fullscreenTopBar(LiveChannel channel) {
+  Widget _topBar(LiveChannel channel) {
     return Positioned(
       left: 0,
       right: 0,
@@ -336,36 +496,44 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
             colors: [Colors.black54, Colors.transparent],
           ),
         ),
-        padding: const EdgeInsets.fromLTRB(8, 12, 16, 24),
+        padding: const EdgeInsets.fromLTRB(8, 12, 8, 24),
         child: Row(
           children: [
             IconButton(
-              icon: const Icon(Icons.arrow_back, color: Colors.white),
-              onPressed: _toggleFullscreen,
+              icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+              onPressed: _exit,
               tooltip: '退出全屏',
             ),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    channel.title,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  Text(
-                    _source.name,
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
+              child: Text(
+                '${channel.title} · ${_source.name}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white, fontSize: 16),
               ),
+            ),
+            // 网速：火蚁TV 顶栏的 networkSpeedLabel 位。采样来自 LiveRelay
+            // 中继字节（见 live_speed_tracker.dart）；采不到时不显示。
+            ValueListenableBuilder<String?>(
+              valueListenable: _speedTracker.speedText,
+              builder: (context, value, _) {
+                if (value == null) return const SizedBox.shrink();
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Text(
+                    value,
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                  ),
+                );
+              },
+            ),
+            IconButton(
+              icon: const Icon(
+                Icons.screen_rotation_alt_rounded,
+                color: Colors.white,
+              ),
+              onPressed: _toggleRotate,
+              tooltip: '旋转与全屏',
             ),
           ],
         ),
@@ -374,7 +542,6 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
   }
 
   Widget _bottomBar() {
-    final channel = _channel;
     return Container(
       decoration: const BoxDecoration(
         gradient: LinearGradient(
@@ -388,66 +555,62 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
         mainAxisSize: MainAxisSize.min,
         children: [
           Row(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const _LiveBadge(),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  channel.group.isEmpty
-                      ? channel.title
-                      : '${channel.group} · ${channel.title}',
-                  style: const TextStyle(color: Colors.white, fontSize: 14),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+              IconButton(
+                icon: const Icon(Icons.skip_previous_rounded, color: Colors.white),
+                onPressed: _channels.length > 1 ? _prevChannel : null,
+                tooltip: '上一集',
+              ),
+              const SizedBox(width: 16),
+              IconButton(
+                icon: Icon(
+                  _playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                  color: Colors.white,
+                  size: 32,
                 ),
+                onPressed: _togglePlay,
+                tooltip: _playing ? '暂停播放' : '开始播放',
+              ),
+              const SizedBox(width: 16),
+              IconButton(
+                icon: const Icon(Icons.skip_next_rounded, color: Colors.white),
+                onPressed: _channels.length > 1 ? _nextChannel : null,
+                tooltip: '下一集',
               ),
             ],
           ),
           const SizedBox(height: 4),
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               IconButton(
-                icon: const Icon(Icons.skip_previous, color: Colors.white),
-                onPressed: _channels.length > 1 ? _prevChannel : null,
-                tooltip: '上一个频道',
+                icon: const Icon(Icons.bedtime_outlined, color: Colors.white),
+                onPressed: _showSleepTimer,
+                tooltip: _sleepTimer.active
+                    ? '睡眠定时 · ${_sleepTimer.label}'
+                    : '睡眠定时',
               ),
-              IconButton(
-                icon: Icon(
-                  _playing ? Icons.pause : Icons.play_arrow,
-                  color: Colors.white,
-                  size: 32,
+              TextButton(
+                onPressed: _showSpeedToast,
+                child: const Text(
+                  '1x',
+                  style: TextStyle(color: Colors.white),
                 ),
-                onPressed: _togglePlay,
-                tooltip: _playing ? '暂停' : '播放',
               ),
-              IconButton(
-                icon: const Icon(Icons.skip_next, color: Colors.white),
-                onPressed: _channels.length > 1 ? _nextChannel : null,
-                tooltip: '下一个频道',
-              ),
-              IconButton(
-                icon: Icon(
-                  _muted ? Icons.volume_off : Icons.volume_up,
-                  color: Colors.white,
+              TextButton(
+                onPressed: _selectRoute,
+                child: Text(
+                  _channel.urls.length > 1
+                      ? '线路 ${_channel.urls.length}'
+                      : '线路',
+                  style: const TextStyle(color: Colors.white),
                 ),
-                onPressed: _toggleMute,
-                tooltip: _muted ? '取消静音' : '静音',
               ),
               IconButton(
-                icon: const Icon(Icons.list, color: Colors.white),
+                icon: const Icon(Icons.grid_view_rounded, color: Colors.white),
                 onPressed: _openChannelSheet,
-                tooltip: '频道列表',
-              ),
-              IconButton(
-                icon: Icon(
-                  _fullscreen
-                      ? Icons.fullscreen_exit
-                      : Icons.fullscreen,
-                  color: Colors.white,
-                ),
-                onPressed: _toggleFullscreen,
-                tooltip: _fullscreen ? '退出全屏' : '全屏',
+                tooltip: '选集',
               ),
             ],
           ),
@@ -457,13 +620,6 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
   }
 
   Widget _videoArea() {
-    final generation = _generation;
-    void retry() {
-      if (mounted && generation == _generation) {
-        unawaited(_loadChannel(_index));
-      }
-    }
-
     final player = _player;
     final texture = player?.textureId;
     final waiting =
@@ -486,281 +642,16 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
                 textureId: texture,
               ),
             ),
-          if (_error != null)
-            PlayerErrorFeedback(
-              key: const ValueKey('live-player-error'),
-              issue: _error!,
-              onRetry: retry,
-              // 报错卡片不滚动：上下滑切频道的手势不再被卡片吃掉。
-              scrollable: false,
-            ),
           if (_error == null && (waiting || player.buffering))
-            PlayerLoadingFeedback(
-              key: ValueKey('live-player-loading-$generation'),
-              label: '正在加载频道',
-              onRetry: retry,
+            const Center(
+              child: SizedBox(
+                width: 38,
+                height: 38,
+                child: CircularProgressIndicator(strokeWidth: 3),
+              ),
             ),
         ],
       ),
-    );
-  }
-}
-
-class _LiveBadge extends StatelessWidget {
-  const _LiveBadge();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: Colors.red,
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: const Text(
-        '直播中',
-        style: TextStyle(
-          color: Colors.white,
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
-  }
-}
-
-class _LivePick {
-  const _LivePick({
-    required this.source,
-    required this.channels,
-    required this.index,
-  });
-
-  final LiveSource source;
-  final List<LiveChannel> channels;
-  final int index;
-}
-
-/// 频道列表 + 换源：先是当前源的频道（按分组排），顶部一行是三个内置源。
-/// 点别的源：列表源直接拉频道表；平台源先列平台，点平台再拉该平台的频道。
-/// 点频道才回传给播放页（换源 + 切频道一次完成）。
-class _LiveChannelSheet extends StatefulWidget {
-  const _LiveChannelSheet({
-    required this.source,
-    required this.channels,
-    required this.index,
-  });
-
-  final LiveSource source;
-  final List<LiveChannel> channels;
-  final int index;
-
-  @override
-  State<_LiveChannelSheet> createState() => _LiveChannelSheetState();
-}
-
-class _LiveChannelSheetState extends State<_LiveChannelSheet> {
-  late LiveSource _source;
-  late List<LiveChannel> _channels;
-  late int _index;
-  List<LivePlatform>? _platforms;
-  bool _loading = false;
-  String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    _source = widget.source;
-    _channels = widget.channels;
-    _index = widget.index;
-  }
-
-  Future<void> _switchSource(LiveSource source) async {
-    if (source.id == _source.id) return;
-    setState(() {
-      _loading = true;
-      _error = null;
-      _platforms = null;
-    });
-    try {
-      if (source.protocol == LiveProtocol.list) {
-        final channels = await LiveSources.loadBuiltinListChannels(source);
-        if (!mounted) return;
-        setState(() {
-          _source = source;
-          _channels = channels;
-          _index = 0;
-          _loading = false;
-        });
-      } else {
-        final platforms = await fetchPingtaiPlatforms(source);
-        if (!mounted) return;
-        setState(() {
-          _source = source;
-          _platforms = platforms;
-          _loading = false;
-        });
-      }
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _error = error.toString();
-      });
-    }
-  }
-
-  Future<void> _openPlatform(LivePlatform platform) async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      final channels = await fetchPingtaiChannels(_source, platform);
-      if (!mounted) return;
-      setState(() {
-        _channels = channels;
-        _index = 0;
-        _platforms = null;
-        _loading = false;
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _error = error.toString();
-      });
-    }
-  }
-
-  void _pick(int index) {
-    Navigator.pop(
-      context,
-      _LivePick(source: _source, channels: _channels, index: index),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final sources = LiveSources.builtin;
-    return DraggableScrollableSheet(
-      expand: false,
-      initialChildSize: 0.7,
-      minChildSize: 0.4,
-      maxChildSize: 0.92,
-      builder: (context, scrollController) {
-        return Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-              child: Row(
-                children: [
-                  Text(
-                    _platforms == null ? '频道' : '选平台',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const Spacer(),
-                  if (_platforms != null)
-                    TextButton(
-                      onPressed: () => setState(() => _platforms = null),
-                      child: const Text('返回频道'),
-                    ),
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: () => Navigator.pop(context),
-                    tooltip: '关闭',
-                  ),
-                ],
-              ),
-            ),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                children: [
-                  for (final source in sources)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: ChoiceChip(
-                        label: Text(source.name),
-                        selected: source.id == _source.id,
-                        onSelected: (_) => _switchSource(source),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 8),
-            if (_loading)
-              const Expanded(
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else if (_error != null)
-              Expanded(
-                child: Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text(
-                      '加载失败：$_error',
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                ),
-              )
-            else if (_platforms != null)
-              Expanded(
-                child: ListView.builder(
-                  controller: scrollController,
-                  itemCount: _platforms!.length,
-                  itemBuilder: (context, i) {
-                    final platform = _platforms![i];
-                    return ListTile(
-                      title: Text(platform.name),
-                      subtitle: platform.count > 0
-                          ? Text('${platform.count} 个频道')
-                          : null,
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () => _openPlatform(platform),
-                    );
-                  },
-                ),
-              )
-            else if (_channels.isEmpty)
-              const Expanded(
-                child: Center(child: Text('暂无频道')),
-              )
-            else
-              Expanded(
-                child: ListView.builder(
-                  controller: scrollController,
-                  itemCount: _channels.length,
-                  itemBuilder: (context, i) {
-                    final channel = _channels[i];
-                    final selected =
-                        _source.id == widget.source.id && i == _index;
-                    return ListTile(
-                      title: Text(channel.title),
-                      subtitle: channel.group.isEmpty
-                          ? null
-                          : Text(channel.group),
-                      selected: selected,
-                      selectedTileColor: Theme.of(
-                        context,
-                      ).colorScheme.primaryContainer.withValues(alpha: 0.4),
-                      trailing: selected
-                          ? const Icon(Icons.play_arrow)
-                          : null,
-                      onTap: () => _pick(i),
-                    );
-                  },
-                ),
-              ),
-          ],
-        );
-      },
     );
   }
 }

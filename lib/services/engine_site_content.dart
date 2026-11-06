@@ -100,6 +100,9 @@ DramaSiteDetail parseTvboxDetail(Map<String, dynamic> json) {
       'vod_pic',
       'vod_content',
       'vod_play_url',
+      'stills',
+      'vod_stills',
+      'vod_pic_screenshot',
     }.contains(key)) {
       continue;
     }
@@ -112,6 +115,9 @@ DramaSiteDetail parseTvboxDetail(Map<String, dynamic> json) {
     cover: cover,
     synopsis: _text(row['vod_content']),
     extra: extra,
+    stills: parseDetailStills(
+      row['stills'] ?? row['vod_stills'] ?? row['vod_pic_screenshot'],
+    ),
     episodes: episodes,
   );
 }

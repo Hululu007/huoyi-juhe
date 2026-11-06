@@ -16,8 +16,8 @@ import 'package:fqapp/widgets/home/home_film_zone.dart';
 
 /// 推荐页全局「影视」区预览图：测试渲染出 PNG，不构建整包。
 ///
-/// 修为 0 的默认视图（5 个果站视频 + 非成人阅读站），点首站药丸挂
-/// 出内容网格；取数用假客户端，不发真请求。
+/// 修为 0 的默认视图（池里只有 tgdrama 一个视频站）：打开即自动取
+/// 首窗推荐平铺三列视频卡，不再点站点药丸；取数用假客户端，不发真请求。
 ///
 /// 测试环境默认字体没有中文会出方框，这里先把系统里的
 /// Noto Sans CJK SC 载进来当主题字体，字才能正常显示。
@@ -99,13 +99,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('影视'), findsOneWidget);
-    expect(find.text('点一个站点看内容'), findsOneWidget);
-
-    // 点首站药丸，挂出内容网格。
-    final firstSite = sites.first;
-    await tester.tap(find.byKey(Key('film-zone-site-${firstSite.id}')));
-    await tester.pumpAndSettle();
-    expect(find.text('预览作品一'), findsWidgets);
+    // 打开即自动取首窗推荐（池里只有 tgdrama），不用点站。
+    expect(find.text('预览作品一'), findsOneWidget);
     expect(tester.takeException(), isNull);
 
     await _capture(

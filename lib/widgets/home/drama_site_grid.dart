@@ -191,6 +191,18 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
     }
   }
 
+  /// 加载失败文案：证书过期（站方证书到期）不把原始握手报错
+  /// 整段贴出来，只留一句人话，标出这是坏站问题、不是应用问题；
+  /// 其余错误仍如实显示原文。
+  static String _friendlyLoadError(Object error) {
+    final text = error.toString();
+    if (text.contains('CERTIFICATE_VERIFY_FAILED') ||
+        text.contains('certificate has expired')) {
+      return '该站证书已过期（站方证书到期，需站方续期），换个站看看。';
+    }
+    return text;
+  }
+
   Future<void> _loadFirst({bool keepItems = false}) async {
     await MidnightGate.ensureLoaded();
     if (!mounted) return;
@@ -243,7 +255,7 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = e.toString();
+        _error = _friendlyLoadError(e);
       });
     }
   }

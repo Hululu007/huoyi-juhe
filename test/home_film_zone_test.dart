@@ -10,15 +10,22 @@ import 'package:fqapp/services/drama_sites.dart';
 import 'package:fqapp/widgets/home/home_film_zone.dart';
 
 /// 推荐页全局「影视」区：站表按修为分档，未解锁的站完全不出现；
-/// 视频、小说、漫画、听书四类齐全；修为到了新档位自动出现。
+/// 视频站与阅读站按登记表顺序拼在一起（纯函数 [visibleFilmZoneSites]
+/// 不分池，widget 层只取其中视频站平铺推荐，阅读站走各自的分站区）。
 ///
-/// 视频站总数随登记表变（主聊还在往 200 补），所以档位规模不写死：
-/// 视频档位规模从 adultTierSiteIds 现算，阅读档位按 31 站登记顺序
-/// 的固定分档（阅读站表不变，变了再改这里）。
+/// 影视区不含短剧：5 个果站是短剧站不在核心里，显示名带「短剧」的
+/// 33 个核心站也已摘掉，只剩 168 个核心影视站 + TG影视库 = 169。
+/// 视频档位规模不写死：从 [adultTierSiteIds] 现算，再按
+/// [isFilmVideoSite] 去掉短剧站；阅读档位按 31 站登记顺序的固定
+/// 分档（阅读站表不变，变了再改这里）。
 void main() {
-  /// 视频某档的站数（按当前登记表现算）。
-  int videoTierSize(int tier) =>
-      adultTierSiteIds(tier, coreVideoSiteIds.toList()).length;
+  /// 某档的影视站数（按当前登记表现算：该档核心站去掉短剧名站）。
+  int filmVideoTierSize(int tier) {
+    final names = {for (final s in dramaSites) s.id: s.name};
+    return adultTierSiteIds(tier, coreVideoSiteIds.toList())
+        .where((id) => isFilmVideoSite(id, names[id] ?? id))
+        .length;
+  }
 
   /// 非成人阅读站 id。
   final nonAdultReading = coreReadingSiteIds
@@ -39,16 +46,17 @@ void main() {
     3: ['hsvoice31', 'hysxs'],
   };
 
-  test('修为 0 时只有 5 个果站视频 + 非成人阅读站', () {
+  test('修为 0 时只有 tgdrama 一个视频站 + 非成人阅读站', () {
     final sites = visibleFilmZoneSites(0);
     expect(
       sites.length,
-      5 + nonAdultReading.length,
+      1 + nonAdultReading.length,
     );
     final video = [for (final s in sites) if (s.kind == 'video') s];
+    // 5 个果站是短剧站，不进影视区；TG影视库是唯一不分档的视频站。
     expect(
       video.map((s) => s.id).toList(),
-      ['huangdou', 'huangju', 'yeguo', 'yaguo', 'niuguo'],
+      ['tgdrama'],
     );
     final reading = [for (final s in sites) if (s.kind != 'video') s];
     expect(
@@ -78,10 +86,10 @@ void main() {
     // 在第 4 档，3000 修为还看不到。
     expect(ids.contains('1000novel'), isTrue);
     expect(ids.contains('hsvoice31'), isFalse);
-    // 视频 5 果站 + 第 1 档；阅读非成人 + 第 1 档 7 个。
+    // 视频 tgdrama + 第 1 档影视站；阅读非成人 + 第 1 档 7 个。
     expect(
       sites.where((s) => s.kind == 'video').length,
-      5 + videoTierSize(0),
+      1 + filmVideoTierSize(0),
     );
     expect(
       sites.where((s) => s.kind != 'video').length,
@@ -93,7 +101,7 @@ void main() {
     final at8000 = visibleFilmZoneSites(8000);
     expect(
       at8000.where((s) => s.kind == 'video').length,
-      5 + videoTierSize(0) + videoTierSize(1),
+      1 + filmVideoTierSize(0) + filmVideoTierSize(1),
     );
     expect(
       at8000.where((s) => s.kind != 'video').length,
@@ -109,7 +117,10 @@ void main() {
     final at15000 = visibleFilmZoneSites(15000);
     expect(
       at15000.where((s) => s.kind == 'video').length,
-      5 + videoTierSize(0) + videoTierSize(1) + videoTierSize(2),
+      1 +
+          filmVideoTierSize(0) +
+          filmVideoTierSize(1) +
+          filmVideoTierSize(2),
     );
     expect(
       at15000.where((s) => s.kind != 'video').length,
@@ -124,9 +135,16 @@ void main() {
 
   test('合体 30000 时全部开完，四类齐全，无重复 id', () {
     final sites = visibleFilmZoneSites(30000);
+    final filmTotal =
+        filmVideoTierSize(0) +
+        filmVideoTierSize(1) +
+        filmVideoTierSize(2) +
+        filmVideoTierSize(3);
+    // 168 个核心影视站 + TG影视库；阅读 31 站。
+    expect(filmTotal, 168);
     expect(
       sites.length,
-      5 + coreVideoSiteIds.length + coreReadingSiteIds.length,
+      1 + filmTotal + coreReadingSiteIds.length,
     );
     final kinds = <String, int>{};
     for (final s in sites) {
@@ -136,7 +154,7 @@ void main() {
     for (final kind in coreReadingKinds.values) {
       readingKinds[kind] = (readingKinds[kind] ?? 0) + 1;
     }
-    expect(kinds['video'], 5 + coreVideoSiteIds.length);
+    expect(kinds['video'], 1 + filmTotal);
     expect(kinds['novel'], readingKinds['novel']);
     expect(kinds['comic'], readingKinds['comic']);
     expect(kinds['audio'], readingKinds['audio']);
@@ -173,7 +191,7 @@ void main() {
       addTearDown(() => tester.pumpWidget(const SizedBox.shrink()));
     }
 
-    testWidgets('标题与站点药丸显示，点药丸切站换网格', (tester) async {
+    testWidgets('打开即自动取首窗推荐平铺，阅读站不进池', (tester) async {
       await setPhoneSurface(tester);
       final sites = <({String id, String name, String kind})>[
         (id: 'video1', name: '测试视频站', kind: 'video'),
@@ -198,18 +216,47 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('影视'), findsOneWidget);
-      expect(find.text('测试视频站'), findsOneWidget);
-      expect(find.text('测试小说站·小说'), findsOneWidget);
-      // 没点药丸时不挂网格、不取数，只留一行提示。
-      expect(find.text('点一个站点看内容'), findsOneWidget);
-      expect(find.text('视频站作品'), findsNothing);
-      await tester.tap(find.byKey(const Key('film-zone-site-video1')));
-      await tester.pumpAndSettle();
+      // 打开就自动取数挂网格，不用点站；池子只留视频站，小说站不进。
       expect(find.text('视频站作品'), findsOneWidget);
-      await tester.tap(find.byKey(const Key('film-zone-site-novel1')));
+      expect(find.text('小说站作品'), findsNothing);
+      // 池子只有 1 站，不到 3 站窗口，没有「换一批」。
+      expect(find.byKey(const ValueKey('film-zone-next-batch')), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('池子超过 3 站时「换一批」换下 3 个站', (tester) async {
+      await setPhoneSurface(tester);
+      final sites = <({String id, String name, String kind})>[
+        for (var i = 1; i <= 4; i++)
+          (id: 'video$i', name: '测试视频站$i', kind: 'video'),
+      ];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: CustomScrollView(
+              slivers: [
+                HomeFilmZone(
+                  gridWidth: 328,
+                  sites: sites,
+                  clientForSite: (id) => _FakeFilmClient(
+                    title: '作品${id.substring('video'.length)}',
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
       await tester.pumpAndSettle();
-      expect(find.text('小说站作品'), findsOneWidget);
-      expect(find.text('视频站作品'), findsNothing);
+      expect(find.text('作品1'), findsOneWidget);
+      expect(find.text('作品2'), findsOneWidget);
+      expect(find.text('作品3'), findsOneWidget);
+      expect(find.text('作品4'), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('film-zone-next-batch')));
+      await tester.pumpAndSettle();
+      // 窗口滑到第 4 站起（含回绕）：作品4 出现，作品3 换出。
+      expect(find.text('作品4'), findsOneWidget);
+      expect(find.text('作品3'), findsNothing);
       expect(tester.takeException(), isNull);
     });
 
@@ -230,8 +277,8 @@ void main() {
               slivers: [
                 HomeFilmZone(
                   gridWidth: 328,
-                  clientForSite: (_) =>
-                      _FakeFilmClient(title: '作品'),
+                  clientForSite: (id) =>
+                      _FakeFilmClient(title: '作品-$id'),
                 ),
               ],
             ),
@@ -239,31 +286,15 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      // 修为 0 时登记表第 1 个视频站（mjv011，第 1 档）不在药丸条里。
-      await tester.drag(
-        find.byKey(const Key('film-zone-site-strip')),
-        const Offset(-600, 0),
-      );
-      await tester.pumpAndSettle();
-      expect(find.text('🔞mjv011'), findsNothing);
-      // 修为到元婴 3000，第 1 档解锁，药丸条里自动出现。
+      // 修为 0 时池里只有 tgdrama，第 1 档的 mjv011 还没进池。
+      expect(find.text('作品-tgdrama'), findsOneWidget);
+      expect(find.text('作品-mjv011'), findsNothing);
+      // 修为到元婴 3000，第 1 档解锁，首窗里自动出现 mjv011。
       CultivationService.instance.snapshotNotifier.value =
           const CultivationSnapshot(bonusXp: 3000);
       await tester.pump();
       await tester.pumpAndSettle();
-      // 先拖回条首（上一次拖动停在 600 偏移，mjv011 在条首附近），
-      // 再小幅左移把它露出来。
-      await tester.drag(
-        find.byKey(const Key('film-zone-site-strip')),
-        const Offset(1000, 0),
-      );
-      await tester.pumpAndSettle();
-      await tester.drag(
-        find.byKey(const Key('film-zone-site-strip')),
-        const Offset(-60, 0),
-      );
-      await tester.pumpAndSettle();
-      expect(find.text('🔞mjv011'), findsOneWidget);
+      expect(find.text('作品-mjv011'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   });

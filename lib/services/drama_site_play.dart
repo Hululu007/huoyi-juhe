@@ -598,6 +598,9 @@ Future<void> openDramaSitePlayback(
             eps: chapters,
             startIndex: safeIndex,
             shortSeries: true,
+            // 影视区专属：原生播失败（解码失败）时切 MPV 兜底页。
+            // 短剧不走这里，不传即关。
+            mpvFallbackEnabled: true,
             onAddToShelf: () => addToShelf(kind: shelfKind('video')),
             initialSeriesDetail: initialDetail,
             seriesLoader: initialDetail == null
@@ -703,6 +706,16 @@ Future<void> openDramaSiteItem(
                 ),
             ],
           ];
+        },
+        // 影视区详情三区（简介 / 线路 / 剧照）的数据源：与目录加载器共用
+        // 同一份缓存站详情，不多请求一次。
+        siteDetailLoader: (id) async {
+          final loaded = await loadSiteDetail();
+          return FilmSiteDetail(
+            synopsis: loaded.synopsis,
+            extra: loaded.extra,
+            stills: loaded.stills,
+          );
         },
         commentLoader: (_) async => const PlayletCommentPage(),
         onPlaySelection: (index, episodes, detail) =>
