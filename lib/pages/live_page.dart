@@ -46,6 +46,12 @@ class _LivePageState extends State<LivePage> {
   List<LiveChannel> _importedChannels = const [];
   bool _importLoading = true;
   String? _importError;
+  // 已存导入 m3u 的地址：切换源框里给“导入的频道”当副标题，
+  // 让用户认得出存的是哪一个 m3u（例如至尊那条）。
+  String _importedM3uUrl = '';
+
+  final _searchController = TextEditingController();
+  String _query = '';
 
   final _store = LiveStore.instance;
   final _sleepTimer = LiveSleepTimer.instance;
@@ -74,6 +80,19 @@ class _LivePageState extends State<LivePage> {
   LiveChannel? get _channel => _channels.isEmpty
       ? null
       : _channels[_index.clamp(0, _channels.length - 1)];
+
+  /// 搜索过滤后的频道：只在已加载的列表里筛（分页源只筛已加载的页）。
+  List<LiveChannel> get _visibleChannels {
+    if (_query.isEmpty) return _channels;
+    final q = _query.toLowerCase();
+    return _channels
+        .where(
+          (c) =>
+              c.title.toLowerCase().contains(q) ||
+              c.group.toLowerCase().contains(q),
+        )
+        .toList();
+  }
 
   List<({String id, String name, int count})> get _entries => [
     (id: _favouritesId, name: '收藏', count: _store.favourites.length),
@@ -116,6 +135,11 @@ class _LivePageState extends State<LivePage> {
         _importedChannels = channels;
         _importLoading = false;
       });
+      unawaited(
+        LiveSources.loadImportedM3uUrl().then((url) {
+          if (mounted) setState(() => _importedM3uUrl = url);
+        }),
+      );
       if (CultivationService.instance.snapshot.unlockedVideo) {
         unawaited(_loadSource(_source));
       }
@@ -184,6 +208,7 @@ class _LivePageState extends State<LivePage> {
       _sleepTimer.pausePlayback = null;
     }
     _teardownPlayer();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -219,6 +244,7 @@ class _LivePageState extends State<LivePage> {
       setState(() {
         _importedChannels = channels;
         _importError = null;
+        _importedM3uUrl = url.trim();
       });
       unawaited(_loadSource(_importedSource));
     } catch (e) {
@@ -243,6 +269,8 @@ class _LivePageState extends State<LivePage> {
       _index = 0;
       _playerError = null;
       _initVideo = true;
+      _query = '';
+      _searchController.clear();
     });
     try {
       if (source.protocol == LiveProtocol.list) {
@@ -349,6 +377,8 @@ class _LivePageState extends State<LivePage> {
         _page = 1;
         _channels = const [];
         _allChannels = const [];
+        _query = '';
+        _searchController.clear();
       }
     });
     try {
@@ -451,6 +481,13 @@ class _LivePageState extends State<LivePage> {
                 for (final source in imported)
                   ListTile(
                     title: Text(source.name),
+                    subtitle: _importedM3uUrl.isEmpty
+                        ? Text('已存 ${_importedChannels.length} 个频道')
+                        : Text(
+                            _importedM3uUrl,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                     trailing: source.id == _source.id
                         ? Icon(
                             Icons.check,
@@ -630,27 +667,22 @@ class _LivePageState extends State<LivePage> {
     // 修为到了才列出来。
     final unlocked = CultivationService.instance.snapshot.unlockedVideo;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('直播'),
-        actions: [
-          if (unlocked)
-            IconButton(
-              icon: const Icon(Icons.add),
-              tooltip: '导入 m3u',
-              onPressed: _importDialog,
-            ),
-        ],
+      // 目标版式没有顶栏：播放器直接贴顶（16:9），导入 m3u 与切换源
+      // 挪到搜索行的小按钮里。
+      body: SafeArea(
+        top: true,
+        bottom: false,
+        child: !unlocked
+            ? _lockedBody(context)
+            : _importLoading
+            ? const Center(child: CircularProgressIndicator())
+            : Column(
+                children: [
+                  AspectRatio(aspectRatio: 16 / 9, child: _videoArea()),
+                  Expanded(child: _panel()),
+                ],
+              ),
       ),
-      body: !unlocked
-          ? _lockedBody(context)
-          : _importLoading
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                Expanded(flex: 9, child: _videoArea()),
-                Expanded(flex: 14, child: _panel()),
-              ],
-            ),
     );
   }
 
@@ -674,12 +706,21 @@ class _LivePageState extends State<LivePage> {
           Stack(
             fit: StackFit.expand,
             children: [
+              // 画面按原始比例显示：StackFit.expand 会把 Texture 强行拉满
+              // 整个区域（竖版流塞进横向盒子就被压扁，issue #11 同款）。
+              // 用 Center + AspectRatio（已计入旋转修正的显示宽高比）
+              // 包住，画面保持比例、多余处留黑边，不拉伸、不压扁。
               if (texture != null)
-                RotatedBox(
-                  quarterTurns: player!.videoRotationCorrection ~/ 90,
-                  child: Texture(
-                    key: const ValueKey('live-inline-texture'),
-                    textureId: texture,
+                Center(
+                  child: AspectRatio(
+                    aspectRatio: player!.displayAspectRatio,
+                    child: RotatedBox(
+                      quarterTurns: player.videoRotationCorrection ~/ 90,
+                      child: Texture(
+                        key: const ValueKey('live-inline-texture'),
+                        textureId: texture,
+                      ),
+                    ),
                   ),
                 ),
               if (_playerError == null &&
@@ -842,39 +883,7 @@ class _LivePageState extends State<LivePage> {
 
   Widget _panel() => Column(
     children: [
-      _currentCard(),
-      Padding(
-        padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-        child: Row(
-          children: [
-            Expanded(
-              child: TextButton.icon(
-                key: const ValueKey('live-favourites-button'),
-                onPressed: () => unawaited(_loadChannels(_favouritesId)),
-                icon: Icon(
-                  _group == _favouritesId
-                      ? Icons.star_rounded
-                      : Icons.star_border_rounded,
-                ),
-                label: Text('直播收藏（${_store.favourites.length}）'),
-              ),
-            ),
-            if (_group == _favouritesId)
-              TextButton.icon(
-                key: const ValueKey('live-categories-button'),
-                onPressed: () => unawaited(_loadPlatforms()),
-                icon: const Icon(Icons.list_rounded),
-                label: const Text('直播分类'),
-              ),
-            IconButton(
-              key: const ValueKey('live-refresh-button'),
-              tooltip: '刷新直播',
-              onPressed: _loading ? null : _refreshLive,
-              icon: const Icon(Icons.refresh_rounded),
-            ),
-          ],
-        ),
-      ),
+      _channelInfoRow(),
       if (_importError != null)
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -887,74 +896,72 @@ class _LivePageState extends State<LivePage> {
     ],
   );
 
-  Widget _currentCard() {
+  /// 播放器下方频道信息行（目标版式）：台标 + 频道名（大）+ 当前节目/信息，
+  /// 右边是频道号。直播源不带节目单（EPG），节目行显示副标题，
+  /// 没有副标题时显示“源 · 分组 · 序号/总数”。
+  Widget _channelInfoRow() {
     final theme = Theme.of(context);
     final channel = _channel;
     final logo = channel?.logo ?? '';
+    final program = channel != null && channel.subtitle.isNotEmpty
+        ? channel.subtitle
+        : _caption();
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-      child: Material(
-        color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(14),
-        child: SizedBox(
-          height: 86,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(14, 8, 10, 8),
-            child: Row(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 52,
+            height: 52,
+            child: logo.isEmpty
+                ? _logoFallback(theme)
+                : ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Image.network(
+                      logo,
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, _, _) => _logoFallback(theme),
+                    ),
+                  ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                SizedBox(
-                  width: 58,
-                  height: 58,
-                  child: logo.isEmpty
-                      ? _logoFallback(theme)
-                      : ClipRRect(
-                          borderRadius: BorderRadius.circular(10),
-                          child: Image.network(
-                            logo,
-                            fit: BoxFit.contain,
-                            errorBuilder: (_, _, _) => _logoFallback(theme),
-                          ),
-                        ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        channel?.title ?? _groupName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 5),
-                      Text(
-                        _caption(),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall,
-                      ),
-                    ],
+                Text(
+                  channel?.title ?? _groupName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-                SizedBox(
-                  width: 46,
-                  height: 46,
-                  child: IconButton(
-                    key: const ValueKey('live-source-button'),
-                    tooltip: '切换直播源',
-                    onPressed: _pickSource,
-                    icon: const Icon(Icons.tv_rounded),
+                const SizedBox(height: 4),
+                Text(
+                  program,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
               ],
             ),
           ),
-        ),
+          if (channel != null) ...[
+            const SizedBox(width: 8),
+            Text(
+              _numberFor(_index, channel),
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontFeatures: const [FontFeature.tabularFigures()],
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -983,32 +990,82 @@ class _LivePageState extends State<LivePage> {
   );
 
   Widget _lists() {
-    final error = _error;
-    if (_group != _favouritesId &&
-        _platforms.isEmpty &&
-        error != null &&
-        !_loading) {
-      return LiveStatusPanel(
-        title: '${_source.name} 直播源暂时不可用',
-        message: error,
-        icon: Icons.wifi_off_rounded,
-        onRetry: () => unawaited(_loadPlatforms()),
-      );
-    }
+    // 搜索行与分类栏始终可见（源加载失败时也要能切源/刷新/导入），
+    // 报错只显示在右侧频道区。
     final entries = _entries;
-    if (entries.isEmpty) {
-      if (_loading) return const Center(child: CircularProgressIndicator());
-      return const LiveStatusPanel(
-        title: '没有可用分类',
-        message: '可以切换其他直播源。',
-        icon: Icons.live_tv_rounded,
-      );
-    }
     return Row(
       children: [
         Expanded(flex: 31, child: _groupRail(entries)),
-        Expanded(flex: 57, child: _channelPane()),
+        Expanded(
+          flex: 57,
+          child: Column(
+            children: [
+              _searchRow(),
+              Expanded(child: _channelPane()),
+            ],
+          ),
+        ),
       ],
+    );
+  }
+
+  /// 搜索行：搜当前已加载的频道（标题/分组）；顶栏去掉后，切换源、
+  /// 刷新、导入 m3u 三个小按钮挪到这里。
+  Widget _searchRow() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(6, 4, 12, 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _searchController,
+              onChanged: (value) => setState(() => _query = value),
+              decoration: InputDecoration(
+                hintText: '搜索频道',
+                prefixIcon: const Icon(Icons.search_rounded, size: 18),
+                suffixIcon: _query.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: '清除搜索',
+                        icon: const Icon(Icons.clear_rounded, size: 18),
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() => _query = '');
+                        },
+                      ),
+                isDense: true,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
+              ),
+            ),
+          ),
+          IconButton(
+            key: const ValueKey('live-source-button'),
+            tooltip: '切换直播源',
+            visualDensity: VisualDensity.compact,
+            onPressed: _pickSource,
+            icon: const Icon(Icons.tv_rounded),
+          ),
+          IconButton(
+            key: const ValueKey('live-refresh-button'),
+            tooltip: '刷新直播',
+            visualDensity: VisualDensity.compact,
+            onPressed: _loading ? null : _refreshLive,
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+          IconButton(
+            tooltip: '导入 m3u',
+            visualDensity: VisualDensity.compact,
+            onPressed: _importDialog,
+            icon: const Icon(Icons.add),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1018,11 +1075,16 @@ class _LivePageState extends State<LivePage> {
     }
     final error = _error;
     if (error != null && _channels.isEmpty) {
+      // 源级失败（分类都没拉到）与分类级失败共用这里：源级失败重试
+      // 整个源，分类级失败重试当前分类。
+      final sourceFailed = _group != _favouritesId && _platforms.isEmpty;
       return LiveStatusPanel(
-        title: '这个分类暂时不可用',
+        title: sourceFailed ? '${_source.name} 直播源暂时不可用' : '这个分类暂时不可用',
         message: error,
         icon: Icons.wifi_off_rounded,
-        onRetry: () => _loadChannels(_group),
+        onRetry: () => sourceFailed
+            ? unawaited(_loadPlatforms())
+            : _loadChannels(_group),
       );
     }
     return _channelList();
@@ -1037,6 +1099,9 @@ class _LivePageState extends State<LivePage> {
       itemBuilder: (context, index) {
         final entry = entries[index];
         final selected = entry.id == _group;
+        final label = entry.id == _favouritesId && entry.count > 0
+            ? '${entry.name}（${entry.count}）'
+            : entry.name;
         return InkWell(
           key: ValueKey('live-group-${entry.id}'),
           onTap: () => unawaited(_loadChannels(entry.id)),
@@ -1050,7 +1115,7 @@ class _LivePageState extends State<LivePage> {
               borderRadius: BorderRadius.circular(10),
             ),
             child: Text(
-              entry.name,
+              label,
               textAlign: TextAlign.center,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
@@ -1078,6 +1143,14 @@ class _LivePageState extends State<LivePage> {
         icon: Icons.live_tv_rounded,
       );
     }
+    final visible = _visibleChannels;
+    if (visible.isEmpty) {
+      return const LiveStatusPanel(
+        title: '没有找到频道',
+        message: '换个关键词试试。',
+        icon: Icons.search_off_rounded,
+      );
+    }
     final current = _channel;
     return NotificationListener<ScrollNotification>(
       onNotification: (notification) {
@@ -1092,13 +1165,16 @@ class _LivePageState extends State<LivePage> {
       child: ListView.builder(
         key: const ValueKey('live-channel-list'),
         padding: const EdgeInsets.symmetric(vertical: 4),
-        itemCount: _channels.length,
+        itemCount: visible.length,
         itemBuilder: (context, index) {
-          final channel = _channels[index];
+          final channel = visible[index];
           final selected = identical(channel, current);
           return InkWell(
             key: ValueKey('live-channel-$index'),
-            onTap: () => _selectChannel(index),
+            onTap: () {
+              final original = _channels.indexOf(channel);
+              if (original >= 0) _selectChannel(original);
+            },
             child: Container(
               margin: const EdgeInsets.fromLTRB(6, 2, 12, 2),
               padding: const EdgeInsets.symmetric(
@@ -1111,32 +1187,47 @@ class _LivePageState extends State<LivePage> {
                     : Colors.transparent,
                 borderRadius: BorderRadius.circular(10),
               ),
+              // 用户定的三段式：左边站点名，中间频道名，右边入口。
               child: Row(
                 children: [
                   SizedBox(
-                    width: 34,
+                    width: 64,
                     child: Text(
-                      _numberFor(index, channel),
+                      _source.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(
-                        fontFeatures: const [FontFeature.tabularFigures()],
                         color: selected
                             ? theme.colorScheme.onSecondaryContainer
                             : theme.colorScheme.onSurfaceVariant,
                       ),
                     ),
                   ),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       channel.title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                        fontWeight: selected
+                            ? FontWeight.w600
+                            : FontWeight.w400,
                         color: selected
                             ? theme.colorScheme.onSecondaryContainer
                             : null,
                       ),
                     ),
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(
+                    selected
+                        ? Icons.play_circle_filled_rounded
+                        : Icons.play_arrow_rounded,
+                    size: 22,
+                    color: selected
+                        ? theme.colorScheme.primary
+                        : theme.colorScheme.onSurfaceVariant,
                   ),
                 ],
               ),

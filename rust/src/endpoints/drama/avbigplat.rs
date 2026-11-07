@@ -348,6 +348,9 @@ pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
         "limit": 24,
         "total": 0,
         "has_more": has_more,
+        // Dart 侧只认 "items"，原先只返 "list" 时应用层判“核心未返回
+        // 目录”直接跳过本站；"list" 留着兼容旧调用（照 xx01 修法）。
+        "items": items.clone(),
         "list": items,
     }))
 }
@@ -540,5 +543,20 @@ mod tests {
             dig_stream(html).as_deref(),
             Some("https://cdn.example.com/a/index.m3u8")
         );
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn live_catalog_returns_items() {
+        let r = catalog("all", 1).await.unwrap();
+        let items = r["items"].as_array().unwrap();
+        let list = r["list"].as_array().unwrap();
+        eprintln!(
+            "LIVE avbigplat all items={} list={}",
+            items.len(),
+            list.len()
+        );
+        assert!(!items.is_empty(), "avbigplat catalog empty");
+        assert_eq!(items.len(), list.len());
     }
 }

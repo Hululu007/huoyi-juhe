@@ -263,6 +263,9 @@ pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
     "limit": limit,
     "total": total,
     "has_more": page < total,
+    // Dart 侧只认 "items"，原先只返 "list" 时应用层判“核心未返回
+    // 目录”直接跳过本站；"list" 留着兼容旧调用（照 xx01 修法）。
+    "items": items.clone(),
     "list": items,
     }))
 }
@@ -467,5 +470,16 @@ mod tests {
         assert_eq!(items.len(), 1);
         assert_eq!(items[0]["title"], "DLDSS-578 影片");
         assert_eq!(items[0]["remark"], "▶ 6162");
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn live_catalog_returns_items() {
+        let r = catalog("n|2", 1).await.unwrap();
+        let items = r["items"].as_array().unwrap();
+        let list = r["list"].as_array().unwrap();
+        eprintln!("LIVE airav n|2 items={} list={}", items.len(), list.len());
+        assert!(!items.is_empty(), "airav catalog empty");
+        assert_eq!(items.len(), list.len());
     }
 }

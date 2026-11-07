@@ -23,6 +23,7 @@ pub mod core_log;
 pub mod crypto;
 pub mod device;
 pub mod dispatch;
+pub mod egress_proxy;
 pub mod endpoints;
 pub mod error;
 pub mod filter;

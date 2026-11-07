@@ -9,7 +9,11 @@
 //! player_data（url “11602|1”、from huangguo）→
 //! /huangguo.php?ac=play&id=&ep= 现取 JSON（code 1 时 url 为
 //! /hgmedia.php?e=… 代理地址）→ 代理回 m3u8（AES-128 清单，
-//! 密钥与首分片已验 200）。签名带时效，播放须现取现用。
+//! 密钥与首分片已验 200）。签名带时效，播放须现取现用。取流同时回
+//! 一个 User-Agent 头：地址是无后缀的 HLS 代理地址，Dart 侧凭
+//! “有头即走本地代理”把它经 /r/ 转接、探到 HLS 后补 .m3u8 后缀，
+//! 否则播放器会把它当 Progressive 流、拿 MP4 解析器读 #EXTM3U
+//! 而报“视频解析失败”。
 
 use regex::Regex;
 use serde_json::{json, Value};
@@ -364,17 +368,23 @@ fn split_play_url(raw: &str) -> Option<(String, String)> {
 }
 
 pub(crate) async fn play(video_id: &str) -> ApiResult<Value> {
+    // 取流回的播放地址是无后缀的 HLS 代理地址（/hgmedia.php?e=…）：
+    // 播放器只凭地址后缀认流类型，直链原样给过去会被当成 Progressive
+    // 流、拿 MP4 解析器读 #EXTM3U 文本而报“视频解析失败”。随地址回
+    // 一个 UA 头，Dart 侧按“有头即走本地代理”把它经 /r/ 转接，代理
+    // 层探到 HLS 后给地址补 .m3u8 后缀，播放器才走 HLS。
+    let headers = json!({"User-Agent": UA});
     let vid = video_id.trim();
     if vid.starts_with("http") && vid.contains("hgmedia.php") {
-        return Ok(json!({"url": vid}));
+        return Ok(json!({"url": vid, "headers": headers}));
     }
     if let Some(rest) = vid.strip_prefix(BASE) {
         if rest.starts_with("/hgmedia.php") {
-            return Ok(json!({"url": vid}));
+            return Ok(json!({"url": vid, "headers": headers}));
         }
     }
     if vid.starts_with("/hgmedia.php") {
-        return Ok(json!({"url": format!("{BASE}{vid}")}));
+        return Ok(json!({"url": format!("{BASE}{vid}"), "headers": headers}));
     }
     let play_path = if vid.starts_with("/play/") {
         vid.to_string()
@@ -414,7 +424,7 @@ pub(crate) async fn play(video_id: &str) -> ApiResult<Value> {
     if proxy.is_empty() || !proxy.starts_with("/hgmedia.php?e=") {
         return Err(ApiError::Internal("Ai小视频代理播放地址格式错误".into()));
     }
-    Ok(json!({"url": format!("{BASE}{proxy}")}))
+    Ok(json!({"url": format!("{BASE}{proxy}"), "headers": headers}))
 }
 
 pub(crate) async fn search(query: &str) -> ApiResult<Value> {

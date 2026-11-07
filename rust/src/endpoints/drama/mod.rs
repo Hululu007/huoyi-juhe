@@ -223,32 +223,33 @@ mod zggjav;
 mod zwdj;
 mod zwwm;
 
-use std::sync::OnceLock;
 use std::time::Duration;
 
 use futures::future::BoxFuture;
 use serde_json::{json, Map, Value};
 
+use crate::egress_proxy::{apply_to_builder, ClientSlot};
 use crate::endpoints::{Ctx, Params, Server};
 use crate::error::{ApiError, ApiResult};
 
 /// 影视区上游请求超时：与 Dart 侧 ApiClient 的默认超时一致。
 const DRAMA_TIMEOUT_SECS: u64 = 20;
 
-static DRAMA_CLIENT: OnceLock<Option<reqwest::Client>> = OnceLock::new();
+static DRAMA_CLIENT: ClientSlot = ClientSlot::new();
 
 /// 影视区共用的明文 HTTP 客户端（第三方站，无番茄设备签名，与 video.rs
 /// 的 streaming_client 同款做法：懒建，建不出来时调用方如实报错）。
+/// 走出口代理配置：代理变了下次取时重建（ClientSlot 按代理版本号缓存）。
 pub(crate) fn client() -> ApiResult<&'static reqwest::Client> {
+    let _ = rustls::crypto::ring::default_provider().install_default();
     DRAMA_CLIENT
-        .get_or_init(|| {
-            let _ = rustls::crypto::ring::default_provider().install_default();
-            reqwest::Client::builder()
-                .timeout(Duration::from_secs(DRAMA_TIMEOUT_SECS))
-                .build()
-                .ok()
+        .get_or_build(|| {
+            apply_to_builder(
+                reqwest::Client::builder().timeout(Duration::from_secs(DRAMA_TIMEOUT_SECS)),
+            )
+            .build()
+            .ok()
         })
-        .as_ref()
         .ok_or_else(|| ApiError::Internal("drama client unavailable".into()))
 }
 

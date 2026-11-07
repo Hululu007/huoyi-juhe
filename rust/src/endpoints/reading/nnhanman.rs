@@ -7,7 +7,6 @@
 //! data-src 的 nnpic 图，无则退 src，拼成 pics://。
 
 use std::collections::HashSet;
-use std::sync::OnceLock;
 
 use regex::Regex;
 use serde_json::{json, Value};
@@ -24,16 +23,16 @@ const CATEGORIES: [(&str, &str); 3] = [
     ("serialized", "连载中"),
 ];
 
-static HTTP: OnceLock<Option<reqwest::Client>> = OnceLock::new();
+static HTTP: crate::egress_proxy::ClientSlot = crate::egress_proxy::ClientSlot::new();
 
 fn client() -> ApiResult<&'static reqwest::Client> {
-    HTTP.get_or_init(|| {
-        reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .build()
-            .ok()
+    HTTP.get_or_build(|| {
+        crate::egress_proxy::apply_to_builder(
+            reqwest::Client::builder().timeout(std::time::Duration::from_secs(30)),
+        )
+        .build()
+        .ok()
     })
-    .as_ref()
     .ok_or_else(|| ApiError::Internal("nnhanman client unavailable".into()))
 }
 

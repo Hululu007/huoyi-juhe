@@ -7,6 +7,7 @@ import '../src/rust/api.dart' as rust;
 import '../src/rust/frb_generated.dart';
 import 'app_log.dart';
 import 'secure_key_provider.dart';
+import 'system_proxy.dart';
 
 /// One backend response.
 ///
@@ -363,6 +364,12 @@ class RustBackendTransport implements BackendTransport {
             if (result != 'running') {
               throw StateError('Rust core failed: $result');
             }
+            // 系统代理自动检测：核心 init 完成后、首次用核心取站之前，把
+            // 手机的系统代理交给核心当出口（有代理走代理、无代理传空串
+            // 清掉回直连，见 SystemProxyService.applyEgressProxy）。
+            // 失败只记日志、不挡启动：applyEgressProxy 本身不抛错。
+            await SystemProxyService.applyEgressProxy();
+            checkCurrent();
             session.baseUrl = await rust.baseUrl();
             checkCurrent();
             session.capability = await rust.sessionCapability();

@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import '../models/media_item.dart';
 import 'api_client.dart';
+import 'drama_playback.dart';
 
 class EpisodeVariant {
   final String name;
@@ -335,6 +336,150 @@ class _SharedEntry {
   final EpisodeSource source;
 
   _SharedEntry(this.started, this.source);
+}
+
+/// 外站解析结果的跨页内存缓存：切到别的站、再切回来时不再重新跑
+/// playerContent 取流，直接用缓存的地址播。
+///
+/// 与页内缓存的区别：
+/// - [EpisodeSourceCache] 是每页一个实例，键只有集 id，页面销毁即失效，
+///   切站回来必然重新解析；[SharedEpisodePrefetch] 只给原始站预取用，
+///   键是 bookId|itemId，且只读不写解析结果。
+/// - 本缓存是进程内全局单例，键含站 + 视频 + 集，同一视频不同集、同一集
+///   不同站都区分开；退出进程即清空，不落盘——地址常带签名，落盘既要
+///   管过期又涉隐私，内存已满足“切站回来”这个场景。
+///
+/// 只存解析成功的原始地址（client.playSource 的返回值、进代理之前）：
+/// - 命中时仍走正常播放链路：代理映射（_proxyIfNeeded）与 dict 头每次
+///   都重做，只是跳过 playerContent 取流，代理与头信息不会丢；
+/// - 失败不缓存：取流抛错只清在途记录，下次调用重新解析（可重试）；
+/// - 两个并发请求同键只解析一次，后到的加入在途的同一个 Future。
+///
+/// 过期 10 分钟，依据：
+/// - 草榴签名地址有效期约请求时 +6800 秒（rust/src/endpoints/drama/
+///   caoliu.rs），v01 的 geo 令牌 ttl 兜底 3600 秒（v01.rs）；
+/// - 树内同类签名地址缓存（EpisodeSourceCache、SharedEpisodePrefetch）
+///   早已用 10 分钟，且 10 分钟远小于上述两个已知有效期下限（3600 秒
+///   的约 1/6），过期地址硬播的风险低；过期后再次调用重新解析。
+class DramaPlaySourceCache {
+  static const timeToLive = Duration(minutes: 10);
+
+  /// 32 条：切站回来只涉及最近看过的几部剧几集，32 条足够覆盖；
+  /// 只存原始地址不占代理会话，不会顶掉本地代理 200 会话的上限。
+  static const capacity = 32;
+
+  static final DramaPlaySourceCache instance = DramaPlaySourceCache._();
+
+  /// 仅测试用：一个隔离的实例（自己的表 + 自己的时钟）。
+  factory DramaPlaySourceCache.forTest({required Duration Function() now}) =>
+      DramaPlaySourceCache._(now: now);
+
+  DramaPlaySourceCache._({Duration Function()? now})
+    : _now = now ?? _monotonicClock();
+
+  final Duration Function() _now;
+  final _ready = <String, _ResolvedEntry>{};
+  final _pending = <String, Future<DramaPlaySource>>{};
+
+  static String keyFor({
+    required String siteId,
+    required String seriesId,
+    required String videoId,
+  }) => '$siteId|$seriesId|$videoId';
+
+  /// 取流（命中缓存直接回，不命中跑 [loader] 解析一次）：
+  /// 成功才缓存，失败不缓存、错误原样抛给调用方重试。
+  Future<DramaPlaySource> resolve({
+    required String siteId,
+    required String seriesId,
+    required String videoId,
+    required Future<DramaPlaySource> Function() loader,
+  }) {
+    final key = keyFor(
+      siteId: siteId,
+      seriesId: seriesId,
+      videoId: videoId,
+    );
+    _ready.removeWhere((_, entry) => !_fresh(entry));
+    final ready = _ready.remove(key);
+    if (ready != null) {
+      _ready[key] = ready;
+      return Future.value(ready.source);
+    }
+    final pending = _pending[key];
+    if (pending != null) return pending;
+    final started = _now();
+    late final Future<DramaPlaySource> future;
+    future = Future.sync(loader).then(
+      (source) {
+        if (identical(_pending[key], future)) {
+          _pending.remove(key);
+          if (_freshEntry(started)) {
+            _ready[key] = _ResolvedEntry(started, source);
+            while (_ready.length > capacity) {
+              _ready.remove(_ready.keys.first);
+            }
+          }
+        }
+        return source;
+      },
+      onError: (Object error, StackTrace stack) {
+        if (identical(_pending[key], future)) _pending.remove(key);
+        Error.throwWithStackTrace(error, stack);
+      },
+    );
+    _pending[key] = future;
+    return future;
+  }
+
+  /// 后台暖缓存：只解析、不建播放器；失败静默丢弃，不影响当前播放，
+  /// 下次点播时重新解析。
+  void prefetch({
+    required String siteId,
+    required String seriesId,
+    required String videoId,
+    required Future<DramaPlaySource> Function() loader,
+  }) {
+    unawaited(
+      resolve(
+        siteId: siteId,
+        seriesId: seriesId,
+        videoId: videoId,
+        loader: loader,
+      ).then<void>((_) {}, onError: (Object _) {}),
+    );
+  }
+
+  bool _fresh(_ResolvedEntry entry) => _freshEntry(entry.started);
+
+  bool _freshEntry(Duration started) => _now() - started < timeToLive;
+
+  void invalidate({
+    required String siteId,
+    required String seriesId,
+    required String videoId,
+  }) {
+    final key = keyFor(
+      siteId: siteId,
+      seriesId: seriesId,
+      videoId: videoId,
+    );
+    _ready.remove(key);
+    _pending.remove(key);
+  }
+
+  /// 仅测试用：清空本实例的表。
+  void clear() {
+    _ready.clear();
+    _pending.clear();
+  }
+}
+
+class _ResolvedEntry {
+  final Duration started;
+  final DramaPlaySource source;
+
+  _ResolvedEntry(this.started, this.source);
 }
 
 Duration Function() _monotonicClock() {

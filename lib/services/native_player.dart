@@ -294,6 +294,19 @@ class NativePlayer {
 
   /// Clockwise rotation not applied by the native texture backend.
   int get videoRotationCorrection => _videoRotationCorrection;
+
+  /// 画面显示宽高比（已计入旋转修正）：90/270 时宽高互换。
+  /// 直播两处播放区用它包 AspectRatio，画面按原始比例显示、不拉伸
+  /// （多余处留黑边）；尺寸未到时回 16:9 占位，首帧尺寸一到就按
+  /// 真实比例重铺。
+  double get displayAspectRatio {
+    if (_videoWidth <= 0 || _videoHeight <= 0) return 16 / 9;
+    final swapped = (_videoRotationCorrection ~/ 90) % 2 == 1;
+    final width = swapped ? _videoHeight : _videoWidth;
+    final height = swapped ? _videoWidth : _videoHeight;
+    return width / height;
+  }
+
   Object? get lastError => _lastError;
 
   final _positionCtrl = StreamController<Duration>.broadcast();

@@ -22,6 +22,14 @@ Future<void> setDevicePoolKey({required List<int> key}) =>
 
 Future<String> version() => RustLib.instance.api.crateApiVersion();
 
+/// 出口代理（手机上 reqwest 读不到 Android 系统代理，Dart 侧把系统代理
+/// 地址传进来；空串表示清除代理、恢复直连）。成功返回 `"ok"`。
+Future<String> setEgressProxy({required String proxyUrl}) =>
+    RustLib.instance.api.crateApiSetEgressProxy(proxyUrl: proxyUrl);
+
+/// 当前出口代理 URL，未设置时返回空串。
+Future<String> egressProxy() => RustLib.instance.api.crateApiEgressProxy();
+
 /// Idempotent initialization. A second call while running returns `"running"`.
 ///
 /// `mock_upstream_origin` is empty in the shipping app. The host integration

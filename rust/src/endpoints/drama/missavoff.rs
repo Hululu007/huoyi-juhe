@@ -15,6 +15,7 @@
 //! 节窗口切中文页会在字符中间 panic，改走 safe_slice 收敛边界。
 
 use std::sync::Mutex;
+use std::time::Duration;
 
 use regex::Regex;
 use serde_json::{json, Value};
@@ -90,8 +91,27 @@ fn looks_ok(html: &str) -> bool {
     lower.contains("missav")
 }
 
-async fn try_get(url: &str, extra_headers: &[(&str, &str)]) -> Option<String> {
-    let mut req = client().ok()?.get(url).header("User-Agent", UA);
+fn set_best(host: &str) {
+    if let Ok(mut guard) = BEST.lock() {
+        *guard = Some(host.to_string());
+    }
+}
+
+/// 单次取页超时：共享客户端默认 20 秒，实测中继层每次都顶满
+/// 20 秒才失败，4 个域名顺序试光中继一层就烧 80 秒；各层按
+/// 实测成功耗时给短超时（直连失败 2–9 秒、jina 成功约 6–7 秒），
+/// RequestBuilder::timeout 覆盖共享值。
+const DIRECT_TIMEOUT: Duration = Duration::from_secs(3);
+const DM1_TIMEOUT: Duration = Duration::from_secs(3);
+const RELAY_TIMEOUT: Duration = Duration::from_secs(5);
+const JINA_TIMEOUT: Duration = Duration::from_secs(8);
+
+async fn try_get(url: &str, extra_headers: &[(&str, &str)], timeout: Duration) -> Option<String> {
+    let mut req = client()
+        .ok()?
+        .get(url)
+        .header("User-Agent", UA)
+        .timeout(timeout);
     for (k, v) in extra_headers {
         req = req.header(*k, *v);
     }
@@ -107,70 +127,111 @@ async fn try_get(url: &str, extra_headers: &[(&str, &str)]) -> Option<String> {
     }
 }
 
-/// 取页：先 BEST 域名直取；失败试各域名 × dm1/ 前缀；再走
-/// tv506 中继；最后走 jina.ai 兜底。返回（所用域名，正文）。
+/// 一层候选顺序试：逐个来、先成功者胜。必须逐个——实测并行
+/// 会反噬：4 路并行抢 jina 全灭（12 秒超时），直连/dm1 并行层
+/// 也全被拖到超时上限；逐个试 jina missav.live 6 秒就通。
+/// （2026-11-07 实测：并行层耗时 = 超时上限，顺序探针才通。）
+async fn try_tier_seq(
+    cands: Vec<(String, String, Vec<(String, String)>)>,
+    timeout: Duration,
+) -> Option<(String, String)> {
+    for (host, url, headers) in cands {
+        let hs: Vec<(&str, &str)> = headers
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+        if let Some(html) = try_get(&url, &hs, timeout).await {
+            return Some((host, html));
+        }
+    }
+    None
+}
+
+fn referer_headers(host: &str) -> Vec<(String, String)> {
+    vec![("Referer".to_string(), format!("{host}/"))]
+}
+
+/// 取页总兜底：各层超时加起来最坏约 8+12+32+6+5=63 秒，超 Dart
+/// 45 秒详情超时；40 秒处直接断、回干净报错，不拖到 Dart 超时。
 async fn fetch_page(path: &str) -> ApiResult<(String, String)> {
-    let mut hosts: Vec<String> = Vec::new();
-    if let Ok(guard) = BEST.lock() {
-        if let Some(h) = guard.as_ref() {
-            hosts.push(h.clone());
+    match tokio::time::timeout(Duration::from_secs(40), fetch_page_inner(path)).await {
+        Ok(r) => r,
+        Err(_) => Err(ApiError::Internal("MissAV原生取页超时".into())),
+    }
+}
+
+/// 取页：直取→dm1/ 前缀→tv506 中继→jina.ai 兜底，全程逐个试
+/// （并行 burst 会把出口连接拖垮，见 try_tier_seq）。各层超时
+/// 3/3/5/8 秒；直连/dm1/中继三层实测全部失败、只烧时间，所以
+/// dm1 只试前 2 个域名、中继只试 BEST 域名 1 次；jina 是唯一
+/// 实测能通的路（3/3 次顺序成功），BEST 域名有记录时先走一次
+/// jina 快路。外层 40 秒总超时兜底，在 Dart 45 秒超时内。
+/// 返回（所用域名，正文）。
+async fn fetch_page_inner(path: &str) -> ApiResult<(String, String)> {
+    // 0. 快路：上次成功的域名走 jina 先试一次（稳态约 8 秒回）。
+    if let Some(best) = BEST.lock().ok().and_then(|g| g.clone()) {
+        let url = format!("https://r.jina.ai/{best}{path}");
+        let referer = format!("{best}/");
+        let headers = vec![
+            ("X-Return-Format", "html"),
+            ("X-No-Cache", "true"),
+            ("Referer", referer.as_str()),
+        ];
+        if let Some(html) = try_get(&url, &headers, JINA_TIMEOUT).await {
+            return Ok((best, html));
         }
     }
-    for h in HOSTS {
-        if !hosts.contains(&h.to_string()) {
-            hosts.push(h.to_string());
-        }
+    // 1. 直取（4 域名逐个，3 秒）
+    let direct: Vec<(String, String, Vec<(String, String)>)> = HOSTS
+        .iter()
+        .map(|h| (h.to_string(), format!("{h}{path}"), referer_headers(h)))
+        .collect();
+    if let Some((host, html)) = try_tier_seq(direct, DIRECT_TIMEOUT).await {
+        set_best(&host);
+        return Ok((host, html));
     }
-    // 1. 直取
-    for host in &hosts {
-        let url = format!("{host}{path}");
-        if let Some(html) = try_get(&url, &[("Referer", &format!("{host}/"))]).await {
-            if let Ok(mut guard) = BEST.lock() {
-                *guard = Some(host.clone());
-            }
-            return Ok((host.clone(), html));
-        }
+    // 2. jina.ai 兜底（4 域名逐个，8 秒；唯一实测能通的路，放前面）
+    let jina: Vec<(String, String, Vec<(String, String)>)> = HOSTS
+        .iter()
+        .map(|h| {
+            (
+                h.to_string(),
+                format!("https://r.jina.ai/{h}{path}"),
+                vec![
+                    ("X-Return-Format".to_string(), "html".to_string()),
+                    ("X-No-Cache".to_string(), "true".to_string()),
+                    ("Referer".to_string(), format!("{h}/")),
+                ],
+            )
+        })
+        .collect();
+    if let Some((host, html)) = try_tier_seq(jina, JINA_TIMEOUT).await {
+        set_best(&host);
+        return Ok((host, html));
     }
-    // 2. dm1/ 前缀变体
-    for host in &hosts {
-        let url = format!("{host}/dm1{path}");
-        if let Some(html) = try_get(&url, &[("Referer", &format!("{host}/"))]).await {
-            if let Ok(mut guard) = BEST.lock() {
-                *guard = Some(host.clone());
-            }
-            return Ok((host.clone(), html));
-        }
+    // 3. dm1/ 前缀变体（只试前 2 个域名；8/8 次探针全失败，省时间）
+    let dm1: Vec<(String, String, Vec<(String, String)>)> = HOSTS[..2]
+        .iter()
+        .map(|h| (h.to_string(), format!("{h}/dm1{path}"), referer_headers(h)))
+        .collect();
+    if let Some((host, html)) = try_tier_seq(dm1, DM1_TIMEOUT).await {
+        set_best(&host);
+        return Ok((host, html));
     }
-    // 3. tv506 中继
-    for host in &hosts {
-        let target = format!("{host}{path}");
-        let encoded: String = url::form_urlencoded::byte_serialize(target.as_bytes()).collect();
-        let url = format!("{RELAY}/p?u={encoded}");
-        if let Some(html) = try_get(&url, &[("Referer", &format!("{host}/"))]).await {
-            if let Ok(mut guard) = BEST.lock() {
-                *guard = Some(host.clone());
-            }
-            return Ok((host.clone(), html));
-        }
-    }
-    // 4. jina.ai 兜底
-    for host in &hosts {
-        let url = format!("https://r.jina.ai/{host}{path}");
-        if let Some(html) = try_get(
-            &url,
-            &[
-                ("X-Return-Format", "html"),
-                ("X-No-Cache", "true"),
-                ("Referer", &format!("{host}/")),
-            ],
-        )
-        .await
-        {
-            if let Ok(mut guard) = BEST.lock() {
-                *guard = Some(host.clone());
-            }
-            return Ok((host.clone(), html));
-        }
+    // 4. tv506 中继（只试 BEST 域名 1 次；8/8 次探针全挂 20 秒超时）
+    let relay_host = best_host();
+    let target = format!("{relay_host}{path}");
+    let encoded: String = url::form_urlencoded::byte_serialize(target.as_bytes()).collect();
+    let relay_url = format!("{RELAY}/p?u={encoded}");
+    if let Some(html) = try_get(
+        &relay_url,
+        &[("Referer", &format!("{relay_host}/"))],
+        RELAY_TIMEOUT,
+    )
+    .await
+    {
+        set_best(&relay_host);
+        return Ok((relay_host, html));
     }
     Err(ApiError::Internal("MissAV原生没有取到页面".into()))
 }
@@ -651,5 +712,279 @@ mod tests {
     fn quality_names() {
         assert_eq!(quality_name("https://x/720p/video.m3u8"), "720P");
         assert_eq!(quality_name("https://x/playlist.m3u8"), "高清");
+    }
+
+    /// 基线探针：逐个计时取页候选（直连→dm1→中继→jina），定位
+    /// detail("fjin-172") 149 秒慢在哪一层。只看日志，不断言。
+    #[tokio::test]
+    #[ignore]
+    async fn probe_fetch_candidates_fjin172() {
+        use std::time::{Duration, Instant};
+        let path = "/cn/fjin-172";
+        let mut cands: Vec<(String, String, Vec<(String, String)>)> = Vec::new();
+        for h in HOSTS {
+            cands.push((
+                format!("direct {h}"),
+                format!("{h}{path}"),
+                vec![("Referer".to_string(), format!("{h}/"))],
+            ));
+        }
+        for h in HOSTS {
+            cands.push((
+                format!("dm1 {h}"),
+                format!("{h}/dm1{path}"),
+                vec![("Referer".to_string(), format!("{h}/"))],
+            ));
+        }
+        for h in HOSTS {
+            let target = format!("{h}{path}");
+            let encoded: String = url::form_urlencoded::byte_serialize(target.as_bytes()).collect();
+            cands.push((
+                format!("relay {h}"),
+                format!("{RELAY}/p?u={encoded}"),
+                vec![("Referer".to_string(), format!("{h}/"))],
+            ));
+        }
+        for h in HOSTS {
+            cands.push((
+                format!("jina {h}"),
+                format!("https://r.jina.ai/{h}{path}"),
+                vec![
+                    ("X-Return-Format".to_string(), "html".to_string()),
+                    ("X-No-Cache".to_string(), "true".to_string()),
+                    ("Referer".to_string(), format!("{h}/")),
+                ],
+            ));
+        }
+        let total = Instant::now();
+        for (label, url, headers) in &cands {
+            let t = Instant::now();
+            let headers: Vec<(&str, &str)> = headers
+                .iter()
+                .map(|(k, v)| (k.as_str(), v.as_str()))
+                .collect();
+            let got = try_get(url, &headers, Duration::from_secs(20)).await;
+            eprintln!(
+                "PROBE {label} elapsed={:?} ok={}",
+                t.elapsed(),
+                got.is_some()
+            );
+            if got.is_some() {
+                break;
+            }
+        }
+        eprintln!("PROBE total elapsed={:?}", total.elapsed());
+    }
+
+    /// 探针：按 fetch_page_inner 的顺序逐层计时（直连逐个→jina 逐个→
+    /// dm1 前 2 个→中继 1 次），看各层耗时。只看日志。
+    #[tokio::test]
+    #[ignore]
+    async fn probe_tier_sequence() {
+        use std::time::Instant;
+        let path = "/cn/fjin-172";
+        let mk = |prefix: &str, jina: bool| -> Vec<(String, String, Vec<(String, String)>)> {
+            HOSTS
+                .iter()
+                .map(|h| {
+                    let url = if jina {
+                        format!("https://r.jina.ai/{h}{path}")
+                    } else if prefix.is_empty() {
+                        format!("{h}{path}")
+                    } else {
+                        format!("{h}{prefix}{path}")
+                    };
+                    let headers = if jina {
+                        vec![
+                            ("X-Return-Format".to_string(), "html".to_string()),
+                            ("X-No-Cache".to_string(), "true".to_string()),
+                            ("Referer".to_string(), format!("{h}/")),
+                        ]
+                    } else {
+                        referer_headers(h)
+                    };
+                    (h.to_string(), url, headers)
+                })
+                .collect()
+        };
+        let total = Instant::now();
+        let t = Instant::now();
+        let r = try_tier_seq(mk("", false), DIRECT_TIMEOUT).await;
+        eprintln!(
+            "PROBE tier direct elapsed={:?} ok={}",
+            t.elapsed(),
+            r.is_some()
+        );
+        let t = Instant::now();
+        let r = try_tier_seq(mk("", true), JINA_TIMEOUT).await;
+        eprintln!(
+            "PROBE tier jina-seq elapsed={:?} ok={} host={}",
+            t.elapsed(),
+            r.is_some(),
+            r.as_ref().map(|(h, _)| h.as_str()).unwrap_or("")
+        );
+        let t = Instant::now();
+        let dm1: Vec<(String, String, Vec<(String, String)>)> =
+            mk("/dm1", false).into_iter().take(2).collect();
+        let r = try_tier_seq(dm1, DM1_TIMEOUT).await;
+        eprintln!(
+            "PROBE tier dm1 elapsed={:?} ok={}",
+            t.elapsed(),
+            r.is_some()
+        );
+        let t = Instant::now();
+        let host = best_host();
+        let target = format!("{host}{path}");
+        let encoded: String = url::form_urlencoded::byte_serialize(target.as_bytes()).collect();
+        let r = try_get(
+            &format!("{RELAY}/p?u={encoded}"),
+            &[("Referer", &format!("{host}/"))],
+            RELAY_TIMEOUT,
+        )
+        .await;
+        eprintln!(
+            "PROBE tier relay elapsed={:?} ok={}",
+            t.elapsed(),
+            r.is_some()
+        );
+        eprintln!("PROBE tier-sequence total={:?}", total.elapsed());
+    }
+
+    /// 探针：只试 jina missav.live 一次（顺序、20 秒超时），看 jina
+    /// 当前是否还通——并行探针后它可能被限流。
+    #[tokio::test]
+    #[ignore]
+    async fn probe_jina_single() {
+        use std::time::Instant;
+        let t = Instant::now();
+        let got = try_get(
+            "https://r.jina.ai/https://missav.live/cn/fjin-172",
+            &[
+                ("X-Return-Format", "html"),
+                ("X-No-Cache", "true"),
+                ("Referer", "https://missav.live/"),
+            ],
+            Duration::from_secs(20),
+        )
+        .await;
+        eprintln!(
+            "PROBE jina-single elapsed={:?} ok={} len={}",
+            t.elapsed(),
+            got.is_some(),
+            got.as_ref().map(|s| s.len()).unwrap_or(0)
+        );
+    }
+
+    /// 探针：只用 Rust 客户端拉 surrit 清单，把 403 正文存 /tmp 看
+    /// 拦的是什么（curl 同地址同头回 200 真清单）。
+    #[tokio::test]
+    #[ignore]
+    async fn probe_surrit_403_body() {
+        let resp = client()
+            .unwrap()
+            .get("https://surrit.com/9b88e28b-d8a8-4c77-aad7-e8a23d2b9404/playlist.m3u8")
+            .header("User-Agent", UA)
+            .header("Referer", "https://missav.live/")
+            .send()
+            .await
+            .expect("发请求");
+        let status = resp.status().as_u16();
+        let body = resp.text().await.unwrap_or_default();
+        std::fs::write("/tmp/rust403.html", &body).ok();
+        let head: String = body.chars().take(600).collect();
+        eprintln!(
+            "PROBE surrit rust status={status} len={} head={head}",
+            body.len()
+        );
+    }
+
+    /// 探针：detail("fjin-172") 出 3 集后，逐集用不同 Referer 拉 m3u8，
+    /// 看哪种头能拿到真清单（上次计时测到 HTML+403）。只看日志。
+    #[tokio::test]
+    #[ignore]
+    async fn probe_play_fjin172() {
+        let d = detail("fjin-172").await.expect("detail fjin-172");
+        let eps = d["episodes"].as_array().cloned().unwrap_or_default();
+        let page_url = d["id"].as_str().unwrap_or("").to_string();
+        let root = page_url
+            .splitn(4, '/')
+            .take(3)
+            .collect::<Vec<_>>()
+            .join("/");
+        eprintln!(
+            "PROBE page_url={page_url} root={root} episodes={}",
+            eps.len()
+        );
+        for (i, ep) in eps.iter().enumerate() {
+            let u = ep["video_id"].as_str().unwrap_or("");
+            eprintln!("PROBE ep{i} {} {}", ep["title"].as_str().unwrap_or(""), u);
+            for (label, referer) in [
+                ("root", root.as_str()),
+                ("page", page_url.as_str()),
+                ("none", ""),
+            ] {
+                let mut req = client().unwrap().get(u).header("User-Agent", UA);
+                if !referer.is_empty() {
+                    req = req.header("Referer", referer);
+                }
+                match req.send().await {
+                    Ok(resp) => {
+                        let status = resp.status().as_u16();
+                        let ct = resp
+                            .headers()
+                            .get("content-type")
+                            .and_then(|v| v.to_str().ok())
+                            .unwrap_or("")
+                            .to_string();
+                        let body = resp.text().await.unwrap_or_default();
+                        let first = body
+                            .lines()
+                            .next()
+                            .unwrap_or("")
+                            .chars()
+                            .take(80)
+                            .collect::<String>();
+                        eprintln!(
+                            "PROBE ep{i} referer={label} status={status} ct={ct} len={} first={first}",
+                            body.len()
+                        );
+                    }
+                    Err(e) => eprintln!("PROBE ep{i} referer={label} err={e}"),
+                }
+            }
+        }
+    }
+
+    /// 计时：detail("fjin-172") 全程 + 3 集 + 首集 m3u8 首分片
+    /// Range 206。目标 45 秒内回。
+    #[tokio::test]
+    #[ignore]
+    async fn timing_detail_fjin172() {
+        use std::time::{Duration, Instant};
+        let t = Instant::now();
+        let d = detail("fjin-172").await.expect("detail fjin-172");
+        let elapsed = t.elapsed();
+        let eps = d["episodes"].as_array().cloned().unwrap_or_default();
+        eprintln!(
+            "TIMING detail fjin-172 elapsed={:?} title={} episodes={}",
+            elapsed,
+            d["title"].as_str().unwrap_or(""),
+            eps.len()
+        );
+        assert!(
+            elapsed < Duration::from_secs(45),
+            "detail 超过 45 秒：{elapsed:?}"
+        );
+        assert_eq!(eps.len(), 3, "期望 3 集，实际 {}", eps.len());
+        for ep in &eps {
+            let u = ep["video_id"].as_str().unwrap_or("");
+            assert!(u.contains(".m3u8"), "分集不是 m3u8：{u}");
+        }
+        // 注意：首分片 Range 206 不在进程内断言——2026-11-07 实测，
+        // Rust 客户端（reqwest/rustls）拉 surrit 清单 9/9 次回 403，
+        // 而 curl 同地址同头回 200 真清单（主清单 707 字节→1080p
+        // 分档 60360 字节 VOD→首分片 Range 206、首字节 0x47）。
+        // 这是客户端指纹被 surrit 拦，不是流本身假；修它要动共享
+        // 客户端 TLS 栈（全站影响），不在本次三项范围内，见回报。
     }
 }

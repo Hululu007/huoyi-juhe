@@ -78,6 +78,18 @@ pub fn version() -> String {
     format!("fqapi_core {}", env!("CARGO_PKG_VERSION"))
 }
 
+/// 出口代理（手机上 reqwest 读不到 Android 系统代理，Dart 侧把系统代理
+/// 地址传进来；空串表示清除代理、恢复直连）。成功返回 `"ok"`。
+pub fn set_egress_proxy(proxy_url: String) -> Result<String, String> {
+    crate::egress_proxy::set_egress_proxy(&proxy_url)?;
+    Ok("ok".to_string())
+}
+
+/// 当前出口代理 URL，未设置时返回空串。
+pub fn egress_proxy() -> String {
+    crate::egress_proxy::get_egress_proxy().unwrap_or_default()
+}
+
 /// Resolves the runtime root (contains src/, web/, filters/).
 fn resolve_runtime_dir(config_path: &str, explicit: &str) -> PathBuf {
     if !explicit.is_empty() {

@@ -9,7 +9,7 @@
 //! 集）；搜索在 py 里恒为空；取流时按章节图片文件名拼图床地址
 //! 成 pics://。图片服务器地址只取一次并缓存（py 按实例缓存）。
 
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde_json::{json, Value};
@@ -22,17 +22,17 @@ const SITE_URL: &str = "https://modu18.vip";
 const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const DEFAULT_IMG_SERVER: &str = "https://cdn-msp.jmapinodeudzn.net";
 
-static HTTP: OnceLock<Option<reqwest::Client>> = OnceLock::new();
+static HTTP: crate::egress_proxy::ClientSlot = crate::egress_proxy::ClientSlot::new();
 static IMG_SERVER: Mutex<Option<String>> = Mutex::new(None);
 
 fn client() -> ApiResult<&'static reqwest::Client> {
-    HTTP.get_or_init(|| {
-        reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .build()
-            .ok()
+    HTTP.get_or_build(|| {
+        crate::egress_proxy::apply_to_builder(
+            reqwest::Client::builder().timeout(std::time::Duration::from_secs(30)),
+        )
+        .build()
+        .ok()
     })
-    .as_ref()
     .ok_or_else(|| ApiError::Internal("modu18 client unavailable".into()))
 }
 

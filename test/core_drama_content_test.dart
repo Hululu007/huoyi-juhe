@@ -263,24 +263,43 @@ void main() {
     );
   });
 
-  test('core-only site non-timeout error still goes to the fallback text',
+  test('core-only site non-timeout error rethrows the original error',
       () async {
     final client = CoreDramaContentClient.coreOnly(
       siteId: 'mjv011',
       api: _ThrowingApiClient(const ApiException('核心未起')),
     );
-    // 非超时错（核心未起、格式错）仍走回退：回退抛「核心未返回…」，
-    // 如实说核心没回包，不是超时。
+    // 非超时错（核心未起、格式错、被墙拦等）不再走回退：原错直接抛出去，
+    // 界面显示的就是核心返回的真实原因，不再是笼统的「核心未返回…」。
     await expectLater(
       client.catalog('c1', 1),
       throwsA(
-        isA<StateError>().having(
-          (e) => e.message,
-          'message',
-          contains('核心未返回目录'),
-        ),
+        isA<ApiException>().having((e) => e.message, 'message', '核心未起'),
       ),
     );
+    await expectLater(
+      client.categories(),
+      throwsA(
+        isA<ApiException>().having((e) => e.message, 'message', '核心未起'),
+      ),
+    );
+    await expectLater(
+      client.detail('s1'),
+      throwsA(
+        isA<ApiException>().having((e) => e.message, 'message', '核心未起'),
+      ),
+    );
+  });
+
+  test('real-fallback site still falls back on non-timeout error', () async {
+    final client = CoreDramaContentClient(
+      siteId: 'huangju',
+      api: FakeApiClient(throwCore: true),
+      fallback: _StubFallbackClient(),
+    );
+    // 有真实回退客户端的站保持原有回退行为：非超时错也走回退。
+    final categories = await client.categories();
+    expect(categories.map((c) => c.id), ['stub1']);
   });
 
   test('core-only site empty catalog returns an empty page, not an error',

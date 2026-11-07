@@ -70,7 +70,20 @@ class LocalMediaProxy {
     while (_order.length > 200) {
       _sessions.remove(_order.removeAt(0));
     }
-    return _proxyUrl(token, targetUrl);
+    // 无后缀 HLS：播放器只凭地址后缀认流类型，目标本身没后缀时先探一次
+    // 上游（HEAD 看类型，类型含糊或 HEAD 失败时 Range GET 嗅首字节
+    // #EXTM3U），探到是 HLS 就给代理地址补 .m3u8 后缀；探不到或探失败
+    // 一律走老路（只按目标后缀），不拦播放。只探顶层播放地址，分片与
+    // 密钥地址不走这里（_rewritePlaylist 直接调 _proxyUrl，不探不加）。
+    String? detectedSuffix;
+    try {
+      if (await _isHlsTarget(targetUrl, headers)) {
+        detectedSuffix = '.m3u8';
+      }
+    } catch (_) {
+      detectedSuffix = null;
+    }
+    return _proxyUrl(token, targetUrl, detectedSuffix: detectedSuffix);
   }
 
   /// 蜘蛛本地代理会话：播放器请求的路径与查询原样交给 handler（蜘蛛的
@@ -100,7 +113,7 @@ class LocalMediaProxy {
         (uri.pathSegments.first == 'r' || uri.pathSegments.first == 'h');
   }
 
-  String _proxyUrl(String token, String targetUrl) {
+  String _proxyUrl(String token, String targetUrl, {String? detectedSuffix}) {
     final encoded = base64Url
         .encode(utf8.encode(targetUrl))
         .replaceAll('=', '');
@@ -109,13 +122,101 @@ class LocalMediaProxy {
     // Progressive 流，拿 MP4 解析器读 #EXTM3U 文本必然失败（报
     // “视频解析失败”）。目标本身带 .m3u8/.mpd 时把后缀留在地址尾巴上，
     // 让播放器走 HLS/DASH；分片与密钥地址不靠后缀认类型，不加。
+    // detectedSuffix 非空时是 register() 探到的结论（无后缀 HLS 补
+    // .m3u8），它只能补后缀、不能去掉路径本身带出的后缀。
     final path = Uri.tryParse(targetUrl)?.path.toLowerCase() ?? '';
-    final suffix = path.endsWith('.m3u8')
-        ? '.m3u8'
-        : path.endsWith('.mpd')
-        ? '.mpd'
-        : '';
+    final suffix = detectedSuffix ??
+        (path.endsWith('.m3u8')
+            ? '.m3u8'
+            : path.endsWith('.mpd')
+            ? '.mpd'
+            : '');
     return 'http://127.0.0.1:${_server!.port}/r/$token/$encoded$suffix';
+  }
+
+  /// 是不是 HLS 的 Content-Type：大小写不敏感，
+  /// application/vnd.apple.mpegurl 与 application/x-mpegURL 都算。
+  bool _isHlsContentType(String? contentType) =>
+      (contentType ?? '').toLowerCase().contains('mpegurl');
+
+  /// 首字节是不是播放列表：允许 UTF-8 BOM 与前导空白，之后必须是
+  /// #EXTM3U。只看前几个字节，不读全包；mp4（ftyp）与 ts（0x47 同步
+  /// 字节）都不会误判。
+  bool _startsWithExtM3u(List<int> bytes) {
+    var i = 0;
+    if (bytes.length >= 3 &&
+        bytes[0] == 0xEF &&
+        bytes[1] == 0xBB &&
+        bytes[2] == 0xBF) {
+      i = 3;
+    }
+    while (i < bytes.length &&
+        (bytes[i] == 0x20 ||
+            bytes[i] == 0x09 ||
+            bytes[i] == 0x0D ||
+            bytes[i] == 0x0A)) {
+      i++;
+    }
+    const marker = '#EXTM3U';
+    if (bytes.length - i < marker.length) return false;
+    for (var j = 0; j < marker.length; j++) {
+      if (bytes[i + j] != marker.codeUnitAt(j)) return false;
+    }
+    return true;
+  }
+
+  /// 目标是不是 HLS 播放列表：只在 register() 时对顶层播放地址探一次。
+  /// 先 HEAD 看 Content-Type；类型是明确的 video/audio 就直接否定，
+  /// 类型含糊（text/plain、application/octet-stream、没给类型）或
+  /// HEAD 失败时，再用 Range GET 只读首块嗅 #EXTM3U；任何失败都返回
+  /// false，走老路。Range GET 只取首块就断开，绝不拉全包。
+  Future<bool> _isHlsTarget(
+    String targetUrl,
+    Map<String, String> headers,
+  ) async {
+    final uri = Uri.tryParse(targetUrl);
+    if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) {
+      return false;
+    }
+    try {
+      final head = await _client
+          .head(uri, headers: headers)
+          .timeout(const Duration(seconds: 8));
+      if (head.statusCode >= 200 && head.statusCode < 300) {
+        final type = (head.headers['content-type'] ?? '').toLowerCase();
+        if (_isHlsContentType(type)) return true;
+        if (type.startsWith('video/') || type.startsWith('audio/')) {
+          return false;
+        }
+        // 类型含糊：HEAD 未必准，继续用 Range GET 嗅首字节。
+      }
+    } catch (_) {
+      // HEAD 不通（405/超时等）不算结论，继续嗅首字节。
+    }
+    try {
+      final request = http.Request('GET', uri);
+      request.headers.addAll(headers);
+      request.headers[HttpHeaders.rangeHeader] = 'bytes=0-1023';
+      final streamed = await _client
+          .send(request)
+          .timeout(const Duration(seconds: 8));
+      if (_isHlsContentType(streamed.headers['content-type'])) {
+        await streamed.stream.drain<void>().catchError((_) {});
+        return true;
+      }
+      if (streamed.statusCode != HttpStatus.ok &&
+          streamed.statusCode != HttpStatus.partialContent) {
+        await streamed.stream.drain<void>().catchError((_) {});
+        return false;
+      }
+      final first = await streamed.stream
+          .first
+          .timeout(const Duration(seconds: 8));
+      // first 取完即取消订阅：只嗅首块，不拉后续正文。
+      return _startsWithExtM3u(first);
+    } catch (_) {
+      return false;
+    }
   }
 
   String _rewritePlaylist(String text, String token, String baseUrl) {
@@ -266,8 +367,9 @@ class LocalMediaProxy {
             response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
           }
         }
-        final isPlaylist = proxied.mime.contains('mpegurl') ||
-            request.uri.path.toLowerCase().endsWith('.m3u8');
+        final isPlaylist = _isHlsContentType(proxied.mime) ||
+            request.uri.path.toLowerCase().endsWith('.m3u8') ||
+            _startsWithExtM3u(proxied.body);
         if (isPlaylist && status == 200) {
           final rewritten = _rewriteHandlerPlaylist(
             utf8.decode(body, allowMalformed: true),
@@ -320,9 +422,9 @@ class LocalMediaProxy {
       final upstream = await _client
           .get(Uri.parse(target), headers: headers)
           .timeout(const Duration(seconds: 30));
-      final isPlaylist =
-          (upstream.headers['content-type'] ?? '').contains('mpegurl') ||
-              target.split('?').first.toLowerCase().endsWith('.m3u8');
+      final isPlaylist = _isHlsContentType(upstream.headers['content-type']) ||
+          target.split('?').first.toLowerCase().endsWith('.m3u8') ||
+          _startsWithExtM3u(upstream.bodyBytes);
       final response = request.response;
       response.statusCode = upstream.statusCode;
       final contentRange = upstream.headers['content-range'];

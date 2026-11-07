@@ -264,6 +264,15 @@ class LiveSources {
     }
   }
 
+  static Future<String> loadImportedM3uUrl() async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      return preferences.getString(_m3uUrlKey) ?? '';
+    } catch (_) {
+      return '';
+    }
+  }
+
   static Future<List<LiveChannel>> importM3uUrl(String url) async {
     final trimmed = url.trim();
     if (!trimmed.toLowerCase().startsWith('http')) {

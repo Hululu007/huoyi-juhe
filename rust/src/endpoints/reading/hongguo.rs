@@ -4215,13 +4215,7 @@ fn sample_table(moov: &[u8], moov_start: usize) -> ApiResult<Vec<(u64, u32, [u8;
 static AUDIO_CACHE: Lazy<Mutex<Vec<((String, String, String), Vec<u8>)>>> =
     Lazy::new(|| Mutex::new(Vec::new()));
 
-static AUDIO_DL_CLIENT: Lazy<Option<reqwest::Client>> = Lazy::new(|| {
-    let _ = rustls::crypto::ring::default_provider().install_default();
-    reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(120))
-        .build()
-        .ok()
-});
+static AUDIO_DL_CLIENT: crate::egress_proxy::ClientSlot = crate::egress_proxy::ClientSlot::new();
 
 /// py _audio_session_bytes：签名 POST playurl 取 main_url +
 /// encryption_key → derive 密钥 → 120 秒下载整文件 → CENC 解密
@@ -4252,7 +4246,14 @@ pub(crate) async fn hg_audio_bytes(book: &str, item: &str, tone: &str) -> ApiRes
     }
     let key16 = derive_content_key(&encryption_key)?;
     let dl = AUDIO_DL_CLIENT
-        .as_ref()
+        .get_or_build(|| {
+            let _ = rustls::crypto::ring::default_provider().install_default();
+            crate::egress_proxy::apply_to_builder(
+                reqwest::Client::builder().timeout(std::time::Duration::from_secs(120)),
+            )
+            .build()
+            .ok()
+        })
         .ok_or_else(|| ApiError::Internal("红果音频下载客户端建失败".to_string()))?;
     let raw = dl
         .get(&main_url)

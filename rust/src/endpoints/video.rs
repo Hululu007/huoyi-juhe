@@ -1280,17 +1280,16 @@ const VIDEO_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(15);
 /// Built lazily so a missing TLS provider (e.g. in a unit-test embedding,
 /// where the transport never installed one) degrades to the whole-body
 /// fallback instead of failing the download.
-static STREAMING_CLIENT: OnceLock<Option<reqwest::Client>> = OnceLock::new();
+static STREAMING_CLIENT: crate::egress_proxy::ClientSlot = crate::egress_proxy::ClientSlot::new();
 
 fn streaming_client() -> Option<&'static reqwest::Client> {
-    STREAMING_CLIENT
-        .get_or_init(|| {
-            reqwest::Client::builder()
-                .timeout(VIDEO_DOWNLOAD_TIMEOUT)
-                .build()
-                .ok()
-        })
-        .as_ref()
+    STREAMING_CLIENT.get_or_build(|| {
+        crate::egress_proxy::apply_to_builder(
+            reqwest::Client::builder().timeout(VIDEO_DOWNLOAD_TIMEOUT),
+        )
+        .build()
+        .ok()
+    })
 }
 
 /// Streams a video body to `part_path` chunk by chunk, never holding the

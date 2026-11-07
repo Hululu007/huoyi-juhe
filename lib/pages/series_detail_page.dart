@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show ImageFilter;
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -27,6 +28,7 @@ import '../widgets/series_detail/series_detail_info.dart';
 import '../widgets/series_detail/series_detail_reviews.dart';
 import '../widgets/series_detail/series_detail_theme.dart';
 import '../widgets/series_detail/series_detail_top_bar.dart';
+import '../widgets/series_detail/film_inline_player.dart';
 import 'detail_page.dart' show openBookDetail;
 import 'player_page.dart' show PlayerPage;
 
@@ -77,6 +79,7 @@ class SeriesDetailPage extends StatefulWidget {
     this.directoryLoader,
     this.onPlayEpisode,
     this.siteDetailLoader,
+    this.contentLoader,
     this.onOpenRelatedSeries,
     this.engineSiteId = '',
     this.shelfKind = 'video',
@@ -132,6 +135,12 @@ class SeriesDetailPage extends StatefulWidget {
   /// 为空 = 短剧入口，简介 / 线路 / 剧照三区一律不画，短剧流程零改动。
   final Future<FilmSiteDetail> Function(String seriesId)? siteDetailLoader;
 
+  /// 影视区专属：内联播放器的取流（`openDramaSiteItem` 传站客户端的
+  /// 取流，(itemId, tab) -> 取流响应）。为空时内联播放器走番茄接口，
+  /// 影视区不要不传。
+  final Future<Map<String, dynamic>> Function(String itemId, String tab)?
+  contentLoader;
+
   @override
   State<SeriesDetailPage> createState() => _SeriesDetailPageState();
 }
@@ -170,6 +179,9 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
   bool get _isFilmSite => widget.siteDetailLoader != null;
 
   final ScrollController _scroll = ScrollController();
+
+  /// 影视区内联播放器的键：选集切集与全屏都经它调播放器。
+  final _inlinePlayerKey = GlobalKey<FilmInlinePlayerState>();
 
   @override
   void initState() {
@@ -469,6 +481,49 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
     return parts.join(' · ');
   }
 
+  /// 影视区选集点按：不在这里推整页播放器，改由顶部内联播放器起播
+  /// 该集（照火蚁TV详情页点选集直接播）。短剧仍走 [_play]。
+  void _playInline(int index) {
+    if (_episodes.isEmpty) return;
+    final target = index.clamp(0, _episodes.length - 1);
+    if (_episodes[target].disabled) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('该剧集暂不可播放')));
+      return;
+    }
+    setState(() => _currentIndex = target);
+    _scrollToPlayer();
+    unawaited(_inlinePlayerKey.currentState?.playEpisode(target));
+  }
+
+  /// 切集后把播放器滚回可见处（选集区在详情页下方，播起来看不见）。
+  void _scrollToPlayer() {
+    if (!_scroll.hasClients) return;
+    unawaited(
+      _scroll.animateTo(
+        0,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      ),
+    );
+  }
+
+  /// 内联播放器的全屏钮：内联会话已先存档 + 销毁播放器，这里只推整页
+  /// 播放器（整页从历史续看；回来后点海报播放钮按最新历史续播）。
+  void _openInlineFullscreen() {
+    final selection = widget.onPlaySelection;
+    if (selection != null) {
+      selection(_currentIndex, _episodes, _detail);
+      return;
+    }
+    if (widget.onPlayEpisode != null) {
+      widget.onPlayEpisode!(_currentIndex);
+      return;
+    }
+    _play(_currentIndex);
+  }
+
   void _play(int index) {
     if (_episodes.isEmpty) return;
     final target = index.clamp(0, _episodes.length - 1);
@@ -567,30 +622,36 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
     return Scaffold(
       key: const ValueKey('series-detail-page'),
       backgroundColor: palette.canvas,
-      bottomNavigationBar: _bottomPlayBar(palette),
+      // 影视区改内联播放器后不再要底部大播放钮（播放器就在顶部）；
+      // 短剧保留。
+      bottomNavigationBar: _isFilmSite ? null : _bottomPlayBar(palette),
       body: Stack(
         children: [
           Positioned.fill(child: _backdrop(palette)),
           SafeArea(
             child: Column(
               children: [
-                SeriesDetailTopBar(
-                  onBack: () => Navigator.of(context).maybePop(),
-                ),
+                // 影视区：返回箭头在播放器顶栏里，这里不再另画顶栏；
+                // 短剧保留原顶栏。
+                if (!_isFilmSite)
+                  SeriesDetailTopBar(
+                    onBack: () => Navigator.of(context).maybePop(),
+                  ),
                 Expanded(
                   child: CustomScrollView(
                     key: const ValueKey('series-detail-content'),
                     controller: _scroll,
                     slivers: [
-                      SliverToBoxAdapter(child: _hero()),
                       if (_isFilmSite) ...[
-                        // 影视区顺序：头项 → 简介 → 播放线路 + 选集 → 本片剧照。
-                        // 剧评 / 原著是短剧专属，影视区没有评论源，不画。
-                        SliverToBoxAdapter(child: _filmIntroSection()),
-                        SliverToBoxAdapter(child: _filmLineSection()),
-                        SliverToBoxAdapter(child: _episodeSection()),
+                        // 影视区新顺序（照火蚁TV播放详情页）：内联播放器 →
+                        // 毛玻璃详情（标题 / 集数 / 站源 / 加入追剧 / 选集 /
+                        // 简介）→ 本片剧照。播放线路折进「站源」行，不再单
+                        // 独成区；剧评 / 原著是短剧专属，影视区没有。
+                        SliverToBoxAdapter(child: _filmPlayer()),
+                        SliverToBoxAdapter(child: _filmGlassDetail()),
                         SliverToBoxAdapter(child: _filmStillsSection()),
                       ] else ...[
+                        SliverToBoxAdapter(child: _hero()),
                         SliverToBoxAdapter(child: _episodeSection()),
                         SliverToBoxAdapter(child: _introSection()),
                         SliverToBoxAdapter(child: _reviewsSection()),
@@ -710,7 +771,8 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
     loading: !_episodesDone,
     failed: _episodesFailed,
     onRetry: () => unawaited(_loadEpisodes()),
-    onSelect: _play,
+    // 影视区点选集格进内联播放器起播该集；短剧仍走整页播放器。
+    onSelect: _isFilmSite ? _playInline : _play,
   );
 
   Widget _introSection() => SeriesDetailIntroSection(
@@ -732,74 +794,189 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
     onRetry: () => unawaited(_loadFilmDetail()),
   );
 
-  /// 影视区播放线路行：`播放线路：在线播放` + 选集（选集区紧跟其后）。
-  /// 线路名取站原字段，多线路只展示（选集已按线路名前缀合并），不做
-  /// 线路筛选；没有线路信息的站默认一行「在线播放」。
-  Widget _filmLineSection() {
-    final palette = HomePalette.of(context);
+  /// 影视区顶部内联播放器（照火蚁TV播放详情页）：16:9 黑色播放器，
+  /// 点海报直接播；全屏走整页播放器，选集钮把选集区滚到可见处。
+  Widget _filmPlayer() => FilmInlinePlayer(
+    key: _inlinePlayerKey,
+    seriesId: widget.seriesId,
+    title: _titleText,
+    coverUrl: ApiClient.instance.absoluteUrl(_coverText),
+    episodes: _episodes,
+    episodeIndex: _currentIndex,
+    contentLoader: widget.contentLoader,
+    onBack: () => Navigator.of(context).maybePop(),
+    onFullscreen: _openInlineFullscreen,
+    onOpenEpisodes: () {
+      // 选集区在毛玻璃详情里；滚到播放器下方一点让它露出来。
+      if (!_scroll.hasClients) return;
+      unawaited(
+        _scroll.animateTo(
+          0,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        ),
+      );
+    },
+  );
+
+  /// 影视区毛玻璃详情区（照火蚁TV播放详情页）：海报模糊底 + 深色罩，
+  /// 自上而下是标题 / 集数 / 站源 / 加入追剧 / 选集 / 简介。
+  /// 整块强制深色（播放器界面本来就是深色），与应用浅色主题无关；
+  /// 选集与简介两区复用现有组件，靠深色主题取浅色字。
+  Widget _filmGlassDetail() {
+    final cover = ApiClient.instance.absoluteUrl(_coverText);
     final lines = _filmLines();
-    return SeriesSection(
-      key: const ValueKey('series-detail-play-lines'),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    final count = _episodes.isNotEmpty
+        ? _episodes.length
+        : (_detail.episodeCount > 0 ? _detail.episodeCount : 0);
+    return Theme(
+      data: Theme.of(context).copyWith(brightness: Brightness.dark),
+      child: Stack(
         children: [
-          const SeriesSectionHeader(title: '播放线路'),
-          Row(
+          // 毛玻璃底：海报放大 1.15 倍再模糊，糊边裁在框外。
+          Positioned.fill(
+            child: cover.isEmpty
+                ? const ColoredBox(color: Colors.black87)
+                : Transform.scale(
+                    scale: 1.15,
+                    child: ImageFiltered(
+                      imageFilter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+                      child: CachedNetworkImage(
+                        imageUrl: cover,
+                        fit: BoxFit.cover,
+                        errorWidget: (_, _, _) =>
+                            const ColoredBox(color: Colors.black87),
+                        placeholder: (_, _) =>
+                            const ColoredBox(color: Colors.black87),
+                      ),
+                    ),
+                  ),
+          ),
+          Positioned.fill(
+            child: Container(color: Colors.black.withValues(alpha: 0.55)),
+          ),
+          Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                '播放线路：',
-                style: TextStyle(
-                  fontSize: 13,
-                  height: 1.5,
-                  color: palette.muted,
-                ),
-              ),
-              Expanded(
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    for (var i = 0; i < lines.length; i++)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 3,
-                        ),
-                        decoration: BoxDecoration(
-                          color: i == 0 ? seriesAccent(palette) : palette.soft,
-                          borderRadius: BorderRadius.circular(99),
-                        ),
-                        child: Text(
-                          lines[i],
-                          style: TextStyle(
-                            fontSize: 12,
-                            height: 1.5,
-                            color: i == 0
-                                ? seriesOnAccent(palette)
-                                : palette.ink,
-                          ),
+                    Text(
+                      _titleText,
+                      key: const ValueKey('film-detail-title'),
+                      style: const TextStyle(
+                        fontSize: 17,
+                        height: 1.45,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    if (count > 0)
+                      Text(
+                        '共 $count 集 · 当前第 ${_currentIndex + 1} 集',
+                        key: const ValueKey('film-detail-episode-count'),
+                        style: const TextStyle(
+                          fontSize: 13,
+                          height: 1.5,
+                          color: Colors.white70,
                         ),
                       ),
+                    const SizedBox(height: 4),
+                    ..._filmSourceLines(lines),
+                    const SizedBox(height: 12),
+                    _followButton(),
                   ],
                 ),
               ),
+              // 选集与简介复用现有区（自带左右 16 间距，与上面对齐）。
+              _episodeSection(),
+              _filmIntroSection(),
             ],
           ),
-          if (lines.length > 1)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                '多线路剧集已合并显示，集名带线路前缀',
-                style: TextStyle(
-                  fontSize: 12,
-                  height: 1.5,
-                  color: palette.muted,
-                ),
-              ),
-            ),
         ],
       ),
+    );
+  }
+
+  /// 「站源」行：首行带「站源：」前缀，多线路各占一行（照目标图
+  /// MissAV / MissAV镜像两行的样子）。线路名取站原字段，无线路
+  /// 信息默认「在线播放」。
+  List<Widget> _filmSourceLines(List<String> lines) {
+    final widgets = <Widget>[];
+    for (var i = 0; i < lines.length; i++) {
+      widgets.add(
+        Text(
+          i == 0 ? '站源： ${lines[i]}' : lines[i],
+          key: ValueKey('film-detail-source-$i'),
+          style: const TextStyle(
+            fontSize: 13,
+            height: 1.5,
+            color: Colors.white70,
+          ),
+        ),
+      );
+    }
+    return widgets;
+  }
+
+  /// 「加入追剧」：就是详情页原来的收藏（写本机书架），换成目标图的
+  /// 浅色药丸样子 + 下拉箭头。点按切换收藏态，箭头只作版式。
+  Widget _followButton() {
+    return ValueListenableBuilder<int>(
+      valueListenable: ShelfStore.instance.listenable,
+      builder: (context, _, _) {
+        final saved = ShelfStore.instance.contains(
+          widget.shelfKind,
+          widget.engineSiteId.isEmpty
+              ? widget.seriesId
+              : 'engine:${widget.engineSiteId}:${widget.seriesId}',
+        );
+        return Material(
+          color: Colors.transparent,
+          child: InkWell(
+            key: const ValueKey('film-detail-follow'),
+            borderRadius: BorderRadius.circular(12),
+            onTap: _shelfBusy || widget.seriesId.isEmpty ? null : _toggleShelf,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.92),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    saved
+                        ? Icons.bookmark_rounded
+                        : Icons.bookmark_add_outlined,
+                    size: 18,
+                    color: Colors.black87,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    saved ? '已追剧' : '加入追剧',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  const Icon(
+                    Icons.keyboard_arrow_down_rounded,
+                    size: 18,
+                    color: Colors.black87,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 

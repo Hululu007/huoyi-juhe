@@ -3726,7 +3726,8 @@ class CoreDramaContentClient implements DramaSiteContentClient {
         _fallback = fallback ?? _defaultFallback(siteId, fallbackClient);
 
   /// 只走核心的站用：回退就是 [_CoreOnlyFallback]，没有真实 Dart
-  /// 客户端；核心超时/断网时直接抛超时错（见 [_coreOrFallback]），
+  /// 客户端；核心任何错都不走回退、直接把原错抛出去（超时/断网换成
+  /// 「加载超时，请重试」，其余错原样 rethrow，见 [_coreOrFallback]），
   /// 不兜底、不冒充。工厂里核心站走这个构造，测试也用它。
   CoreDramaContentClient.coreOnly({required this.siteId, ApiClient? api})
     : _api = api ?? ApiClient.instance,
@@ -3760,12 +3761,14 @@ class CoreDramaContentClient implements DramaSiteContentClient {
       error is SocketException ||
       error is http.ClientException;
 
-  /// 核心先行，失败再回退——只在核心站上加一条例外：核心调用超时/
-  /// 断网时不再走回退。回退是 [_CoreOnlyFallback] 时只会抛「该站只走
-  /// 核心，核心未返回…」，会把“超时”说成“核心没回包”误导用户；
-  /// 这时直接抛带 timedOut 的 [BackendRequestAborted]（文案「加载
-  /// 超时，请重试」），界面按超时显示、可重试。其余核心错（格式错、
-  /// 核心未起等）仍走回退，行为与原来一致。
+  /// 核心先行，失败再回退——只在核心站上加一条例外：核心站（回退是
+  /// [_CoreOnlyFallback]，没有真实 Dart 客户端）任何错都不再走回退，
+  /// 直接把原错抛出去，界面显示的就是核心/传输返回的真实原因：
+  /// 超时/断网错先换成带 timedOut 的 [BackendRequestAborted]（文案
+  /// 「加载超时，请重试」），其余错（核心未起、格式错、被墙拦等）原样
+  /// rethrow，不再被回退的「该站只走核心，核心未返回…」盖住。
+  /// 有真实回退客户端的站（huangju/yeguo/niuguo/huangdou/yaguo）
+  /// 保持原有回退行为不动，任何错都仍走回退。
   ///
   /// 核心正常回空列表（items/categories/episodes 为空）不是错：
   /// 直接回空页/空列表，界面显示「暂无内容」类如实空态，不抛错。
@@ -3776,8 +3779,11 @@ class CoreDramaContentClient implements DramaSiteContentClient {
     try {
       return await core();
     } catch (error) {
-      if (_coreOnly && _isTimeoutOrNetwork(error)) {
-        throw BackendRequestAborted('加载超时，请重试', timedOut: true);
+      if (_coreOnly) {
+        if (_isTimeoutOrNetwork(error)) {
+          throw BackendRequestAborted('加载超时，请重试', timedOut: true);
+        }
+        rethrow;
       }
       return await fallback();
     }
@@ -3851,7 +3857,19 @@ class CoreDramaContentClient implements DramaSiteContentClient {
       final payload = await _api.dramaPlay(siteId, episode.videoId);
       final url = _stringOf(payload['url']);
       if (url.isEmpty) throw StateError('核心取流无地址');
-      return DramaPlaySource(url: url);
+      // 核心取流回的字典头原样带出：取流层凭它决定是否经本地媒体代理
+      // 转接（见 drama_site_play 的 _proxyIfNeeded）。aisxpc 这类
+      // 无后缀 HLS 代理地址就靠这个头进代理、由代理探到 HLS 后补
+      // .m3u8 后缀，否则播放器会把它当 Progressive 流读 #EXTM3U
+      // 而报“视频解析失败”。没回头的站不受影响。
+      final headers = <String, String>{};
+      for (final entry in _asMap(payload['headers']).entries) {
+        final value = _stringOf(entry.value);
+        if (entry.key.isNotEmpty && value.isNotEmpty) {
+          headers[entry.key] = value;
+        }
+      }
+      return DramaPlaySource(url: url, headers: headers);
     }, () => _fallback.playSource(episode));
   }
 

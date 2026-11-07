@@ -33,7 +33,9 @@ import 'tgdrama_content.dart';
 ///
 /// 切到下一集时先命中缓存，不再等一次接口；预取失败直接丢弃，
 ///
-/// 不影响当前播放。缓存只留当前这部剧，退出详情页即失效。
+/// 不影响当前播放。解析结果进进程内全局缓存
+/// （DramaPlaySourceCache，键是站 + 视频 + 集，成功才缓存，10 分钟
+/// 过期）：切到别的站、再切回来也不重新解析；退出进程即清空，不落盘。
 /// 外来壳代理地址判定（可单测）：回环 host + 路径含 proxy，且不是
 /// 本代理自己的会话地址（本代理地址也回环，但 owns 判定在前）。
 bool isForeignProxyUrl(String url) {
@@ -174,49 +176,6 @@ Future<DramaPlaySource> _proxyIfNeeded(
     keyHex: source.keyHex,
     variants: variants,
   );
-}
-
-class _PlaySourcePreload {
-  final Map<String, DramaPlaySource> _cache = {};
-  final Set<String> _inFlight = {};
-
-  String _key(DramaSiteEpisode episode) =>
-      '${episode.seriesId}|${episode.videoId}';
-
-  DramaPlaySource? take(DramaSiteEpisode episode) => _cache[_key(episode)];
-
-  void put(DramaSiteEpisode episode, DramaPlaySource source) {
-    _cache[_key(episode)] = source;
-  }
-
-  Future<void> _fetchAndCache(
-    DramaSiteContentClient client,
-    DramaSiteEpisode episode,
-    String key,
-  ) async {
-    try {
-      final raw = await client.playSource(episode);
-      _cache[key] = await _proxyIfNeeded(client, raw);
-    } catch (_) {
-    } finally {
-      _inFlight.remove(key);
-    }
-  }
-
-  void prefetch(
-    DramaSiteContentClient client,
-    List<DramaSiteEpisode> episodes,
-    int currentIndex,
-  ) {
-    for (var i = 1; i <= 2; i++) {
-      final next = currentIndex + i;
-      if (next >= episodes.length) break;
-      final episode = episodes[next];
-      final key = _key(episode);
-      if (_cache.containsKey(key) || !_inFlight.add(key)) continue;
-      unawaited(_fetchAndCache(client, episode, key));
-    }
-  }
 }
 
 List<SourceEntry> engineSwitchCandidates(
@@ -384,7 +343,6 @@ Future<void> openDramaSitePlayback(
     ).showSnackBar(const SnackBar(content: Text('该站源当前不可用')));
     return;
   }
-  final preload = _PlaySourcePreload();
   final entry = SourceRegistry.instance.customById(siteId);
   // 播放页收藏与详情页收藏同规则：按站点登记的内容类型定架子，
   // 未登记的站按当前内容定（视频 video、音频 audio）。
@@ -427,17 +385,33 @@ Future<void> openDramaSitePlayback(
       title: chapter.title,
       seriesId: seriesId,
     );
-    final cached = preload.take(episode);
-    if (cached != null) return cached;
-    final raw = await client.playSource(episode);
+    // 解析结果跨页缓存（站 + 视频 + 集）：切到别的站、再切回来时，
+    // openDramaSitePlayback 会重建、但缓存是进程内全局的，命中就不
+    // 再跑 client.playSource；只缓存解析成功的原始地址，代理映射与
+    // 头信息每次都重走 _proxyIfNeeded，不会丢。
+    final raw = await DramaPlaySourceCache.instance.resolve(
+      siteId: siteId,
+      seriesId: seriesId,
+      videoId: episode.videoId,
+      loader: () => client.playSource(episode),
+    );
     final source = await _proxyIfNeeded(client, raw);
-    preload.put(episode, source);
     final loaded = await loadSiteDetail();
     final found = loaded.episodes.indexWhere(
       (e) => e.videoId == episode.videoId,
     );
     if (found >= 0) {
-      preload.prefetch(client, loaded.episodes, found);
+      for (var i = 1; i <= 2; i++) {
+        final next = found + i;
+        if (next >= loaded.episodes.length) break;
+        final nextEpisode = loaded.episodes[next];
+        DramaPlaySourceCache.instance.prefetch(
+          siteId: siteId,
+          seriesId: seriesId,
+          videoId: nextEpisode.videoId,
+          loader: () => client.playSource(nextEpisode),
+        );
+      }
     }
     return source;
   }
@@ -715,6 +689,19 @@ Future<void> openDramaSiteItem(
           );
         },
         commentLoader: (_) async => const PlayletCommentPage(),
+        // 影视区内联播放器的取流：与整页播放器同一套站客户端取流
+        // （client.playSource + 本地代理转接），内联会话的取流缓存
+        // 按集去重，不重复请求。
+        contentLoader: (itemId, tab) async {
+          final episode = DramaSiteEpisode(
+            videoId: itemId,
+            title: '',
+            seriesId: item.id,
+          );
+          final raw = await client.playSource(episode);
+          final source = await _proxyIfNeeded(client, raw);
+          return source.toResponse();
+        },
         onPlaySelection: (index, episodes, detail) =>
             openDramaSitePlayback(
               context,

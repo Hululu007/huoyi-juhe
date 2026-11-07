@@ -276,6 +276,48 @@ void main() {
     }
   });
 
+  nativeTest('display aspect ratio keeps the picture undistorted', (
+    tester,
+    player,
+  ) async {
+    // 尺寸未到时回 16:9 占位，不抛。
+    expect(player.displayAspectRatio, 16 / 9);
+    final creation = player.create('https://example.invalid/ratio.mp4', '');
+    await tester.pump();
+    await _sendEvent({'playerId': 71, 'type': 'created', 'value': 9});
+    await tester.pump();
+    await creation;
+    // 竖版流 1080x1920：不旋转是竖比；90/270 旋转后宽高互换成横比；
+    // 180 不互换。直播两处播放区用这个比包 AspectRatio，画面不压扁。
+    const cases = [
+      (0, 1080 / 1920),
+      (90, 1920 / 1080),
+      (180, 1080 / 1920),
+      (270, 1920 / 1080),
+    ];
+    for (final (rotation, ratio) in cases) {
+      await _sendEvent({
+        'playerId': 71,
+        'type': 'videoSize',
+        'width': 1080,
+        'height': 1920,
+        'rotationCorrection': rotation,
+      });
+      await tester.pump();
+      expect(player.displayAspectRatio, closeTo(ratio, 0.0001));
+    }
+    // 横版流 1920x1080 旋转 90 后成竖比。
+    await _sendEvent({
+      'playerId': 71,
+      'type': 'videoSize',
+      'width': 1920,
+      'height': 1080,
+      'rotationCorrection': 90,
+    });
+    await tester.pump();
+    expect(player.displayAspectRatio, closeTo(1080 / 1920, 0.0001));
+  });
+
   nativeTest('play intent follows commands and native pauses while buffering', (
     tester,
     player,

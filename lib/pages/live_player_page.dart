@@ -640,12 +640,21 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
       child: Stack(
         fit: StackFit.expand,
         children: [
+          // 画面按原始比例显示：StackFit.expand 会把 Texture 强行拉满
+          // 整个区域导致压扁（与直播列表页内嵌区同款）。用 Center +
+          // AspectRatio（已计入旋转修正的显示宽高比）包住，多余处留
+          // 黑边，不拉伸、不压扁。
           if (texture != null)
-            RotatedBox(
-              quarterTurns: player!.videoRotationCorrection ~/ 90,
-              child: Texture(
-                key: const ValueKey('live-player-texture'),
-                textureId: texture,
+            Center(
+              child: AspectRatio(
+                aspectRatio: player!.displayAspectRatio,
+                child: RotatedBox(
+                  quarterTurns: player.videoRotationCorrection ~/ 90,
+                  child: Texture(
+                    key: const ValueKey('live-player-texture'),
+                    textureId: texture,
+                  ),
+                ),
               ),
             ),
           if (_error == null && (waiting || player.buffering))

@@ -54,6 +54,7 @@ import 'services/playlet_share.dart';
 import 'services/poster_cache.dart';
 import 'services/shelf_store.dart';
 import 'services/swipe_guide_store.dart';
+import 'services/system_proxy.dart';
 import 'widgets/lazy_indexed_stack.dart';
 import 'widgets/cultivation_level_up_dialog.dart';
 import 'widgets/home/home_design.dart';
@@ -203,6 +204,10 @@ Future<void> _initializeLocalData() async {
         online: view.online,
         metered: view.metered,
       );
+      // 网络变化时重新应用出口代理：用户开关 VPN/梯子后，系统代理变了，
+      // 核心的出口要跟着变（有代理走代理、无代理传空串回直连）；失败不抛、
+      // 不影响下载队列的门控。
+      unawaited(SystemProxyService.applyEgressProxy());
     });
   } catch (_) {
     // 监听连通性只为自动暂停下载；拿不到不构成启动失败，但值得留一条记录，

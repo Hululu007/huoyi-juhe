@@ -10,7 +10,6 @@
 //! 为编号），本模块照搬该行为，不在详情处报错。
 
 use std::collections::HashSet;
-use std::sync::OnceLock;
 
 use regex::Regex;
 use serde_json::{json, Value};
@@ -23,16 +22,16 @@ const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (
 
 const CATEGORIES: [(&str, &str); 3] = [("50", "完本"), ("51", "同人志"), ("52", "韩漫")];
 
-static HTTP: OnceLock<Option<reqwest::Client>> = OnceLock::new();
+static HTTP: crate::egress_proxy::ClientSlot = crate::egress_proxy::ClientSlot::new();
 
 fn client() -> ApiResult<&'static reqwest::Client> {
-    HTTP.get_or_init(|| {
-        reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .build()
-            .ok()
+    HTTP.get_or_build(|| {
+        crate::egress_proxy::apply_to_builder(
+            reqwest::Client::builder().timeout(std::time::Duration::from_secs(30)),
+        )
+        .build()
+        .ok()
     })
-    .as_ref()
     .ok_or_else(|| ApiError::Internal("mhbl client unavailable".into()))
 }
 

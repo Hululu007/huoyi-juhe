@@ -209,7 +209,12 @@ fn parse_list(html: &str, limit: usize) -> Vec<Value> {
             continue;
         }
         let whole = cap.get(0).unwrap();
-        let seg_end = (whole.end() + 1200).min(html.len());
+        // 按字节切 1200 窗口会切在中文字符中间导致 panic（与 99jj
+        // 同款 bug）；把末尾退到字符边界再切。
+        let mut seg_end = (whole.end() + 1200).min(html.len());
+        while seg_end > whole.start() && !html.is_char_boundary(seg_end) {
+            seg_end -= 1;
+        }
         let seg = &html[whole.start()..seg_end];
         let raw_title = unesc(cap.get(2).unwrap().as_str()).trim().to_string();
         let title = if raw_title.is_empty() {
@@ -325,6 +330,9 @@ pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
     "limit": 24,
     "total": total,
     "has_more": has_more,
+    // Dart 侧只认 "items"，原先只返 "list" 时应用层判“核心未返回
+    // 目录”直接跳过本站；"list" 留着兼容旧调用（照 xx01 修法）。
+    "items": items.clone(),
     "list": items,
     }))
 }
@@ -433,5 +441,31 @@ mod tests {
         assert_eq!(items.len(), 1);
         assert_eq!(items[0]["title"], "SDAM-126 影片");
         assert_eq!(items[0]["cover"], "https://av6k.com/thumbnails/a.jpg");
+    }
+
+    #[test]
+    fn parse_list_window_does_not_panic_on_multibyte_tail() {
+        // whole.end()+1200 落在中文字符中间时旧代码 panic；构造：
+        // 链接后 1 个 ASCII + 400 个“中”（3 字节），1200 字节处正好
+        // 切在第 400 个“中”中间。
+        let pad = format!("x{}", "中".repeat(400));
+        let html = format!(
+            r#"<a href="/rihanyouma/5370.html" title="SDAM-126 影片"><img src="/thumbnails/a.jpg"><i class="fa fa-play-circle-o"></i> 45:32</a>{pad}"#
+        );
+        let items = parse_list(&html, 24);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["title"], "SDAM-126 影片");
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn live_home_catalog_returns_items() {
+        let r = catalog("home", 1).await.unwrap();
+        let items = r["items"].as_array().unwrap();
+        let list = r["list"].as_array().unwrap();
+        eprintln!("LIVE av6k home items={} list={}", items.len(), list.len());
+        assert!(!items.is_empty(), "av6k home catalog empty");
+        assert_eq!(items.len(), list.len());
+        assert!(!items[0]["id"].as_str().unwrap_or("").is_empty());
     }
 }
