@@ -50,8 +50,8 @@ pub fn set_egress_proxy(url: &str) -> Result<(), String> {
     // parses); a proxy without an authority part is never usable, so check
     // the raw text too.
     let authority = trimmed
-        .splitn(2, "://")
-        .nth(1)
+        .split_once("://")
+        .map(|x| x.1)
         .unwrap_or("")
         .split(['/', '?', '#'])
         .next()
@@ -126,6 +126,12 @@ impl ClientSlot {
         let built = build().map(|c| &*Box::leak(Box::new(c)));
         *guard = (gen, built);
         built
+    }
+}
+
+impl Default for ClientSlot {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
