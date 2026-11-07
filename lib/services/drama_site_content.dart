@@ -126,6 +126,69 @@ abstract class DramaSiteContentClient {
   Future<List<DramaSiteItem>> search(String query) async => const [];
 }
 
+/// 同站相关推荐（影视区详情页用）：先按详情 `category` / `tags` 里
+/// 的名去匹配站分类，拉同分类第一页；取不到（无匹配分类、分类页
+/// 为空、请求失败）退本站首页（`catalog('', 1)`）；仍取不到回空
+/// 列表，详情页不画推荐区。排除本片、按 id 去重、最多 [maxItems] 条。
+Future<List<DramaSiteItem>> loadSiteRelatedItems(
+  DramaSiteContentClient client,
+  DramaSiteDetail detail,
+  String selfId, {
+  int maxItems = 10,
+}) async {
+  List<DramaSiteItem> pick(List<DramaSiteItem> items) {
+    final seen = <String>{};
+    final out = <DramaSiteItem>[];
+    for (final item in items) {
+      if (item.id == selfId) continue;
+      if (item.title.isEmpty) continue;
+      if (!seen.add(item.id)) continue;
+      out.add(item);
+      if (out.length >= maxItems) break;
+    }
+    return out;
+  }
+
+  // 同分类：详情分类 / 标签里的名去匹配站分类 id。
+  try {
+    final names = <String>{};
+    for (final key in const ['category', 'tags']) {
+      final raw = detail.extra[key] ?? '';
+      for (final part in raw.split(RegExp(r'[,，、/｜|]+'))) {
+        final name = part.trim();
+        if (name.isNotEmpty) names.add(name);
+      }
+    }
+    if (names.isNotEmpty) {
+      final categories = await client.categories();
+      String? categoryId;
+      for (final name in names) {
+        for (final category in categories) {
+          if (category.name.trim() == name ||
+              category.displayName.trim() == name) {
+            categoryId = category.id;
+            break;
+          }
+        }
+        if (categoryId != null) break;
+      }
+      if (categoryId != null && categoryId.isNotEmpty) {
+        final page = await client.catalog(categoryId, 1);
+        final related = pick(page.items);
+        if (related.isNotEmpty) return related;
+      }
+    }
+  } catch (_) {
+    // 同分类取不到就退首页，不把失败当结果。
+  }
+  try {
+    final page = await client.catalog('', 1);
+    return pick(page.items);
+  } catch (_) {
+    return const <DramaSiteItem>[];
+  }
+}
+
 String _unescape(String value) {
   return value
       .replaceAll('&amp;', '&')
@@ -3388,213 +3451,16 @@ class HuangdouContentClient implements DramaSiteContentClient {
   }
 }
 
-/// 午夜区核心视频站 id（146 站筛查的视频候选里批回报已验的 83 站）：
-/// 与 Rust 影视区路由的 site_id 一一对应（591av 走 av591 模块，
-/// 17rip/99jj/69vj/123av 四个数字头文件在 mod.rs 里用 #[path] 映射）。
-/// 影视区站表（videoZoneSites）与登记（dramaSites）都以这份为准，
-/// 不另抄一份，免得三处 drift。
+/// 还留在 Rust 核心里的午夜视频站 id（批量转站后只剩 hgdj/hgdj58/hgdjv
+/// 3 站；删站前这里是 201 站，其余 198 站已转成内嵌版 py/jar，另有
+/// yaguo 那个模块也已删、但它从不在这份分档表里）。
+/// 只用于核心路由（dramaSiteContentClient）与影视区核心站表
+/// （videoZoneSites）；成人分档不再读这里，改读 adultVideoSiteOrder
+/// （分档登记顺序，删核心前的顺序，见 cultivation.dart）。
 const coreVideoSiteIds = <String>{
-  'mjv011',
-  'huangguo',
-  'huangguotv',
-  'hgtvim',
-  'huai',
-  'hl365',
-  'sex8',
   'hgdjv',
-  'km2',
-  'cucumber',
-  'haijiao',
-  'md',
-  'utube',
-  'av91',
-  'lxs',
-  'javrate',
-  'xszav',
-  'txfans',
-  'juyin',
-  '99jj',
-  'dayday',
-  'dsav',
-  'kuaihuo',
-  'jack20',
-  'gqck',
-  'wuyetv',
-  'hjw',
-  'aoxx69',
-  'pigav',
-  'sihucdn',
-  'sihu',
-  'xx9',
-  '69vj',
-  'avcnn',
-  'javhd',
-  'fq',
-  'wnzs',
-  'tudou',
-  'xjh5',
-  'xj2',
-  'missav',
-  'hddj',
-  'jm',
-  'getav',
-  'hsck',
-  'missavoff',
-  'mirror',
-  '123av',
-  'dsd',
-  'lissav',
-  'xhamster',
-  'rou',
-  'pb',
-  'rouav',
-  'av18av',
-  'dage',
-  'sporn',
-  'okxxx',
-  '591av',
-  'avjoy',
-  'hanime',
-  'xvideo',
-  'ptt01',
-  'cporn',
-  'xanimu',
-  'xx01',
-  'netflav',
-  'goodav',
-  'av6k',
-  'jav',
-  'jav777',
-  'airav',
-  'go2av',
-  'mmtv7',
-  'zggjav',
-  'avbigplat',
-  'xhy11',
-  'pj5ti',
-  'thdh',
-  'hjapp',
-  '17rip',
-  'javplay',
-  'javguru',
-  'missavt',
-  'wukong',
-  'chengren91',
-  'badyi',
-  'aiye',
-  'av18avmcg',
-  'avtoday',
-  'hohoj',
-  'jptt',
-  'xojav',
-  'px8x',
-  'tinyav',
-  'pachub',
-  'ssis',
-  'aisxpc',
-  '321av',
-  'porncgw',
-  'xlook',
   'hgdj',
-  'javmap',
-  'madao',
-  'chinax',
-  'swagr',
-  'tanhua91',
-  'theporny',
-  'aimove',
-  'henhenlu',
-  'pandatv',
-  'mianfeiai',
-  'avyanjiuyuan',
-  'xingkongfuli',
-  'ai2026',
-  'dj91',
-  'toptv',
-  'jin18',
-  'klxq',
-  'taose',
-  'hongyan',
-  'naihenda',
-  'haijiao4k',
-  'uudj',
-  'madou',
-  'dj69',
-  'ywmm',
-  'luoliai',
-  'shaofu',
-  'hgai',
-  'danai',
-  'yunmeng',
-  'javzw',
-  'hduanju',
-  'rscg91',
-  'aidj',
-  'mose365',
-  'yiren',
-  'zwdj',
-  'hongxing',
-  'shunvwang',
-  'heitaoduanju',
-  'dingjiaseku',
-  'aiduanju',
-  'fuchou',
-  'shunvqu',
-  'huangguazy',
-  'zwwm',
-  'hgaidj',
-  'jiuse',
-  'xianxia',
-  'ai4k',
-  'muzi',
-  'guzhuang',
-  'nvdi',
-  'caoliu',
-  'djwo',
-  'hgkpz',
-  'huangduanju',
-  'jiuseduanju',
-  'xj',
-  'hbook',
   'hgdj58',
-  'jav188',
-  'duanjuone',
-  'crdj',
-  'javher',
-  'javwine',
-  'lissavcn',
-  'pornhub',
-  'hongluo',
-  'ddys',
-  'javgg',
-  'javtiful',
-  'jable',
-  'vjav',
-  'tiktvod',
-  'topjav',
-  'avhwa',
-  'javdino',
-  'javhdtube',
-  'javmit',
-  'roshy',
-  'abjav',
-  'herexxx',
-  'japanwhores',
-  'javfun',
-  'koreanporn',
-  'mythav',
-  'senzuri',
-  'tokyomotion',
-  'x51',
-  'taiav',
-  'rouvideo',
-  'porna91',
-  'asextv',
-  'kissjav',
-  'javtsunami',
-  'javsiri',
-  'sexkbj',
-  'wohs',
 };
 
 /// 只走核心的午夜视频站：没有 Dart 版客户端，核心报错时直接把错

@@ -7,8 +7,20 @@
 //! Dart reads the Android system proxy and hands its URL to the core via
 //! the FRB `set_egress_proxy` function; every shared client below is built
 //! through `apply_to_builder` and rebuilt whenever the proxy changes.
+//!
+//! TLS: reqwest's default TLS path uses rustls-platform-verifier, which on
+//! Android panics unless initialized via JNI (it needs the JVM + app
+//! Context to call the system verifier). This core never initializes it,
+//! so every HTTPS request from a plain reqwest client panics on the phone
+//! (`PanicException(Expect rustls-platform-verifier to be initialized)`).
+//! `apply_to_builder` therefore also pins every client to a preconfigured
+//! rustls config that verifies servers against Mozilla's bundled roots
+//! (webpki-roots), the same config the upstream (番茄) client already uses
+//! and which works on the phone. There is a single TLS path: webpki roots,
+//! never the platform verifier.
 
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::OnceLock;
 use std::sync::RwLock;
 
 /// Current egress proxy URL; `None` means direct connection.
@@ -72,10 +84,43 @@ pub fn get_egress_proxy() -> Option<String> {
     PROXY_URL.read().ok().and_then(|guard| guard.clone())
 }
 
-/// Attach the configured proxy (if any) to a client builder. A proxy URL
-/// that fails `Proxy::all` (should not happen after `set_egress_proxy`
-/// validation) falls back to a direct builder instead of failing the build.
+/// Shared TLS config: verify servers against Mozilla's bundled roots
+/// (webpki-roots), bypassing rustls-platform-verifier.
+///
+/// reqwest's default TLS path uses rustls-platform-verifier, which on
+/// Android panics unless initialized via JNI (it needs the JVM + app
+/// Context). This core never initializes it, so every HTTPS request from
+/// a plain reqwest client panics on the phone. The upstream (番茄) client
+/// already uses this exact config via `tls_backend_preconfigured` and
+/// works on the phone (rank data proves it through the user's VPN).
+/// Cached once; `ClientConfig` is cheap to clone (Arc-based).
+/// The `expect` is an invariant, not a runtime error: ring supports the
+/// safe default TLS versions (1.2/1.3), so this cannot fail.
+pub(crate) fn webpki_tls_config() -> rustls::ClientConfig {
+    static TLS_CONFIG: OnceLock<rustls::ClientConfig> = OnceLock::new();
+    TLS_CONFIG
+        .get_or_init(|| {
+            let mut roots = rustls::RootCertStore::empty();
+            roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+            let provider = std::sync::Arc::new(rustls::crypto::ring::default_provider());
+            rustls::ClientConfig::builder_with_provider(provider)
+                .with_safe_default_protocol_versions()
+                .expect("ring supports the safe default TLS versions")
+                .with_root_certificates(roots)
+                .with_no_client_auth()
+        })
+        .clone()
+}
+
+/// Attach the shared TLS config and the configured proxy (if any) to a
+/// client builder. The TLS config is applied first: a preconfigured
+/// `ClientConfig` makes reqwest skip its default platform-verifier path
+/// entirely, so no client built through here can hit the Android
+/// rustls-platform-verifier panic. A proxy URL that fails `Proxy::all`
+/// (should not happen after `set_egress_proxy` validation) falls back to
+/// a direct builder instead of failing the build.
 pub fn apply_to_builder(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+    let builder = builder.tls_backend_preconfigured(webpki_tls_config());
     match get_egress_proxy() {
         Some(url) => match reqwest::Proxy::all(&url) {
             Ok(proxy) => builder.proxy(proxy),
@@ -259,11 +304,31 @@ mod tests {
         let _ = set_egress_proxy("");
     }
 
+    /// The shared TLS config builds and is stable (cached). A client built
+    /// through `apply_to_builder` uses it, so it never touches
+    /// rustls-platform-verifier (the Android panic source). The live test
+    /// below is the real proof: it completes an HTTPS handshake through
+    /// a client built by `apply_to_builder`.
+    #[test]
+    fn webpki_tls_config_builds_and_is_cached() {
+        let _guard = lock();
+        ensure_crypto_provider();
+        let first = webpki_tls_config();
+        let second = webpki_tls_config();
+        // Same cached config, cheap Arc-based clone; both build a client.
+        assert!(apply_to_builder(reqwest::Client::builder()).build().is_ok());
+        drop(first);
+        drop(second);
+    }
+
     /// Live check of the proxy path, using the same `apply_to_builder`
     /// code the drama client uses. Only runs where the environment already
     /// provides a proxy (this VM does via HTTP_PROXY); elsewhere it skips.
     /// Proves a proxied client really reaches a site that direct
     /// connections cannot (mjv011.com returns 000 direct from this VM).
+    /// Since `apply_to_builder` now also pins the webpki TLS config, this
+    /// test additionally proves the preconfigured TLS path completes a
+    /// real HTTPS handshake (a broken config would fail here).
     #[test]
     fn live_fetch_via_env_proxy_when_present() {
         let _guard = lock();

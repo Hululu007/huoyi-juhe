@@ -280,16 +280,11 @@ fn ensure_crypto_provider() {
     });
 }
 
+/// Single TLS path for the whole core: the shared webpki-roots config.
+/// (Was a local copy of the same logic; now delegates so there is exactly
+/// one place that builds the TLS config.)
 fn build_tls_config() -> Result<rustls::ClientConfig, String> {
-    let mut roots = rustls::RootCertStore::empty();
-    roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-    let provider = std::sync::Arc::new(rustls::crypto::ring::default_provider());
-    let config = rustls::ClientConfig::builder_with_provider(provider)
-        .with_safe_default_protocol_versions()
-        .map_err(|e| format!("tls protocol versions: {e}"))?
-        .with_root_certificates(roots)
-        .with_no_client_auth();
-    Ok(config)
+    Ok(crate::egress_proxy::webpki_tls_config())
 }
 
 #[cfg(test)]

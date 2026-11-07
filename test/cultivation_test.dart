@@ -135,6 +135,15 @@ void main() {
   });
 
   group('成人站 4 档解锁', () {
+    // 以下断言按门禁生效（开关关）算：生产默认值 true（测试期临时关闭）
+    // 会放行全部档位，须先关掉，用完恢复。
+    setUp(() {
+      cultivationAdultTierGateDisabledForTesting = false;
+    });
+    tearDown(() {
+      cultivationAdultTierGateDisabledForTesting = true;
+    });
+
     test('档位换算：下标/总数→档位', () {
       expect(adultTierForIndex(0, 146), 0);
       expect(adultTierForIndex(36, 146), 0);
@@ -214,6 +223,15 @@ void main() {
   });
 
   group('missav 与鉴黄师强制最后一档', () {
+    // 「修为不到合体两站完全隐藏」按门禁生效（开关关）算，须先关掉，
+    // 用完恢复；其余断言不走开关。
+    setUp(() {
+      cultivationAdultTierGateDisabledForTesting = false;
+    });
+    tearDown(() {
+      cultivationAdultTierGateDisabledForTesting = true;
+    });
+
     // 201 站登记表（鉴黄师 javrate 第 16 位、missav 第 41 位，
     // 与主线注册表顺序一致；uu 未注册、不在表里）。
     List<String> registry201() {

@@ -65,6 +65,14 @@ class _TgdramaLoginPageState extends State<TgdramaLoginPage> {
   int _pollCount = 0;
   bool _passwordDialogOpen = false;
 
+  // 初始登录态轮询：页面打开时插件可能还在连 TG（MTProto 握手要几秒，
+  // 走 VPN 更慢），只查一次会一直停在“未登录”不再更新；服务已起但
+  // 未登录时每 2 秒再查一次，直到登上或 60 秒超时。扫码轮询接手后
+  // 停掉，不与扫码轮询双跑；扫码取消后也不自动重开（手动点刷新状态）。
+  Timer? _statusPollTimer;
+  int _statusPollCount = 0;
+  static const _maxStatusPolls = 30; // 2 秒一次，最多 60 秒
+
   // 手机号登录
   PhoneLoginAvailability? _phoneAvailability;
   bool _phoneBusy = false;
@@ -106,6 +114,7 @@ class _TgdramaLoginPageState extends State<TgdramaLoginPage> {
   @override
   void dispose() {
     _stopPolling();
+    _stopStatusPolling();
     _tdlibSubscription?.cancel();
     _tdlibPhoneController.dispose();
     _tdlibCodeState.dispose();
@@ -123,6 +132,7 @@ class _TgdramaLoginPageState extends State<TgdramaLoginPage> {
     final running = await _service.ensureRunning();
     if (!mounted) return;
     if (!running) {
+      _stopStatusPolling();
       setState(() {
         _starting = false;
         _serviceRunning = false;
@@ -138,6 +148,13 @@ class _TgdramaLoginPageState extends State<TgdramaLoginPage> {
       _authorized = status.authorized;
       _statusError = null;
     });
+    // 服务已起但未登录：插件可能还在连 TG，开始轮询登录态；
+    // 已登录就停掉，不空转。
+    if (status.authorized) {
+      _stopStatusPolling();
+    } else {
+      _startStatusPolling();
+    }
   }
 
   Future<void> _refreshPhoneAvailability() async {
@@ -151,7 +168,48 @@ class _TgdramaLoginPageState extends State<TgdramaLoginPage> {
     _pollTimer = null;
   }
 
+  void _startStatusPolling() {
+    _stopStatusPolling();
+    _statusPollCount = 0;
+    _statusPollTimer = Timer.periodic(
+      _pollInterval,
+      (_) => _pollStatusOnce(),
+    );
+  }
+
+  void _stopStatusPolling() {
+    _statusPollTimer?.cancel();
+    _statusPollTimer = null;
+  }
+
+  /// 初始登录态轮询：只查 authStatus，不重拉服务、不动 _starting
+  ///（不闪“正在检查”）；登上即停并翻成已登录，60 秒还没登上也停，
+  /// 留“未登录”加手动刷新；中途卡二步验证时弹密码框（与扫码轮询同款）。
+  Future<void> _pollStatusOnce() async {
+    if (!mounted) return;
+    _statusPollCount++;
+    if (_statusPollCount > _maxStatusPolls) {
+      _stopStatusPolling();
+      return;
+    }
+    final status = await _service.authStatus();
+    if (!mounted) return;
+    if (status.authorized) {
+      _stopStatusPolling();
+      setState(() {
+        _authorized = true;
+        _statusError = null;
+      });
+      return;
+    }
+    if (status.needPassword && !_passwordDialogOpen) {
+      _showPasswordDialog(forQr: true);
+    }
+  }
+
   Future<void> _startQr() async {
+    // 扫码轮询接手登录态，初始轮询停掉，不双跑。
+    _stopStatusPolling();
     setState(() {
       _qrBusy = true;
       _qrError = null;
@@ -328,7 +386,12 @@ class _TgdramaLoginPageState extends State<TgdramaLoginPage> {
       if (submitted == true && mounted) {
         if (forQr) {
           // 密码已交，继续轮询等服务端确认。
-          if (_qrActive) _startPolling();
+          if (_qrActive) {
+            _startPolling();
+          } else {
+            // 非扫码路（初始状态轮询发现需密码）：重查登录态。
+            await _refreshStatus();
+          }
         } else {
           await _refreshStatus();
         }
@@ -1259,6 +1322,11 @@ class _TgdramaLoginPageState extends State<TgdramaLoginPage> {
                   TextButton(
                     onPressed: _refreshStatus,
                     child: const Text('重试'),
+                  ),
+                if (!_starting && _serviceRunning && !_authorized)
+                  TextButton(
+                    onPressed: _refreshStatus,
+                    child: const Text('刷新状态'),
                   ),
               ],
             ),

@@ -13,11 +13,14 @@ import '../widgets/player/related_series_sheet.dart';
 import '../services/api_client.dart';
 import '../services/backend_transport.dart';
 import '../services/cultivation.dart';
+import '../services/drama_site_content.dart' show DramaSiteItem;
 import '../services/library_store.dart';
 import '../services/player_history.dart';
 import '../services/shelf_store.dart';
 import '../services/watched_episodes.dart' show WatchedEpisodes, watchedIndexes;
 import '../widgets/home/home_design.dart';
+import '../widgets/home/home_media_card.dart';
+import '../widgets/home/home_shelf.dart' show homeCardExtent;
 import '../widgets/player/playlet_comment_panel.dart';
 import '../widgets/player/story_player_panel.dart' show SeriesStatus;
 import '../widgets/series_detail/series_detail_book.dart';
@@ -80,6 +83,8 @@ class SeriesDetailPage extends StatefulWidget {
     this.onPlayEpisode,
     this.siteDetailLoader,
     this.contentLoader,
+    this.relatedLoader,
+    this.onOpenRelatedFilm,
     this.onOpenRelatedSeries,
     this.engineSiteId = '',
     this.shelfKind = 'video',
@@ -141,6 +146,14 @@ class SeriesDetailPage extends StatefulWidget {
   final Future<Map<String, dynamic>> Function(String itemId, String tab)?
   contentLoader;
 
+  /// 影视区专属：同站相关推荐加载器（`openDramaSiteItem` 传，按详情
+  /// 分类匹配同分类目录，取不到退本站首页）。为空时不画推荐区。
+  final Future<List<DramaSiteItem>> Function(String seriesId)? relatedLoader;
+
+  /// 影视区专属：点推荐卡片的打开方式（`openDramaSiteItem` 传，调
+  /// `openDramaSiteItem` 进新详情页）。为空时点卡片不做事。
+  final void Function(DramaSiteItem item)? onOpenRelatedFilm;
+
   @override
   State<SeriesDetailPage> createState() => _SeriesDetailPageState();
 }
@@ -174,6 +187,16 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
   FilmSiteDetail? _filmDetail;
   bool _filmDetailDone = false;
   bool _filmDetailFailed = false;
+
+  /// 影视区同站相关推荐：只在影视区入口加载；没回来或取不到时
+  /// 整块不占位，不留空白块。
+  List<DramaSiteItem> _relatedItems = const [];
+  bool _relatedDone = false;
+  bool _relatedStarted = false;
+
+  /// 相关推荐卡片宽：横排卡片固定宽，高度按 HomeMediaCard 的
+  /// homeCardExtent 算（封面 5:7 + 标题两行 + 一行副标题）。
+  static const _relatedCardWidth = 120.0;
 
   /// 有站详情加载器 = 影视区入口；短剧入口 loader 为空。
   bool get _isFilmSite => widget.siteDetailLoader != null;
@@ -292,6 +315,27 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
         _filmDetailDone = true;
         _filmDetailFailed = true;
       });
+    }
+    _loadRelated();
+  }
+
+  /// 影视区同站相关推荐：站详情回来后才拉（推荐按详情分类匹配，
+  /// 与详情请求共用缓存，不多发一次详情请求）。只拉一次；
+  /// 取不到整块不画，不留空白块。
+  Future<void> _loadRelated() async {
+    final loader = widget.relatedLoader;
+    if (loader == null || _relatedStarted) return;
+    _relatedStarted = true;
+    try {
+      final items = await _request(() => loader(widget.seriesId));
+      if (!mounted) return;
+      setState(() {
+        _relatedItems = items;
+        _relatedDone = true;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _relatedDone = true);
     }
   }
 
@@ -650,6 +694,7 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
                         SliverToBoxAdapter(child: _filmPlayer()),
                         SliverToBoxAdapter(child: _filmGlassDetail()),
                         SliverToBoxAdapter(child: _filmStillsSection()),
+                        SliverToBoxAdapter(child: _filmRelatedSection()),
                       ] else ...[
                         SliverToBoxAdapter(child: _hero()),
                         SliverToBoxAdapter(child: _episodeSection()),
@@ -1020,6 +1065,59 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
                         child: Icon(Icons.broken_image),
                       ),
                     ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 影视区相关推荐：同站视频横排卡片（封面 + 标题，复用影视网格的
+  /// HomeMediaCard）。推荐没回来或取不到时整块不占位，不留空白块；
+  /// 点卡片进该视频的详情页（走 onOpenRelatedFilm）。
+  Widget _filmRelatedSection() {
+    if (!_relatedDone || _relatedItems.isEmpty) {
+      return const SizedBox.shrink(
+        key: ValueKey('series-detail-related-section'),
+      );
+    }
+    final scaler = MediaQuery.textScalerOf(context);
+    return SeriesSection(
+      key: const ValueKey('series-detail-related-section'),
+      bottom: 8,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SeriesSectionHeader(title: '相关推荐'),
+          SizedBox(
+            height: homeCardExtent(context, _relatedCardWidth, scaler),
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: _relatedItems.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 12),
+              itemBuilder: (_, index) {
+                final item = _relatedItems[index];
+                // 横滑列表主轴（宽）无界，HomeMediaCard 的 coverWidth 只
+                // 是图片缓存宽、不约束布局；这里包一层定宽，卡片里的
+                // AspectRatio（5:7）才算得出高。
+                return SizedBox(
+                  width: _relatedCardWidth,
+                  child: HomeMediaCard(
+                    key: ValueKey('film-related-card-${item.id}'),
+                    item: MediaItem(
+                      id: item.id,
+                      title: item.title,
+                      cover: item.cover,
+                      author: '',
+                      badge: '',
+                      ep: item.remark,
+                      kind: 'video',
+                    ),
+                    coverWidth: _relatedCardWidth,
+                    onTap: () => widget.onOpenRelatedFilm?.call(item),
                   ),
                 );
               },

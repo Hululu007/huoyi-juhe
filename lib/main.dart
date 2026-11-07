@@ -612,7 +612,7 @@ class _RootShellState extends State<RootShell> {
       await showCultivationLevelUpDialog(
         context,
         crossedRealmIndexes: crossed,
-        adultRegistryOrder: coreVideoSiteIds.toList(),
+        adultRegistryOrder: adultVideoSiteOrder,
         newXp: currentXp,
       );
       _levelUpDialogShowing = false;

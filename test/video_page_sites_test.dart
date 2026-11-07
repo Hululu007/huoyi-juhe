@@ -102,4 +102,11 @@ void main() {
     ];
     expect(videoPagePlayableSites(entries), isEmpty);
   });
+
+  test('TG影视库钉在影视区切换器最前面', () {
+    // 切换器里 100 多个站，TG影视库钉最后翻不到底；钉第一位，
+    // 打开切换器一眼就能看到。默认选中仍是保存过的选择。
+    expect(videoZoneSites().first.id, 'tgdrama');
+    expect(videoZoneSites().first.name, 'TG影视库');
+  });
 }

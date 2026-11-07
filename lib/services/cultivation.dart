@@ -600,6 +600,51 @@ const adultTierThresholds = <int>[3000, 8000, 15000, 30000];
 /// 成人站档位对应的解锁境界名。
 const adultTierRealmNames = <String>['元婴期', '化神期', '炼虚期', '合体期'];
 
+/// 成人站分档登记顺序（内嵌版）：批量转站后核心只剩 hgdj/hgdj58/hgdjv
+/// 3 站，分档不再读 coreVideoSiteIds，改读这张表。
+///
+/// 这 201 个 id 与删核心之前的核心登记顺序一字不差（来源：
+/// `~/workspace/batch_convert_work/delete/backup/drama_site_content.dart.bak`
+/// 里的旧 coreVideoSiteIds，201 条、无重复；分档只认顺序不认来源，
+/// 所以原来在第几档、现在还在第几档，不洗牌）。
+///
+/// 表里是核心站 id（裸 id，如 `mjv011`）；影视区统一表里的行 id
+/// 是另一套写法（种子 `seed_<id>`、jar `jar:zakatv:<key>`、核心裸 id），
+/// 查档位前先过 adultSiteIdForUnifiedId 归一化。
+///
+/// 增减站时同步改这里：新站追加到末尾进第 4 档、或插到指定位置；
+/// 删站时删掉对应行；不动 adultTierThresholds 门槛。
+/// 从未进过核心的站（jar/种子独占站，如 JAV Verse、91三级）不在表里，
+/// 查档位返回 null、按非成人站原样保留——删核心之前它们也没分过档。
+const adultVideoSiteOrder = <String>[
+  'mjv011', 'huangguo', 'huangguotv', 'hgtvim', 'huai', 'hl365', 'sex8', 'hgdjv',
+  'km2', 'cucumber', 'haijiao', 'md', 'utube', 'av91', 'lxs', 'javrate',
+  'xszav', 'txfans', 'juyin', '99jj', 'dayday', 'dsav', 'kuaihuo', 'jack20',
+  'gqck', 'wuyetv', 'hjw', 'aoxx69', 'pigav', 'sihucdn', 'sihu', 'xx9',
+  '69vj', 'avcnn', 'javhd', 'fq', 'wnzs', 'tudou', 'xjh5', 'xj2',
+  'missav', 'hddj', 'jm', 'getav', 'hsck', 'missavoff', 'mirror', '123av',
+  'dsd', 'lissav', 'xhamster', 'rou', 'pb', 'rouav', 'av18av', 'dage',
+  'sporn', 'okxxx', '591av', 'avjoy', 'hanime', 'xvideo', 'ptt01', 'cporn',
+  'xanimu', 'xx01', 'netflav', 'goodav', 'av6k', 'jav', 'jav777', 'airav',
+  'go2av', 'mmtv7', 'zggjav', 'avbigplat', 'xhy11', 'pj5ti', 'thdh', 'hjapp',
+  '17rip', 'javplay', 'javguru', 'missavt', 'wukong', 'chengren91', 'badyi', 'aiye',
+  'av18avmcg', 'avtoday', 'hohoj', 'jptt', 'xojav', 'px8x', 'tinyav', 'pachub',
+  'ssis', 'aisxpc', '321av', 'porncgw', 'xlook', 'hgdj', 'javmap', 'madao',
+  'chinax', 'swagr', 'tanhua91', 'theporny', 'aimove', 'henhenlu', 'pandatv', 'mianfeiai',
+  'avyanjiuyuan', 'xingkongfuli', 'ai2026', 'dj91', 'toptv', 'jin18', 'klxq', 'taose',
+  'hongyan', 'naihenda', 'haijiao4k', 'uudj', 'madou', 'dj69', 'ywmm', 'luoliai',
+  'shaofu', 'hgai', 'danai', 'yunmeng', 'javzw', 'hduanju', 'rscg91', 'aidj',
+  'mose365', 'yiren', 'zwdj', 'hongxing', 'shunvwang', 'heitaoduanju', 'dingjiaseku', 'aiduanju',
+  'fuchou', 'shunvqu', 'huangguazy', 'zwwm', 'hgaidj', 'jiuse', 'xianxia', 'ai4k',
+  'muzi', 'guzhuang', 'nvdi', 'caoliu', 'djwo', 'hgkpz', 'huangduanju', 'jiuseduanju',
+  'xj', 'hbook', 'hgdj58', 'jav188', 'duanjuone', 'crdj', 'javher', 'javwine',
+  'lissavcn', 'pornhub', 'hongluo', 'ddys', 'javgg', 'javtiful', 'jable', 'vjav',
+  'tiktvod', 'topjav', 'avhwa', 'javdino', 'javhdtube', 'javmit', 'roshy', 'abjav',
+  'herexxx', 'japanwhores', 'javfun', 'koreanporn', 'mythav', 'senzuri', 'tokyomotion', 'x51',
+  'taiav', 'rouvideo', 'porna91', 'asextv', 'kissjav', 'javtsunami', 'javsiri', 'sexkbj',
+  'wohs',
+];
+
 /// 成人站档位：按在核心登记表里的下标均分 4 档。
 /// 档 = min(3, 下标 × 4 ~/ 站总数)，以后再加站也按比例分。
 int adultTierForIndex(int index, int total) {
@@ -619,13 +664,64 @@ bool adultTierUnlocked(int tier, int xp) {
   return xp >= adultTierThresholds[tier];
 }
 
+/// jar 登记 key → 核心站 id 的别名（只列规则算不出来的）：
+/// - 数字头站：jar key 是 Rust 模块名（如 `av123`），核心站 id 是
+///   文件名（如 `123av`），mod.rs 里 `#[path]` 映射过来的；
+/// - `zaketxfans`：jar 登记 key 本身少写了一个 a（应为 `zakatxfans`），
+///   类名是 `ZakaTxfansAmns`，站是 `txfans`；
+/// - `whos`：核心站 id 是旧拼写 `wohs`（whos.tv），jar 登记已用修正
+///   拼写，另有一条 key 就是 `wohs` 的登记，两行同站同档。
+const _adultJarKeyAliases = <String, String>{
+  'av123': '123av',
+  'av321': '321av',
+  'av591': '591av',
+  'jj99': '99jj',
+  'rip17': '17rip',
+  'vj69': '69vj',
+  'zaketxfans': 'txfans',
+  'whos': 'wohs',
+};
+
+/// 影视区统一表里的行 id → 核心站 id（分档用的裸 id）。
+///
+/// - 种子行 `seed_<id>`：seedId 本身就是核心站 id；
+/// - jar 行 `jar:<jarId>:<key>`：key 去掉 `Zaka`/`zaka` 前缀后全小写，
+///   再过一遍别名表；key 本身就是核心站 id 的（如 `haijiao4k`、
+///   `hgdj58`、`rouvideo`、`wohs`、`xj2`、`dsav`）原样返回；
+/// - 核心行与 TG影视库等裸 id：原样返回。
+/// 归一化后仍不在登记表里的（如从未进过核心的 jar/种子站、YouTube、
+/// 直播站）查档位返回 null，按非成人站原样保留——删核心之前它们
+/// 也没分过档，行为不变。
+String adultSiteIdForUnifiedId(String unifiedId) {
+  if (unifiedId.startsWith('seed_')) return unifiedId.substring(5);
+  if (unifiedId.startsWith('jar:')) {
+    final key = unifiedId.split(':').last;
+    return _adultJarKeyToCoreId(key);
+  }
+  return unifiedId;
+}
+
+/// jar 登记 key → 核心站 id（见 _adultJarKeyAliases）。
+String _adultJarKeyToCoreId(String key) {
+  var stripped = key;
+  if (stripped.toLowerCase().startsWith('zaka')) {
+    stripped = stripped.substring(4);
+  }
+  final lowered = stripped.toLowerCase();
+  return _adultJarKeyAliases[lowered] ?? lowered;
+}
+
 /// 某站在登记表里的档位；不在表里返回 null（不是成人站，不分档）。
 /// missav 与鉴黄师（javrate）强制钉到第 4 档末尾，不管它俩在表里
 /// 的位置（表里鉴黄师第 16 位、missav 第 41 位）；分档时先按表顺序
 /// 正常分 4 档，再把这两站移出、放到第 4 档末尾，不改注册表顺序。
+///
+/// [siteId] 可以是统一表里的行 id（种子 `seed_<id>`、jar
+/// `jar:<jarId>:<key>`、核心裸 id），先归一化成核心站 id 再查表。
 int? adultTierForSiteId(String siteId, List<String> registryOrder) {
-  if (adultTierLastSiteIds.contains(siteId)) return 3;
-  final index = registryOrder.indexOf(siteId);
+  final coreId = adultSiteIdForUnifiedId(siteId);
+  if (adultTierLastSiteIds.contains(coreId)) return 3;
+  final index = registryOrder.indexOf(coreId);
   if (index < 0) return null;
   return adultTierForIndex(index, registryOrder.length);
 }

@@ -251,6 +251,19 @@ void main() {
     );
   });
 
+  testWidgets('初始未登录时轮询登录态：插件连上后自动变已登录', (tester) async {
+    await pumpPage(tester);
+
+    expect(find.text('未登录'), findsOneWidget);
+    expect(find.text('刷新状态'), findsOneWidget);
+    // 插件连上 TG：2 秒后轮询到已登录，状态自动翻，不用点刷新。
+    fakeService.authorized = true;
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pump();
+    expect(find.text('已登录'), findsOneWidget);
+    expect(find.text('刷新状态'), findsNothing);
+  });
+
   testWidgets('服务未启动时显示未启动与重试', (tester) async {
     fakeService.running = false;
     fakeService.errorOverride = '本地服务未启动：测试原因';

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -7,24 +9,29 @@ import 'package:fqapp/services/cultivation.dart';
 import 'package:fqapp/services/drama_playback.dart';
 import 'package:fqapp/services/drama_site_content.dart';
 import 'package:fqapp/services/drama_sites.dart';
+import 'package:fqapp/services/source_registry.dart';
 import 'package:fqapp/widgets/home/home_film_zone.dart';
+
+import 'embedded_test_entries.dart';
 
 /// 推荐页全局「影视」区：站表按修为分档，未解锁的站完全不出现；
 /// 视频站与阅读站按登记表顺序拼在一起（纯函数 [visibleFilmZoneSites]
 /// 不分池，widget 层只取其中视频站平铺推荐，阅读站走各自的分站区）。
 ///
-/// 影视区不含短剧：5 个果站是短剧站不在核心里，显示名带「短剧」的
-/// 33 个核心站也已摘掉，只剩 168 个核心影视站 + TG影视库 = 169。
-/// 视频档位规模不写死：从 [adultTierSiteIds] 现算，再按
-/// [isFilmVideoSite] 去掉短剧站；阅读档位按 31 站登记顺序的固定
-/// 分档（阅读站表不变，变了再改这里）。
+/// 影视区不含短剧：显示名带「短剧」的行已在统一表里摘掉。视频行
+/// 291 行 = 分档影视行 240（第 1 档 49 + 第 2 档 62 + 第 3 档 54 +
+/// 第 4 档 75）+ 不分档影视行 51（TG影视库 + 从未进核心的 jar/种子站
+/// 与 YouTube 行）；阅读档位按 31 站登记顺序的固定分档
+/// （阅读站表不变，变了再改这里）。
 void main() {
-  /// 某档的影视站数（按当前登记表现算：该档核心站去掉短剧名站）。
-  int filmVideoTierSize(int tier) {
-    final names = {for (final s in dramaSites) s.id: s.name};
-    return adultTierSiteIds(tier, coreVideoSiteIds.toList())
-        .where((id) => isFilmVideoSite(id, names[id] ?? id))
-        .length;
+  /// 内嵌站测试条目（种子 + jar），与生产登记一致。
+  final entries = embeddedTestEntries();
+
+  /// 门禁开关：生产默认值 true（测试期临时关闭）会放行全部档位，
+  /// 分档断言须先关掉，用完恢复。
+  void gateOff() {
+    cultivationAdultTierGateDisabledForTesting = false;
+    addTearDown(() => cultivationAdultTierGateDisabledForTesting = true);
   }
 
   /// 非成人阅读站 id。
@@ -46,18 +53,29 @@ void main() {
     3: ['hsvoice31', 'hysxs'],
   };
 
-  test('修为 0 时只有 tgdrama 一个视频站 + 非成人阅读站', () {
-    final sites = visibleFilmZoneSites(0);
+  test('修为 0 时只有 TG影视库与不分档视频站 + 非成人阅读站', () {
+    gateOff();
+    final sites = visibleFilmZoneSites(0, entries);
     expect(
       sites.length,
-      1 + nonAdultReading.length,
+      51 + nonAdultReading.length,
     );
     final video = [for (final s in sites) if (s.kind == 'video') s];
-    // 5 个果站是短剧站，不进影视区；TG影视库是唯一不分档的视频站。
+    // 51 行 = TG影视库 + 50 个不分档影视行；分档行一个都不露。
+    expect(video.length, 51);
     expect(
       video.map((s) => s.id).toList(),
-      ['tgdrama'],
+      contains('tgdrama'),
     );
+    expect(
+      video.any((s) => s.id == 'jar:zakatv:ZakaMjv011'),
+      isFalse,
+    );
+    expect(
+      video.any((s) => s.id == 'jar:zakatv:ZakaMissav'),
+      isFalse,
+    );
+    expect(video.any((s) => s.id == 'seed_abjav'), isFalse);
     final reading = [for (final s in sites) if (s.kind != 'video') s];
     expect(
       reading.map((s) => s.id).toSet(),
@@ -65,7 +83,6 @@ void main() {
     );
     // 一个成人站都不露。
     for (final s in sites) {
-      expect(coreVideoSiteIds.contains(s.id), isFalse);
       expect(coreAdultReadingSiteIds.contains(s.id), isFalse);
     }
     expect(sites.any((s) => s.id == 'missav'), isFalse);
@@ -75,21 +92,22 @@ void main() {
   });
 
   test('元婴 3000 时第 1 档视频站与第 1 档成人阅读站出现', () {
-    final sites = visibleFilmZoneSites(3000);
+    gateOff();
+    final sites = visibleFilmZoneSites(3000, entries);
     final ids = sites.map((s) => s.id).toSet();
-    // 登记表第 1 个视频站（mjv011）在第 1 档，3000 修为可见。
-    expect(ids.contains('mjv011'), isTrue);
+    // 登记表第 1 个视频站（mjv011，jar 行）在第 1 档，3000 修为可见。
+    expect(ids.contains('jar:zakatv:ZakaMjv011'), isTrue);
     // missav 与鉴黄师钉第 4 档末尾，3000 修为还看不到。
-    expect(ids.contains('missav'), isFalse);
-    expect(ids.contains('javrate'), isFalse);
+    expect(ids.contains('jar:zakatv:ZakaMissav'), isFalse);
+    expect(ids.contains('jar:zakatv:ZakaJavrate'), isFalse);
     // 阅读登记表第 1 位（1000novel）在第 1 档；第 27 位（hsvoice31）
     // 在第 4 档，3000 修为还看不到。
     expect(ids.contains('1000novel'), isTrue);
     expect(ids.contains('hsvoice31'), isFalse);
-    // 视频 tgdrama + 第 1 档影视站；阅读非成人 + 第 1 档 7 个。
+    // 视频不分档 51 + 第 1 档 49；阅读非成人 + 第 1 档 7 个。
     expect(
       sites.where((s) => s.kind == 'video').length,
-      1 + filmVideoTierSize(0),
+      100,
     );
     expect(
       sites.where((s) => s.kind != 'video').length,
@@ -98,10 +116,11 @@ void main() {
   });
 
   test('化神 8000 与炼虚 15000 逐档放开', () {
-    final at8000 = visibleFilmZoneSites(8000);
+    gateOff();
+    final at8000 = visibleFilmZoneSites(8000, entries);
     expect(
       at8000.where((s) => s.kind == 'video').length,
-      1 + filmVideoTierSize(0) + filmVideoTierSize(1),
+      162,
     );
     expect(
       at8000.where((s) => s.kind != 'video').length,
@@ -114,13 +133,10 @@ void main() {
       at8000.any((s) => s.id == 'ho5ho'),
       isFalse,
     );
-    final at15000 = visibleFilmZoneSites(15000);
+    final at15000 = visibleFilmZoneSites(15000, entries);
     expect(
       at15000.where((s) => s.kind == 'video').length,
-      1 +
-          filmVideoTierSize(0) +
-          filmVideoTierSize(1) +
-          filmVideoTierSize(2),
+      216,
     );
     expect(
       at15000.where((s) => s.kind != 'video').length,
@@ -134,17 +150,16 @@ void main() {
   });
 
   test('合体 30000 时全部开完，四类齐全，无重复 id', () {
-    final sites = visibleFilmZoneSites(30000);
-    final filmTotal =
-        filmVideoTierSize(0) +
-        filmVideoTierSize(1) +
-        filmVideoTierSize(2) +
-        filmVideoTierSize(3);
-    // 168 个核心影视站 + TG影视库；阅读 31 站。
-    expect(filmTotal, 168);
+    gateOff();
+    final sites = visibleFilmZoneSites(30000, entries);
+    // 视频 291 行；阅读 31 站。
+    expect(
+      sites.where((s) => s.kind == 'video').length,
+      291,
+    );
     expect(
       sites.length,
-      1 + filmTotal + coreReadingSiteIds.length,
+      291 + coreReadingSiteIds.length,
     );
     final kinds = <String, int>{};
     for (final s in sites) {
@@ -154,14 +169,14 @@ void main() {
     for (final kind in coreReadingKinds.values) {
       readingKinds[kind] = (readingKinds[kind] ?? 0) + 1;
     }
-    expect(kinds['video'], 1 + filmTotal);
+    expect(kinds['video'], 291);
     expect(kinds['novel'], readingKinds['novel']);
     expect(kinds['comic'], readingKinds['comic']);
     expect(kinds['audio'], readingKinds['audio']);
     final ids = sites.map((s) => s.id).toList();
     expect(ids.toSet().length, ids.length);
-    expect(ids.contains('missav'), isTrue);
-    expect(ids.contains('javrate'), isTrue);
+    expect(ids.contains('jar:zakatv:ZakaMissav'), isTrue);
+    expect(ids.contains('jar:zakatv:ZakaJavrate'), isTrue);
     expect(ids.contains('hsvoice31'), isTrue);
     expect(ids.contains('hysxs'), isTrue);
     // 阅读站名：有中文名的用中文名，没中文名的用 id；与视频站同 id
@@ -268,6 +283,24 @@ void main() {
         () => CultivationService.instance.snapshotNotifier.value =
             previous,
       );
+      // 门禁开关关掉才按档位拦（生产默认值 true 是测试期临时关闭）。
+      final wasDisabled = cultivationAdultTierGateDisabledForTesting;
+      cultivationAdultTierGateDisabledForTesting = false;
+      addTearDown(
+        () => cultivationAdultTierGateDisabledForTesting = wasDisabled,
+      );
+      // 往登记表里只放 mjv011 的 jar 行：修为 0 时池里只有 tgdrama。
+      SharedPreferences.setMockInitialValues({
+        'juhe_custom_sources': jsonEncode([
+          const SourceEntry(
+            id: 'jar:zakatv:ZakaMjv011',
+            name: '🔞mjv011',
+            kind: SourceKind.jarImport,
+            extra: {'builtin': true, 'contentType': 'video'},
+          ).toJson(),
+        ]),
+      });
+      await SourceRegistry.instance.load();
       CultivationService.instance.snapshotNotifier.value =
           CultivationSnapshot.empty;
       await tester.pumpWidget(
@@ -288,13 +321,13 @@ void main() {
       await tester.pumpAndSettle();
       // 修为 0 时池里只有 tgdrama，第 1 档的 mjv011 还没进池。
       expect(find.text('作品-tgdrama'), findsOneWidget);
-      expect(find.text('作品-mjv011'), findsNothing);
+      expect(find.text('作品-jar:zakatv:ZakaMjv011'), findsNothing);
       // 修为到元婴 3000，第 1 档解锁，首窗里自动出现 mjv011。
       CultivationService.instance.snapshotNotifier.value =
           const CultivationSnapshot(bonusXp: 3000);
       await tester.pump();
       await tester.pumpAndSettle();
-      expect(find.text('作品-mjv011'), findsOneWidget);
+      expect(find.text('作品-jar:zakatv:ZakaMjv011'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 

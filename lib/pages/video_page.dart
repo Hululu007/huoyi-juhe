@@ -61,15 +61,21 @@ bool isFilmVideoSite(String id, String name) =>
 /// 影视区内置站：核心影视站（只留影视，短剧已摘掉；黄豆等 5 个
 /// 果站是短剧站，不进核心也不在这里）+ TG影视库。顺序跟登记表
 /// 一致，只列影视站，不动主列表“只列用户导入站”的规则。
+/// TG影视库钉在最前面：切换器里 100 多个站，钉最后翻不到底；
+/// 默认选中仍是保存过的选择，没有保存过才取第一个。
 List<DramaSite> videoZoneSites() {
   const ids = {
     'tgdrama',
     ...coreVideoSiteIds,
   };
-  return [
+  final sites = [
     for (final site in dramaSites)
       if (ids.contains(site.id) && isFilmVideoSite(site.id, site.name))
         site,
+  ];
+  return [
+    ...sites.where((site) => site.id == 'tgdrama'),
+    ...sites.where((site) => site.id != 'tgdrama'),
   ];
 }
 
@@ -112,16 +118,19 @@ List<({String id, String name})> unifiedVideoZoneSites(
   return out;
 }
 
-/// 影视区可见站表：只留已解锁的站。146 个成人站按在核心登记表里的
-/// 顺序均分 4 档（元婴 3000 开第 1 档、化神 8000 第 2 档、炼虚 15000
-/// 第 3 档、合体 30000 全开）；未解锁的站完全隐藏，不在列表里出现，
-/// 不灰掉、不占位、不露站名，修为到了自动出现。非成人站原样保留。
+/// 影视区可见站表：只留已解锁的站。201 个成人站按内嵌分档登记顺序
+/// （adultVideoSiteOrder，删核心前的核心登记顺序）均分 4 档（元婴 3000
+/// 开第 1 档、化神 8000 第 2 档、炼虚 15000 第 3 档、合体 30000 全开）；
+/// 未解锁的站完全隐藏，不在列表里出现，不灰掉、不占位、不露站名，
+/// 修为到了自动出现。非成人站原样保留。种子行 `seed_<id>` 与 jar 行
+/// `jar:<jarId>:<key>` 查档位时先归一化成核心站 id（见
+/// adultSiteIdForUnifiedId），从未进过核心的站不分档、原样保留。
 List<({String id, String name})> visibleVideoZoneSites(
   List<SourceEntry> customEntries,
   int xp,
 ) {
   final all = unifiedVideoZoneSites(customEntries);
-  final adultOrder = coreVideoSiteIds.toList();
+  final adultOrder = adultVideoSiteOrder;
   final visibleIds = visibleSiteIds(
     [for (final site in all) site.id],
     adultOrder,
@@ -134,14 +143,19 @@ List<({String id, String name})> visibleVideoZoneSites(
 /// 阅读站按登记表顺序拼在一起，视频在前、阅读在后；阅读内部按
 /// 小说、漫画、听书的登记顺序。
 ///
-/// 视频站用 [visibleVideoZoneSites]（核心影视站，已摘短剧，按修为
+/// 视频站用 [visibleVideoZoneSites]（内嵌影视站，已摘短剧，按修为
 /// 分 4 档）；阅读成人站按在阅读登记表里的下标分同样的 4 档
 /// （[adultTierForIndex] / [adultTierUnlocked]），非成人阅读站
 /// 始终显示。未解锁的站完全不出现，不灰掉、不占位、不露站名。
-/// 站表读核心登记表现取，加站减站自动跟着变。
-List<({String id, String name, String kind})> visibleFilmZoneSites(int xp) {
+/// 视频站表默认读 SourceRegistry.instance.custom（种子 + jar 内嵌站
+/// 现取），单测可传 customEntries 注入；加站减站自动跟着变。
+List<({String id, String name, String kind})> visibleFilmZoneSites(
+  int xp, [
+  List<SourceEntry>? customEntries,
+]) {
+  final entries = customEntries ?? SourceRegistry.instance.custom;
   final out = <({String id, String name, String kind})>[
-    for (final site in visibleVideoZoneSites(const [], xp))
+    for (final site in visibleVideoZoneSites(entries, xp))
       (id: site.id, name: site.name, kind: 'video'),
   ];
   final readingOrder = coreReadingSiteIds.toList();

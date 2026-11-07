@@ -702,6 +702,14 @@ Future<void> openDramaSiteItem(
           final source = await _proxyIfNeeded(client, raw);
           return source.toResponse();
         },
+        // 影视区相关推荐：与目录加载器共用同一份缓存站详情，不多请求
+        // 一次；先按详情分类匹配同分类，取不到退本站首页。
+        relatedLoader: (id) async {
+          final loaded = await loadSiteDetail();
+          return loadSiteRelatedItems(client, loaded, item.id);
+        },
+        onOpenRelatedFilm: (related) =>
+            openDramaSiteItem(context, siteId, related),
         onPlaySelection: (index, episodes, detail) =>
             openDramaSitePlayback(
               context,
