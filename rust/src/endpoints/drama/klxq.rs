@@ -400,4 +400,17 @@ mod tests {
         );
         assert!(play_check("204735").is_err());
     }
+    #[tokio::test]
+    #[ignore]
+    async fn live_avjieshuo_catalog() {
+        let start = std::time::Instant::now();
+        let r = catalog("33", 1).await.unwrap();
+        let items = r["items"].as_array().unwrap();
+        eprintln!(
+            "LIVE klxq av解说 cat=33 items={} elapsed={:?}",
+            items.len(),
+            start.elapsed()
+        );
+        assert!(!items.is_empty(), "klxq AV解说 catalog empty");
+    }
 }

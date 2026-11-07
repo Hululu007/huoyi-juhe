@@ -7,6 +7,7 @@ import '../models/category_front.dart';
 import '../services/api_client.dart';
 import '../services/desktop_platform.dart';
 import '../services/drama_site_content.dart';
+import '../services/drama_site_search.dart';
 import '../services/unified_video_categories.dart';
 import '../services/user_facing_error.dart';
 import '../services/video_category_tags.dart';
@@ -42,8 +43,11 @@ import 'unified_browse_content_page.dart';
 /// 成人站的热门标签里追加「熟女」），点 chip 进视频搜索。
 /// 影视页右上角分类按钮直接以该频道打开本页。
 /// 标签部分：统一数据里 `tags` 到了就多一组「标签」，点标签
-/// 走站源搜索（核心 catalog() 只认分类 id，标签的完整站内链接
-/// 当分类 id 传过去拼不出地址；只收 browsable 为真的标签）。
+/// 走站源搜索——但只搜该标签名下的站（`tagSitesFor` 给出的站 id，
+/// 不是 200 多站全量扇出：全量扇出时请求在 RequestGate 16 并发后
+/// 排队，站表尾部的站 45 秒预算耗在排队上就超时回空，页上什么都
+/// 没有），搜索词去掉资产里带的站方计数后缀（如 okxxx 的 ` (896)`）。
+/// 只收 browsable 为真的标签。
 class CategoryPage extends StatefulWidget {
   const CategoryPage({
     super.key,
@@ -571,29 +575,47 @@ class _CategoryPageState extends State<CategoryPage> {
       }
       if (tile.dim == 'unified_tag' && data != null) {
         // 标签不走多站汇总页：核心 catalog() 只认分类 id，标签的
-        // 完整站内链接当分类 id 传过去拼不出地址，回空；改走站源搜索。
-        _openSiteSearch(tile.name);
+        // 完整站内链接当分类 id 传过去拼不出地址（各站 catalog 对
+        // 任意链接的认法还不一样，99jj/xojav/hl365 等会拼错地址或
+        // 回空）；改走站源搜索，但只搜该标签名下的站。
+        final tagSites = data.tagSitesFor(tile.name);
+        if (tagSites.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('该标签下暂无可搜的站点')),
+          );
+          return;
+        }
+        _openSiteSearch(
+          tile.name,
+          siteIds: {for (final s in tagSites) s.siteId},
+        );
         return;
       }
     }
     if (_isVideoTab && !_unifiedMode) {
       // 本站模式的标签也不走番茄搜索：番茄后端只有短剧数据，
       // 电影/剧集类标签词在那里搜不到（原始短剧搜得到、电影搜
-      // 不到就是这么来的）；改走站源搜索。
-      _openSiteSearch(tile.name);
+      // 不到就是这么来的）；改走站源搜索，只搜本站，不向全站扇出。
+      _openSiteSearch(
+        tile.name,
+        siteIds: _videoSiteId == null ? null : {_videoSiteId!},
+      );
       return;
     }
     _openSearch(query: tile.name);
   }
 
-  /// 标签点开走站源搜索（[SearchCategory.sites]）：按站分组调各站
-  /// 自己的搜索接口，标签词当关键词搜，有结果的站才列出来。
-  void _openSiteSearch(String query) {
+  /// 标签点开走站源搜索（[SearchCategory.sites]）：只搜 [siteIds]
+  /// 给出的站（统一标签是该标签名下的站，本站模式是本站），标签词
+  /// 当关键词搜（去计数后缀，如 okxxx 的 ` (896)`），有结果的站才
+  /// 列出来。`siteIds` 为空时搜全部可见站（老行为）。
+  void _openSiteSearch(String query, {Set<String>? siteIds}) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => SearchPage(
-          initialQuery: query,
+          initialQuery: tagSearchQuery(query),
           initialCategory: SearchCategory.sites,
+          initialSiteIds: siteIds,
         ),
       ),
     );

@@ -360,4 +360,25 @@ mod tests {
             Some("https://x/1.m3u8")
         );
     }
+    #[tokio::test]
+    #[ignore]
+    async fn live_categories_and_catalog() {
+        let cats = categories().await.unwrap();
+        let list = cats["categories"].as_array().unwrap();
+        assert!(!list.is_empty(), "csmanhua categories empty");
+        eprintln!(
+            "LIVE csmanhua cats={} first={}",
+            list.len(),
+            list[0]["id"].as_str().unwrap_or("")
+        );
+        let start = std::time::Instant::now();
+        let r = catalog("5", 1).await.unwrap();
+        let items = r["items"].as_array().unwrap();
+        eprintln!(
+            "LIVE csmanhua cat=5 items={} elapsed={:?}",
+            items.len(),
+            start.elapsed()
+        );
+        assert!(!items.is_empty(), "csmanhua catalog 5 empty");
+    }
 }

@@ -327,4 +327,17 @@ mod tests {
     fn unescape_entities() {
         assert_eq!(unescape("a &amp; b &#39;c&#39;"), "a & b 'c'");
     }
+    #[tokio::test]
+    #[ignore]
+    async fn live_avjieshuo_catalog() {
+        let start = std::time::Instant::now();
+        let r = catalog("501", 1).await.unwrap();
+        let items = r["items"].as_array().unwrap();
+        eprintln!(
+            "LIVE zwwm av解说 cat=501 items={} elapsed={:?}",
+            items.len(),
+            start.elapsed()
+        );
+        assert!(!items.is_empty(), "zwwm AV解说 catalog empty");
+    }
 }

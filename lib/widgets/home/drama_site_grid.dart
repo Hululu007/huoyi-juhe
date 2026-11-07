@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../models/media_item.dart';
+import '../../services/backend_transport.dart';
 import '../../services/drama_site_content.dart';
 import '../../services/drama_site_play.dart';
 import '../../services/drama_sites.dart';
@@ -69,6 +70,10 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
   bool _loading = false;
   bool _loadingMore = false;
   String? _error;
+
+  /// 本次加载失败是不是超时：超时与回空/解析失败是两回事，超时
+  /// 显示「加载超时，请重试」，回空显示「暂无内容」。
+  bool _errorIsTimeout = false;
   bool _gateBlocked = false;
   List<XbpqFilterGroup> _filterGroups = [];
   Map<String, String> _filters = {};
@@ -191,10 +196,20 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
     }
   }
 
-  /// 加载失败文案：证书过期（站方证书到期）不把原始握手报错
-  /// 整段贴出来，只留一句人话，标出这是坏站问题、不是应用问题；
-  /// 其余错误仍如实显示原文。
+  /// 是不是超时错：ApiClient 的 [BackendRequestAborted]（timedOut）
+  /// 与 widget 层 `.timeout()` 的 [TimeoutException] 都算；取消
+  /// （timedOut 为 false）不算。
+  static bool _isTimeoutError(Object error) =>
+      error is TimeoutException ||
+      (error is BackendRequestAborted && error.timedOut);
+
+  /// 加载失败文案：超时只留一句「加载超时，请重试」，不把
+  /// `TimeoutException after 0:00:45…` 这类英文原文贴出来；
+  /// 证书过期（站方证书到期）不把原始握手报错整段贴出来，只留
+  /// 一句人话，标出这是坏站问题、不是应用问题；其余错误仍如实
+  /// 显示原文。
   static String _friendlyLoadError(Object error) {
+    if (_isTimeoutError(error)) return '加载超时，请重试';
     final text = error.toString();
     if (text.contains('CERTIFICATE_VERIFY_FAILED') ||
         text.contains('certificate has expired')) {
@@ -227,12 +242,14 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
       setState(() {
         _loading = false;
         _error = '该站源当前不可用';
+        _errorIsTimeout = false;
       });
       return;
     }
     setState(() {
       _loading = !keepItems;
       _error = null;
+      _errorIsTimeout = false;
       _gateBlocked = false;
       _prefetchedPage = null;
       _prefetchedForPage = 0;
@@ -256,6 +273,7 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
       setState(() {
         _loading = false;
         _error = _friendlyLoadError(e);
+        _errorIsTimeout = _isTimeoutError(e);
       });
     }
   }
@@ -315,7 +333,11 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
       return SliverToBoxAdapter(
         child: HomeFeedError(
           headline: '故事还在路上',
-          message: '暂时无法加载该站点，稍后再试一次。',
+          // 超时单独说「加载超时，请重试」：超时是兜底健壮性问题，
+          // 不是站解析失效，别跟回空/解析失败混成一句。
+          message: _errorIsTimeout
+              ? '加载超时，请重试。'
+              : '暂时无法加载该站点，稍后再试一次。',
           detail: _error!,
           onRetry: _loadFirst,
         ),

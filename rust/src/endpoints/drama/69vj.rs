@@ -400,4 +400,18 @@ mod tests {
             edge_url("https://a.b/c?d=e").starts_with("https://tv506.ystv.top/api/v1/proxy?url=")
         );
     }
+
+    #[tokio::test]
+    #[ignore]
+    async fn live_categories_and_catalog() {
+        let cats = categories().await.unwrap();
+        let list = cats["categories"].as_array().unwrap();
+        assert!(list.len() >= 2, "69vj categories too few");
+        let r = catalog("new", 1).await.unwrap();
+        let items = r["items"].as_array().unwrap();
+        eprintln!("LIVE 69vj cats={} new_items={}", list.len(), items.len());
+        assert!(!items.is_empty(), "69vj new catalog empty");
+        assert!(!items[0]["id"].as_str().unwrap_or("").is_empty());
+        assert!(!items[0]["title"].as_str().unwrap_or("").is_empty());
+    }
 }

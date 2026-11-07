@@ -450,4 +450,17 @@ mod tests {
         );
         assert!(play_check("2960509").is_err());
     }
+    #[tokio::test]
+    #[ignore]
+    async fn live_avjieshuo_catalog() {
+        let start = std::time::Instant::now();
+        let r = catalog("712", 1).await.unwrap();
+        let items = r["items"].as_array().unwrap();
+        eprintln!(
+            "LIVE taose av解说 cat=712 items={} elapsed={:?}",
+            items.len(),
+            start.elapsed()
+        );
+        assert!(!items.is_empty(), "taose AV解说 catalog empty");
+    }
 }

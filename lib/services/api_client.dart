@@ -173,6 +173,25 @@ class ApiClient {
   /// upstream request must not leave a page spinning forever.
   final Duration _timeout;
 
+  /// 影视区核心调用的超时（只给 dramaCategories/dramaCatalog/
+  /// dramaDetail/dramaSearch 用，全局 [_timeout] 默认值不动）：
+  /// Rust 侧各站 catalog 已压到 15 秒内回包，Dart 侧给 2~3 倍余量——
+  /// 慢网下一次调用仍有真实机会拿到回包，最坏 45 秒封顶、不无限等。
+  /// 页面/widget 层的 `.timeout()` 兜底必须比这里多几秒（见
+  /// home_film_zone/video_page 的用法），否则 widget 的超时先盖帽，
+  /// ApiClient 的预算永远跑不满。
+  static const Duration dramaCategoriesTimeout = Duration(seconds: 30);
+  static const Duration dramaCatalogTimeout = Duration(seconds: 45);
+  static const Duration dramaDetailTimeout = Duration(seconds: 45);
+  static const Duration dramaSearchTimeout = Duration(seconds: 45);
+
+  /// 阅读区核心调用的超时（与影视区同款：Rust 侧阅读客户端单次请求
+  /// 30 秒、多步取数——分类 + 目录两趟，modu18 还要先取图床——默认
+  /// 20 秒预算常在第二趟没回来前就掐断，站被静默判空；给 45 秒，
+  /// 与 dramaCatalogTimeout 对齐）。
+  static const Duration readingCategoriesTimeout = Duration(seconds: 45);
+  static const Duration readingCatalogTimeout = Duration(seconds: 45);
+
   // Encrypted comic chapters are downloaded and decrypted by the backend
   // before its JSON response is ready, so they need a separate finite limit.
   final Duration _comicTimeout;
@@ -382,7 +401,10 @@ class ApiClient {
 
   /// 影视区（核心新增）：自有站分类（芽果首个进核心）。
   Future<Map<String, dynamic>> dramaCategories(String siteId) async {
-    final r = await _get(_url('/api/v1/drama/categories', {'site_id': siteId}));
+    final r = await _get(
+      _url('/api/v1/drama/categories', {'site_id': siteId}),
+      timeout: dramaCategoriesTimeout,
+    );
     return _decodeAsync(r);
   }
 
@@ -392,26 +414,35 @@ class ApiClient {
     String categoryId,
     int page,
   ) async {
-    final r = await _get(_url('/api/v1/drama/catalog', {
-      'site_id': siteId,
-      'category_id': categoryId,
-      'page': '$page',
-    }));
+    final r = await _get(
+      _url('/api/v1/drama/catalog', {
+        'site_id': siteId,
+        'category_id': categoryId,
+        'page': '$page',
+      }),
+      timeout: dramaCatalogTimeout,
+    );
     return _decodeAsync(r);
   }
 
   /// 影视区（核心新增）：自有站详情。
   Future<Map<String, dynamic>> dramaDetail(String siteId, String id) async {
-    final r = await _get(_url('/api/v1/drama/detail', {'site_id': siteId, 'id': id}));
+    final r = await _get(
+      _url('/api/v1/drama/detail', {'site_id': siteId, 'id': id}),
+      timeout: dramaDetailTimeout,
+    );
     return _decodeAsync(r);
   }
 
   /// 影视区（核心新增）：自有站搜索。
   Future<Map<String, dynamic>> dramaSearch(String siteId, String query) async {
-    final r = await _get(_url('/api/v1/drama/search', {
-      'site_id': siteId,
-      'query': query,
-    }));
+    final r = await _get(
+      _url('/api/v1/drama/search', {
+        'site_id': siteId,
+        'query': query,
+      }),
+      timeout: dramaSearchTimeout,
+    );
     return _decodeAsync(r);
   }
 
@@ -426,7 +457,10 @@ class ApiClient {
 
   /// 阅读区（核心新增）：自有站分类（小说/漫画/听书走同一套核心路由）。
   Future<Map<String, dynamic>> readingCategories(String siteId) async {
-    final r = await _get(_url('/api/v1/reading/categories', {'site_id': siteId}));
+    final r = await _get(
+      _url('/api/v1/reading/categories', {'site_id': siteId}),
+      timeout: readingCategoriesTimeout,
+    );
     return _decodeAsync(r);
   }
 
@@ -436,11 +470,14 @@ class ApiClient {
     String categoryId,
     int page,
   ) async {
-    final r = await _get(_url('/api/v1/reading/catalog', {
-      'site_id': siteId,
-      'category_id': categoryId,
-      'page': '$page',
-    }));
+    final r = await _get(
+      _url('/api/v1/reading/catalog', {
+        'site_id': siteId,
+        'category_id': categoryId,
+        'page': '$page',
+      }),
+      timeout: readingCatalogTimeout,
+    );
     return _decodeAsync(r);
   }
 

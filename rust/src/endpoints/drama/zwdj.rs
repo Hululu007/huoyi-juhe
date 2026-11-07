@@ -370,4 +370,17 @@ mod tests {
         );
         assert_eq!(parse_play_url("<div>no url</div>"), "");
     }
+    #[tokio::test]
+    #[ignore]
+    async fn live_avjieshuo_catalog() {
+        let start = std::time::Instant::now();
+        let r = catalog("28", 1).await.unwrap();
+        let items = r["items"].as_array().unwrap();
+        eprintln!(
+            "LIVE zwdj av解说 cat=28 items={} elapsed={:?}",
+            items.len(),
+            start.elapsed()
+        );
+        assert!(!items.is_empty(), "zwdj AV解说 catalog empty");
+    }
 }

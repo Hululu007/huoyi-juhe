@@ -5,8 +5,12 @@
 //! 取页短于 3000 且含 `同意(enter)` / `IamOverEighteenYearsOld` 时重走
 //! 年龄门再取。分类从年龄门页正则抓 `_random/all`（去 `(数字)` 后缀，
 //! 去含 random/隨機/随机/近作的项），前置 `home` 与 `content_news/all`；
-//! 抓不到时用写死的 15 类。列表先试 `video_9s` 块，回退通用 post 正则；
-//! 小说类走无封面文本解析。详情视频须同时取到 `hadeedg252` /
+//! 抓不到时用写死的 15 类。视频列表按 jar `ZakaMjv011Amns` / py 对照版
+//! 的切块法解析（split `<div class='post video_9s'>` 后逐块取链接、
+//! 封面、标题、日期，按 vod_id 去重），无 video_9s 时回退通用 post 正则；
+//! 候选 URL 只有 `_list` 与 `_random` 各 1 个，另加 15 秒总预算，
+//! 保证 Dart 侧 20 秒超时内有回音。小说类走无封面文本解析。
+//! 详情视频须同时取到 `hadeedg252` /
 //! `hcdeedg252` / AES key / AES iv / `mvarr['10_1']`，每集出 480P /
 //! 720P / 1080P 三条；`decryptId` 为：按 `chr(base+97)` 切分，每段按
 //! `base` 进制解析后异或 `hadeedg252`，拼成 Base64 再 AES/CBC/NoPadding
@@ -59,7 +63,7 @@ fn re_classes() -> &'static Regex {
 
 fn re_post1() -> &'static Regex {
     static RE: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r#"(?s)<div class='post'>\s*<a[^>]*href="([^"]+)"[^>]*><img[^>]*src='([^']+)'[^>]*>\s*</a>\s*<div class='con'>\s*<h3[^>]*><a[^>]*>([^<]+)</a></h3>(?:\s*<div class='meta'>([^<]*)</div>)?"#)
+        Regex::new(r#"(?s)<div class='post[^']*'>\s*(?:<figure[^>]*>\s*)?<a[^>]*href="([^"]+)"[^>]*>\s*<img[^>]*src='([^']+)'[^>]*>.*?</a>\s*(?:</figure>\s*)?<div class='con'>\s*<h3[^>]*><a[^>]*>([^<]+)</a></h3>(?:\s*<div class='meta'>([^<]*)</div>)?"#)
             .unwrap()
     });
     &RE
@@ -67,7 +71,7 @@ fn re_post1() -> &'static Regex {
 
 fn re_post2() -> &'static Regex {
     static RE: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r#"(?si)<a[^>]+href="([^"]*zh/[^"]*_content/[^"]*)"[^>]*>.*?<img[^>]+src="([^"]+)"[^>]*>.*?<(?:h3|h2|h4|div\s+class="title")[^>]*>(.*?)</"#)
+        Regex::new(r#"(?si)<a[^>]+href="([^"]*zh/[^"]*_content/[^"]*)"[^>]*>.*?<img[^>]+src=["']([^"']+)["'][^>]*>.*?<(?:h3|h2|h4|div\s+class="title")[^>]*>(.*?)</"#)
             .unwrap()
     });
     &RE
@@ -78,6 +82,22 @@ fn re_text_post() -> &'static Regex {
         Regex::new(r#"(?s)<div class='post'>\s*<div class='con'>\s*<h3[^>]*><a[^>]*href="([^"]+)"[^>]*>([^<]+)</a></h3>"#)
             .unwrap()
     });
+    &RE
+}
+
+fn re_chunk_pic() -> &'static Regex {
+    static RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"<img[^>]*src='([^']+)'").unwrap());
+    &RE
+}
+
+fn re_chunk_title() -> &'static Regex {
+    static RE: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r"<h3[^>]*><a[^>]*>([^<]+)</a></h3>").unwrap());
+    &RE
+}
+
+fn re_chunk_date() -> &'static Regex {
+    static RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"<div class='meta'>([^<]*)</div>").unwrap());
     &RE
 }
 
@@ -183,6 +203,37 @@ fn today_ymd() -> (i64, u32, u32) {
     (y, m, d)
 }
 
+/// 视频列表：与 jar `ZakaMjv011Amns.parseVideoPosts` / py
+/// `_parse_video_posts` 同款——按 `<div class='post video_9s'>` 切块，
+/// 逐块取首个 `_content` 链接（`ctype#num#slug`）、首张 `img src`、
+/// h3 标题与 meta 日期，空标题跳过、按 vod_id 去重。
+fn parse_video_posts(text: &str) -> Vec<Value> {
+    let mut items = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for chunk in text.split("<div class='post video_9s'>").skip(1) {
+        let Some(l) = re_content_link().captures(chunk) else {
+            continue;
+        };
+        let vod_id = format!(
+            "{}#{}#{}",
+            l.get(1).unwrap().as_str(),
+            l.get(2).unwrap().as_str(),
+            l.get(3).unwrap().as_str()
+        );
+        if !seen.insert(vod_id.clone()) {
+            continue;
+        }
+        let pic = first_group(re_chunk_pic(), chunk);
+        let title = first_group(re_chunk_title(), chunk);
+        let date = first_group(re_chunk_date(), chunk);
+        if title.trim().is_empty() {
+            continue;
+        }
+        items.push(item_json(&vod_id, title.trim(), &pic, date.trim()));
+    }
+    items
+}
+
 fn parse_posts(text: &str, tid: &str) -> Vec<Value> {
     if is_novel(tid) {
         let mut items = Vec::new();
@@ -201,6 +252,12 @@ fn parse_posts(text: &str, tid: &str) -> Vec<Value> {
             items.push(item_json(&vod_id, title.trim(), "", ""));
         }
         return items;
+    }
+    if text.contains("video_9s") {
+        let v = parse_video_posts(text);
+        if !v.is_empty() {
+            return v;
+        }
     }
     let mut items = Vec::new();
     let mut found = false;
@@ -318,30 +375,38 @@ pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
             break;
         }
     }
+    // 2026-11-07 实测：只有 `_list/all/index.html`（第 1 页）与
+    // `_list/all/{page}.html`（翻页）真回列表（各 24 条）；`_random`
+    // 只作 `_list` 失败时的兜底。候选共 2 个，另加 15 秒总预算兜底，
+    // 保证 Dart 侧 20 秒超时内一定有回音。
     let mut candidates: Vec<String> = Vec::new();
     if page == 1 {
         candidates.push(format!("{HOST}/zh/{base_tid}_list/all/index.html"));
+    } else {
+        candidates.push(format!("{HOST}/zh/{base_tid}_list/all/{page}.html"));
+    }
+    if page == 1 {
         candidates.push(format!("{HOST}/zh/{base_tid}_random/all/index.html"));
+    } else {
+        candidates.push(format!("{HOST}/zh/{base_tid}_random/all/{page}.html"));
     }
-    candidates.push(format!("{HOST}/zh/{base_tid}_list/all/{page}.html"));
-    candidates.push(format!("{HOST}/zh/{base_tid}_list/index_{page}.html"));
-    candidates.push(format!("{HOST}/zh/{base_tid}/{page}.html"));
-    candidates.push(format!("{HOST}/zh/{base_tid}/page/{page}.html"));
-    candidates.push(format!("{HOST}/zh/{base_tid}_random/all/{page}.html"));
-    if page > 1 {
-        candidates.push(format!("{HOST}/zh/{base_tid}_list/index_{page}.html"));
-    }
-    let mut items: Vec<Value> = Vec::new();
-    for url in candidates {
-        let text = fetch(&url).await;
-        if text.is_empty() {
-            continue;
+    let budgeted = tokio::time::timeout(std::time::Duration::from_secs(15), async {
+        let mut found: Vec<Value> = Vec::new();
+        for url in candidates {
+            let text = fetch(&url).await;
+            if text.is_empty() {
+                continue;
+            }
+            let got = parse_posts(&text, category_id);
+            if !got.is_empty() {
+                found = got;
+                break;
+            }
         }
-        items = parse_posts(&text, category_id);
-        if !items.is_empty() {
-            break;
-        }
-    }
+        found
+    })
+    .await;
+    let items: Vec<Value> = budgeted.unwrap_or_default();
     let has_more = !items.is_empty();
     Ok(json!({"items": items, "has_more": has_more}))
 }
@@ -617,9 +682,34 @@ mod tests {
 
     #[test]
     fn parse_posts_video9s() {
-        let html = r#"<div class='post'> <a href="/zh/chinese_content/123/abc.html"><img src='https://x/y.jpg'> </a> <div class='con'> <h3><a>标题</a></h3> <div class='meta'>2026-01-01</div>"#;
+        let html = r#"<div class='post video_9s'> <figure class='video-preview thumb'> <a target="_top" href="https://mjv011.com/zh/chinese_content/123/abc.html"><img src='https://x/y.jpg' class='thumb'><video loop='true' muted='true' playsinline='true' poster='' data-src='https://x/y.mp4' src='' autoplay='true' class='thumb'></video><div class='video-loader' style='visibility: hidden;'><div class='spinner-border text-pink'></div></div></a> </figure> <div class='con'> <h3 itemprop='name headline'><a target="_top" href="https://mjv011.com/zh/chinese_content/123/abc.html">标题</a></h3> <div class='meta'>2026-01-01</div>"#;
         let items = parse_posts(html, "chinese_random/all");
         assert_eq!(items.len(), 1);
         assert_eq!(items[0]["id"], "chinese#123#abc");
+    }
+
+    // 以下为联网实测（默认忽略，手动 `cargo test --lib mjv011 -- --ignored` 跑）：
+    // 2026-11-07 实测全过，见模块头注释；留着供以后复验。
+    #[tokio::test]
+    #[ignore]
+    async fn live_categories() {
+        let cats = categories().await.unwrap();
+        let list = cats["categories"].as_array().unwrap();
+        assert_eq!(list.len(), 17);
+        assert_eq!(list[0]["id"], "home");
+        assert_eq!(list[1]["id"], "content_news/all");
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn live_catalog() {
+        let r = catalog("chinese_random/all", 1).await.unwrap();
+        let items = r["items"].as_array().unwrap();
+        assert!(!items.is_empty(), "catalog empty");
+        assert!(!items[0]["cover"].as_str().unwrap_or("").is_empty());
+        let id = items[0]["id"].as_str().unwrap_or("").to_string();
+        let parts: Vec<&str> = id.split('#').collect();
+        assert_eq!(parts.len(), 3, "{id}");
+        assert!(parts[1].chars().all(|c| c.is_ascii_digit()), "{id}");
     }
 }

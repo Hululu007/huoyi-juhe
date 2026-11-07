@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:fqapp/services/api_client.dart';
+import 'package:fqapp/services/backend_transport.dart';
 import 'package:fqapp/services/drama_playback.dart';
 import 'package:fqapp/services/drama_site_content.dart';
 import 'package:fqapp/services/drama_sites.dart';
@@ -212,6 +214,150 @@ void main() {
     final categories = await client.categories();
     expect(categories.map((c) => c.id), ['f1']);
   });
+
+  test('drama timeouts leave room for the core reply', () {
+    // Rust 侧 catalog 压到 15 秒内回包；Dart 侧给 2~3 倍余量，
+    // 慢网下仍有真实机会拿到回包，最坏 45 秒封顶。
+    expect(ApiClient.dramaCategoriesTimeout, const Duration(seconds: 30));
+    expect(ApiClient.dramaCatalogTimeout, const Duration(seconds: 45));
+    expect(ApiClient.dramaDetailTimeout, const Duration(seconds: 45));
+    expect(ApiClient.dramaSearchTimeout, const Duration(seconds: 45));
+  });
+
+  test('core-only site timeout throws a timeout error, not the fallback text',
+      () async {
+    final client = CoreDramaContentClient.coreOnly(
+      siteId: 'mjv011',
+      api: _ThrowingApiClient(
+        BackendRequestAborted('请求超时', timedOut: true),
+      ),
+    );
+    // 超时不再被说成「核心未返回目录」：抛带 timedOut 的超时错，
+    // 文案就是界面要显示的「加载超时，请重试」。
+    await expectLater(
+      client.catalog('c1', 1),
+      throwsA(
+        isA<BackendRequestAborted>()
+            .having((e) => e.timedOut, 'timedOut', isTrue)
+            .having((e) => e.message, 'message', '加载超时，请重试'),
+      ),
+    );
+    await expectLater(
+      client.categories(),
+      throwsA(isA<BackendRequestAborted>()),
+    );
+    await expectLater(client.search('核心'), throwsA(isA<BackendRequestAborted>()));
+  });
+
+  test('core-only site widget timeout is a timeout error too', () async {
+    final client = CoreDramaContentClient.coreOnly(
+      siteId: 'mjv011',
+      api: _ThrowingApiClient(TimeoutException('超时', const Duration(seconds: 45))),
+    );
+    await expectLater(
+      client.catalog('c1', 1),
+      throwsA(
+        isA<BackendRequestAborted>()
+            .having((e) => e.timedOut, 'timedOut', isTrue),
+      ),
+    );
+  });
+
+  test('core-only site non-timeout error still goes to the fallback text',
+      () async {
+    final client = CoreDramaContentClient.coreOnly(
+      siteId: 'mjv011',
+      api: _ThrowingApiClient(const ApiException('核心未起')),
+    );
+    // 非超时错（核心未起、格式错）仍走回退：回退抛「核心未返回…」，
+    // 如实说核心没回包，不是超时。
+    await expectLater(
+      client.catalog('c1', 1),
+      throwsA(
+        isA<StateError>().having(
+          (e) => e.message,
+          'message',
+          contains('核心未返回目录'),
+        ),
+      ),
+    );
+  });
+
+  test('core-only site empty catalog returns an empty page, not an error',
+      () async {
+    final client = CoreDramaContentClient.coreOnly(
+      siteId: 'mjv011',
+      api: _EmptyApiClient(),
+    );
+    final page = await client.catalog('c1', 1);
+    expect(page.items, isEmpty);
+    expect(page.hasMore, isFalse);
+    expect(await client.categories(), isEmpty);
+    expect(await client.search('核心'), isEmpty);
+  });
+
+  test('real-fallback site still falls back on timeout', () async {
+    final client = CoreDramaContentClient(
+      siteId: 'huangju',
+      api: _ThrowingApiClient(
+        BackendRequestAborted('请求超时', timedOut: true),
+      ),
+      fallback: _StubFallbackClient(),
+    );
+    // 有真实 Dart 回退客户端的站保持原有回退行为：超时也走回退。
+    final categories = await client.categories();
+    expect(categories.map((c) => c.id), ['stub1']);
+  });
+}
+
+/// 核心调用直接抛指定错的 ApiClient：验超时/非超时分流用。
+class _ThrowingApiClient extends FakeApiClient {
+  _ThrowingApiClient(this.error);
+
+  final Object error;
+
+  @override
+  Future<Map<String, dynamic>> dramaCategories(String siteId) =>
+      throw error;
+
+  @override
+  Future<Map<String, dynamic>> dramaCatalog(
+    String siteId,
+    String categoryId,
+    int page,
+  ) =>
+      throw error;
+
+  @override
+  Future<Map<String, dynamic>> dramaDetail(String siteId, String id) =>
+      throw error;
+
+  @override
+  Future<Map<String, dynamic>> dramaSearch(String siteId, String query) =>
+      throw error;
+
+  @override
+  Future<Map<String, dynamic>> dramaPlay(String siteId, String videoId) =>
+      throw error;
+}
+
+/// 核心正常回空列表的 ApiClient：验回空不抛错用。
+class _EmptyApiClient extends FakeApiClient {
+  @override
+  Future<Map<String, dynamic>> dramaCategories(String siteId) async =>
+      {'categories': []};
+
+  @override
+  Future<Map<String, dynamic>> dramaCatalog(
+    String siteId,
+    String categoryId,
+    int page,
+  ) async =>
+      {'items': [], 'has_more': false};
+
+  @override
+  Future<Map<String, dynamic>> dramaSearch(String siteId, String query) async =>
+      {'items': []};
 }
 
 class _MalformedApiClient extends FakeApiClient {

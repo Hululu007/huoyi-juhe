@@ -200,12 +200,14 @@ class _AdultTypeGridState extends State<_AdultTypeGrid> {
         }
       }
 
-      /// 单站 30 秒封顶：hsvoice31 取目录要连走两趟上游（混淆壳首页 +
-      /// 解码 JS），hysxs 首跑要逐个探活候选域名，15 秒在手机弱网上
-      /// 不够，两站都会被静默判空。30 秒仍比单次请求 20 秒上限宽，
-      /// 两站并行跑，总墙钟不超 30 秒。
+      /// 单站 60 秒封顶：hsvoice31 取目录要连走两趟上游（混淆壳首页 +
+      /// 解码 JS），hysxs 首跑要逐个探活候选域名；漫画站同样是分类 +
+      /// 目录两趟（modu18 还要先取图床）。单趟预算已是 45 秒
+      /// （ApiClient 的 reading*Timeout），30 秒帽会把第二趟没回来
+      /// 的站静默判空。60 秒盖两趟实测耗时（分类约 5 秒 + 目录约
+      /// 11 秒）的三倍有余，仍有总墙钟上限，不无限等。
       Future<List<MediaItem>> timed(Future<List<MediaItem>> f) => f.timeout(
-        const Duration(seconds: 30),
+        const Duration(seconds: 60),
         onTimeout: () => const <MediaItem>[],
       );
 

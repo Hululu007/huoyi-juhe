@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fqapp/pages/category_page.dart';
 import 'package:fqapp/pages/video_page.dart';
+import 'package:fqapp/services/backend_transport.dart';
 import 'package:fqapp/services/drama_playback.dart';
 import 'package:fqapp/services/drama_site_content.dart';
 import 'package:fqapp/services/drama_sites.dart';
@@ -13,6 +14,22 @@ import 'package:fqapp/services/source_registry.dart';
 import 'package:fqapp/services/unified_video_categories.dart';
 import 'package:fqapp/services/video_category_tags.dart';
 import 'package:fqapp/widgets/home/drama_site_grid.dart';
+
+/// catalog 直接抛超时的网格客户端：验超时文案用。
+class _TimeoutGridClient extends _FakeClient {
+  @override
+  Future<DramaSiteCatalogPage> catalog(String categoryId, int page) async {
+    throw BackendRequestAborted('加载超时，请重试', timedOut: true);
+  }
+}
+
+/// catalog 正常回空的网格客户端：验回空不报失败用。
+class _EmptyGridClient extends _FakeClient {
+  @override
+  Future<DramaSiteCatalogPage> catalog(String categoryId, int page) async {
+    return const DramaSiteCatalogPage(items: [], hasMore: false);
+  }
+}
 
 class _FakeClient extends DramaSiteContentClient {
   @override
@@ -213,6 +230,63 @@ void main() {
       find.byType(SliverGrid),
     ).gridDelegate as SliverGridDelegateWithFixedCrossAxisCount;
     expect(delegate.crossAxisCount, 3);
+  });
+
+  testWidgets('网格超时显示加载超时请重试，不说核心未返回', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(400, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    SharedPreferences.setMockInitialValues({});
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CustomScrollView(
+            slivers: [
+              DramaSiteGrid(
+                siteId: 'fake_site',
+                categoryId: 'all',
+                gridWidth: 400,
+                client: _TimeoutGridClient(),
+                showFilterBar: false,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('加载超时，请重试。'), findsOneWidget);
+    expect(find.text('加载超时，请重试'), findsOneWidget);
+    expect(find.textContaining('核心未返回'), findsNothing);
+    // 超时可重试：重试按钮在。
+    expect(find.text('重试'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('网格回空显示暂无内容，不当失败', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(400, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    SharedPreferences.setMockInitialValues({});
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CustomScrollView(
+            slivers: [
+              DramaSiteGrid(
+                siteId: 'fake_site',
+                categoryId: 'all',
+                gridWidth: 400,
+                client: _EmptyGridClient(),
+                showFilterBar: false,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('暂无内容'), findsOneWidget);
+    expect(find.text('故事还在路上'), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('分类页影视 tab：左栏四组 + 含熟女的热门标签', (tester) async {

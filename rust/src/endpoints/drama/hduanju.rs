@@ -358,4 +358,17 @@ DVAJ-709 姐夫夜夜揉奶，人妻静河沦陷内射骚穴
         assert_eq!(detail_id("3095038.html"), "3095038");
         assert_eq!(detail_id("/info/id/3095038.html"), "3095038");
     }
+    #[tokio::test]
+    #[ignore]
+    async fn live_avjieshuo_catalog() {
+        let start = std::time::Instant::now();
+        let r = catalog("57", 1).await.unwrap();
+        let items = r["items"].as_array().unwrap();
+        eprintln!(
+            "LIVE hduanju av解说 cat=57 items={} elapsed={:?}",
+            items.len(),
+            start.elapsed()
+        );
+        assert!(!items.is_empty(), "hduanju AV解说 catalog empty");
+    }
 }

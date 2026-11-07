@@ -52,6 +52,11 @@ class SearchPage extends StatefulWidget {
   /// 搜索落「漫剧」，其余频道落「短剧」；缺省仍是「综合」。
   final SearchCategory initialCategory;
 
+  /// 「站源」页签只搜这些站（分类页点标签时传该标签名下的站 id；
+  /// 不传则搜全部可见站）。搜的范围跟着这页走：框里改词重搜仍只在
+  /// 这些站里搜，不会悄悄扩回全站。
+  final Set<String>? initialSiteIds;
+
   /// Optional discovery sources. Leaving them null fetches from the backend
   /// unless another loader was injected, which marks the caller as offline (the
   /// rule the other pages follow).
@@ -71,6 +76,7 @@ class SearchPage extends StatefulWidget {
     this.hotSearchLoader,
     this.shuqiSearchLoader,
     this.initialCategory = SearchCategory.general,
+    this.initialSiteIds,
   });
 
   @override
@@ -553,7 +559,10 @@ class _SearchPageState extends State<SearchPage> {
     if (_query.isEmpty || _siteLoading || _siteQuery == _query) return;
     final generation = _requestGeneration;
     setState(() => _siteLoading = true);
-    final results = await searchAllDramaSites(_query);
+    final results = await searchAllDramaSites(
+      _query,
+      siteIds: widget.initialSiteIds,
+    );
     if (!mounted || generation != _requestGeneration) return;
     setState(() {
       _siteResults = results;

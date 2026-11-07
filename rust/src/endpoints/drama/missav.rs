@@ -384,4 +384,23 @@ mod tests {
         let cats = fallback_categories();
         assert_eq!(cats["categories"].as_array().unwrap().len(), 6);
     }
+
+    #[tokio::test]
+    #[ignore]
+    async fn live_categories_and_catalog() {
+        let cats = categories().await.unwrap();
+        let list = cats["categories"].as_array().unwrap();
+        assert!(!list.is_empty(), "missav categories empty");
+        let first = list[0]["id"].as_str().unwrap().to_string();
+        let r = catalog(&first, 1).await.unwrap();
+        let items = r["items"].as_array().unwrap();
+        eprintln!(
+            "LIVE missav cats={} first={first} items={}",
+            list.len(),
+            items.len()
+        );
+        assert!(!items.is_empty(), "missav catalog empty for {first}");
+        assert!(!items[0]["id"].as_str().unwrap_or("").is_empty());
+        assert!(!items[0]["title"].as_str().unwrap_or("").is_empty());
+    }
 }

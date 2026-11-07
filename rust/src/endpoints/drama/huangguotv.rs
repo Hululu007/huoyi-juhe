@@ -468,4 +468,26 @@ mod tests {
         eps.dedup();
         assert_eq!(eps, vec![1, 2]);
     }
+
+    #[tokio::test]
+    #[ignore]
+    async fn live_categories_and_catalog() {
+        let cats = categories().await.unwrap();
+        assert_eq!(cats["categories"].as_array().unwrap().len(), 5);
+        let r = catalog("home", 1).await.unwrap();
+        let items = r["items"].as_array().unwrap();
+        eprintln!("LIVE huangguotv cats=5 home_items={}", items.len());
+        assert!(!items.is_empty(), "huangguotv home catalog empty");
+        assert!(!items[0]["id"].as_str().unwrap_or("").is_empty());
+        assert!(!items[0]["title"].as_str().unwrap_or("").is_empty());
+        let r2 = catalog("33", 1).await.unwrap();
+        assert!(
+            !r2["items"].as_array().unwrap().is_empty(),
+            "huangguotv cat 33 catalog empty"
+        );
+        eprintln!(
+            "LIVE huangguotv cat33 items={}",
+            r2["items"].as_array().unwrap().len()
+        );
+    }
 }

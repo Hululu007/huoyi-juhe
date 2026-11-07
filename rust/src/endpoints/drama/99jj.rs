@@ -115,7 +115,13 @@ fn cards(page: &str) -> Vec<Value> {
             continue;
         }
         let start = cap.get(0).unwrap().start();
-        let window = &page[start..page.len().min(start + 1600)];
+        // 按字节切 1600 窗口会切在中文字符中间导致 panic（Java 原版
+        // substring 按字符下标切，不会炸）；把末尾退到字符边界再切。
+        let mut end = page.len().min(start + 1600);
+        while end > start && !page.is_char_boundary(end) {
+            end -= 1;
+        }
+        let window = &page[start..end];
         let cover = P_IMG
             .captures(window)
             .and_then(|c| c.get(1))
@@ -336,6 +342,22 @@ mod tests {
     }
 
     #[test]
+    fn cards_window_does_not_panic_on_multibyte_boundary() {
+        // 窗口末尾 start+1600 若落在中文字符中间，旧代码按字节切会 panic。
+        for pad in 0..3 {
+            let mut html = String::from(
+                r#"<div class="item"><a href="https://www.99jj25.com/videos/12345/test-title/" title="Test Title"><img data-original="//cdn.example.com/1.jpg"><div class="duration">12:34</div>"#,
+            );
+            html.push_str(&"x".repeat(pad));
+            html.push_str(&"】".repeat(600));
+            html.push_str("</a></div>");
+            let items = cards(&html);
+            assert_eq!(items.len(), 1);
+            assert_eq!(items[0]["title"], "Test Title");
+        }
+    }
+
+    #[test]
     fn cards_parse_sample() {
         let html = r#"<div class="item"><a href="https://www.99jj25.com/videos/12345/test-title/" title="Test Title"><img data-original="//cdn.example.com/1.jpg"><div class="duration">12:34</div></a></div>"#;
         let items = cards(html);
@@ -344,5 +366,19 @@ mod tests {
         assert_eq!(items[0]["title"], "Test Title");
         assert_eq!(items[0]["cover"], "https://cdn.example.com/1.jpg");
         assert_eq!(items[0]["remark"], "12:34");
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn live_categories_and_catalog() {
+        let cats = categories().await.unwrap();
+        let list = cats["categories"].as_array().unwrap();
+        assert_eq!(list.len(), 12);
+        let r = catalog("new", 1).await.unwrap();
+        let items = r["items"].as_array().unwrap();
+        eprintln!("LIVE 99jj cats=12 new_items={}", items.len());
+        assert!(!items.is_empty(), "99jj new catalog empty");
+        assert!(!items[0]["id"].as_str().unwrap_or("").is_empty());
+        assert!(!items[0]["title"].as_str().unwrap_or("").is_empty());
     }
 }

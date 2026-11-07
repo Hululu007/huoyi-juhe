@@ -323,4 +323,18 @@ mod tests {
     fn unescape_entities() {
         assert_eq!(unescape("a &amp; b &#39;c&#39;"), "a & b 'c'");
     }
+
+    #[tokio::test]
+    #[ignore]
+    async fn live_categories_and_catalog() {
+        let cats = categories().await.unwrap();
+        let list = cats["categories"].as_array().unwrap();
+        assert!(!list.is_empty(), "ai4k categories empty");
+        let r = catalog("7", 1).await.unwrap();
+        let items = r["items"].as_array().unwrap();
+        eprintln!("LIVE ai4k cats={} cat7_items={}", list.len(), items.len());
+        assert!(!items.is_empty(), "ai4k cat 7 catalog empty");
+        assert!(!items[0]["id"].as_str().unwrap_or("").is_empty());
+        assert!(!items[0]["title"].as_str().unwrap_or("").is_empty());
+    }
 }

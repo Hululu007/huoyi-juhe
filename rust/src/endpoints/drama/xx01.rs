@@ -216,7 +216,10 @@ fn parse_cards(html: &str, limit: usize) -> Vec<Value> {
             continue;
         }
         let whole = cap.get(0).unwrap();
-        let seg_end = (whole.start() + 4000).min(html.len());
+        let mut seg_end = (whole.start() + 4000).min(html.len());
+        while seg_end > whole.start() && !html.is_char_boundary(seg_end) {
+            seg_end -= 1;
+        }
         let seg = &html[whole.start()..seg_end];
         let title = title_re
             .captures(seg)
@@ -357,6 +360,10 @@ pub(crate) async fn catalog(category_id: &str, page: i64) -> ApiResult<Value> {
         "limit": 20,
         "total": total,
         "has_more": has_more,
+        // 2026-11-07：Dart 侧只认 "items"（见 drama_site_content.dart
+        // 的 _itemsOf(payload['items'])），原先只返 "list" 时应用层
+        // 判“核心未返回目录”直接跳过本站；"list" 留着兼容旧调用。
+        "items": items,
         "list": items,
     }))
 }
@@ -476,8 +483,34 @@ mod tests {
     }
 
     #[test]
+    fn parse_cards_char_boundary_no_panic() {
+        // 回归：卡片分段按 4000 字节切，旧代码在多字节字符中间切会
+        // panic（2026-11-07 实测 AV解说页因此整站失败）。
+        let pad = "x".repeat(3957);
+        let html = format!(
+            "class=\"item-wrapper\"><a href=\"/video-1\">{pad}班班<img data-src=\"c.jpg\" alt=\"片名\">"
+        );
+        let items = parse_cards(&html, 24);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["id"], "https://xx01.com/video-1");
+    }
+
+    #[test]
     fn hms_formats_seconds() {
         assert_eq!(hms(5965), "01:39:25");
         assert_eq!(hms(65), "00:01:05");
+    }
+    #[tokio::test]
+    #[ignore]
+    async fn live_avjieshuo_catalog() {
+        let start = std::time::Instant::now();
+        let r = catalog("/avtalk", 1).await.unwrap();
+        let items = r["items"].as_array().unwrap();
+        eprintln!(
+            "LIVE xx01 av解说 cat=/avtalk items={} elapsed={:?}",
+            items.len(),
+            start.elapsed()
+        );
+        assert!(!items.is_empty(), "xx01 AV解说 catalog empty");
     }
 }

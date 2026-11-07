@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:archive/archive.dart';
@@ -10,6 +12,7 @@ import 'package:html/parser.dart' as html_parser;
 import 'package:http/http.dart' as http;
 
 import 'api_client.dart';
+import 'backend_transport.dart';
 import 'drama_playback.dart';
 import 'drama_sites.dart';
 import 'local_media_proxy.dart';
@@ -3660,10 +3663,7 @@ DramaSiteContentClient? dramaSiteContentClient(String siteId) {
   if (siteId == 'huangdou_yh') return HuangdouContentClient();
   if (siteId == 'tgdrama') return TgdramaContentClient();
   if (coreVideoSiteIds.contains(siteId)) {
-    return CoreDramaContentClient(
-      siteId: siteId,
-      fallback: const _CoreOnlyFallback(),
-    );
+    return CoreDramaContentClient.coreOnly(siteId: siteId);
   }
   if (siteId == 'huaguo') {
     return MaccmsContentClient('huaguo', 'https://www.zywest263.com');
@@ -3725,6 +3725,13 @@ class CoreDramaContentClient implements DramaSiteContentClient {
   })  : _api = api ?? ApiClient.instance,
         _fallback = fallback ?? _defaultFallback(siteId, fallbackClient);
 
+  /// 只走核心的站用：回退就是 [_CoreOnlyFallback]，没有真实 Dart
+  /// 客户端；核心超时/断网时直接抛超时错（见 [_coreOrFallback]），
+  /// 不兜底、不冒充。工厂里核心站走这个构造，测试也用它。
+  CoreDramaContentClient.coreOnly({required this.siteId, ApiClient? api})
+    : _api = api ?? ApiClient.instance,
+      _fallback = const _CoreOnlyFallback();
+
   List<DramaSiteItem> _itemsOf(dynamic rows) {
     if (rows is! List) throw StateError('核心目录格式错误');
     return [
@@ -3738,9 +3745,47 @@ class CoreDramaContentClient implements DramaSiteContentClient {
     ];
   }
 
+  /// 该站是不是只走核心（回退是 [_CoreOnlyFallback]，没有真实 Dart
+  /// 客户端）：是才走下面的超时直抛分支；huangju/yeguo/niuguo/
+  /// huangdou/yaguo 有真实回退客户端，保持原有回退行为不动。
+  bool get _coreOnly => _fallback is _CoreOnlyFallback;
+
+  /// 超时/断网错：Dart 超时（ApiClient 的 [BackendRequestAborted]
+  /// timedOut、widget 层 `.timeout()` 的 [TimeoutException]）、
+  /// Socket/HTTP 客户端错。取消（timedOut 为 false 的
+  /// [BackendRequestAborted]）不算——取消不是超时，不该报超时。
+  static bool _isTimeoutOrNetwork(Object error) =>
+      error is TimeoutException ||
+      (error is BackendRequestAborted && error.timedOut) ||
+      error is SocketException ||
+      error is http.ClientException;
+
+  /// 核心先行，失败再回退——只在核心站上加一条例外：核心调用超时/
+  /// 断网时不再走回退。回退是 [_CoreOnlyFallback] 时只会抛「该站只走
+  /// 核心，核心未返回…」，会把“超时”说成“核心没回包”误导用户；
+  /// 这时直接抛带 timedOut 的 [BackendRequestAborted]（文案「加载
+  /// 超时，请重试」），界面按超时显示、可重试。其余核心错（格式错、
+  /// 核心未起等）仍走回退，行为与原来一致。
+  ///
+  /// 核心正常回空列表（items/categories/episodes 为空）不是错：
+  /// 直接回空页/空列表，界面显示「暂无内容」类如实空态，不抛错。
+  Future<T> _coreOrFallback<T>(
+    Future<T> Function() core,
+    Future<T> Function() fallback,
+  ) async {
+    try {
+      return await core();
+    } catch (error) {
+      if (_coreOnly && _isTimeoutOrNetwork(error)) {
+        throw BackendRequestAborted('加载超时，请重试', timedOut: true);
+      }
+      return await fallback();
+    }
+  }
+
   @override
   Future<List<DramaSiteCategory>> categories() async {
-    try {
+    return _coreOrFallback(() async {
       final payload = await _api.dramaCategories(siteId);
       final rows = payload['categories'];
       if (rows is! List) throw StateError('核心分类格式错误');
@@ -3751,27 +3796,23 @@ class CoreDramaContentClient implements DramaSiteContentClient {
             _stringOf(_asMap(entry)['name']),
           ),
       ];
-    } catch (_) {
-      return _fallback.categories();
-    }
+    }, () => _fallback.categories());
   }
 
   @override
   Future<DramaSiteCatalogPage> catalog(String categoryId, int page) async {
-    try {
+    return _coreOrFallback(() async {
       final payload = await _api.dramaCatalog(siteId, categoryId, page);
       return DramaSiteCatalogPage(
         items: _itemsOf(payload['items']),
         hasMore: payload['has_more'] == true,
       );
-    } catch (_) {
-      return _fallback.catalog(categoryId, page);
-    }
+    }, () => _fallback.catalog(categoryId, page));
   }
 
   @override
   Future<DramaSiteDetail> detail(String seriesId) async {
-    try {
+    return _coreOrFallback(() async {
       final payload = await _api.dramaDetail(siteId, seriesId);
       final rows = payload['episodes'];
       if (rows is! List) throw StateError('核心详情格式错误');
@@ -3801,31 +3842,25 @@ class CoreDramaContentClient implements DramaSiteContentClient {
             ),
         ],
       );
-    } catch (_) {
-      return _fallback.detail(seriesId);
-    }
+    }, () => _fallback.detail(seriesId));
   }
 
   @override
   Future<DramaPlaySource> playSource(DramaSiteEpisode episode) async {
-    try {
+    return _coreOrFallback(() async {
       final payload = await _api.dramaPlay(siteId, episode.videoId);
       final url = _stringOf(payload['url']);
       if (url.isEmpty) throw StateError('核心取流无地址');
       return DramaPlaySource(url: url);
-    } catch (_) {
-      return _fallback.playSource(episode);
-    }
+    }, () => _fallback.playSource(episode));
   }
 
   @override
   Future<List<DramaSiteItem>> search(String query) async {
-    try {
+    return _coreOrFallback(() async {
       final payload = await _api.dramaSearch(siteId, query);
       return _itemsOf(payload['items']);
-    } catch (_) {
-      return _fallback.search(query);
-    }
+    }, () => _fallback.search(query));
   }
 }
 

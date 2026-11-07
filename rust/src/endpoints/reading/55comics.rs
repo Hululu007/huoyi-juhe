@@ -342,4 +342,25 @@ mod tests {
         assert_eq!(pct_encode_query("海贼王"), "%E6%B5%B7%E8%B4%BC%E7%8E%8B");
         assert_eq!(pct_encode_query("a/b c"), "a/b%20c");
     }
+    #[tokio::test]
+    #[ignore]
+    async fn live_categories_and_catalog() {
+        let cats = categories().await.unwrap();
+        let list = cats["categories"].as_array().unwrap();
+        assert!(!list.is_empty(), "55comics categories empty");
+        eprintln!(
+            "LIVE 55comics cats={} first={}",
+            list.len(),
+            list[0]["id"].as_str().unwrap_or("")
+        );
+        let start = std::time::Instant::now();
+        let r = catalog("hanman", 1).await.unwrap();
+        let items = r["items"].as_array().unwrap();
+        eprintln!(
+            "LIVE 55comics cat=hanman items={} elapsed={:?}",
+            items.len(),
+            start.elapsed()
+        );
+        assert!(!items.is_empty(), "55comics catalog hanman empty");
+    }
 }

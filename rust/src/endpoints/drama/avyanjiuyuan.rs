@@ -365,4 +365,22 @@ mod tests {
         );
         assert!(play_check("195871").is_err());
     }
+
+    #[tokio::test]
+    #[ignore]
+    async fn live_categories_and_catalog() {
+        let cats = categories().await.unwrap();
+        let list = cats["categories"].as_array().unwrap();
+        assert!(!list.is_empty(), "avyanjiuyuan categories empty");
+        let r = catalog("52", 1).await.unwrap();
+        let items = r["items"].as_array().unwrap();
+        eprintln!(
+            "LIVE avyanjiuyuan cats={} cat52_items={}",
+            list.len(),
+            items.len()
+        );
+        assert!(!items.is_empty(), "avyanjiuyuan cat 52 catalog empty");
+        assert!(!items[0]["id"].as_str().unwrap_or("").is_empty());
+        assert!(!items[0]["title"].as_str().unwrap_or("").is_empty());
+    }
 }

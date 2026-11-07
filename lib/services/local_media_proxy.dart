@@ -101,8 +101,21 @@ class LocalMediaProxy {
   }
 
   String _proxyUrl(String token, String targetUrl) {
-    final encoded = base64Url.encode(utf8.encode(targetUrl)).replaceAll('=', '');
-    return 'http://127.0.0.1:${_server!.port}/r/$token/$encoded';
+    final encoded = base64Url
+        .encode(utf8.encode(targetUrl))
+        .replaceAll('=', '');
+    // ExoPlayer 只凭地址后缀（或显式 mimeType）认流类型：/r/ 地址原来
+    // 是纯 base64，没有 .m3u8，DefaultMediaSourceFactory 会把它当成
+    // Progressive 流，拿 MP4 解析器读 #EXTM3U 文本必然失败（报
+    // “视频解析失败”）。目标本身带 .m3u8/.mpd 时把后缀留在地址尾巴上，
+    // 让播放器走 HLS/DASH；分片与密钥地址不靠后缀认类型，不加。
+    final path = Uri.tryParse(targetUrl)?.path.toLowerCase() ?? '';
+    final suffix = path.endsWith('.m3u8')
+        ? '.m3u8'
+        : path.endsWith('.mpd')
+        ? '.mpd'
+        : '';
+    return 'http://127.0.0.1:${_server!.port}/r/$token/$encoded$suffix';
   }
 
   String _rewritePlaylist(String text, String token, String baseUrl) {
@@ -287,8 +300,12 @@ class LocalMediaProxy {
       }
       var target = '';
       if (segments.length > 2) {
+        // _proxyUrl 给自适应流地址尾巴上留的 .m3u8/.mpd 后缀：base64url
+        // 字母表里没有 '.'，从第一个 '.' 起截掉即还原出原始编码。
         final encoded = segments.sublist(2).join('/');
-        final padded = encoded + ('=' * ((4 - encoded.length % 4) % 4));
+        final dot = encoded.indexOf('.');
+        final clean = dot >= 0 ? encoded.substring(0, dot) : encoded;
+        final padded = clean + ('=' * ((4 - clean.length % 4) % 4));
         target = utf8.decode(base64Url.decode(padded));
       } else {
         request.response

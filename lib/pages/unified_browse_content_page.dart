@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../models/media_item.dart';
+import '../services/api_client.dart';
 import '../services/drama_site_content.dart';
 import '../services/drama_site_play.dart';
 import '../services/drama_sites.dart';
@@ -149,9 +150,11 @@ class _UnifiedBrowseContentPageState
     try {
       final client = _clientFor(entry.siteId);
       if (client == null) return null;
-      final page = await client
-          .catalog(entry.path, 1)
-          .timeout(const Duration(seconds: 30));
+      // 目录超时按 ApiClient 的目录预算 + 5 秒余量：ApiClient 是主
+      // 预算，页面层只当兜底，不盖帽。
+      final page = await client.catalog(entry.path, 1).timeout(
+        ApiClient.dramaCatalogTimeout + const Duration(seconds: 5),
+      );
       if (page.items.isEmpty) return null;
       return _SiteSection(
         siteId: entry.siteId,

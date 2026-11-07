@@ -158,4 +158,45 @@ void main() {
     expect(find.text('欲火聚合'), findsNothing);
     expect(find.text('成人点播'), findsNothing);
   });
+
+  testWidgets('系统返回键两步走：先退出沉浸式，再按退出播放页', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: TextButton(
+                onPressed: () => Navigator.push<void>(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => LivePlayerPage(
+                      channels: _channels(),
+                      startIndex: 0,
+                      source: _testSource,
+                    ),
+                  ),
+                ),
+                child: const Text('打开直播播放页'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('打开直播播放页'));
+    await tester.pumpAndSettle();
+    expect(find.byType(LiveStatusPanel), findsOneWidget);
+
+    // 第一步：退出沉浸式（恢复系统栏），仍在播放页。
+    expect(await tester.binding.handlePopRoute(), isTrue);
+    await tester.pumpAndSettle();
+    expect(find.byType(LiveStatusPanel), findsOneWidget);
+
+    // 第二步：退出播放页，回到首页。
+    expect(await tester.binding.handlePopRoute(), isTrue);
+    await tester.pumpAndSettle();
+    expect(find.byType(LiveStatusPanel), findsNothing);
+    expect(find.text('打开直播播放页'), findsOneWidget);
+  });
 }

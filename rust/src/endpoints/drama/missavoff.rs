@@ -10,6 +10,9 @@
 //! 中继 504，jina 200 正常；列表 18 条真视频、翻页 18 条、详情
 //! nhdtc-266、三档 m3u8 首分片全部 200 全过。注意 packer 解出
 //! 的地址尾部带反斜杠，须 strip 后再请求。
+//! 2026-11-07 修（FJIN-172）：packer 载荷是单引号 `}('…`，旧正
+//! 则只认 `}("`，解出 0 条、详情只剩“嗅探”一集；parse 切片按字
+//! 节窗口切中文页会在字符中间 panic，改走 safe_slice 收敛边界。
 
 use std::sync::Mutex;
 
@@ -172,6 +175,25 @@ async fn fetch_page(path: &str) -> ApiResult<(String, String)> {
     Err(ApiError::Internal("MissAV原生没有取到页面".into()))
 }
 
+/// 字节窗口切 UTF-8 文本：窗口边界落在多字节字符中间时
+/// 直接切片会 panic（实测 FJIN-172 搜索页在字节 96836 的“期”
+/// 字中间炸掉）；向内收敛到最近的字符边界。
+fn safe_slice(s: &str, start: usize, end: usize) -> &str {
+    let len = s.len();
+    let mut start = start.min(len);
+    let mut end = end.min(len);
+    while start < len && !s.is_char_boundary(start) {
+        start += 1;
+    }
+    while end > start && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    if end <= start {
+        return "";
+    }
+    &s[start..end]
+}
+
 fn strip_tags(raw: &str) -> String {
     let tag = Regex::new("<[^>]+>").unwrap();
     let no_tag = tag.replace_all(raw, " ");
@@ -262,7 +284,7 @@ fn parse_list(page: &str, host: &str) -> Vec<Value> {
             (*start + 3000).min(page.len())
         };
         let chunk = if chunk_end > chunk_start {
-            &page[chunk_start..chunk_end]
+            safe_slice(page, chunk_start, chunk_end)
         } else {
             ""
         };
@@ -344,7 +366,7 @@ fn parse_folders(page: &str, host: &str, kind: &str) -> Vec<Value> {
             (*start + 1500).min(page.len())
         };
         let chunk = if chunk_end > chunk_start {
-            &page[chunk_start..chunk_end]
+            safe_slice(page, chunk_start, chunk_end)
         } else {
             ""
         };
@@ -386,8 +408,9 @@ fn parse_folders(page: &str, host: &str, kind: &str) -> Vec<Value> {
 /// 按进制还原词后找 .m3u8 地址（尾部反斜杠须 strip）。
 fn unpack_m3u8(page: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
-    let Ok(packer_re) = Regex::new("(?s)\\}\\(\"(.*?)',(\\d+),(\\d+),'(.*?)'\\.split\\('\\|'\\)")
-    else {
+    let Ok(packer_re) = Regex::new(
+        "(?s)\\}\\(['\"](.*?)',(\\d+),(\\d+),['\"](.*?)['\"]\\.split\\(['\"]\\|['\"]\\)",
+    ) else {
         return out;
     };
     let Some(cap) = packer_re.captures(page) else {
@@ -591,6 +614,28 @@ pub(crate) async fn play(video_id: &str) -> ApiResult<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unpack_single_quote_packer() {
+        // FJIN-172 详情页实测：打包器是单引号 `}('…'，旧正则只认
+        // `}("`，解出 0 条、详情只剩“嗅探”一集。词表/载荷取自真页。
+        let html = r#"eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/^/,String)){while(c--){d[c.toString(a)]=k[c]||c.toString(a)}k=[function(e){return d[e]}];e=function(){return'\w+'};c=1};while(c--){if(k[c]){p=p.replace(new RegExp('\b'+e(c)+'\b','g'),k[c])}}return p}('f=\'8://7.6/5-4-3-2-1/e.0\';d=\'8://7.6/5-4-3-2-1/c/9.0\';b=\'8://7.6/5-4-3-2-1/a/9.0\';',16,16,'m3u8|e8a23d2b9404|aad7|4c77|d8a8|9b88e28b|com|surrit|https|video|1080p|source1280|720p|source842|playlist|source'.split('|'),0,{}))"#;
+        let urls = unpack_m3u8(html);
+        assert_eq!(urls.len(), 3);
+        assert!(urls.iter().any(|u| u.contains("/1080p/video.m3u8")));
+        assert!(urls.iter().any(|u| u.contains("/720p/video.m3u8")));
+        assert!(urls.iter().any(|u| u.ends_with("/playlist.m3u8")));
+    }
+
+    #[test]
+    fn safe_slice_never_panics_mid_char() {
+        // "ab期cd"：a=0 b=1 期=2..5 c=5 d=6
+        let s = "ab期cd";
+        assert_eq!(safe_slice(s, 2, 5), "期");
+        assert_eq!(safe_slice(s, 3, 6), "c");
+        assert_eq!(safe_slice(s, 0, 100), s);
+        assert_eq!(safe_slice(s, 5, 2), "");
+    }
 
     #[test]
     fn video_path_rules() {

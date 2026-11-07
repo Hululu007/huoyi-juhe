@@ -169,15 +169,32 @@ async fn resolve_once() -> ApiResult<Site> {
 }
 
 /// 带门票的 GET：先按解析到的站与票取一次；若回的是门页则重取票再试一次。
+///
+/// 2026-11-07：目录取数实测单次请求常在 20 秒超时附近抖动（随机子域
+/// 首连慢），一次失败就判死站；与其他站的 get_text 同款，最多试 3 次。
 async fn get_text(site: &Site, url: &str) -> ApiResult<String> {
-    let text = fetch(url, site.cookie.as_deref()).await?;
-    if is_gate(&text) {
-        if let Some(token) = parse_token(&text) {
-            return fetch(url, Some(&token)).await;
+    let mut last_err = String::new();
+    for _ in 0..3 {
+        match fetch(url, site.cookie.as_deref()).await {
+            Ok(text) => {
+                if is_gate(&text) {
+                    if let Some(token) = parse_token(&text) {
+                        match fetch(url, Some(&token)).await {
+                            Ok(text) => return Ok(text),
+                            Err(e) => last_err = e.to_string(),
+                        }
+                    } else {
+                        return Err(ApiError::Internal("免费AI短剧被拦在门外".into()));
+                    }
+                } else {
+                    return Ok(text);
+                }
+            }
+            Err(e) => last_err = e.to_string(),
         }
-        return Err(ApiError::Internal("免费AI短剧被拦在门外".into()));
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     }
-    Ok(text)
+    Err(ApiError::Internal(last_err))
 }
 
 /// 地址归一：协议相对补 https，站内相对路径补当次基址。
@@ -512,5 +529,18 @@ mod tests {
             "https://lsbbf11.com/20261102/MeF2wFlb/index.m3u8"
         );
         assert!(play_check("363910").is_err());
+    }
+    #[tokio::test]
+    #[ignore]
+    async fn live_avjieshuo_catalog() {
+        let start = std::time::Instant::now();
+        let r = catalog("29", 1).await.unwrap();
+        let items = r["items"].as_array().unwrap();
+        eprintln!(
+            "LIVE mianfeiai av解说 cat=29 items={} elapsed={:?}",
+            items.len(),
+            start.elapsed()
+        );
+        assert!(!items.is_empty(), "mianfeiai AV解说 catalog empty");
     }
 }

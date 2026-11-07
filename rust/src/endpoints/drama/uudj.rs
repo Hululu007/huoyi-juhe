@@ -226,10 +226,12 @@ pub(crate) async fn categories() -> ApiResult<Value> {
 }
 
 /// 卡片解析：`<a href="/index.php/vod/detail/id/<N>.html"><img
-/// src="<封面>" alt="<标题>"`。目录页与搜索页同款。
+/// src="<封面>">` + `<span><text><标题></text></span>`（2026-11-07
+/// 站改版：img 去掉了 alt，标题改放在 span/text 里；旧版 alt 仍有
+/// span/text，同一正则两版都认）。目录页与搜索页同款。
 fn parse_cards(html: &str) -> Vec<Value> {
     let card_re = match Regex::new(
-        r#"(?s)<a href="/index\.php/vod/detail/id/(\d+)\.html"><img src="([^"]+)" alt="([^"]+)""#,
+        r#"(?s)<a href="/index\.php/vod/detail/id/(\d+)\.html">.*?<img src="([^"]+)"[^>]*>.*?<span><text>([^<]+)</text></span>"#,
     ) {
         Ok(re) => re,
         Err(_) => return Vec::new(),
@@ -469,6 +471,23 @@ mod tests {
     }
 
     #[test]
+    fn parse_cards_new_markup_no_alt() {
+        // 2026-11-07 实测：img 去掉 alt，标题在 span/text 里。
+        let html = r#"<li><a href="/index.php/vod/detail/id/43814.html"><img src="https://guzwiayz.com/20261030/tsAYVdAE/1.jpg?t=1793415970"><span><text>SODstar夏日泳装感谢祭请把我的身体玩坏吧STARS-870</text></span></a></li>"#;
+        let items = parse_cards(html);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["id"], "43814");
+        assert_eq!(
+            items[0]["title"],
+            "SODstar夏日泳装感谢祭请把我的身体玩坏吧STARS-870"
+        );
+        assert_eq!(
+            items[0]["cover"],
+            "https://guzwiayz.com/20261030/tsAYVdAE/1.jpg?t=1793415970"
+        );
+    }
+
+    #[test]
     fn catalog_url_forms() {
         assert_eq!(
             catalog_url("https://m4n8p1.uudj02.vip", "7", 1),
@@ -504,5 +523,18 @@ mod tests {
             "https://vod.djqiepian.app/vod/t-b90f551641c745fbf546905d/ep-000001-ef21d1ef00a9/index.m3u8"
         );
         assert_eq!(parse_player_url("<div>no player</div>"), "");
+    }
+    #[tokio::test]
+    #[ignore]
+    async fn live_avjieshuo_catalog() {
+        let start = std::time::Instant::now();
+        let r = catalog("26", 1).await.unwrap();
+        let items = r["items"].as_array().unwrap();
+        eprintln!(
+            "LIVE uudj av解说 cat=26 items={} elapsed={:?}",
+            items.len(),
+            start.elapsed()
+        );
+        assert!(!items.is_empty(), "uudj AV解说 catalog empty");
     }
 }

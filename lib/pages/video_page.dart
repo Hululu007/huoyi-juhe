@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../services/api_client.dart';
 import '../services/cultivation.dart';
 import '../services/drama_sites.dart';
 import '../services/drama_site_content.dart';
@@ -232,17 +233,19 @@ class _VideoPageState extends State<VideoPage> {
   }
 
   /// 给午夜区当前站取真实首分类：核心站登记里只有「全部」兜底，
-  /// 直接 `catalog('all')` 多数站是空的。15 秒内取不到就回落 'all'，
-  /// 网格行为与原来一致。切站后旧站的结果不落地（代次号守）。
+  /// 直接 `catalog('all')` 多数站是空的。取不到就回落 'all'，
+  /// 网格行为与原来一致。超时按 ApiClient 的分类预算 + 5 秒余量
+  /// （不多不少盖帽 ApiClient 的 30 秒），切站后旧站的结果不落地
+  /// （代次号守）。
   Future<void> _resolveVideoZoneCategory(String siteId) async {
     final generation = ++_videoZoneCategoryGeneration;
     String? resolved;
     try {
       final client = dramaSiteContentClient(siteId);
       if (client != null) {
-        final categories = await client
-            .categories()
-            .timeout(const Duration(seconds: 15));
+        final categories = await client.categories().timeout(
+          ApiClient.dramaCategoriesTimeout + const Duration(seconds: 5),
+        );
         final usable = categories
             .where((c) => c.id.isNotEmpty && c.id != 'all')
             .toList();

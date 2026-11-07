@@ -297,13 +297,108 @@ void main() {
       expect(find.text('作品-mjv011'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
+
+    testWidgets('回空的站不记失败：有内容的站出卡，不显示“取不到”', (tester) async {
+      await setPhoneSurface(tester);
+      final sites = <({String id, String name, String kind})>[
+        (id: 'video1', name: '测试视频站1', kind: 'video'),
+        (id: 'video2', name: '测试视频站2', kind: 'video'),
+      ];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: CustomScrollView(
+              slivers: [
+                HomeFilmZone(
+                  gridWidth: 328,
+                  sites: sites,
+                  clientForSite: (id) => id == 'video2'
+                      ? _FakeFilmClient(title: '空站作品', emptyCatalog: true)
+                      : _FakeFilmClient(title: '视频站作品'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('视频站作品'), findsOneWidget);
+      // 回空的站不算失败：不显示「N 个站取不到」。
+      expect(find.textContaining('取不到'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('全失败时显示取不到、可重试', (tester) async {
+      await setPhoneSurface(tester);
+      final sites = <({String id, String name, String kind})>[
+        (id: 'video1', name: '测试视频站', kind: 'video'),
+      ];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: CustomScrollView(
+              slivers: [
+                HomeFilmZone(
+                  gridWidth: 328,
+                  sites: sites,
+                  clientForSite: (id) =>
+                      _FakeFilmClient(title: '视频站作品', throwCatalog: true),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('推荐影视暂时取不到，稍后再试一次。'), findsOneWidget);
+      expect(find.text('重试'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('全回空时显示暂无内容，不说取不到', (tester) async {
+      await setPhoneSurface(tester);
+      final sites = <({String id, String name, String kind})>[
+        (id: 'video1', name: '测试视频站', kind: 'video'),
+      ];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: CustomScrollView(
+              slivers: [
+                HomeFilmZone(
+                  gridWidth: 328,
+                  sites: sites,
+                  clientForSite: (id) =>
+                      _FakeFilmClient(title: '空站作品', emptyCatalog: true),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      // 核心正常回空：如实显示暂无内容，不说「取不到」。
+      expect(find.text('推荐影视暂无内容。'), findsOneWidget);
+      expect(find.text('推荐影视暂时取不到，稍后再试一次。'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
   });
 }
 
 class _FakeFilmClient extends DramaSiteContentClient {
-  _FakeFilmClient({required this.title});
+  _FakeFilmClient({
+    required this.title,
+    this.throwCatalog = false,
+    this.emptyCatalog = false,
+  });
 
   final String title;
+
+  /// catalog 抛错：模拟超时/报错的站（记失败）。
+  final bool throwCatalog;
+
+  /// catalog 回空列表：模拟核心正常回空的站（不记失败）。
+  final bool emptyCatalog;
 
   @override
   Future<List<DramaSiteCategory>> categories() async =>
@@ -311,6 +406,10 @@ class _FakeFilmClient extends DramaSiteContentClient {
 
   @override
   Future<DramaSiteCatalogPage> catalog(String categoryId, int page) async {
+    if (throwCatalog) throw StateError('模拟取数失败');
+    if (emptyCatalog) {
+      return const DramaSiteCatalogPage(items: [], hasMore: false);
+    }
     return DramaSiteCatalogPage(
       items: [DramaSiteItem(id: 'v1', title: title, cover: '')],
       hasMore: false,

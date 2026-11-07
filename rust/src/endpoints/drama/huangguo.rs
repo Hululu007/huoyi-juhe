@@ -503,4 +503,26 @@ mod tests {
     fn cats_are_six() {
         assert_eq!(CATS.len(), 6);
     }
+
+    #[tokio::test]
+    #[ignore]
+    async fn live_categories_and_catalog() {
+        let cats = categories().await.unwrap();
+        let list = cats["categories"].as_array().unwrap();
+        assert_eq!(list.len(), 6);
+        let home = catalog("", 1).await.unwrap();
+        let items = home["items"].as_array().unwrap();
+        eprintln!("LIVE huangguo cats=6 home_items={}", items.len());
+        assert!(!items.is_empty(), "huangguo home catalog empty");
+        assert!(!items[0]["id"].as_str().unwrap_or("").is_empty());
+        let ai = catalog("/ai-duanju", 1).await.unwrap();
+        assert!(
+            !ai["items"].as_array().unwrap().is_empty(),
+            "huangguo ai-duanju catalog empty"
+        );
+        eprintln!(
+            "LIVE huangguo ai-duanju items={}",
+            ai["items"].as_array().unwrap().len()
+        );
+    }
 }

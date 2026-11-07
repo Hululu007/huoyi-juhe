@@ -447,4 +447,22 @@ mod tests {
         );
         assert!(play_check("98582").is_err());
     }
+
+    #[tokio::test]
+    #[ignore]
+    async fn live_categories_and_catalog() {
+        let cats = categories().await.unwrap();
+        let list = cats["categories"].as_array().unwrap();
+        assert!(!list.is_empty(), "ai2026 categories empty");
+        let r = catalog("20", 1).await.unwrap();
+        let items = r["items"].as_array().unwrap();
+        eprintln!(
+            "LIVE ai2026 cats={} cat20_items={}",
+            list.len(),
+            items.len()
+        );
+        assert!(!items.is_empty(), "ai2026 cat 20 catalog empty");
+        assert!(!items[0]["id"].as_str().unwrap_or("").is_empty());
+        assert!(!items[0]["title"].as_str().unwrap_or("").is_empty());
+    }
 }

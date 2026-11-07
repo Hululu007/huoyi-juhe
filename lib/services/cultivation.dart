@@ -566,6 +566,26 @@ const dramaEpisodeXp = 300;
 /// 计加成后 150）。
 const chapterXp = 150;
 
+/// 境界解锁门禁临时关闭开关（测试期间用，用户 2026-11-07 07:45 令：
+/// 境界解锁权限先关了，测试时所有站不管修为多少都显示）。
+///
+/// - true（当前值）：门禁关闭，[adultTierUnlocked] 对全部合法档位
+///   （0～3 档）都返回 true，影视区（[visibleSiteIds] 经
+///   `visibleVideoZoneSites`）与阅读区成人三分类
+///   （`visibleFilmZoneSites`）的站全部可见；分档与解锁逻辑本身
+///   没删，[adultTierForIndex]、[adultTierThresholds]、
+///   [adultTierSiteIds]、[visibleSiteIds] 原样不动。
+/// - false：恢复正常，修为不到门槛的档位继续隐藏。
+///
+/// 恢复方法：只改这一处，把 true 改回 false，不用改任何页面与调用点。
+/// 首次安装建人物硬门槛、升境弹窗、兑换码、修为统计、打坐、称号
+/// 都不走这个开关，一字不动。
+///
+/// 注意：这里故意用顶层可写 bool 而不用 const，只为单测能验证
+/// 开/关两种状态（见 test/cultivation_gate_switch_test.dart）；
+/// 正式恢复仍只改这一处的初值。
+bool cultivationAdultTierGateDisabledForTesting = true;
+
 /// 解锁门槛（累计修为）：漫画 300（筑基）、听书 1000（结丹）、
 /// 影视区 3000（元婴）、影视全部分类 + 称号 8000（化神）。
 const comicUnlockXp = 300;
@@ -589,8 +609,13 @@ int adultTierForIndex(int index, int total) {
 }
 
 /// 指定档位在该修为下是否已解锁。
+///
+/// 门禁临时关闭时（[cultivationAdultTierGateDisabledForTesting]
+/// 为 true，测试期间）：合法档位（0～3 档）不管修为多少都算已解锁；
+/// 非法档位（< 0 或 >= 4）仍返回 false，不放行。
 bool adultTierUnlocked(int tier, int xp) {
   if (tier < 0 || tier >= adultTierThresholds.length) return false;
+  if (cultivationAdultTierGateDisabledForTesting) return true;
   return xp >= adultTierThresholds[tier];
 }
 

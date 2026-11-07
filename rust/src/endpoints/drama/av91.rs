@@ -717,4 +717,17 @@ mod tests {
         let v2: Value = serde_json::from_str(r#"{"id":"2","title":"t","duration":95}"#).unwrap();
         assert_eq!(card(&v2, false).unwrap()["remark"], "1:35");
     }
+
+    #[tokio::test]
+    #[ignore]
+    async fn live_categories_and_catalog() {
+        let cats = categories().await.unwrap();
+        assert_eq!(cats["categories"].as_array().unwrap().len(), 14);
+        let r = catalog("daily", 1).await.unwrap();
+        let items = r["items"].as_array().unwrap();
+        eprintln!("LIVE av91 cats=14 daily_items={}", items.len());
+        assert!(!items.is_empty(), "av91 daily catalog empty");
+        assert!(!items[0]["id"].as_str().unwrap_or("").is_empty());
+        assert!(!items[0]["title"].as_str().unwrap_or("").is_empty());
+    }
 }

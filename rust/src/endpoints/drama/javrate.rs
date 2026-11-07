@@ -906,4 +906,17 @@ mod tests {
             "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"
         );
     }
+
+    #[tokio::test]
+    #[ignore]
+    async fn live_categories_and_catalog() {
+        let cats = categories().await.unwrap();
+        assert_eq!(cats["categories"].as_array().unwrap().len(), 10);
+        let r = catalog("/movie/new", 1).await.unwrap();
+        let items = r["items"].as_array().unwrap();
+        eprintln!("LIVE javrate cats=10 new_items={}", items.len());
+        assert!(!items.is_empty(), "javrate /movie/new catalog empty");
+        assert!(!items[0]["id"].as_str().unwrap_or("").is_empty());
+        assert!(!items[0]["title"].as_str().unwrap_or("").is_empty());
+    }
 }

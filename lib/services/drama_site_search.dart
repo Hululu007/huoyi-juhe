@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'api_client.dart';
 import 'drama_site_content.dart';
 import 'local_db_site_content.dart';
 import 'm3u_export_db.dart';
@@ -52,9 +53,26 @@ Future<List<DramaSiteSearchResult>> searchLocalDbSites(
   return groups;
 }
 
+/// 标签名转站源搜索词：资产里部分站的标签名自带站方计数后缀
+/// （如 okxxx 的 `1080p (896)`、`18 (3122)`，见
+/// `unified_category_work/tags_notes.md`），原样当关键词搜不到；
+/// 只去尾部 ` (数字)`，名字其余部分一字不动。
+String tagSearchQuery(String tagName) =>
+    tagName.trim().replaceFirst(RegExp(r' \(\d+\)$'), '');
+
+/// 按站分组搜全部可见站源（[SearchPage] 的「站源」页签）。
+///
+/// [siteIds] 有值时只搜这些站：标签页点标签只搜该标签名下的站
+/// （`UnifiedVideoCategories.tagSitesFor` 给出的站），不向 200 多站
+/// 全量扇出——全量扇出时请求在 [RequestGate]（16 并发）后排队，
+/// 排在后面的站（wohs/jable/okxxx 都在站表尾部）45 秒预算耗在排队
+/// 上、一个都没跑到就超时回空，页上只剩「站源里没有搜到相关内容」。
+/// 只搜标签的站时并行数 <= 门限，并发一次跑完。
+/// 限定站时不同时并本地库：本地库没有标签映射，按站搜不到它。
 Future<List<DramaSiteSearchResult>> searchAllDramaSites(
   String query, {
   M3uExportDbSink? dbSink,
+  Set<String>? siteIds,
 }) async {
   final trimmed = query.trim();
   if (trimmed.isEmpty) return const [];
@@ -64,13 +82,19 @@ Future<List<DramaSiteSearchResult>> searchAllDramaSites(
   final futures = <Future<DramaSiteSearchResult>>[];
   for (final site in SourceRegistry.instance.visibleDramaSites()) {
     if (site.id == 'original') continue;
+    if (siteIds != null && !siteIds.contains(site.id)) continue;
     if (!gateOpen && MidnightGate.isAdultName(site.name)) continue;
     final client = await SourceRegistry.instance.clientFor(site.id);
     if (client == null) continue;
     futures.add(
+      // 单站搜索超时按 ApiClient 的搜索预算 + 5 秒余量：ApiClient
+      // 是主预算，调用层只当兜底，不盖帽；超时的站回空组，
+      // 不卡住整轮搜索。
       client
           .search(trimmed)
-          .timeout(const Duration(seconds: 15))
+          .timeout(
+            ApiClient.dramaSearchTimeout + const Duration(seconds: 5),
+          )
           .then(
             (items) => DramaSiteSearchResult(
               siteId: site.id,
@@ -89,6 +113,7 @@ Future<List<DramaSiteSearchResult>> searchAllDramaSites(
   }
   final results = await Future.wait(futures);
   final merged = results.where((result) => result.items.isNotEmpty).toList();
+  if (siteIds != null) return merged;
   try {
     merged.addAll(
       await searchLocalDbSites(

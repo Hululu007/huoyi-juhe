@@ -244,11 +244,13 @@ pub(crate) async fn categories() -> ApiResult<Value> {
     }
 }
 
-/// 卡片解析：`<a href="/voddetail/<N>.html"><img src="<封面>"
-/// alt="<标题>"`。目录页与搜索页同款。
+/// 卡片解析：`<a href="/voddetail/<N>.html"><img src="<封面>">` +
+/// `<span><text><标题></text></span>`（2026-11-07 站改版：img 去掉
+/// 了 alt，标题改放在 span/text 里；旧版 alt 仍有 span/text，
+/// 同一正则两版都认）。目录页与搜索页同款。
 fn parse_cards(html: &str) -> Vec<Value> {
     let card_re = match Regex::new(
-        r#"(?s)<a href="/voddetail/(\d+)\.html"><img src="([^"]+)" alt="([^"]+)""#,
+        r#"(?s)<a href="/voddetail/(\d+)\.html">.*?<img src="([^"]+)"[^>]*>.*?<span><text>([^<]+)</text></span>"#,
     ) {
         Ok(re) => re,
         Err(_) => return Vec::new(),
@@ -482,6 +484,20 @@ mod tests {
     }
 
     #[test]
+    fn parse_cards_new_markup_no_alt() {
+        // 2026-11-07 实测：img 去掉 alt，标题在 span/text 里。
+        let html = r#"<li><a href="/voddetail/145008.html"><img src="https://aoksazysz.com/20261105/h7Zz2Sii/1.jpg"><span><text>大漠公主的成人礼成为女王要先被內射</text></span></a></li>"#;
+        let items = parse_cards(html);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["id"], "145008");
+        assert_eq!(items[0]["title"], "大漠公主的成人礼成为女王要先被內射");
+        assert_eq!(
+            items[0]["cover"],
+            "https://aoksazysz.com/20261105/h7Zz2Sii/1.jpg"
+        );
+    }
+
+    #[test]
     fn catalog_url_forms() {
         assert_eq!(
             catalog_url("https://q7w2kx.69dj05.vip", "6", 1),
@@ -517,5 +533,18 @@ mod tests {
             "https://vod.djqiepian.app/vod/t-b90f551641c745fbf546905d/ep-000001-ef21d1ef00a9/index.m3u8"
         );
         assert_eq!(parse_player_url("<div>no player</div>"), "");
+    }
+    #[tokio::test]
+    #[ignore]
+    async fn live_avjieshuo_catalog() {
+        let start = std::time::Instant::now();
+        let r = catalog("30", 1).await.unwrap();
+        let items = r["items"].as_array().unwrap();
+        eprintln!(
+            "LIVE dj69 av解说 cat=30 items={} elapsed={:?}",
+            items.len(),
+            start.elapsed()
+        );
+        assert!(!items.is_empty(), "dj69 AV解说 catalog empty");
     }
 }

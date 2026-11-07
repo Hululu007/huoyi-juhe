@@ -444,4 +444,19 @@ mod tests {
             "https://jcyh-gvz-nigo.obbplmm26y102.cc/vodtype/307-2.html"
         );
     }
+    #[tokio::test]
+    #[ignore]
+    async fn live_avjieshuo_catalog() {
+        for cat in ["216", "401", "511"] {
+            let start = std::time::Instant::now();
+            let r = catalog(cat, 1).await.unwrap();
+            let items = r["items"].as_array().unwrap();
+            eprintln!(
+                "LIVE rscg91 av解说 cat={cat} items={} elapsed={:?}",
+                items.len(),
+                start.elapsed()
+            );
+            assert!(!items.is_empty(), "rscg91 AV解说 catalog {cat} empty");
+        }
+    }
 }

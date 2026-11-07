@@ -398,4 +398,25 @@ mod tests {
         assert_eq!((80i64 + 79) / 80, 1);
         assert_eq!((81i64 + 79) / 80, 2);
     }
+    #[tokio::test]
+    #[ignore]
+    async fn live_categories_and_catalog() {
+        let cats = categories().await.unwrap();
+        let list = cats["categories"].as_array().unwrap();
+        assert!(!list.is_empty(), "modu18 categories empty");
+        eprintln!(
+            "LIVE modu18 cats={} first={}",
+            list.len(),
+            list[0]["id"].as_str().unwrap_or("")
+        );
+        let start = std::time::Instant::now();
+        let r = catalog("latest", 1).await.unwrap();
+        let items = r["items"].as_array().unwrap();
+        eprintln!(
+            "LIVE modu18 cat=latest items={} elapsed={:?}",
+            items.len(),
+            start.elapsed()
+        );
+        assert!(!items.is_empty(), "modu18 catalog latest empty");
+    }
 }

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/media_item.dart';
 import '../../pages/video_page.dart';
+import '../../services/api_client.dart';
 import '../../services/cultivation.dart';
 import '../../services/drama_site_content.dart';
 import '../../services/drama_site_play.dart';
@@ -48,6 +49,12 @@ class HomeFilmZone extends StatefulWidget {
 
 /// 一窗取的站数：3 站拼一屏推荐，又不至于一次拉爆。
 const int _filmWindowSize = 3;
+
+/// widget 层 `.timeout()` 相对 ApiClient 预算的余量：ApiClient 的超时
+/// 是主预算（分类 30 秒、目录 45 秒），widget 的超时只当兜底——防
+/// 非核心客户端没有自己的超时一直挂起；比 ApiClient 多 5 秒，
+/// 不盖帽 ApiClient 的预算，超时的错以 ApiClient 的为准。
+const Duration _clientTimeoutMargin = Duration(seconds: 5);
 
 /// 每站最多留的卡片数：3 站 × 6 张 = 一屏 18 张。
 const int _filmItemsPerSite = 6;
@@ -137,6 +144,9 @@ class _HomeFilmZoneState extends State<HomeFilmZone> {
     return dramaSiteContentClient(siteId);
   }
 
+  /// 取一站推荐：null = 该站失败（超时/报错），跳过并记入 `_failed`；
+  /// 空列表的 [_FilmSiteItems] = 该站正常回空，不是失败，不记失败——
+  /// 核心正常回空与核心调用超时是两回事，别把空列表算成失败。
   Future<_FilmSiteItems?> _fetchOne(
     ({String id, String name, String kind}) site,
   ) async {
@@ -146,12 +156,13 @@ class _HomeFilmZoneState extends State<HomeFilmZone> {
       // 先取真实首分类再取列表：核心站登记里只有「全部」兜底，
       // `catalog('all')` 对多数核心站是空的（mjv011 的 all 地址
       // 只回 1822 字节跳转页、avyan 回「系统提示」页）。分类
-      // 15 秒内取不到就回落 'all'，行为与原来一致。
+      // 取不到就回落 'all'，行为与原来一致；超时按 ApiClient 的
+      // 分类预算 + 余量，不盖帽。
       var categoryId = 'all';
       try {
-        final categories = await client
-            .categories()
-            .timeout(const Duration(seconds: 15));
+        final categories = await client.categories().timeout(
+          ApiClient.dramaCategoriesTimeout + _clientTimeoutMargin,
+        );
         final usable = categories
             .where((c) => c.id.isNotEmpty && c.id != 'all')
             .toList();
@@ -161,10 +172,9 @@ class _HomeFilmZoneState extends State<HomeFilmZone> {
           categoryId = categories.first.id;
         }
       } catch (_) {}
-      final page = await client
-          .catalog(categoryId, 1)
-          .timeout(const Duration(seconds: 30));
-      if (page.items.isEmpty) return null;
+      final page = await client.catalog(categoryId, 1).timeout(
+        ApiClient.dramaCatalogTimeout + _clientTimeoutMargin,
+      );
       return _FilmSiteItems(
         siteId: site.id,
         items: page.items.take(_filmItemsPerSite).toList(),
@@ -247,7 +257,13 @@ class _HomeFilmZoneState extends State<HomeFilmZone> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('推荐影视暂时取不到，稍后再试一次。'),
+                  // 全失败（超时/报错）与全回空是两回事：前者说取不到、
+                  // 后者如实说暂无内容，不把空列表说成取不到。
+                  Text(
+                    _failed > 0
+                        ? '推荐影视暂时取不到，稍后再试一次。'
+                        : '推荐影视暂无内容。',
+                  ),
                   const SizedBox(height: 8),
                   OutlinedButton(
                     onPressed: _loading ? null : _loadWindow,

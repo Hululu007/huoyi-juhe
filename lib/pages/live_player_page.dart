@@ -400,7 +400,13 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
   }
 
   void _exit() {
-    Navigator.maybePop(context);
+    // 不能用 Navigator.maybePop：本页 PopScope(canPop: false) 会让
+    // maybePop 走 onPopInvokedWithResult(false) 而不真正退栈，
+    // onPopInvoked 又调回 _liveBack/_exit，形成死循环退不出去。
+    // 直接 pop 绕过 canPop 拦截（与 listen_mode_page 的 _exitWithResult
+    // 同款做法）；pop 成功后 onPopInvokedWithResult(true) 会再调一次，
+    // 被 didPop 守卫挡住，不会重复退栈。
+    Navigator.pop(context);
   }
 
   void _liveBack() {
