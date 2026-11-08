@@ -38,11 +38,7 @@ async fn live_homepage_tab8() {
     // 里是下标 2；只带 tab_type 不带 tab_index 时上游默认 0，只回推荐。
     let value = feed(
         &srv.ctx,
-        &pairs(&[
-            ("tab_type", "8"),
-            ("tab_index", "2"),
-            ("offset", "0"),
-        ]),
+        &pairs(&[("tab_type", "8"), ("tab_index", "2"), ("offset", "0")]),
     )
     .await
     .expect("homepage tab_type=8 must succeed");
@@ -59,7 +55,9 @@ async fn live_homepage_tab8() {
         for tab in tabs {
             println!(
                 "  tab: type={} title={}",
-                tab.get("tab_type").map(|v| v.to_string()).unwrap_or_default(),
+                tab.get("tab_type")
+                    .map(|v| v.to_string())
+                    .unwrap_or_default(),
                 tab.get("title").and_then(|v| v.as_str()).unwrap_or("")
             );
         }
@@ -204,7 +202,11 @@ async fn live_search_video_id() {
     let t = Instant::now();
     match search(
         &srv.ctx,
-        &pairs(&[("query", "重生"), ("search_type", "fanqie"), ("offset", "0")]),
+        &pairs(&[
+            ("query", "重生"),
+            ("search_type", "fanqie"),
+            ("offset", "0"),
+        ]),
     )
     .await
     {
@@ -212,8 +214,19 @@ async fn live_search_video_id() {
             let s = serde_json::to_string(&v).unwrap_or_default();
             std::fs::write("/tmp/fanqie_search.json", &s).ok();
             println!("search ok in {:?}: len={}", t.elapsed(), s.len());
-            for k in ["video_id", "series_id", "series_cover", "thumb_url", "series_title", "book_id"] {
-                println!("  {} occurrences: {}", k, s.matches(&format!("\"{k}\"")).count());
+            for k in [
+                "video_id",
+                "series_id",
+                "series_cover",
+                "thumb_url",
+                "series_title",
+                "book_id",
+            ] {
+                println!(
+                    "  {} occurrences: {}",
+                    k,
+                    s.matches(&format!("\"{k}\"")).count()
+                );
             }
             let mut found: Option<(String, String, String)> = None;
             fn walk(v: &serde_json::Value, out: &mut Option<(String, String, String)>) {
@@ -222,30 +235,41 @@ async fn live_search_video_id() {
                 }
                 match v {
                     serde_json::Value::Object(m) => {
-                        let vid = m.get("video_id").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                        let vid = m
+                            .get("video_id")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("")
+                            .to_string();
                         let sid = match m.get("series_id") {
                             Some(serde_json::Value::String(s)) => s.clone(),
                             Some(serde_json::Value::Number(n)) => n.to_string(),
                             _ => String::new(),
                         };
                         let cover = m
-                            .get("video_detail").and_then(|d| d.get("series_cover"))
+                            .get("video_detail")
+                            .and_then(|d| d.get("series_cover"))
                             .or_else(|| m.get("series_cover"))
                             .or_else(|| m.get("thumb_url"))
-                            .and_then(|x| x.as_str()).unwrap_or("").to_string();
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("")
+                            .to_string();
                         if !vid.is_empty() && !sid.is_empty() {
                             *out = Some((vid, sid, cover));
                             return;
                         }
                         for (_, val) in m {
                             walk(val, out);
-                            if out.is_some() { return; }
+                            if out.is_some() {
+                                return;
+                            }
                         }
                     }
                     serde_json::Value::Array(a) => {
                         for val in a {
                             walk(val, out);
-                            if out.is_some() { return; }
+                            if out.is_some() {
+                                return;
+                            }
                         }
                     }
                     _ => {}
@@ -254,7 +278,10 @@ async fn live_search_video_id() {
             walk(&v, &mut found);
             match found {
                 Some((vid, sid, cover)) => {
-                    println!("  found: video_id={} series_id={} cover={}", vid, sid, cover);
+                    println!(
+                        "  found: video_id={} series_id={} cover={}",
+                        vid, sid, cover
+                    );
                     std::fs::write("/tmp/fanqie_vid.txt", format!("{}\n{}", vid, sid)).ok();
                 }
                 None => println!("  no video_id+series_id in search response"),
@@ -285,7 +312,11 @@ async fn live_channel_tabs_video() {
             std::fs::write("/tmp/fanqie_channel_tabs.json", &s).ok();
             println!("channel_tabs ok in {:?}: len={}", t.elapsed(), s.len());
             for k in ["cell_id_str", "cell_id", "video", "tab_type", "title"] {
-                println!("  {} occurrences: {}", k, s.matches(&format!("\"{k}\"")).count());
+                println!(
+                    "  {} occurrences: {}",
+                    k,
+                    s.matches(&format!("\"{k}\"")).count()
+                );
             }
             println!("  head: {}", &s[..s.len().min(500)]);
         }
@@ -324,7 +355,11 @@ async fn live_homepage_tab8_warm() {
     .expect("homepage tab_type=8 warm must succeed");
     let raw = serde_json::to_string(&value).unwrap_or_default();
     std::fs::write("/tmp/fanqie_home_tab8_warm.json", &raw).ok();
-    println!("homepage tab8 warm ok in {:?}: len={}", t.elapsed(), raw.len());
+    println!(
+        "homepage tab8 warm ok in {:?}: len={}",
+        t.elapsed(),
+        raw.len()
+    );
     if let Some(tabs) = value
         .get("data")
         .and_then(|d| d.get("tab_item"))
@@ -370,11 +405,7 @@ async fn live_homepage_client_template2() {
         {
             Ok(v) => {
                 let raw = serde_json::to_string(&v).unwrap_or_default();
-                std::fs::write(
-                    format!("/tmp/fanqie_home_ct2_tab{tab_type}.json"),
-                    &raw,
-                )
-                .ok();
+                std::fs::write(format!("/tmp/fanqie_home_ct2_tab{tab_type}.json"), &raw).ok();
                 println!(
                     "homepage tab_type={tab_type} ct2 ok in {:?}: len={}",
                     t.elapsed(),
@@ -432,11 +463,7 @@ async fn live_homepage_gender_tab() {
         {
             Ok(v) => {
                 let raw = serde_json::to_string(&v).unwrap_or_default();
-                std::fs::write(
-                    format!("/tmp/fanqie_home_gender_tab{tab_type}.json"),
-                    &raw,
-                )
-                .ok();
+                std::fs::write(format!("/tmp/fanqie_home_gender_tab{tab_type}.json"), &raw).ok();
                 println!(
                     "homepage tab_type={tab_type} ok in {:?}: len={}",
                     t.elapsed(),
@@ -541,11 +568,7 @@ async fn live_homepage_tab16_video() {
     let t = Instant::now();
     let value = feed(
         &srv.ctx,
-        &pairs(&[
-            ("tab_type", "16"),
-            ("tab_index", "7"),
-            ("offset", "0"),
-        ]),
+        &pairs(&[("tab_type", "16"), ("tab_index", "7"), ("offset", "0")]),
     )
     .await
     .expect("homepage tab_type=16 must succeed");
@@ -599,7 +622,9 @@ async fn live_homepage_tab16_video() {
                             println!(
                                 "  tab16 cell: id_str={} show_type={} name={}",
                                 cell,
-                                c.get("show_type").map(|v| v.to_string()).unwrap_or_default(),
+                                c.get("show_type")
+                                    .map(|v| v.to_string())
+                                    .unwrap_or_default(),
                                 c.get("cell_name").and_then(|v| v.as_str()).unwrap_or("")
                             );
                             break;
@@ -632,18 +657,41 @@ async fn live_homepage_tab16_video() {
         Ok(v) => {
             let s = serde_json::to_string(&v).unwrap_or_default();
             std::fs::write("/tmp/fanqie_series_feed_tab16.json", &s).ok();
-            println!("series_feed tab16 ok in {:?}: len={}", t2.elapsed(), s.len());
-            for k in ["video_id", "series_id", "series_cover", "thumb_url", "series_title", "video_data"] {
-                println!("  {} occurrences: {}", k, s.matches(&format!("\"{k}\"")).count());
+            println!(
+                "series_feed tab16 ok in {:?}: len={}",
+                t2.elapsed(),
+                s.len()
+            );
+            for k in [
+                "video_id",
+                "series_id",
+                "series_cover",
+                "thumb_url",
+                "series_title",
+                "video_data",
+            ] {
+                println!(
+                    "  {} occurrences: {}",
+                    k,
+                    s.matches(&format!("\"{k}\"")).count()
+                );
             }
             let data = v.get("data");
             println!(
                 "  has_more={} next_offset={}",
-                data.and_then(|d| d.get("has_more")).map(|x| x.to_string()).unwrap_or_default(),
-                data.and_then(|d| d.get("next_offset")).map(|x| x.to_string()).unwrap_or_default()
+                data.and_then(|d| d.get("has_more"))
+                    .map(|x| x.to_string())
+                    .unwrap_or_default(),
+                data.and_then(|d| d.get("next_offset"))
+                    .map(|x| x.to_string())
+                    .unwrap_or_default()
             );
         }
-        Err(e) => println!("series_feed tab16 ERR in {:?}: {}", t2.elapsed(), e.message()),
+        Err(e) => println!(
+            "series_feed tab16 ERR in {:?}: {}",
+            t2.elapsed(),
+            e.message()
+        ),
     }
 }
 
@@ -671,13 +719,33 @@ async fn live_search_video_tab() {
             Ok(v) => {
                 let s = serde_json::to_string(&v).unwrap_or_default();
                 std::fs::write(format!("/tmp/fanqie_search_tab{tab}.json"), &s).ok();
-                println!("search tab_type={tab} ok in {:?}: len={}", t.elapsed(), s.len());
-                for k in ["video_id", "series_id", "series_cover", "thumb_url", "series_title", "book_id", "title"] {
-                    println!("  {} occurrences: {}", k, s.matches(&format!("\"{k}\"")).count());
+                println!(
+                    "search tab_type={tab} ok in {:?}: len={}",
+                    t.elapsed(),
+                    s.len()
+                );
+                for k in [
+                    "video_id",
+                    "series_id",
+                    "series_cover",
+                    "thumb_url",
+                    "series_title",
+                    "book_id",
+                    "title",
+                ] {
+                    println!(
+                        "  {} occurrences: {}",
+                        k,
+                        s.matches(&format!("\"{k}\"")).count()
+                    );
                 }
                 println!("  head: {}", &s[..s.len().min(300)]);
             }
-            Err(e) => println!("search tab_type={tab} ERR in {:?}: {}", t.elapsed(), e.message()),
+            Err(e) => println!(
+                "search tab_type={tab} ERR in {:?}: {}",
+                t.elapsed(),
+                e.message()
+            ),
         }
     }
 }
@@ -686,17 +754,22 @@ async fn live_search_video_tab() {
 #[ignore = "hits the live fanqie upstream"]
 async fn live_danmaku_first() {
     // 用搜索拿到的 video_id + series_id 测弹幕。
-    let txt = std::fs::read_to_string("/tmp/fanqie_vid.txt")
-        .expect("run live_search_video_id first");
+    let txt =
+        std::fs::read_to_string("/tmp/fanqie_vid.txt").expect("run live_search_video_id first");
     let mut lines = txt.lines();
     let vid = lines.next().unwrap_or("").to_string();
     let sid = lines.next().unwrap_or("").to_string();
-    assert!(!vid.is_empty() && !sid.is_empty(), "no vid in /tmp/fanqie_vid.txt");
+    assert!(
+        !vid.is_empty() && !sid.is_empty(),
+        "no vid in /tmp/fanqie_vid.txt"
+    );
     println!("danmaku target: video_id={} series_id={}", vid, sid);
 
     let dir = TempDir::new("fanqie-danmaku-first");
     let srv = build_server(&dir, None, &[], &[], &pool_json(1)).await;
-    let dm = srv.handler("playlet_danmaku").expect("route playlet_danmaku");
+    let dm = srv
+        .handler("playlet_danmaku")
+        .expect("route playlet_danmaku");
     let t = Instant::now();
     match dm(
         &srv.ctx,
@@ -715,7 +788,11 @@ async fn live_danmaku_first() {
             println!("danmaku ok in {:?}: len={}", t.elapsed(), s.len());
             // 弹幕条数：数 data 里的评论/弹幕节点
             for k in ["comment_list", "danmaku_list", "comments", "data"] {
-                println!("  {} occurrences: {}", k, s.matches(&format!("\"{k}\"")).count());
+                println!(
+                    "  {} occurrences: {}",
+                    k,
+                    s.matches(&format!("\"{k}\"")).count()
+                );
             }
             println!("  head: {}", &s[..s.len().min(600)]);
         }
@@ -772,7 +849,11 @@ async fn live_series_feed_tab8() {
                     v
                 }
                 Err(e2) => {
-                    println!("series_feed retry ERR in {:?}: {}", t2.elapsed(), e2.message());
+                    println!(
+                        "series_feed retry ERR in {:?}: {}",
+                        t2.elapsed(),
+                        e2.message()
+                    );
                     panic!("series_feed failed twice");
                 }
             }
@@ -780,7 +861,11 @@ async fn live_series_feed_tab8() {
     };
     let raw = serde_json::to_string(&value).unwrap_or_default();
     std::fs::write("/tmp/fanqie_series_feed.json", &raw).ok();
-    println!("series_feed tab8 ok in {:?}: len={}", t.elapsed(), raw.len());
+    println!(
+        "series_feed tab8 ok in {:?}: len={}",
+        t.elapsed(),
+        raw.len()
+    );
     for k in [
         "series_cover",
         "thumb_url",
@@ -790,7 +875,11 @@ async fn live_series_feed_tab8() {
         "series_id",
         "series_title",
     ] {
-        println!("  {} occurrences: {}", k, raw.matches(&format!("\"{k}\"")).count());
+        println!(
+            "  {} occurrences: {}",
+            k,
+            raw.matches(&format!("\"{k}\"")).count()
+        );
     }
     // 前 3 条视频：video_id / series_id / 封面
     let mut shown = 0;
@@ -846,7 +935,10 @@ async fn live_series_feed_tab8() {
     let mut samples = Vec::new();
     walk(&value, &mut samples);
     for (vid, sid, cover) in &samples {
-        println!("  sample: video_id={} series_id={} cover={}", vid, sid, cover);
+        println!(
+            "  sample: video_id={} series_id={} cover={}",
+            vid, sid, cover
+        );
     }
     println!("samples shown: {}", samples.len());
 }

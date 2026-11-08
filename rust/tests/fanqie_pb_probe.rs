@@ -157,32 +157,56 @@ fn walk(b: &[u8], depth: usize, out: &mut Vec<String>) {
                 out.push(format!("{}f{} varint {}", "  ".repeat(depth), field, v));
             }
             1 => {
-                if i + 8 > b.len() { break; }
+                if i + 8 > b.len() {
+                    break;
+                }
                 out.push(format!("{}f{} fixed64", "  ".repeat(depth), field));
                 i += 8;
             }
             5 => {
-                if i + 4 > b.len() { break; }
+                if i + 4 > b.len() {
+                    break;
+                }
                 out.push(format!("{}f{} fixed32", "  ".repeat(depth), field));
                 i += 4;
             }
             2 => {
-                let Some((len, ni2)) = varint(b, i) else { break };
+                let Some((len, ni2)) = varint(b, i) else {
+                    break;
+                };
                 i = ni2;
                 let len = len as usize;
-                if i + len > b.len() { break; }
+                if i + len > b.len() {
+                    break;
+                }
                 let chunk = &b[i..i + len];
                 if let Ok(s) = std::str::from_utf8(chunk) {
                     let t = s.trim();
                     if t.len() >= 2 && t.chars().all(|c| !c.is_control()) {
                         let shown: String = t.chars().take(80).collect();
-                        out.push(format!("{}f{} len {} str {:?}", "  ".repeat(depth), field, len, shown));
+                        out.push(format!(
+                            "{}f{} len {} str {:?}",
+                            "  ".repeat(depth),
+                            field,
+                            len,
+                            shown
+                        ));
                     } else {
-                        out.push(format!("{}f{} len {} bytes", "  ".repeat(depth), field, len));
+                        out.push(format!(
+                            "{}f{} len {} bytes",
+                            "  ".repeat(depth),
+                            field,
+                            len
+                        ));
                         walk(chunk, depth + 1, out);
                     }
                 } else {
-                    out.push(format!("{}f{} len {} bytes", "  ".repeat(depth), field, len));
+                    out.push(format!(
+                        "{}f{} len {} bytes",
+                        "  ".repeat(depth),
+                        field,
+                        len
+                    ));
                     walk(chunk, depth + 1, out);
                 }
                 i += len;
@@ -217,7 +241,15 @@ fn strings_of(b: &[u8]) -> Vec<String> {
     out
 }
 
-async fn fetch(tag: &str, accept_pb: bool, content_type_pb: bool, bottom_tab: &str, req_type: &str, path: &str, cold: bool) {
+async fn fetch(
+    tag: &str,
+    accept_pb: bool,
+    content_type_pb: bool,
+    bottom_tab: &str,
+    req_type: &str,
+    path: &str,
+    cold: bool,
+) {
     let dir = TempDir::new(&format!("fanqie-pb-{tag}"));
     let srv = build_server(&dir, None, &[], &[], &pool_json(1)).await;
     let mut p = bag();
@@ -230,10 +262,7 @@ async fn fetch(tag: &str, accept_pb: bool, content_type_pb: bool, bottom_tab: &s
     }
     let mut headers = dragon_read_headers();
     if accept_pb {
-        headers.push((
-            "Accept".to_string(),
-            "application/x-protobuf".to_string(),
-        ));
+        headers.push(("Accept".to_string(), "application/x-protobuf".to_string()));
     }
     if content_type_pb {
         headers.push((
@@ -281,7 +310,9 @@ async fn fetch(tag: &str, accept_pb: bool, content_type_pb: bool, bottom_tab: &s
                 }
                 let strs = strings_of(&raw);
                 println!("[{tag}] printable runs: {}", strs.len());
-                for key in ["看剧", "视频", "推荐", "短剧", "男生", "女生", "video", "series"] {
+                for key in [
+                    "看剧", "视频", "推荐", "短剧", "男生", "女生", "video", "series",
+                ] {
                     let n = strs.iter().filter(|s| s.contains(key)).count();
                     println!("  contains {:?}: {} runs", key, n);
                 }
@@ -292,14 +323,22 @@ async fn fetch(tag: &str, accept_pb: bool, content_type_pb: bool, bottom_tab: &s
             }
             Err(e) => {
                 last_err = e.to_string();
-                println!("[{tag}] attempt {attempt} ERR in {:?}: {}", t.elapsed(), last_err);
+                println!(
+                    "[{tag}] attempt {attempt} ERR in {:?}: {}",
+                    t.elapsed(),
+                    last_err
+                );
                 if attempt < 3 {
                     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                 }
             }
         }
     }
-    println!("[{tag}] ERR after 3 attempts in {:?}: {}", t.elapsed(), last_err);
+    println!(
+        "[{tag}] ERR after 3 attempts in {:?}: {}",
+        t.elapsed(),
+        last_err
+    );
 }
 
 async fn fetch_plan(tag: &str, tab_type_val: &str, source: &str, pb_headers: bool) {
@@ -316,10 +355,7 @@ async fn fetch_plan(tag: &str, tab_type_val: &str, source: &str, pb_headers: boo
     p.set("stickIds", "");
     let mut headers = dragon_read_headers();
     if pb_headers {
-        headers.push((
-            "Accept".to_string(),
-            "application/x-protobuf".to_string(),
-        ));
+        headers.push(("Accept".to_string(), "application/x-protobuf".to_string()));
         headers.push((
             "Content-Type".to_string(),
             "application/x-protobuf".to_string(),
@@ -365,7 +401,9 @@ async fn fetch_plan(tag: &str, tab_type_val: &str, source: &str, pb_headers: boo
                 }
                 let strs = strings_of(&raw);
                 println!("[{tag}] printable runs: {}", strs.len());
-                for key in ["看剧", "视频", "推荐", "短剧", "男生", "女生", "video", "series"] {
+                for key in [
+                    "看剧", "视频", "推荐", "短剧", "男生", "女生", "video", "series",
+                ] {
                     let n = strs.iter().filter(|s| s.contains(key)).count();
                     println!("  contains {:?}: {} runs", key, n);
                 }
@@ -376,14 +414,22 @@ async fn fetch_plan(tag: &str, tab_type_val: &str, source: &str, pb_headers: boo
             }
             Err(e) => {
                 last_err = e.to_string();
-                println!("[{tag}] attempt {attempt} ERR in {:?}: {}", t.elapsed(), last_err);
+                println!(
+                    "[{tag}] attempt {attempt} ERR in {:?}: {}",
+                    t.elapsed(),
+                    last_err
+                );
                 if attempt < 3 {
                     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                 }
             }
         }
     }
-    println!("[{tag}] ERR after 3 attempts in {:?}: {}", t.elapsed(), last_err);
+    println!(
+        "[{tag}] ERR after 3 attempts in {:?}: {}",
+        t.elapsed(),
+        last_err
+    );
 }
 
 #[tokio::test]

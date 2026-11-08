@@ -32,8 +32,7 @@ use std::time::Instant;
 
 use common::{build_server, pool_json, TempDir};
 use fqapi_core::endpoints::base::{
-    dragon_read_headers, Upstream, UpstreamMode, UpstreamRequestSpec, HOST_FQNOVEL,
-    HOST_FQNOVELC,
+    dragon_read_headers, Upstream, UpstreamMode, UpstreamRequestSpec, HOST_FQNOVEL, HOST_FQNOVELC,
 };
 use fqapi_core::endpoints::Params;
 
@@ -115,10 +114,9 @@ fn report(tag: &str, raw: &[u8], elapsed: std::time::Duration) {
             let data_desc = match data {
                 None => "no data key".to_string(),
                 Some(serde_json::Value::Null) => "data=null".to_string(),
-                Some(serde_json::Value::Object(o)) => format!(
-                    "data=obj keys={:?}",
-                    o.keys().collect::<Vec<_>>()
-                ),
+                Some(serde_json::Value::Object(o)) => {
+                    format!("data=obj keys={:?}", o.keys().collect::<Vec<_>>())
+                }
                 Some(serde_json::Value::Array(a)) => format!("data=array len={}", a.len()),
                 Some(other) => format!("data={}", other),
             };
@@ -231,11 +229,7 @@ async fn tab_seed() -> (String, String) {
                     }
                 }
                 // collect real id values anywhere in the payload
-                fn walk_ids(
-                    v: &serde_json::Value,
-                    book: &mut String,
-                    series: &mut String,
-                ) {
+                fn walk_ids(v: &serde_json::Value, book: &mut String, series: &mut String) {
                     match v {
                         serde_json::Value::Object(o) => {
                             for (k, val) in o {
@@ -820,13 +814,24 @@ async fn t_d1_e() {
     )
     .await;
     for (tag, path) in [
-        ("e1_video_detail", "/reading/bookapi/video_tab/video_detail/v"),
+        (
+            "e1_video_detail",
+            "/reading/bookapi/video_tab/video_detail/v",
+        ),
         ("e2_video_model", "/reading/bookapi/video_tab/video_model/v"),
         (
             "e3_multi_video_detail",
             "/reading/bookapi/video_tab/multi_video_detail/v",
         ),
     ] {
-        fetch(tag, HOST_FQNOVEL, path, clean_bag().to_pairs(), vec![], None).await;
+        fetch(
+            tag,
+            HOST_FQNOVEL,
+            path,
+            clean_bag().to_pairs(),
+            vec![],
+            None,
+        )
+        .await;
     }
 }

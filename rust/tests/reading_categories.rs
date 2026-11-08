@@ -118,7 +118,8 @@ async fn live_hongguo_categories() {
             .join(" / ")
     );
     assert!(
-        cats.iter().any(|c| c["id"] == "audio" && c["name"] == "全部"),
+        cats.iter()
+            .any(|c| c["id"] == "audio" && c["name"] == "全部"),
         "hongguo first category must be 全部 (id audio)"
     );
     assert!(
