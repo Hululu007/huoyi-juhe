@@ -74,15 +74,13 @@ async fn live_probe_catalog_detail_search() {
     let search = srv.handler("reading_search").expect("route");
     for (site_id, kind, query) in SITES {
         let t0 = std::time::Instant::now();
-        let cat_value = match cats(
-            &srv.ctx,
-            &pairs(&[("site_id", site_id)]),
-        )
-        .await
-        {
+        let cat_value = match cats(&srv.ctx, &pairs(&[("site_id", site_id)])).await {
             Ok(v) => v,
             Err(e) => {
-                println!("{site_id} ({kind}): CATEGORIES ERR {e} [{:?}]", t0.elapsed());
+                println!(
+                    "{site_id} ({kind}): CATEGORIES ERR {e} [{:?}]",
+                    t0.elapsed()
+                );
                 continue;
             }
         };
@@ -125,12 +123,7 @@ async fn live_probe_catalog_detail_search() {
             .unwrap_or_default();
         let mut detail_out = String::new();
         if !first_id.is_empty() {
-            match detail(
-                &srv.ctx,
-                &pairs(&[("site_id", site_id), ("id", &first_id)]),
-            )
-            .await
-            {
+            match detail(&srv.ctx, &pairs(&[("site_id", site_id), ("id", &first_id)])).await {
                 Ok(v) => {
                     let eps = v["episodes"].as_array().map(|a| a.len()).unwrap_or(0);
                     let title = v["title"].as_str().unwrap_or("");
@@ -139,19 +132,15 @@ async fn live_probe_catalog_detail_search() {
                 Err(e) => detail_out = format!("DETAIL ERR {e}"),
             }
         }
-        let search_n = match search(
-            &srv.ctx,
-            &pairs(&[("site_id", site_id), ("query", query)]),
-        )
-        .await
-        {
-            Ok(v) => v["items"]
-                .as_array()
-                .map(|a| a.len())
-                .unwrap_or(0)
-                .to_string(),
-            Err(e) => format!("ERR {e}"),
-        };
+        let search_n =
+            match search(&srv.ctx, &pairs(&[("site_id", site_id), ("query", query)])).await {
+                Ok(v) => v["items"]
+                    .as_array()
+                    .map(|a| a.len())
+                    .unwrap_or(0)
+                    .to_string(),
+                Err(e) => format!("ERR {e}"),
+            };
         println!(
             "{site_id} ({kind}): cats={} first={first_cat} catalog={} first={first_title:?} | {detail_out} | search[{query}]={search_n} [{:?}]",
             cat_list.len(),
@@ -214,11 +203,7 @@ async fn live_reprobe_anomalies() {
             let cid = cat["id"].as_str().unwrap_or("");
             match catalog(
                 &srv.ctx,
-                &pairs(&[
-                    ("site_id", site_id),
-                    ("category_id", cid),
-                    ("page", "1"),
-                ]),
+                &pairs(&[("site_id", site_id), ("category_id", cid), ("page", "1")]),
             )
             .await
             {
@@ -228,24 +213,15 @@ async fn live_reprobe_anomalies() {
                         .first()
                         .and_then(|i| i["title"].as_str().map(str::to_string))
                         .unwrap_or_default();
-                    out += &format!(
-                        " | cat[{cid}]={} first={first_title:?}",
-                        items.len()
-                    );
+                    out += &format!(" | cat[{cid}]={} first={first_title:?}", items.len());
                     if research {
                         let kw: String = first_title.chars().take(2).collect();
                         if !kw.is_empty() {
-                            match search(
-                                &srv.ctx,
-                                &pairs(&[("site_id", site_id), ("query", &kw)]),
-                            )
-                            .await
+                            match search(&srv.ctx, &pairs(&[("site_id", site_id), ("query", &kw)]))
+                                .await
                             {
                                 Ok(v) => {
-                                    let n = v["items"]
-                                        .as_array()
-                                        .map(|a| a.len())
-                                        .unwrap_or(0);
+                                    let n = v["items"].as_array().map(|a| a.len()).unwrap_or(0);
                                     out += &format!(" | search[{kw}]={n}");
                                 }
                                 Err(e) => out += &format!(" | search[{kw}] ERR {e}"),
