@@ -78,6 +78,10 @@ class DesktopAppFrame extends StatelessWidget {
                   ),
                   destinations: const [
                     NavigationRailDestination(
+                      icon: Icon(LucideIcons.gamepad),
+                      label: Text('游戏'),
+                    ),
+                    NavigationRailDestination(
                       icon: Icon(LucideIcons.house),
                       label: Text('首页'),
                     ),
@@ -148,7 +152,7 @@ class DesktopAppFrame extends StatelessWidget {
                             // 其它分区没有自己的搜索行，仍用全局搜索。
                             child: ValueListenableBuilder<int>(
                               valueListenable: desktopTab,
-                              builder: (context, tab, _) => tab == 1
+                              builder: (context, tab, _) => tab == 2
                                   ? const SizedBox.shrink()
                                   : Align(
                                       alignment: Alignment.centerRight,

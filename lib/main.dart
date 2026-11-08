@@ -17,9 +17,11 @@ import 'package:hive_ce_flutter/hive_flutter.dart';
 
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui' show ImageFilter;
 
 import 'pages/home_page.dart';
+import 'pages/game_page.dart';
 import 'pages/audio_page.dart';
 import 'pages/cached_books_page.dart';
 import 'pages/cultivation_create_page.dart';
@@ -46,6 +48,7 @@ import 'services/connectivity_status.dart';
 import 'services/home_feed_cache.dart';
 import 'services/library_store.dart';
 import 'services/cultivation.dart';
+import 'services/game_service.dart';
 import 'services/rank_cache.dart';
 import 'services/player_style_config.dart';
 import 'services/source_registry.dart';
@@ -540,9 +543,18 @@ class RootShell extends StatefulWidget {
   State<RootShell> createState() => _RootShellState();
 }
 
-class _RootShellState extends State<RootShell> {
+class _RootShellState extends State<RootShell>
+    with SingleTickerProviderStateMixin {
   int _index = 0;
   bool _backendReady = false;
+
+  /// 游戏 / 观影 3D 翻转切换的控制器（0..1：前半段旧页转走，
+  /// 0.5 处换 tab，后半段新页转进来）。
+  late final AnimationController _flipController =
+      AnimationController(vsync: this, duration: const Duration(milliseconds: 600));
+
+  /// 翻转进行中（防连点重复翻）。
+  bool _flipping = false;
 
   /// 创建道友档案是否已读盘核对过（未核对完先显示加载，不闪创建页）。
   bool _profileChecked = false;
@@ -576,7 +588,7 @@ class _RootShellState extends State<RootShell> {
       setState(() => _index = index);
       return;
     }
-    if (index != 0) return; // 只有首页有 feed 需要回顶
+    if (index != 1) return; // 只有首页有 feed 需要回顶
     final now = DateTime.now();
     final last = _lastHomeTabRepeatAt;
     if (last != null && now.difference(last).inMilliseconds < 800) return;
@@ -599,6 +611,9 @@ class _RootShellState extends State<RootShell> {
       _onCultivationChanged,
     );
     _startBackend();
+    // 挂机游戏服务早启动：进游戏页之前定时器就跑起来，
+    // 切到影视区看视频时修为与元宝照涨。
+    unawaited(GameService.instance.ensureInitialized());
     // 硬门槛：先读盘核对有没有创建过道友档案；没建档时主界面不挂，
     // 只显示全屏创建人物界面（无跳过、无关闭、返回键也绕不过去），
     // 建档落盘后才进主界面。
@@ -680,6 +695,63 @@ class _RootShellState extends State<RootShell> {
     }
   }
 
+  /// 游戏 / 观影切换钮：像 3D 换界面一样翻转切换——
+  /// 前半段旧界面转走（0→90 度），中点换 tab，
+  /// 后半段新界面转进来（90 度→0）。
+  /// 游戏切观影后游戏后台继续挂机（服务层定时器不停）；
+  /// 观影切游戏后正在播的视频暂停。
+  Future<void> _flipToTab(int index) async {
+    if (_flipping) return;
+    if (isWindowsDesktop) {
+      if (desktopTab.value == index) return;
+    } else if (_index == index) {
+      return;
+    }
+    _flipping = true;
+    if (index == 0) {
+      unawaited(NativePlayer.pauseOthers());
+    }
+    await _flipController.animateTo(
+      0.5,
+      duration: const Duration(milliseconds: 300),
+    );
+    if (!mounted) {
+      _flipping = false;
+      return;
+    }
+    if (isWindowsDesktop) {
+      desktopTab.value = index;
+    } else {
+      setState(() => _index = index);
+    }
+    await _flipController.animateTo(
+      1.0,
+      duration: const Duration(milliseconds: 300),
+    );
+    if (mounted) _flipController.value = 0;
+    _flipping = false;
+  }
+
+  /// 给翻转切换包一层 3D 旋转（带透视的 rotateY）。
+  Widget _flipWrap(Widget child) {
+    return AnimatedBuilder(
+      animation: _flipController,
+      builder: (context, child) {
+        final value = _flipController.value;
+        final angle =
+            value <= 0.5 ? value * math.pi : (1 - value) * math.pi;
+        return Transform(
+          transform: Matrix4.identity()
+            ..setEntry(3, 2, 0.0015)
+            ..rotateY(angle),
+          alignment: Alignment.center,
+          child: child,
+        );
+      },
+      child: child,
+    );
+  }
+
   @override
   void dispose() {
     dramaLightPageNotifier.removeListener(_onDramaChromeChanged);
@@ -687,6 +759,7 @@ class _RootShellState extends State<RootShell> {
       _onCultivationChanged,
     );
     _homeScroll.dispose();
+    _flipController.dispose();
     super.dispose();
   }
 
@@ -773,28 +846,37 @@ class _RootShellState extends State<RootShell> {
       return ValueListenableBuilder<int>(
         valueListenable: desktopTab,
         builder: (context, index, _) {
-          AudioFloatingRouteScope.configure(context, hidden: index == 1);
-          return LazyIndexedStack(
-            index: index,
-            children: [
-              HomePage(cueLoader: () => ApiClient.instance.searchCue()),
-              const DramaPage(),
-              const VideoPage(),
-              const LivePage(),
-              LibraryPage(
-                onBrowse: () => desktopTab.value = 0,
-                onFindDrama: () => desktopTab.value = 1,
-              ),
-              const MinePage(),
-            ],
+          AudioFloatingRouteScope.configure(context, hidden: index == 2);
+          return _flipWrap(
+            LazyIndexedStack(
+              index: index,
+              children: [
+                GamePage(
+                  active: index == 0,
+                  onExit: () => desktopTab.value = 1,
+                  onOpenFilmTab: () => desktopTab.value = 3,
+                  onOpenDramaTab: () => desktopTab.value = 2,
+                  onSwitchToVideo: () => _flipToTab(3),
+                ),
+                HomePage(cueLoader: () => ApiClient.instance.searchCue()),
+                const DramaPage(),
+                VideoPage(onOpenGame: () => _flipToTab(0)),
+                const LivePage(),
+                LibraryPage(
+                  onBrowse: () => desktopTab.value = 1,
+                  onFindDrama: () => desktopTab.value = 2,
+                ),
+                const MinePage(),
+              ],
+            ),
           );
         },
       );
     }
-    AudioFloatingRouteScope.configure(context, hidden: _index == 1);
+    AudioFloatingRouteScope.configure(context, hidden: _index == 2);
     final palette = HomePalette.of(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final isDramaTab = _index == 1;
+    final isDramaTab = _index == 2;
     // 短剧的推荐频道压在全屏视频流上，dock 用深色玻璃；看剧/漫剧/最近/收藏
     // 是浅色页，dock 跟主题走，否则浅色外观下页面是奶白、dock 还是黑的。
     final dramaOnVideo = isDramaTab && !dramaLightPageNotifier.value;
@@ -853,6 +935,12 @@ class _RootShellState extends State<RootShell> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         destinations: [
+          // 游戏在最前面：全屏 2.5D 战场，点它进游戏。
+          const NavigationDestination(
+            icon: Icon(LucideIcons.gamepad),
+            selectedIcon: Icon(LucideIcons.gamepad),
+            label: '游戏',
+          ),
           const NavigationDestination(
             icon: Icon(LucideIcons.house),
             selectedIcon: Icon(LucideIcons.house),
@@ -946,27 +1034,40 @@ class _RootShellState extends State<RootShell> {
                       ? Brightness.light
                       : Brightness.dark,
                 ),
-        child: LazyIndexedStack(
-          index: _index,
-          children: [
-            HomePage(
-              scrollController: _homeScroll,
-              cueLoader: () => ApiClient.instance.searchCue(),
-            ),
-            const DramaPage(),
-            const VideoPage(),
-            const LivePage(),
-            // 空书架上的「去书城找书」切回首页 tab；收藏空态的「找短剧」
-            // 切到短剧 tab。
-            LibraryPage(
-              onBrowse: () => setState(() => _index = 0),
-              onFindDrama: () => setState(() => _index = 1),
-            ),
-            const MinePage(),
-          ],
+        child: _flipWrap(
+          LazyIndexedStack(
+            index: _index,
+            children: [
+              GamePage(
+                active: _index == 0,
+                onExit: () => setState(() => _index = 1),
+                onOpenFilmTab: () => setState(() => _index = 3),
+                onOpenDramaTab: () => setState(() => _index = 2),
+                onSwitchToVideo: () => _flipToTab(3),
+              ),
+              HomePage(
+                scrollController: _homeScroll,
+                cueLoader: () => ApiClient.instance.searchCue(),
+              ),
+              const DramaPage(),
+              VideoPage(onOpenGame: () => _flipToTab(0)),
+              const LivePage(),
+              // 空书架上的「去书城找书」切回首页 tab；收藏空态的「找短剧」
+              // 切到短剧 tab。
+              LibraryPage(
+                onBrowse: () => setState(() => _index = 1),
+                onFindDrama: () => setState(() => _index = 2),
+              ),
+              const MinePage(),
+            ],
+          ),
         ),
       ),
-      bottomNavigationBar: SafeArea(
+      // 游戏 tab 全屏战场：底部导航藏掉，不遮战场；出游戏靠
+      // 游戏内「离开」钮或右上角「观影」切换钮。
+      bottomNavigationBar: _index == 0
+          ? null
+          : SafeArea(
         top: false,
         left: false,
         right: false,

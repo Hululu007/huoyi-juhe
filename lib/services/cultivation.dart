@@ -578,7 +578,7 @@ const chapterXp = 150;
 /// - false：恢复正常，修为不到门槛的档位继续隐藏。
 ///
 /// 恢复方法：只改这一处，把 true 改回 false，不用改任何页面与调用点。
-/// 首次安装建人物硬门槛、升境弹窗、兑换码、修为统计、打坐、称号
+/// 首次安装建人物硬门槛、升境弹窗、修为统计、打坐、称号
 /// 都不走这个开关，一字不动。
 ///
 /// 注意：这里故意用顶层可写 bool 而不用 const，只为单测能验证
@@ -785,30 +785,6 @@ List<String> visibleSiteIds(
     if (tier == null || adultTierUnlocked(tier, xp)) out.add(id);
   }
   return out;
-}
-
-/// 新人大礼包兑换码 → 目标修为：VIP666→筑基 300、VIP888→结丹
-/// 1000、VIP6666→元婴 3000、VIP8888→化神 8000。
-const cultivationGiftCodes = <String, int>{
-  'VIP666': 300,
-  'VIP888': 1000,
-  'VIP6666': 3000,
-  'VIP8888': 8000,
-};
-
-/// 兑换结果。
-enum CultivationRedeemResult {
-  /// 兑换成功（修为已补到目标）。
-  success,
-
-  /// 码不对。
-  invalid,
-
-  /// 这个码已用过。
-  alreadyUsed,
-
-  /// 已达到或超过目标境界，不消耗。
-  alreadyAtRealm,
 }
 
 /// 一次修为变化跨过的境界下标（升序），供升境弹窗用；
@@ -1283,7 +1259,6 @@ class CultivationService {
   static const _faceKey = 'cultivation_face';
   static const _hairstyleKey = 'cultivation_hairstyle';
   static const _hairColorKey = 'cultivation_hair_color_id';
-  static const _usedCodesKey = 'cultivation_used_codes';
 
   final ValueNotifier<CultivationSnapshot> snapshotNotifier =
       ValueNotifier<CultivationSnapshot>(CultivationSnapshot.empty);
@@ -1312,9 +1287,6 @@ class CultivationService {
         final value = sp.getDouble('$_secondsPrefix${category.name}');
         if (value != null && value > 0) seconds[category] = value;
       }
-      _usedCodes
-        ..clear()
-        ..addAll(sp.getStringList(_usedCodesKey) ?? const []);
       snapshotNotifier.value = CultivationSnapshot(
         seconds: seconds,
         meditationSeconds: sp.getDouble(_meditationSecondsKey) ?? 0,
@@ -1468,64 +1440,16 @@ class CultivationService {
     await _persist();
   }
 
-  /// 新人大礼包兑换：输码把修为直接补到目标境界。
-  /// VIP666→筑基 300、VIP888→结丹 1000、VIP6666→元婴 3000、
-  /// VIP8888→化神 8000。每个码只能用一次（落盘记已用码）；
-  /// 已达到或超过目标境界时不消耗、返回 alreadyAtRealm。
-  /// 返回（结果、目标修为、兑换前修为、兑换后修为），供设置页
-  /// 判断要不要弹升境解锁弹窗。
-  Future<({
-    CultivationRedeemResult result,
-    int targetXp,
-    int oldXp,
-    int newXp,
-  })> redeemCode(String code) async {
+  /// 游戏直接加修为（击杀、推图、爬塔、商城丹药用）：
+  /// 修为直接加到完结奖励里并落盘；<= 0 不加。
+  Future<void> addGameXp(int xp) async {
+    if (xp <= 0) return;
     await _ensureLoaded();
-    final normalized = code.trim().toUpperCase();
-    final targetXp = cultivationGiftCodes[normalized];
-    final oldXp = totalXp;
-    if (targetXp == null) {
-      return (
-        result: CultivationRedeemResult.invalid,
-        targetXp: 0,
-        oldXp: oldXp,
-        newXp: oldXp,
-      );
-    }
-    if (_usedCodes.contains(normalized)) {
-      return (
-        result: CultivationRedeemResult.alreadyUsed,
-        targetXp: targetXp,
-        oldXp: oldXp,
-        newXp: oldXp,
-      );
-    }
-    if (oldXp >= targetXp) {
-      return (
-        result: CultivationRedeemResult.alreadyAtRealm,
-        targetXp: targetXp,
-        oldXp: oldXp,
-        newXp: oldXp,
-      );
-    }
-    _usedCodes.add(normalized);
     snapshotNotifier.value = snapshot.copyWith(
-      bonusXp: snapshot.bonusXp + (targetXp - oldXp),
+      bonusXp: snapshot.bonusXp + xp,
     );
     await _persist();
-    return (
-      result: CultivationRedeemResult.success,
-      targetXp: targetXp,
-      oldXp: oldXp,
-      newXp: totalXp,
-    );
   }
-
-  /// 已用的兑换码（内存里一份，落盘一份）。
-  final Set<String> _usedCodes = <String>{};
-
-  /// 已用过哪些兑换码（供设置页显示）。
-  Set<String> get usedCodes => Set<String>.unmodifiable(_usedCodes);
 
   /// 串行落盘：多次累计并发时按顺序写，避免旧快照盖掉新快照。
   Future<void> _persist() {
@@ -1567,7 +1491,6 @@ class CultivationService {
       await sp.setString(_faceKey, current.face);
       await sp.setString(_hairstyleKey, current.hairstyle);
       await sp.setString(_hairColorKey, current.hairColorId);
-      await sp.setStringList(_usedCodesKey, _usedCodes.toList());
     });
     _persistChain = run.catchError((Object _) {});
     return run;
@@ -1607,8 +1530,6 @@ class CultivationService {
       await sp.remove(_faceKey);
       await sp.remove(_hairstyleKey);
       await sp.remove(_hairColorKey);
-      await sp.remove(_usedCodesKey);
-      _usedCodes.clear();
     } catch (_) {}
   }
 }

@@ -193,7 +193,11 @@ List<SourceEntry> visibleVideoPagePlayableSites(
 }
 
 class VideoPage extends StatefulWidget {
-  const VideoPage({super.key});
+  /// 点它翻转切回游戏（右上角金色「游戏」大钮）。
+  /// 不传时顶栏不显示切换钮（老调用点与测试用）。
+  const VideoPage({super.key, this.onOpenGame});
+
+  final VoidCallback? onOpenGame;
 
   @override
   State<VideoPage> createState() => _VideoPageState();
@@ -394,6 +398,31 @@ class _VideoPageState extends State<VideoPage> {
     );
   }
 
+  /// 右上角金色「游戏」切换钮：点一下 3D 翻转切回游戏界面。
+  /// 游戏在后台继续挂机；onOpenGame 没传时不显示。
+  Widget _gameSwitchButton() {
+    final onOpenGame = widget.onOpenGame;
+    if (onOpenGame == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(right: 4),
+      child: FilledButton.icon(
+        onPressed: onOpenGame,
+        icon: const Icon(Icons.sports_esports, size: 18),
+        label: const Text('游戏'),
+        style: FilledButton.styleFrom(
+          backgroundColor: const Color(0xFFD4A017),
+          foregroundColor: Colors.black,
+          minimumSize: const Size(0, 36),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          textStyle: const TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -406,7 +435,10 @@ class _VideoPageState extends State<VideoPage> {
     final snapshot = CultivationService.instance.snapshot;
     if (!snapshot.unlockedVideo) {
       return Scaffold(
-        appBar: AppBar(title: const Text('影视')),
+        appBar: AppBar(
+          title: const Text('影视'),
+          actions: [_gameSwitchButton()],
+        ),
         body: _lockedBody(context),
       );
     }
@@ -427,6 +459,7 @@ class _VideoPageState extends State<VideoPage> {
       appBar: AppBar(
         title: const Text('影视'),
         actions: [
+          _gameSwitchButton(),
           TextButton(
             onPressed: _videoZoneId == null
                 ? null

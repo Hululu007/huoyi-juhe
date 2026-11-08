@@ -69,4 +69,13 @@ class CultivationBgm {
       _player = null;
     }
   }
+
+  /// 设背景音乐音量（0..1）；没在播时只记着，下次播生效。
+  Future<void> setVolume(double volume) async {
+    try {
+      await _player?.setVolume(volume.clamp(0.0, 1.0));
+    } on MissingPluginException {
+      _player = null;
+    }
+  }
 }
