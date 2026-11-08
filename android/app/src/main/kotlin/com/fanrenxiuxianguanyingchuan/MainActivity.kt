@@ -47,8 +47,6 @@ class MainActivity : FlutterActivity() {
         // 系统代理读取：读手机的系统代理交给 Rust 核心当出口代理，见
         // SystemProxyPlugin（通道 fqapp/system-proxy）。
         flutterEngine.plugins.add(SystemProxyPlugin())
-        // TDLib 登录桥（应用内扫码登录，不起插件进程；与插件路并列）。
-        flutterEngine.plugins.add(TdlibPlugin())
         // 蜘蛛引擎：Python 蜘蛛走 Chaquopy，jar 蜘蛛走 Dex 加载，JS 蜘蛛走 QuickJS。
         JarBridge.register(flutterEngine.dartExecutor.binaryMessenger, this)
         PyBridge(this).register(flutterEngine.dartExecutor.binaryMessenger)

@@ -19,12 +19,12 @@ import 'embedded_test_entries.dart';
 /// 不分池，widget 层只取其中视频站平铺推荐，阅读站走各自的分站区）。
 ///
 /// 影视区不含短剧：显示名带「短剧」的行已在统一表里摘掉。视频行
-/// 293 行 = 分档影视行 239（第 1 档 49 + 第 2 档 61 + 第 3 档 54 +
-/// 第 4 档 75）+ 不分档影视行 54（TG影视库 + 从未进核心的 jar/种子站
+/// 297 行 = 分档影视行 240（第 1 档 49 + 第 2 档 60 + 第 3 档 54 +
+/// 第 4 档 77）+ 不分档影视行 57（从未进核心的 jar/种子站
 /// 与 YouTube 行）；阅读档位按 31 站登记顺序的固定分档
 /// （阅读站表不变，变了再改这里）。
-/// 相对旧数 290：第 2 档 62→61 是 aisxpc 改名「🔞Ai小视频┃短剧」后
-/// 出影视区；不分档 50→54 是 jar 登记新增 4 个未进分档表的站。
+/// 行数与 video_page_tier_test 的统一表一致（297 行）；旧注里的
+/// 239 分档（49/61/54/75）与 54 不分档是并行加站前的旧数。
 void main() {
   /// 内嵌站测试条目（种子 + jar），与生产登记一致。
   final entries = embeddedTestEntries();
@@ -55,21 +55,16 @@ void main() {
     3: ['hsvoice31', 'hysxs'],
   };
 
-  test('修为 0 时只有 TG影视库与不分档视频站 + 非成人阅读站', () {
+  test('修为 0 时只有不分档视频站 + 非成人阅读站', () {
     gateOff();
     final sites = visibleFilmZoneSites(0, entries);
     expect(
       sites.length,
-      54 + nonAdultReading.length,
+      57 + nonAdultReading.length,
     );
     final video = [for (final s in sites) if (s.kind == 'video') s];
-    // 54 行 = TG影视库 + 53 个不分档影视行；分档行一个都不露。
-    // 旧数 50：jar 登记新增 4 个不分档站（均未进分档表）。
-    expect(video.length, 54);
-    expect(
-      video.map((s) => s.id).toList(),
-      contains('tgdrama'),
-    );
+    // 57 行不分档影视行；分档行一个都不露。
+    expect(video.length, 57);
     expect(
       video.any((s) => s.id == 'jar:zakatv:ZakaMjv011'),
       isFalse,
@@ -107,10 +102,10 @@ void main() {
     // 在第 4 档，3000 修为还看不到。
     expect(ids.contains('1000novel'), isTrue);
     expect(ids.contains('hsvoice31'), isFalse);
-    // 视频不分档 54 + 第 1 档 49；阅读非成人 + 第 1 档 7 个。
+    // 视频不分档 57 + 第 1 档 49；阅读非成人 + 第 1 档 7 个。
     expect(
       sites.where((s) => s.kind == 'video').length,
-      103,
+      106,
     );
     expect(
       sites.where((s) => s.kind != 'video').length,
@@ -123,7 +118,7 @@ void main() {
     final at8000 = visibleFilmZoneSites(8000, entries);
     expect(
       at8000.where((s) => s.kind == 'video').length,
-      164,
+      166,
     );
     expect(
       at8000.where((s) => s.kind != 'video').length,
@@ -139,7 +134,7 @@ void main() {
     final at15000 = visibleFilmZoneSites(15000, entries);
     expect(
       at15000.where((s) => s.kind == 'video').length,
-      218,
+      220,
     );
     expect(
       at15000.where((s) => s.kind != 'video').length,
@@ -155,14 +150,14 @@ void main() {
   test('合体 30000 时全部开完，四类齐全，无重复 id', () {
     gateOff();
     final sites = visibleFilmZoneSites(30000, entries);
-    // 视频 293 行；阅读 31 站。
+    // 视频 297 行；阅读 31 站。
     expect(
       sites.where((s) => s.kind == 'video').length,
-      293,
+      297,
     );
     expect(
       sites.length,
-      293 + coreReadingSiteIds.length,
+      297 + coreReadingSiteIds.length,
     );
     final kinds = <String, int>{};
     for (final s in sites) {
@@ -172,7 +167,7 @@ void main() {
     for (final kind in coreReadingKinds.values) {
       readingKinds[kind] = (readingKinds[kind] ?? 0) + 1;
     }
-    expect(kinds['video'], 293);
+    expect(kinds['video'], 297);
     expect(kinds['novel'], readingKinds['novel']);
     expect(kinds['comic'], readingKinds['comic']);
     expect(kinds['audio'], readingKinds['audio']);
@@ -292,7 +287,8 @@ void main() {
       addTearDown(
         () => cultivationAdultTierGateDisabledForTesting = wasDisabled,
       );
-      // 往登记表里只放 mjv011 的 jar 行：修为 0 时池里只有 tgdrama。
+      // 往登记表里只放 mjv011 的 jar 行：修为 0 时视频池是空的
+      // （第 1 档的 mjv011 还没进池）。
       SharedPreferences.setMockInitialValues({
         'juhe_custom_sources': jsonEncode([
           const SourceEntry(
@@ -322,8 +318,8 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      // 修为 0 时池里只有 tgdrama，第 1 档的 mjv011 还没进池。
-      expect(find.text('作品-tgdrama'), findsOneWidget);
+      // 修为 0 时池里是空的，影视区显示空态，第 1 档的 mjv011 还没进池。
+      expect(find.text('暂无可显示的影视站'), findsOneWidget);
       expect(find.text('作品-jar:zakatv:ZakaMjv011'), findsNothing);
       // 修为到元婴 3000，第 1 档解锁，首窗里自动出现 mjv011。
       CultivationService.instance.snapshotNotifier.value =

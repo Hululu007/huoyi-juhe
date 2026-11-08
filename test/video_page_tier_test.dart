@@ -6,9 +6,9 @@ import 'package:fqapp/services/cultivation.dart';
 import 'embedded_test_entries.dart';
 
 /// 影视页按境界过滤：成人站按修为分 4 档自动解锁，未解锁的站完全
-/// 不在列表里出现（不灰掉、不占位、不露站名）；TG影视库不分档，
-/// 原样保留；内嵌站的行 id 是种子 `seed_<id>` / jar `jar:zakatv:<key>`，
-/// 查档位时归一化成核心站 id；从未进过核心的站不分档、原样保留。
+/// 不在列表里出现（不灰掉、不占位、不露站名）；内嵌站的行 id 是种子
+/// `seed_<id>` / jar `jar:zakatv:<key>`，查档位时归一化成核心站 id；
+/// 从未进过核心的站不分档、原样保留。
 void main() {
   /// 门禁开关：生产默认值 true（测试期临时关闭）会放行全部档位，
   /// 分档断言须先关掉，用完恢复。
@@ -22,10 +22,9 @@ void main() {
   /// 内嵌站测试条目（种子 + jar），与生产登记一致。
   final entries = embeddedTestEntries();
 
-  test('修为 0 时只剩 TG影视库与不分档站，第 1 档站一个都不露', () {
+  test('修为 0 时只剩不分档站，第 1 档站一个都不露', () {
     final visible = visibleVideoZoneSites(entries, 0);
     final ids = visible.map((site) => site.id).toSet();
-    expect(ids.contains('tgdrama'), isTrue);
     expect(ids.contains('jar:zakatv:ZakaMjv011'), isFalse);
     expect(ids.contains('jar:zakatv:ZakaMissav'), isFalse);
     expect(ids.contains('jar:zakatv:ZakaJavrate'), isFalse);
@@ -59,22 +58,23 @@ void main() {
     expect(ids.contains('jar:zakatv:zakaaiye'), isTrue);
     expect(ids.contains('jar:zakatv:av18avmcg'), isTrue);
     // 全开 = 统一表原样，不多不少。
-    // 298 行 = 第 1 档 49 + 第 2 档 60 + 第 3 档 54 + 第 4 档 77
-    // （240 个分档影视行）+ 58 个不分档影视行（含 TG影视库）；
+    // 297 行 = 第 1 档 49 + 第 2 档 60 + 第 3 档 54 + 第 4 档 77
+    // （240 个分档影视行）+ 57 个不分档影视行；
     // 显示名带「短剧」的行已在统一表里摘掉。
     // 相对旧数 293 的变化：并行加站（种子 108→115、jar 登记 243→247）
-    // 让不分档行 54→58、分档行 239→240；再减 AOXX69 一行（分档
+    // 让不分档行 54→57、分档行 239→240；再减 AOXX69 一行（分档
     // 239→240 里已含摘站影响：aoxx69 本是第 1 档行，rou 1→0 与
     // hgdj 2→1 的档位移动见 adult_tier_embedded_test）。
+    // 不分档原 58，已删站减 1。
     expect(ids.length, unifiedVideoZoneSites(entries).length);
-    expect(ids.length, 298);
+    expect(ids.length, 297);
   });
 
   test('门禁开关开时修为 0 也全可见', () {
     cultivationAdultTierGateDisabledForTesting = true;
     final visible = visibleVideoZoneSites(entries, 0);
     expect(visible.length, unifiedVideoZoneSites(entries).length);
-    expect(visible.length, 298);
+    expect(visible.length, 297);
   });
 
   test('第 4 档末尾顺序：missav 在前、鉴黄师压最后', () {

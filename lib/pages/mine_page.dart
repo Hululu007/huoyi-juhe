@@ -15,7 +15,6 @@ import '../widgets/mine/mine_entries.dart';
 import '../widgets/mine/mine_heatmap.dart';
 import '../widgets/mine/mine_summary.dart';
 import '../widgets/mine/mine_top_books.dart';
-import '../widgets/mine/tgdrama_account_row.dart';
 import 'cultivation_titles_page.dart';
 import 'detail_page.dart';
 import 'settings_page.dart';
@@ -155,7 +154,6 @@ class _MinePageState extends State<MinePage> {
                     ),
                   ),
                 ),
-                const TgdramaAccountRow(),
                 MineSummary(stats: _stats, today: today),
                 MineHeatmap(stats: _stats, today: today),
                 MineTopBooks(rank: _stats.rank, onOpen: _openEntry),

@@ -118,7 +118,7 @@ class _HomePageState extends ConsumerState<HomePage> {
   /// 当前影视站点的分类：随站点变化，换站时回到该站第一个真实分类。
   String _filmCategoryId = 'all';
 
-  /// 影视站的真实分类：客户端分类优先（tgdrama 的频道、导入站的
+  /// 影视站的真实分类：客户端分类优先（导入站的
   /// 真实分类都在这里），取不到时退回站点登记的分类；取到后分类条
   /// 用它，不再只显示全部。
   List<DramaSiteCategory>? _filmCategories;
@@ -547,20 +547,24 @@ class _HomePageState extends ConsumerState<HomePage> {
                             state.tabIndex < homeCategories.length &&
                             homeCategories[state.tabIndex].label == '小说')
                           _novelCategoryStrip(),
+                        // 第 20 轮改版：原来三 tab 顶部那张「成人小说 / 漫画 /
+                        // 听书」大卡片已删，改成排行榜式卡片轨道（封面 +
+                        // TOP 角标 + 标题 + 热度行，点卡直达、右端「更多」
+                        // 进聚合页）。聚合页本身保留。
                         if (state.tabIndex >= 0 &&
                             state.tabIndex < homeCategories.length &&
                             homeCategories[state.tabIndex].label == '小说')
-                          const AdultNovelsEntrySliver(),
+                          const AdultCardRailSliver(),
                         if (state.tabIndex >= 0 &&
                             state.tabIndex < homeCategories.length &&
                             homeCategories[state.tabIndex].label == '漫画')
-                          const AdultNovelsEntrySliver(
+                          const AdultCardRailSliver(
                             type: ContentType.comic,
                           ),
                         if (state.tabIndex >= 0 &&
                             state.tabIndex < homeCategories.length &&
                             homeCategories[state.tabIndex].label == '听书')
-                          const AdultNovelsEntrySliver(
+                          const AdultCardRailSliver(
                             type: ContentType.audio,
                           ),
                         // 全局「影视」区（用户 2026-11-05 令）：只在推荐页

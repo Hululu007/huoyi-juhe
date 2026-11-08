@@ -140,7 +140,7 @@ void main() {
     expect(adultSiteIdForUnifiedId('jar:zakatv:xj2'), 'xj2');
     expect(adultSiteIdForUnifiedId('jar:zakatv:dsav'), 'dsav');
     expect(adultSiteIdForUnifiedId('hgdj'), 'hgdj');
-    expect(adultSiteIdForUnifiedId('tgdrama'), 'tgdrama');
+    expect(adultSiteIdForUnifiedId('youtube'), 'youtube');
     expect(adultSiteIdForUnifiedId('jar:youtube:youtube'), 'youtube');
     // 归一化后仍不在表里的站查档位是 null（从未进过核心）。
     expect(
@@ -199,7 +199,6 @@ void main() {
     expect(at0.contains('jar:zakatv:ZakaMjv011'), isFalse);
     expect(at0.contains('jar:zakatv:ZakaMissav'), isFalse);
     expect(at0.contains('seed_abjav'), isFalse);
-    expect(at0.contains('tgdrama'), isTrue);
     expect(at0.contains('jar:zakatv:zakajavverse'), isTrue);
     // 3000 时第 1 档出现（mjv011 是 jar 行），第 4 档还不出现。
     final at3000 =

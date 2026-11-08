@@ -38,9 +38,6 @@ dependencies:
   http: ^1.6.0
   crypto: 3.0.8
   path_provider: ^2.1.0
-  # 读插件本地库 tgdrama.db（只读）：频道→剧的链路要直读 SQLite，
-  # sqflite 之前只是间接依赖，这里改成直接依赖。
-  sqflite: ^2.4.0
   shared_preferences: ^2.3.0
   image_picker: ^1.1.0
   url_launcher: ^6.3.0
@@ -123,17 +120,6 @@ flutter:
     # 数据到了再接，不阻塞分类。
     - assets/unified_video_categories.json
     - assets/py_tools/yijianxiepy.py
-    # TG影视库插件 tgdrama-android（Go 写 ARM64，25MB，直连 Telegram，
-    # 本地服务 127.0.0.1:5278；MD5 见 TgdramaService.binaryMd5）。
-    - assets/tgdrama/tgdrama-android
-    # TG影视库手机号登录助手 tgphone（Go 写 ARM64，18.6MB，见
-    # ~/workspace/tgdrama_work/phone_helper/；首次用时解到私有目录）。
-    - assets/tgdrama/tgphone
-    # TG影视库预置登录会话（构建期由用户自己的 Telethon 会话转换生成，
-    # 构建期临时文件，.gitignore 隔离、绝不提交；CI 从 TG_SESSION_JSON_B64
-    # 密钥解出。缺失时构建失败，须先生成，见
-    # ~/workspace/tgdrama_work/convert_telethon_session.py）。
-    - assets/tgdrama_session.json
     - assets/images/app_logo.webp
     - assets/images/bubble/
     # 评论/回复正文的官方表情（`emoji_config.json` 的 53 个令牌），

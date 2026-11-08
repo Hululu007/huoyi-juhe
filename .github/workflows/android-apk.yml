@@ -293,27 +293,6 @@ jobs:
       - name: Resolve Dart package dependencies
         run: flutter pub get --enforce-lockfile
 
-      - name: Restore TG pre-seeded session (build-time only)
-        # TG影视库预置登录会话：完整的 Telegram 登录态，绝不提交进 git。
-        # 由仓库密钥 TG_SESSION_JSON_B64（session.json 的 base64）解出，
-        # 只写到构建期临时文件 assets/tgdrama_session.json。
-        # 密钥未设时构建失败（pubspec 要求该 asset 存在），须先在仓库
-        # Settings → Secrets 里加 TG_SESSION_JSON_B64；生成办法见
-        # ~/workspace/tgdrama_work/convert_telethon_session.py。
-        # 注意：此文件不进 git、不进产物日志；构建完的 APK 只私发用户一人。
-        # 位置：必须在 pub get 之后、所有 flutter 命令之前——FFI 集成测试
-        #（flutter test）与 APK 编译都要打包 asset，缺文件会报
-        # Failed to build asset bundle。
-        env:
-          TG_SESSION_JSON_B64: ${{ secrets.TG_SESSION_JSON_B64 }}
-        run: |
-          if [ -z "$TG_SESSION_JSON_B64" ]; then
-            echo "TG_SESSION_JSON_B64 secret is not set; cannot build the pre-seeded TG session asset." >&2
-            exit 1
-          fi
-          printf '%s' "$TG_SESSION_JSON_B64" | base64 -d > assets/tgdrama_session.json
-          chmod 600 assets/tgdrama_session.json
-
       - name: Rust formatting
         run: |
           mapfile -t sources < <(
@@ -484,16 +463,8 @@ jobs:
         # ndk.abiFilters, which AGP rejects whenever per-ABI splits are
         # set, so no per-ABI split is used. Keep pub enabled to
         # regenerate the release plugin registrant after tests.
-        # TG_API_ID / TG_API_HASH：构建期注入的 Telegram API 凭证
-        # （--dart-define），供 TG影视库手机号登录助手与插件 config 用。
-        # 未设时为空串、构建照常，手机号登录报不可用（扫码与预置会话不受影响）。
-        env:
-          TG_API_ID: ${{ secrets.TG_API_ID }}
-          TG_API_HASH: ${{ secrets.TG_API_HASH }}
         run: |
-          flutter build apk --release --target-platform android-arm64 \
-            --dart-define=TG_API_ID="${TG_API_ID:-}" \
-            --dart-define=TG_API_HASH="${TG_API_HASH:-}"
+          flutter build apk --release --target-platform android-arm64
           # Normalize the output name: a single-ABI build normally yields
           # app-arm64-v8a-release.apk, but fall back to the fat name if
           # the Flutter tool ever emits app-release.apk instead.
@@ -700,21 +671,6 @@ jobs:
       - name: Resolve Dart package dependencies
         run: flutter pub get --enforce-lockfile
 
-      - name: Restore TG pre-seeded session (build-time only)
-        # 与 apk job 同一步：pubspec 声明了 assets/tgdrama_session.json，
-        # analyze 会校验 asset 存在；该文件 .gitignore 隔离不进仓，
-        # 须先从仓库密钥 TG_SESSION_JSON_B64 解出，否则 analyze 报
-        # asset_does_not_exist 失败。
-        env:
-          TG_SESSION_JSON_B64: ${{ secrets.TG_SESSION_JSON_B64 }}
-        run: |
-          if [ -z "$TG_SESSION_JSON_B64" ]; then
-            echo "TG_SESSION_JSON_B64 secret is not set; cannot build the pre-seeded TG session asset." >&2
-            exit 1
-          fi
-          printf '%s' "$TG_SESSION_JSON_B64" | base64 -d > assets/tgdrama_session.json
-          chmod 600 assets/tgdrama_session.json
-
       - name: Analyze
         run: flutter analyze --no-pub
 
@@ -739,9 +695,5 @@ jobs:
           sudo apt-get install -y -qq fonts-noto-cjk
 
       - name: Test
-        # tdlib_service_test 用 --dart-define 注入的假凭证（12345/testhash，
-        # 只是测试替身、不是真密钥）；不传时 TgdramaCredentials.hasCredentials
-        # 为假，initialize 抛“缺少 Telegram 凭证”致测试失败。
         run: >-
           flutter test --no-pub --concurrency=4 --reporter compact
-          --dart-define=TG_API_ID=12345 --dart-define=TG_API_HASH=testhash

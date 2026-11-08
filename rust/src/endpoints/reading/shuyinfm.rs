@@ -110,26 +110,51 @@ fn cat_name(id: &str) -> Option<&'static str> {
         .map(|(_, name)| *name)
 }
 
+/// 站方对本机出口间歇性空回复（TLS 通后直接断连，reqwest 报
+/// "error sending request"；2026-11-08 探针两分类连着失败，
+/// 当天首页曾 200/163KB）：只对传输错重试，最多 3 次、间隔 1 秒
+/// 逐个来（同 1000novel 等 9 站的范式），每次新连接即换出口 IP
+/// （用户 2026-11-06 轮换令）。非 200 是站方明确拒绝，不重试。
 async fn get_text(url: &str, referer: Option<&str>) -> ApiResult<String> {
-    let mut req = client()?
-        .get(url)
-        .header("User-Agent", UA)
-        .header("Accept", "text/html,application/xhtml+xml,*/*")
-        .header("Accept-Language", "zh-CN,zh;q=0.9");
-    if let Some(r) = referer {
-        req = req.header("Referer", r);
+    let mut last_err: Option<ApiError> = None;
+    for attempt in 0..3 {
+        let tried = async {
+            let mut req = client()?
+                .get(url)
+                .header("User-Agent", UA)
+                .header("Accept", "text/html,application/xhtml+xml,*/*")
+                .header("Accept-Language", "zh-CN,zh;q=0.9");
+            if let Some(r) = referer {
+                req = req.header("Referer", r);
+            }
+            let resp = req
+                .send()
+                .await
+                .map_err(|e| ApiError::Internal(e.to_string()))?;
+            let status = resp.status().as_u16();
+            if status != 200 {
+                return Err(ApiError::Internal(format!("书音FM请求 HTTP {status}")));
+            }
+            resp.text()
+                .await
+                .map_err(|e| ApiError::Internal(e.to_string()))
+        }
+        .await;
+        match tried {
+            Ok(data) => return Ok(data),
+            Err(ApiError::Internal(msg)) if msg.starts_with("书音FM请求 HTTP") => {
+                return Err(ApiError::Internal(msg));
+            }
+            Err(e) => {
+                last_err = Some(e);
+                if attempt == 2 {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            }
+        }
     }
-    let resp = req
-        .send()
-        .await
-        .map_err(|e| ApiError::Internal(e.to_string()))?;
-    let status = resp.status().as_u16();
-    if status != 200 {
-        return Err(ApiError::Internal(format!("书音FM请求 HTTP {status}")));
-    }
-    resp.text()
-        .await
-        .map_err(|e| ApiError::Internal(e.to_string()))
+    Err(last_err.unwrap_or_else(|| ApiError::Internal("书音FM请求失败".into())))
 }
 
 /// 去标签 + 解常见实体 + 压空白（与 123av 的 strip_tags 同款，

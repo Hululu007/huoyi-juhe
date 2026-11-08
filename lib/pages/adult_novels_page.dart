@@ -6,8 +6,10 @@ import '../models/media_item.dart';
 import '../services/drama_site_content.dart';
 import '../services/drama_site_play.dart';
 import '../services/source_registry.dart';
+import '../widgets/home/home_cell_blocks.dart';
 import '../widgets/home/home_design.dart';
 import '../widgets/home/home_media_card.dart';
+import '../widgets/home/home_shelf.dart';
 import 'home_provider.dart';
 
 /// 成人分类聚合页（独立分类，不再是三个子 tab 的合集页）：
@@ -42,6 +44,111 @@ class AdultNovelsPage extends StatelessWidget {
       body: _AdultTypeGrid(type, loader: loader),
     );
   }
+}
+
+String _adultKindKey(ContentType type) => switch (type) {
+  ContentType.comic => 'comic',
+  ContentType.audio => 'audio',
+  _ => 'novel',
+};
+
+/// 成人三类聚合取数（核心站 + 登记源，首分类第一页混排，最多 60 条）。
+///
+/// 成人聚合页（_AdultTypeGrid）与首页三 tab 下的卡片轨道
+/// （AdultCardRailSliver）共用同一份取数，不各写一套；站表、分类、
+/// 内容源、门禁逻辑都不在这里动，只取数。
+Future<List<MediaItem>> loadAdultReadingItems(ContentType type) async {
+  await SourceRegistry.instance.load();
+  final sources = adultRecommendSources(
+    SourceRegistry.instance.custom,
+    types: {type},
+  );
+
+  /// 首分类第一页：只取首分类时，首分类恰好为空（站方改版、该分类
+  /// 下线）整站就被判空。按序试前四个分类，拿到非空第一页即停；
+  /// 'author' 是 hsvoice31 的主播索引，里面是 folder 项不是作品，
+  /// 跳过（作品分类 home/toplist/latest 都在它之前或之后）。
+  Future<List<DramaSiteItem>> firstPageItems(
+    DramaSiteContentClient client,
+  ) async {
+    final categories = await client.categories();
+    for (final category in categories.take(4)) {
+      if (category.id == 'author') continue;
+      final page = await client.catalog(category.id, 1);
+      if (page.items.isNotEmpty) return page.items.take(20).toList();
+    }
+    return const [];
+  }
+
+  Future<List<MediaItem>> fetch(SourceEntry entry) async {
+    try {
+      final client = await SourceRegistry.instance.clientFor(entry.id);
+      if (client == null) return const [];
+      final items = await firstPageItems(client);
+      return [
+        for (final item in items) adultRecommendItem(item, entry),
+      ];
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  // 核心成人站（与登记源合并取数，核心在前）。
+  final coreSiteIds = [
+    for (final id in coreAdultReadingSiteIds)
+      if (coreReadingKinds[id] == _adultKindKey(type)) id,
+  ];
+  Future<List<MediaItem>> fetchCore(String siteId) async {
+    try {
+      final client = readingSiteContentClient(siteId);
+      if (client == null) return const [];
+      final items = await firstPageItems(client);
+      return [
+        for (final item in items)
+          coreAdultRecommendItem(item, siteId, type),
+      ];
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// 单站 60 秒封顶：hsvoice31 取目录要连走两趟上游（混淆壳首页 +
+  /// 解码 JS），hysxs 首跑要逐个探活候选域名；漫画站同样是分类 +
+  /// 目录两趟（modu18 还要先取图床）。单趟预算已是 45 秒
+  /// （ApiClient 的 reading*Timeout），30 秒帽会把第二趟没回来
+  /// 的站静默判空。60 秒盖两趟实测耗时（分类约 5 秒 + 目录约
+  /// 11 秒）的三倍有余，仍有总墙钟上限，不无限等。
+  Future<List<MediaItem>> timed(Future<List<MediaItem>> f) => f.timeout(
+    const Duration(seconds: 60),
+    onTimeout: () => const <MediaItem>[],
+  );
+
+  final results = await Future.wait([
+    ...coreSiteIds.map((id) => timed(fetchCore(id))),
+    ...sources.map((entry) => timed(fetch(entry))),
+  ]);
+  return [
+    for (final list in results) ...list,
+  ].take(60).toList();
+}
+
+/// 点成人卡走站内详情链路（source 带 `engine:` 前缀才进，不进番茄详情页）。
+Future<void> openAdultReadingItem(BuildContext context, MediaItem item) async {
+  // 全部是 engine: 卡：走站内详情链路，不进番茄详情页。
+  if (!item.source.startsWith('engine:')) return;
+  final siteId = item.source.substring('engine:'.length);
+  unawaited(
+    openDramaSiteItem(
+      context,
+      siteId,
+      DramaSiteItem(
+        id: item.seriesId ?? item.id,
+        title: item.title,
+        cover: item.cover,
+        remark: item.ep,
+      ),
+    ),
+  );
 }
 
 /// 阅读区各 tab 顶部的成人分类入口（一类一个，常显，无门禁）。
@@ -91,6 +198,135 @@ class AdultNovelsEntrySliver extends StatelessWidget {
   }
 }
 
+/// 首页三 tab（小说 / 漫画 / 听书）顶部的成人卡片轨道（第 20 轮改版）。
+///
+/// 顶替原来那张「成人小说」大卡片（AdultNovelsEntrySliver）：不再经过
+/// 大卡片中转，tab 下直接出卡片列表，版式照首页排行榜（HomeRankCell /
+/// _RankCard）：横向轨道，封面 + TOP 角标（只前三名）+ 标题 + 热度行，
+/// 一律用 _AdultRankCard（小说路也不再用 HomeMediaCard 套壳）。
+/// 标题行右端「更多」进聚合页（AdultNovelsPage），聚合页本身保留，
+/// 三类成人内容仍能从卡片列表点卡直达、或从「更多」进聚合页。
+///
+/// 取数与聚合页同一份（loadAdultReadingItems），轨道只取前 12 张；
+/// 加载中只占轨道高度、不画空骨架，取空时留一行提示、入口（更多）仍在。
+class AdultCardRailSliver extends StatefulWidget {
+  const AdultCardRailSliver({super.key, this.type = ContentType.novel, this.loader});
+
+  final ContentType type;
+
+  /// 预览/页测注入假数据用：不为空时直接用它的结果，不走真实网络；
+  /// 为空时生产逻辑原样不动。
+  final Future<List<MediaItem>> Function()? loader;
+
+  @override
+  State<AdultCardRailSliver> createState() => _AdultCardRailSliverState();
+}
+
+class _AdultCardRailSliverState extends State<AdultCardRailSliver> {
+  var _loading = true;
+  var _items = const <MediaItem>[];
+
+  String get _title => switch (widget.type) {
+    ContentType.comic => '成人漫画',
+    ContentType.audio => '成人听书',
+    _ => '成人小说',
+  };
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_load());
+  }
+
+  Future<void> _load() async {
+    try {
+      final items = await (widget.loader ??
+          () => loadAdultReadingItems(widget.type))();
+      if (!mounted) return;
+      setState(() {
+        _items = items.take(12).toList();
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+      });
+    }
+  }
+
+  void _openMore() {
+    Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => AdultNovelsPage(type: widget.type),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // 轨道高照排行榜（封面 140 + 8 + 两行标题 + 4 + 一行热度，
+    // 见 home_cell_blocks.dart 的 _rankRailHeight）。
+    final scaler = MediaQuery.textScalerOf(context);
+    final railHeight =
+        140 +
+        8 +
+        scaler.scale(13) * 1.35 * 2 +
+        4 +
+        scaler.scale(11) * 1.3;
+    return SliverToBoxAdapter(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          HomeSectionHeader(
+            title: _title,
+            action: HomeBlockMore(onTap: _openMore),
+          ),
+          if (_loading)
+            SizedBox(
+              height: railHeight,
+              child: const Center(
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            )
+          else if (_items.isEmpty)
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: Text('暂无内容，点右上角“更多”进聚合页重试'),
+            )
+          else
+            SizedBox(
+              height: railHeight,
+              child: ListView.separated(
+                key: Key('adult-rail-${widget.type.name}'),
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                itemCount: _items.length,
+                separatorBuilder: (_, _) => const SizedBox(width: 12),
+                itemBuilder: (context, index) {
+                  final item = _items[index];
+                  return SizedBox(
+                    width: 100,
+                    child: _AdultRankCard(
+                      item: item,
+                      rank: index + 1,
+                      onTap: () => openAdultReadingItem(context, item),
+                    ),
+                  );
+                },
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 class _AdultTypeGrid extends StatefulWidget {
   const _AdultTypeGrid(this.type, {this.loader});
 
@@ -111,12 +347,6 @@ class _AdultTypeGridState extends State<_AdultTypeGrid> {
     ContentType.comic => '漫画',
     ContentType.audio => '听书',
     _ => '内容',
-  };
-
-  String get _kindKey => switch (widget.type) {
-    ContentType.comic => 'comic',
-    ContentType.audio => 'audio',
-    _ => 'novel',
   };
 
   @override
@@ -146,80 +376,10 @@ class _AdultTypeGridState extends State<_AdultTypeGrid> {
       return;
     }
     try {
-      await SourceRegistry.instance.load();
-      final sources = adultRecommendSources(
-        SourceRegistry.instance.custom,
-        types: {widget.type},
-      );
-
-      /// 首分类第一页：只取首分类时，首分类恰好为空（站方改版、该分类
-      /// 下线）整站就被判空。按序试前四个分类，拿到非空第一页即停；
-      /// 'author' 是 hsvoice31 的主播索引，里面是 folder 项不是作品，
-      /// 跳过（作品分类 home/toplist/latest 都在它之前或之后）。
-      Future<List<DramaSiteItem>> firstPageItems(
-        DramaSiteContentClient client,
-      ) async {
-        final categories = await client.categories();
-        for (final category in categories.take(4)) {
-          if (category.id == 'author') continue;
-          final page = await client.catalog(category.id, 1);
-          if (page.items.isNotEmpty) return page.items.take(20).toList();
-        }
-        return const [];
-      }
-
-      Future<List<MediaItem>> fetch(SourceEntry entry) async {
-        try {
-          final client = await SourceRegistry.instance.clientFor(entry.id);
-          if (client == null) return const [];
-          final items = await firstPageItems(client);
-          return [
-            for (final item in items) adultRecommendItem(item, entry),
-          ];
-        } catch (_) {
-          return const [];
-        }
-      }
-
-      // 核心成人站（与登记源合并取数，核心在前）。
-      final coreSiteIds = [
-        for (final id in coreAdultReadingSiteIds)
-          if (coreReadingKinds[id] == _kindKey) id,
-      ];
-      Future<List<MediaItem>> fetchCore(String siteId) async {
-        try {
-          final client = readingSiteContentClient(siteId);
-          if (client == null) return const [];
-          final items = await firstPageItems(client);
-          return [
-            for (final item in items)
-              coreAdultRecommendItem(item, siteId, widget.type),
-          ];
-        } catch (_) {
-          return const [];
-        }
-      }
-
-      /// 单站 60 秒封顶：hsvoice31 取目录要连走两趟上游（混淆壳首页 +
-      /// 解码 JS），hysxs 首跑要逐个探活候选域名；漫画站同样是分类 +
-      /// 目录两趟（modu18 还要先取图床）。单趟预算已是 45 秒
-      /// （ApiClient 的 reading*Timeout），30 秒帽会把第二趟没回来
-      /// 的站静默判空。60 秒盖两趟实测耗时（分类约 5 秒 + 目录约
-      /// 11 秒）的三倍有余，仍有总墙钟上限，不无限等。
-      Future<List<MediaItem>> timed(Future<List<MediaItem>> f) => f.timeout(
-        const Duration(seconds: 60),
-        onTimeout: () => const <MediaItem>[],
-      );
-
-      final results = await Future.wait([
-        ...coreSiteIds.map((id) => timed(fetchCore(id))),
-        ...sources.map((entry) => timed(fetch(entry))),
-      ]);
+      final items = await loadAdultReadingItems(widget.type);
       if (!mounted) return;
       setState(() {
-        _items = [
-          for (final list in results) ...list,
-        ].take(60).toList();
+        _items = items;
         _loading = false;
       });
     } catch (_) {
@@ -231,21 +391,7 @@ class _AdultTypeGridState extends State<_AdultTypeGrid> {
   }
 
   void _openItem(MediaItem item) {
-    // 全部是 engine: 卡：走站内详情链路，不进番茄详情页。
-    if (!item.source.startsWith('engine:')) return;
-    final siteId = item.source.substring('engine:'.length);
-    unawaited(
-      openDramaSiteItem(
-        context,
-        siteId,
-        DramaSiteItem(
-          id: item.seriesId ?? item.id,
-          title: item.title,
-          cover: item.cover,
-          remark: item.ep,
-        ),
-      ),
-    );
+    unawaited(openAdultReadingItem(context, item));
   }
 
   @override

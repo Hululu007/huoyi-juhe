@@ -10,6 +10,7 @@ import '../widgets/home/drama_site_grid.dart';
 import '../widgets/site_grid_dialog.dart';
 import 'category_page.dart';
 import 'local_library_page.dart';
+import 'mine_page.dart';
 import 'source_management_page.dart';
 
 /// 影视页选站规则：只列用户自己导入的站，预置的内置站不列。
@@ -59,23 +60,17 @@ bool isFilmVideoSite(String id, String name) =>
     !_shortDramaVideoSiteIds.contains(id) && !name.contains('短剧');
 
 /// 影视区内置站：核心影视站（只留影视，短剧已摘掉；黄豆等 5 个
-/// 果站是短剧站，不进核心也不在这里）+ TG影视库。顺序跟登记表
+/// 果站是短剧站，不进核心也不在这里）。顺序跟登记表
 /// 一致，只列影视站，不动主列表“只列用户导入站”的规则。
-/// TG影视库钉在最前面：切换器里 100 多个站，钉最后翻不到底；
 /// 默认选中仍是保存过的选择，没有保存过才取第一个。
 List<DramaSite> videoZoneSites() {
   const ids = {
-    'tgdrama',
     ...coreVideoSiteIds,
   };
-  final sites = [
+  return [
     for (final site in dramaSites)
       if (ids.contains(site.id) && isFilmVideoSite(site.id, site.name))
         site,
-  ];
-  return [
-    ...sites.where((site) => site.id == 'tgdrama'),
-    ...sites.where((site) => site.id != 'tgdrama'),
   ];
 }
 
@@ -173,6 +168,30 @@ List<({String id, String name, String kind})> visibleFilmZoneSites(
   return out;
 }
 
+/// 影视区用户自导站列表：只留已解锁的站。
+///
+/// 在 [videoPagePlayableSites]（只列用户自己导入的站）之上再过一遍
+/// 现有的可见性逻辑（[visibleSiteIds]）：行 id 能归一化到分档表里
+/// 的成人站按档位解锁（元婴 3000 开第 1 档、化神 8000 第 2 档、
+/// 炼虚 15000 第 3 档、合体 30000 全开），未解锁的不进列表；
+/// 不在表里的站（用户自己的采集/py 站）原样保留。修为到了自动
+/// 出现，列表随修为变化（VideoPage 监听修为快照）。
+List<SourceEntry> visibleVideoPagePlayableSites(
+  List<SourceEntry> entries,
+  int xp,
+) {
+  final playable = videoPagePlayableSites(entries);
+  final visibleIds = visibleSiteIds(
+    [for (final entry in playable) entry.id],
+    adultVideoSiteOrder,
+    xp,
+  ).toSet();
+  return [
+    for (final entry in playable)
+      if (visibleIds.contains(entry.id)) entry,
+  ];
+}
+
 class VideoPage extends StatefulWidget {
   const VideoPage({super.key});
 
@@ -205,7 +224,16 @@ class _VideoPageState extends State<VideoPage> {
   }
 
   void _onCultivationChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    // 修为变化（解锁新档位）时可见表变了：当前选中的站若已不在可见
+    // 表里（或未选站但已有可见站），回到第一个可见站；修为只涨不跌，
+    // 已解锁的站不会再锁住，选中站一般不受影响。
+    final sites = _playableSites();
+    if (_selectedId == null ||
+        !sites.any((site) => site.id == _selectedId)) {
+      _selectedId = sites.isEmpty ? null : sites.first.id;
+    }
+    setState(() {});
   }
 
   @override
@@ -276,7 +304,12 @@ class _VideoPageState extends State<VideoPage> {
   }
 
   List<SourceEntry> _playableSites() {
-    return videoPagePlayableSites(SourceRegistry.instance.custom);
+    // 用户自导站也过一遍现有可见性逻辑：能归一化到分档表里的成人站
+    // 按档位解锁，未解锁的不进列表；不在表里的站原样保留。
+    return visibleVideoPagePlayableSites(
+      SourceRegistry.instance.custom,
+      CultivationService.instance.snapshot.totalXp,
+    );
   }
 
   /// 午夜区站切换（午夜区就是影视区，统一表含核心影视站 + 午夜
@@ -322,11 +355,59 @@ class _VideoPageState extends State<VideoPage> {
     );
   }
 
+  /// 未到元婴期时的上锁页：不露源名与站名，只写还差多少修为。
+  /// 与直播区锁页同款写法（见 LivePage._lockedBody）：大锁图标 +
+  /// 「影视源需要元婴期」+ 还差多少修为（约几集短剧）+ 去我的页看进度。
+  /// 门槛与换算直接读修为快照：[CultivationSnapshot.unlockedVideo]
+  ///（元婴 3000 修为）、[CultivationSnapshot.xpToVideoZone]、
+  /// [CultivationSnapshot.episodesToVideoZone]，不硬写数字。
+  Widget _lockedBody(BuildContext context) {
+    final snapshot = CultivationService.instance.snapshot;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.lock_outline, size: 48),
+            const SizedBox(height: 16),
+            const Text(
+              '影视源需要元婴期',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '还差 ${snapshot.xpToVideoZone} 修为（约 ${snapshot.episodesToVideoZone} 集短剧）解锁，修为到了自动显示影视源。',
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            FilledButton(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute<void>(builder: (_) => const MinePage()),
+              ),
+              child: const Text('去我的页看进度'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
+      );
+    }
+    // 未到元婴期（3000 修为）时整页上锁：与直播区锁页同款，不露任何
+    // 站名与内容；修为到了自动显示影视源（页面监听修为快照）。
+    final snapshot = CultivationService.instance.snapshot;
+    if (!snapshot.unlockedVideo) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('影视')),
+        body: _lockedBody(context),
       );
     }
     final sites = _playableSites();

@@ -33,7 +33,6 @@ import 'settings_category_page.dart';
 import 'source_management_page.dart';
 import 'system_tts_settings_page.dart';
 import 'text_replacement_page.dart';
-import 'tgdrama_login_page.dart';
 
 /// Settings home: a list of category entries (PiliPlus multi-level
 /// navigation). Each category opens its own CommonSetting-style page.
@@ -155,15 +154,6 @@ class SettingsPage extends StatelessWidget {
             onTap: (context, _) => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const OneKeyPyPage()),
-            ),
-          ),
-          SettingsItem(
-            icon: LucideIcons.send,
-            title: 'Telegram 登录',
-            subtitle: 'TG影视库登录：扫码或手机号登录',
-            onTap: (context, _) => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const TgdramaLoginPage()),
             ),
           ),
         ],

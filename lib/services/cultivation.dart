@@ -584,7 +584,7 @@ const chapterXp = 150;
 /// 注意：这里故意用顶层可写 bool 而不用 const，只为单测能验证
 /// 开/关两种状态（见 test/cultivation_gate_switch_test.dart）；
 /// 正式恢复仍只改这一处的初值。
-bool cultivationAdultTierGateDisabledForTesting = true;
+bool cultivationAdultTierGateDisabledForTesting = false;
 
 /// 解锁门槛（累计修为）：漫画 300（筑基）、听书 1000（结丹）、
 /// 影视区 3000（元婴）、影视全部分类 + 称号 8000（化神）。
@@ -702,7 +702,7 @@ const _adultJarKeyAliases = <String, String>{
 /// - jar 行 `jar:<jarId>:<key>`：key 去掉 `Zaka`/`zaka` 前缀后全小写，
 ///   再过一遍别名表；key 本身就是核心站 id 的（如 `haijiao4k`、
 ///   `hgdj58`、`rouvideo`、`wohs`、`xj2`、`dsav`）原样返回；
-/// - 核心行与 TG影视库等裸 id：原样返回。
+/// - 核心行等裸 id：原样返回。
 /// 归一化后仍不在登记表里的（如从未进过核心的 jar/种子站、YouTube、
 /// 直播站）查档位返回 null，按非成人站原样保留——删核心之前它们
 /// 也没分过档，行为不变。

@@ -195,11 +195,6 @@ dependencies {
     // up in the system media controls (Quick Settings card, lock screen, headset keys).
     implementation("androidx.media:media:1.7.0")
 
-    // TDLib 登录桥：TdlibClient/AuthRepository 用 Kotlin 协程；
-    // 二维码由 Kotlin 侧用 ZXing 画成 PNG（照 TeleTV）。
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
-    implementation("com.google.zxing:core:3.5.3")
-
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.mockito:mockito-core:5.23.0")
 }

@@ -13,7 +13,6 @@ import '../pages/reader_page.dart';
 import '../pages/search_page.dart';
 import '../pages/series_detail_page.dart';
 import '../pages/site_browse_page.dart';
-import '../pages/tgdrama_channel_page.dart';
 import 'drama_playback.dart';
 import 'drama_site_content.dart';
 import 'drama_site_search.dart';
@@ -27,7 +26,6 @@ import 'local_media_proxy.dart';
 import 'nonvideo_play.dart';
 import 'shelf_store.dart';
 import 'source_registry.dart';
-import 'tgdrama_content.dart';
 
 /// 外站剧集的详情与播放入口：只用原始站点的详情页与播放页。
 /// 详情页拿目录与标题封面，播放页拿选集与取流；评论与底部信息
@@ -663,27 +661,6 @@ Future<void> openDramaSiteItem(
   final client = await SourceRegistry.instance.clientFor(siteId);
   if (!context.mounted) return;
   if (client == null) return;
-  // TG影视库频道条目：频道不是剧，不进剧详情页，改推进频道剧列表页；
-  // 列表页里点剧再走正常剧详情 → 选集播放。搜索/首页/分类页点频道
-  // 都走这里，拦截一次全覆盖。
-  if (client is TgdramaContentClient &&
-      TgdramaContentClient.isChannelItemId(item.id)) {
-    final channelId = item.id.substring(
-      TgdramaContentClient.channelItemPrefix.length,
-    );
-    await Navigator.push(
-      context,
-      MaterialPageRoute<void>(
-        builder: (_) => TgdramaChannelPage(
-          siteId: siteId,
-          channelId: channelId,
-          title: item.title,
-          client: client,
-        ),
-      ),
-    );
-    return;
-  }
   final entry = SourceRegistry.instance.customById(siteId);
   final isEngineSite = siteId.startsWith('localdb:') ||
       coreReadingSiteIds.contains(siteId) ||

@@ -8,7 +8,6 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:fqapp/pages/video_page.dart';
 import 'package:fqapp/services/drama_playback.dart';
 import 'package:fqapp/services/drama_site_content.dart';
 import 'package:fqapp/services/drama_sites.dart';
@@ -16,7 +15,8 @@ import 'package:fqapp/widgets/home/home_film_zone.dart';
 
 /// 推荐页全局「影视」区预览图：测试渲染出 PNG，不构建整包。
 ///
-/// 修为 0 的默认视图（池里只有 tgdrama 一个视频站）：打开即自动取
+/// 修为 0 时视频池已空（不分档视频站也不在默认
+/// SourceRegistry 里），预览改用注入的单站假数据：打开即自动取
 /// 首窗推荐平铺三列视频卡，不再点站点药丸；取数用假客户端，不发真请求。
 ///
 /// 测试环境默认字体没有中文会出方框，这里先把系统里的
@@ -72,7 +72,10 @@ void main() {
     tester.view.physicalSize = const Size(390, 844);
     addTearDown(tester.view.reset);
 
-    final sites = visibleFilmZoneSites(0);
+    // 注入单站假数据（修为 0 的默认视频池已空）。
+    const sites = [
+      (id: 'preview-site', name: '预览站', kind: 'video'),
+    ];
     await tester.pumpWidget(
       MaterialApp(
         theme: ThemeData(
@@ -99,7 +102,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('影视'), findsOneWidget);
-    // 打开即自动取首窗推荐（池里只有 tgdrama），不用点站。
+    // 打开即自动取首窗推荐，不用点站。
     expect(find.text('预览作品一'), findsOneWidget);
     expect(tester.takeException(), isNull);
 

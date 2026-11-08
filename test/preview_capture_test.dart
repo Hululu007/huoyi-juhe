@@ -15,12 +15,15 @@ import 'package:fqapp/widgets/home/home_design.dart';
 
 /// 阅读区预览图：测试渲染出 PNG，不构建整包、不落网络。
 ///
-/// 5 张，手机尺寸 390x844 逻辑像素：
+/// 8 张，手机尺寸 390x844 逻辑像素：
 /// 成人小说 / 成人漫画 / 成人听书（AdultNovelsPage + loader 假数据）、
 /// 小说混排目录页（CoreNovelCategoryPage + loader 假数据）、
 /// 小说分类条（不泵 HomePage，单独渲染与 home_page.dart 里同款式的
 /// 药丸横排：40 高横滚、左右 16 间距、药丸右间距 8、圆角 20、
 /// 13 号字；这张只是条的独立渲染，不是首页实截）。
+/// 第 20 轮新增 3 张：小说 / 漫画 / 听书 tab 顶部的成人卡片轨道
+/// （AdultCardRailSliver + loader 假数据，排行榜版式：横向轨道、
+/// 封面 + TOP 角标 + 标题 + 热度行，右端「更多」）。
 ///
 /// 假数据封面留空（HomeMediaCard 空封面走几何占位，不编假封面地址）。
 ///
@@ -270,5 +273,88 @@ void main() {
     await tester.pump();
     expect(find.text('玄幻'), findsOneWidget);
     await _capture(tester, key, 'novel-strip');
+  });
+
+  testWidgets('预览：第 20 轮小说 tab 成人卡片轨道', (tester) async {
+    await _setupSurface(tester);
+    const key = ValueKey('preview-adult-rail-novel');
+    await tester.pumpWidget(
+      MaterialApp(
+        home: _boundary(
+          key,
+          Scaffold(
+            body: CustomScrollView(
+              slivers: [
+                AdultCardRailSliver(
+                  loader: () async => _fakeItems('小说', 'book', '都市', '9080万热度'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    _drainKnownOverflows(tester);
+    expect(find.byKey(const Key('adult-rail-novel')), findsOneWidget);
+    expect(find.text('TOP 1'), findsOneWidget);
+    await _capture(tester, key, 'adult-rail-novel');
+  });
+
+  testWidgets('预览：第 20 轮漫画 tab 成人卡片轨道', (tester) async {
+    await _setupSurface(tester);
+    const key = ValueKey('preview-adult-rail-comic');
+    await tester.pumpWidget(
+      MaterialApp(
+        home: _boundary(
+          key,
+          Scaffold(
+            body: CustomScrollView(
+              slivers: [
+                AdultCardRailSliver(
+                  type: ContentType.comic,
+                  loader: () async => _fakeItems('漫画', 'manga', '玄幻', '8545万热度'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    _drainKnownOverflows(tester);
+    expect(find.byKey(const Key('adult-rail-comic')), findsOneWidget);
+    expect(find.text('TOP 1'), findsOneWidget);
+    await _capture(tester, key, 'adult-rail-comic');
+  });
+
+  testWidgets('预览：第 20 轮听书 tab 成人卡片轨道', (tester) async {
+    await _setupSurface(tester);
+    const key = ValueKey('preview-adult-rail-audio');
+    await tester.pumpWidget(
+      MaterialApp(
+        home: _boundary(
+          key,
+          Scaffold(
+            body: CustomScrollView(
+              slivers: [
+                AdultCardRailSliver(
+                  type: ContentType.audio,
+                  loader: () async => _fakeItems('听书', 'audio', '言情', '8499万热度'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    _drainKnownOverflows(tester);
+    expect(find.byKey(const Key('adult-rail-audio')), findsOneWidget);
+    expect(find.text('TOP 1'), findsOneWidget);
+    await _capture(tester, key, 'adult-rail-audio');
   });
 }

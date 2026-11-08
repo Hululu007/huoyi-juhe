@@ -19,7 +19,6 @@ import 'local_media_proxy.dart';
 import 'hgtv_content.dart';
 import 'huangju_content.dart';
 import 'original_site_content.dart';
-import 'tgdrama_content.dart';
 import 'yeguo_content.dart';
 
 class DramaSiteItem {
@@ -3573,7 +3572,6 @@ DramaSiteContentClient? dramaSiteContentClient(String siteId) {
     );
   }
   if (siteId == 'huangdou_yh') return HuangdouContentClient();
-  if (siteId == 'tgdrama') return TgdramaContentClient();
   if (coreVideoSiteIds.contains(siteId)) {
     return CoreDramaContentClient.coreOnly(siteId: siteId);
   }
