@@ -185,4 +185,96 @@ void main() {
     expect(calls, hasLength(1));
     expect(calls.single, contains('/recommend/homepage'));
   });
+
+  test('上游没给短剧 tab 时不拿别的 tab 的书 cell 换视频流，如实抛错', () async {
+    // 2026-11-07 真站形状：只回推荐/男生/女生三个书 tab，第一段的
+    // 第一个 cell_id_str 是推荐区书 cell；拿它去换视频流只会回 0 条。
+    final client = ApiClient(
+      baseUrl: 'http://backend.invalid',
+      client: MockClient((request) async {
+        calls.add(request.url.toString());
+        return http.Response.bytes(
+          utf8.encode(
+            jsonEncode({
+              'code': 0,
+              'data': {
+                'tab_item': [
+                  {
+                    'tab_type': 2,
+                    'title': '推荐',
+                    'session_id': 'book-session',
+                    'cell_data': [
+                      {'cell_id_str': '7156181637888212999', 'show_type': 390},
+                    ],
+                  },
+                  {'tab_type': 1, 'title': '男生'},
+                  {'tab_type': 0, 'title': '女生'},
+                ],
+              },
+            }),
+          ),
+          200,
+        );
+      }),
+    );
+    calls = <String>[];
+
+    await expectLater(
+      client.homepagePage(tabType: 8, offset: 0),
+      throwsA(isA<ApiException>()),
+    );
+    // 第二段一次都没打：书 cell 没进视频流；也不回空白页假装没内容。
+    expect(calls, hasLength(1));
+    expect(calls.single, contains('/recommend/homepage'));
+  });
+
+  test('所要 tab 自己的 cell 可用（无 data 顶层 cell 时）', () async {
+    final client = ApiClient(
+      baseUrl: 'http://backend.invalid',
+      client: MockClient((request) async {
+        calls.add(request.url.toString());
+        if (request.url.path.endsWith('/recommend/homepage')) {
+          return http.Response.bytes(
+            utf8.encode(
+              jsonEncode({
+                'code': 0,
+                'data': {
+                  'tab_item': [
+                    {
+                      'tab_type': 8,
+                      'session_id': 'tab-session',
+                      'cell_data': [
+                        {'cell_id_str': '7294257141911650341'},
+                      ],
+                    },
+                  ],
+                },
+              }),
+            ),
+            200,
+          );
+        }
+        final offset =
+            int.tryParse(request.url.queryParameters['offset'] ?? '0') ?? 0;
+        return http.Response.bytes(utf8.encode(feedBody(offset)), 200);
+      }),
+    );
+    calls = <String>[];
+
+    final page = await client.homepagePage(tabType: 8, offset: 0);
+
+    expect(
+      calls.where((call) => call.contains('/recommend/series-feed')),
+      hasLength(1),
+    );
+    expect(
+      calls
+          .firstWhere((call) => call.contains('/recommend/series-feed')),
+      contains('cell_id=7294257141911650341'),
+    );
+    expect(page.items.map((item) => item.id), [
+      '7669730394324880409',
+      '222',
+    ]);
+  });
 }

@@ -7,6 +7,7 @@ import '../services/api_client.dart';
 import '../services/drama_site_content.dart';
 import '../services/drama_site_play.dart';
 import '../services/drama_sites.dart';
+import '../services/source_registry.dart';
 import '../services/unified_video_categories.dart';
 import '../widgets/home/home_design.dart';
 import '../widgets/home/home_feed_states.dart';
@@ -36,7 +37,8 @@ class UnifiedBrowseContentPage extends StatefulWidget {
   /// 该名下的站 + 路径（分类 path / 标签 url）。
   final List<UnifiedCategorySite> entries;
 
-  /// 取数客户端注入（生产默认 [dramaSiteContentClient]；测试替换，
+  /// 取数客户端注入（生产默认 [dramaSiteContentClient]，取不到再走
+  /// [SourceRegistry.clientFor] 的种子/jar 兜底；测试替换，
   /// 页测不落网络）。
   final DramaSiteContentClient? Function(String siteId)? clientForSite;
 
@@ -85,8 +87,10 @@ class _UnifiedBrowseContentPageState
     _loadBatch();
   }
 
-  DramaSiteContentClient? _clientFor(String siteId) =>
-      widget.clientForSite?.call(siteId) ?? dramaSiteContentClient(siteId);
+  Future<DramaSiteContentClient?> _clientFor(String siteId) async =>
+      widget.clientForSite?.call(siteId) ??
+      dramaSiteContentClient(siteId) ??
+      await SourceRegistry.instance.clientFor(siteId);
 
   Future<void> _loadBatch() async {
     if (_loading || _loadingMore || !_hasMoreSites) return;
@@ -148,7 +152,7 @@ class _UnifiedBrowseContentPageState
   /// 取一站该分类/标签的首页；取不到返回 null（由调用方跳过计数）。
   Future<_SiteSection?> _fetchOne(UnifiedCategorySite entry) async {
     try {
-      final client = _clientFor(entry.siteId);
+      final client = await _clientFor(entry.siteId);
       if (client == null) return null;
       // 目录超时按 ApiClient 的目录预算 + 5 秒余量：ApiClient 是主
       // 预算，页面层只当兜底，不盖帽。

@@ -12,9 +12,12 @@ import '../pages/player_page.dart';
 import '../pages/reader_page.dart';
 import '../pages/search_page.dart';
 import '../pages/series_detail_page.dart';
+import '../pages/site_browse_page.dart';
 import '../pages/tgdrama_channel_page.dart';
 import 'drama_playback.dart';
 import 'drama_site_content.dart';
+import 'drama_site_search.dart';
+import 'drama_sites.dart';
 import 'engine_reading_store.dart';
 import 'library_store.dart';
 import 'midnight_gate.dart';
@@ -600,6 +603,58 @@ String engineShelfKindFor(ContentType type) {
   }
 }
 
+/// 影视区详情页分类标签点按（照原始版 fqapp：点标签 → 进标签分类
+/// 列表 → 只出带这个标签的电影）：
+/// * 先按标签名在本站分类里找分类 id（[findSiteCategoryIdForName]），
+///   找到进本站浏览页并选中该分类，走站 `catalog` 接口拉目录；
+/// * 找不到（标签不是站分类、或取分类失败、或站客户端取不到）退到
+///   站源搜索，以标签为关键词只搜本站，不出空白页。
+/// [client] 为空时走登记表现取；站名只作浏览页标题。
+Future<void> openFilmCategoryTag(
+  BuildContext context, {
+  required String siteId,
+  required String siteName,
+  required DramaSiteContentClient? client,
+  required String tag,
+}) async {
+  final resolvedClient =
+      client ?? await SourceRegistry.instance.clientFor(siteId);
+  if (!context.mounted) return;
+  String? categoryId;
+  if (resolvedClient != null) {
+    try {
+      categoryId = await findSiteCategoryIdForName(resolvedClient, tag);
+    } catch (_) {
+      categoryId = null;
+    }
+  }
+  if (!context.mounted) return;
+  if (categoryId != null && categoryId.isNotEmpty) {
+    await Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => SiteBrowsePage(
+          siteId: siteId,
+          siteName: siteName,
+          client: resolvedClient,
+          initialCategoryId: categoryId,
+        ),
+      ),
+    );
+    return;
+  }
+  await Navigator.push(
+    context,
+    MaterialPageRoute<void>(
+      builder: (_) => SearchPage(
+        initialQuery: tagSearchQuery(tag),
+        initialCategory: SearchCategory.sites,
+        initialSiteIds: {siteId},
+      ),
+    ),
+  );
+}
+
 Future<void> openDramaSiteItem(
   BuildContext context,
   String siteId,
@@ -710,6 +765,19 @@ Future<void> openDramaSiteItem(
         },
         onOpenRelatedFilm: (related) =>
             openDramaSiteItem(context, siteId, related),
+        // 影视区分类标签点按：站名取注册名（定制站）/ 站表名（内置站），
+        // 查不到的站直接用站号作标题，不编假名。
+        onFilmCategoryTap: (tag) => openFilmCategoryTag(
+          context,
+          siteId: siteId,
+          siteName: entry?.name.isNotEmpty == true
+              ? entry!.name
+              : (allDramaSites.any((s) => s.id == siteId)
+                    ? dramaSiteById(siteId).name
+                    : siteId),
+          client: client,
+          tag: tag,
+        ),
         onPlaySelection: (index, episodes, detail) =>
             openDramaSitePlayback(
               context,

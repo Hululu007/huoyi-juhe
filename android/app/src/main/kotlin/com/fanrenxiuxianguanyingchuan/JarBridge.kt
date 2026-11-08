@@ -25,6 +25,11 @@ object JarBridge {
     private val loaders = ConcurrentHashMap<String, DexClassLoader>()
     private val spiders = ConcurrentHashMap<String, Any>()
     private val initialized = ConcurrentHashMap.newKeySet<String>()
+    // 当前系统出口代理（与 Rust 核心走同一份，见 SystemProxyService）：
+    // Dart 侧启动与网络变化时经 setJarProxy 送进来；新起的加载器在建蜘蛛
+    // 时补上，已在的加载器在 setJarProxy 里当场刷一遍。
+    @Volatile
+    private var jarProxyUrl: String = ""
 
     fun register(messenger: BinaryMessenger, context: Context) {
         Init.init(context)
@@ -71,13 +76,30 @@ object JarBridge {
                         result.error("jar_invalid", "缺少 jar 代理调用参数", null)
                     } else {
                         val param = call.argument<Map<String, Any?>>("param") ?: emptyMap()
-                        runAsync(result) { jarProxy(context, configId, jarPath, className, param) }
+                        val siteId = call.argument<String>("siteId").orEmpty()
+                        val ext = call.argument<String>("ext").orEmpty()
+                        runAsync(result) { jarProxy(context, siteId, configId, jarPath, className, ext, param) }
                     }
                 }
                 "setJarFingerprint" -> {
                     val enabled = call.argument<Boolean>("enabled") ?: true
                     com.github.catvod.net.OkHttp.setFingerprintEnabled(enabled)
                     result.success(mapOf("jarFingerprint" to enabled))
+                }
+                "setJarProxy" -> {
+                    val url = call.argument<String>("url").orEmpty()
+                    jarProxyUrl = url
+                    var applied = 0
+                    for (loader in loaders.values) {
+                        if (applyJarProxyToLoader(loader)) applied++
+                    }
+                    result.success(
+                        mapOf(
+                            "jarProxy" to url,
+                            "applied" to applied,
+                            "loaders" to loaders.size,
+                        ),
+                    )
                 }
                 "enumerate" -> {
                     val jarPath = call.argument<String>("jarPath").orEmpty()
@@ -102,6 +124,20 @@ object JarBridge {
                 mainHandler.post { result.error("jar_error", message, null) }
             }
         }
+    }
+
+    // 把出口代理交给某个 jar 加载器里的 ZakaHttp：ZakaCfg.setProxy 会同时
+    // 写 SharedPreferences（之后 syncProxy 也能读到）并立即生效。
+    // ZakaCfg 是包内可见类，只能反射调；不含 Zaka 类的 jar（纯 TVBox
+    // 导入包）找不到类就返回 false，不报错、不挡调用方。
+    private fun applyJarProxyToLoader(loader: ClassLoader): Boolean {
+        return runCatching {
+            val cfg = loader.loadClass("com.github.catvod.spider.ZakaCfg")
+            val setProxy = cfg.getDeclaredMethod("setProxy", String::class.java)
+            setProxy.isAccessible = true
+            setProxy.invoke(null, jarProxyUrl)
+            true
+        }.getOrDefault(false)
     }
 
     private fun jarFile(context: Context, configId: String): File {
@@ -494,6 +530,9 @@ object JarBridge {
         synchronized(spiders) {
             spiders[siteId]?.let { return it }
             val loader = loaderFor(context, configId, jarPath)
+            if (jarProxyUrl.isNotEmpty()) {
+                applyJarProxyToLoader(loader)
+            }
             val type = try {
                 loader.loadClass(className)
             } catch (error: ClassNotFoundException) {
@@ -635,31 +674,45 @@ object JarBridge {
         }
     }
 
+    /// 本地代理：CatVod 的 `Spider.proxy(Map)` 是实例方法（jar 里 112 个
+    /// Zaka 蜘蛛全是实例 proxy，没有一个是静态的），所以这里复用
+    /// [spiderFor] 的缓存实例调它；此前要求 proxy 必须是静态方法，
+    /// 每个 jar 站的本地代理都直接抛错，播放器经本地代理取流时一律
+    /// 收到 502（表现为「播放服务暂时不可用」）。`siteId` 为空时退
+    /// 回 `jarProxy:<configId>:<类名>` 作实例缓存键，`ext` 缺省为空。
     private fun jarProxy(
         context: Context,
+        siteId: String,
         configId: String,
         jarPath: String,
         className: String,
+        ext: String,
         param: Map<String, Any?>
     ): Map<String, Any?> {
-        val loader = loaderFor(context, configId, jarPath)
-        val type = try {
-            loader.loadClass(className)
-        } catch (error: ClassNotFoundException) {
-            throw IllegalStateException("jar 中未找到代理类 $className，无法处理本地代理请求")
+        // siteId 在时严格按它取缓存实例（同类不同站可能 ext 不同，
+        // 不能串）；siteId 为空时先复用已缓存的同类实例，没有才新建。
+        val spider = if (siteId.isNotEmpty()) {
+            spiderFor(context, siteId, configId, jarPath, className, ext)
+        } else {
+            spiders.values.firstOrNull { it.javaClass.name == className }
+                ?: spiderFor(
+                    context,
+                    "jarProxy:$configId:$className",
+                    configId,
+                    jarPath,
+                    className,
+                    ext,
+                )
         }
+        val type = spider.javaClass
         val args = HashMap<String, String>()
         param.forEach { (key, value) ->
             if (key != null && value != null) args[key.toString()] = value.toString()
         }
         val returned = try {
-            val method = type.getMethod("proxy", Map::class.java)
-            if (!java.lang.reflect.Modifier.isStatic(method.modifiers)) {
-                throw IllegalStateException("jar 类 $className 的 proxy 方法不是静态方法，无法处理本地代理请求")
-            }
-            method.invoke(null, args)
+            type.getMethod("proxy", Map::class.java).invoke(spider, args)
         } catch (error: NoSuchMethodException) {
-            throw IllegalStateException("jar 类 $className 未实现静态 proxy 方法，无法处理本地代理请求")
+            throw IllegalStateException("jar 类 $className 未实现 proxy 方法，无法处理本地代理请求")
         } catch (error: InvocationTargetException) {
             throw IllegalStateException("jar 类 $className.proxy 执行失败：${error.targetException?.message ?: error.targetException?.javaClass?.simpleName ?: "未知错误"}")
         }

@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/home_cell.dart';
 import '../models/media_item.dart';
@@ -12,6 +13,7 @@ import '../services/app_log.dart';
 import '../services/book_open_preferences.dart';
 import '../services/chapter_cache_store.dart';
 import '../services/core_novel_categories.dart';
+import '../services/cultivation.dart';
 import '../services/desktop_platform.dart';
 import '../services/drama_site_content.dart';
 import '../services/drama_site_play.dart';
@@ -20,6 +22,7 @@ import '../services/source_registry.dart';
 import '../services/home_continue_preferences.dart';
 import '../services/home_page_affinity.dart';
 import '../services/library_store.dart';
+import '../services/video_category_tags.dart';
 import '../widgets/home/drama_site_grid.dart';
 import '../widgets/home/home_film_zone.dart';
 import '../widgets/site_grid_dialog.dart';
@@ -43,6 +46,7 @@ import 'rank_page.dart';
 import 'search_page.dart';
 import 'home_provider.dart';
 import 'home_tab_switch.dart';
+import 'video_page.dart';
 
 /// 书城首页：以书为主的书架。
 ///
@@ -105,6 +109,21 @@ class _HomePageState extends ConsumerState<HomePage> {
   /// 当前短剧站点的分类：随站点变化，换站时回到该站第一个分类。
   String _dramaCategoryId = dramaSiteById(DramaSitePreferences.selectedId).categories.first.id;
 
+  /// 当前影视站点：只在影视分类下显示为搜索行左侧的药丸。
+  /// 与底部导航影视区共用同一把选择（`video_zone_site_id`），
+  /// 两边切站互相记得；短剧的选择另记（`drama_site_id`），各记各的。
+  String? _filmSiteId;
+  bool _filmSiteLoading = true;
+
+  /// 当前影视站点的分类：随站点变化，换站时回到该站第一个真实分类。
+  String _filmCategoryId = 'all';
+
+  /// 影视站的真实分类：客户端分类优先（tgdrama 的频道、导入站的
+  /// 真实分类都在这里），取不到时退回站点登记的分类；取到后分类条
+  /// 用它，不再只显示全部。
+  List<DramaSiteCategory>? _filmCategories;
+  String _filmCategoriesSiteId = '';
+
   /// 引擎导入站的真实分类：从蜘蛛 homeContent 的 class 列表取，
   /// 取到后分类条用它，不再只显示全部；取不到时退回站点登记的分类。
   List<DramaSiteCategory>? _engineCategories;
@@ -159,6 +178,105 @@ class _HomePageState extends ConsumerState<HomePage> {
         _loadingNovelCategories = false;
       });
     }
+  }
+
+  /// 影视站选择：与底部导航影视区同一把选择（`video_zone_site_id`），
+  /// 站表走影视区现有的统一表（`visibleVideoZoneSites`，含午夜区站，
+  /// 按修为分档过滤，未解锁的站完全不出现）。保存过的选择若不在已解锁
+  /// 表里，回落到第一个已解锁站；一个已解锁站都没有时保持空，影视
+  /// tab 显示空态。登记表读不到也不让首页崩：失败就当没有站。
+  Future<void> _loadFilmSite() async {
+    String? picked;
+    try {
+      await SourceRegistry.instance.load();
+      final saved = await currentVideoZoneSiteId();
+      final xp = CultivationService.instance.snapshot.totalXp;
+      final sites = visibleVideoZoneSites(
+        SourceRegistry.instance.custom,
+        xp,
+      );
+      picked = sites.any((site) => site.id == saved)
+          ? saved
+          : (sites.isEmpty ? null : sites.first.id);
+    } catch (_) {
+      picked = null;
+    }
+    if (!mounted) return;
+    setState(() {
+      _filmSiteId = picked;
+      _filmSiteLoading = false;
+    });
+    if (picked != null) _refreshFilmCategories(picked);
+  }
+
+  /// 当前影视站的显示名：导入站读登记名，核心站读站表名。
+  String? get _filmSiteName {
+    final id = _filmSiteId;
+    if (id == null) return null;
+    return SourceRegistry.instance.customById(id)?.name ??
+        dramaSiteById(id).name;
+  }
+
+  /// 影视站切换：点药丸弹居中弹窗，站点四列网格，点一项即切换并持久化
+  /// （与影视区共用同一把选择，两边互相记得）。
+  Future<void> _openFilmSiteList() async {
+    await SourceRegistry.instance.load();
+    if (!mounted) return;
+    final xp = CultivationService.instance.snapshot.totalXp;
+    final sites = visibleVideoZoneSites(SourceRegistry.instance.custom, xp);
+    final picked = await showSiteGridDialog(
+      context: context,
+      sites: sites,
+      selectedId: _filmSiteId,
+    );
+    if (picked == null || !mounted) return;
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.setString(videoZoneSitePreferenceKey, picked);
+    } catch (_) {}
+    if (mounted) {
+      setState(() {
+        _filmSiteId = picked;
+        _filmCategoryId = 'all';
+        _filmCategories = null;
+        _filmCategoriesSiteId = '';
+      });
+      _refreshFilmCategories(picked);
+    }
+  }
+
+  /// 影视站的真实分类：客户端分类优先，取不到退回站点登记的分类。
+  /// 核心站登记里只有「全部」兜底，`catalog('all')` 对多数站是空的，
+  /// 所以初始分类取第一个真实分类（非 'all'），取不到才回落 'all'。
+  /// 换站后旧站的结果不落地（站号守）。
+  Future<void> _refreshFilmCategories(String siteId) async {
+    if (_filmCategoriesSiteId == siteId && _filmCategories != null) return;
+    _filmCategoriesSiteId = siteId;
+    List<DramaSiteCategory>? categories;
+    if (allDramaSites.any((site) => site.id == siteId)) {
+      categories = dramaSiteById(siteId).categories;
+    }
+    try {
+      final client = dramaSiteContentClient(siteId) ??
+          await SourceRegistry.instance.clientFor(siteId);
+      if (client != null) {
+        final fetched = await client.categories();
+        if (fetched.isNotEmpty) categories = fetched;
+      }
+    } catch (_) {}
+    if (!mounted || _filmSiteId != siteId) return;
+    final usable = (categories ?? const <DramaSiteCategory>[])
+        .where((c) => c.id.isNotEmpty)
+        .toList();
+    final firstReal = usable
+        .where((c) => c.id != 'all')
+        .firstOrNull;
+    setState(() {
+      _filmCategories = usable.isEmpty ? null : usable;
+      _filmCategoryId = usable.isEmpty
+          ? 'all'
+          : (firstReal ?? usable.first).id;
+    });
   }
 
   /// 进过一次内容之后就是「切分类」，不再是冷启动：前者不能铺整页骨架。
@@ -230,6 +348,7 @@ class _HomePageState extends ConsumerState<HomePage> {
         if (mounted) setState(() => _dramaSiteId = DramaSitePreferences.selectedId);
       }),
     );
+    unawaited(_loadFilmSite());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) ref.read(homeProvider.notifier).load();
     });
@@ -326,7 +445,7 @@ class _HomePageState extends ConsumerState<HomePage> {
     return owner == state.tabIndex ? cells : const [];
   }
 
-  /// 顶栏分类：固定用本地六分类（推荐/小说/短剧/漫剧/漫画/听书）。
+  /// 顶栏分类：固定用本地七分类（推荐/小说/短剧/影视/漫剧/漫画/听书）。
   ///
   /// 2026-10-24 用户决定回退服务端 11 项方案——服务端表没有「短剧/漫剧」，
   /// 跨媒介入口只能本地给；点击身份由 `homeProvider` 的 `usesLocalTabs`
@@ -422,6 +541,10 @@ class _HomePageState extends ConsumerState<HomePage> {
                           _dramaCategoryStrip(),
                         if (state.tabIndex >= 0 &&
                             state.tabIndex < homeCategories.length &&
+                            homeCategories[state.tabIndex].label == '影视')
+                          _filmCategoryStrip(),
+                        if (state.tabIndex >= 0 &&
+                            state.tabIndex < homeCategories.length &&
                             homeCategories[state.tabIndex].label == '小说')
                           _novelCategoryStrip(),
                         if (state.tabIndex >= 0 &&
@@ -461,21 +584,30 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   /// 搜索行。横滑切分类时它不跟着走：它属于「页面」，不属于「内容」。
-  /// 只有短剧分类下，搜索行左侧才出现站点药丸；其余分类保持原版式。
-  SliverToBoxAdapter _heroSliver(int tabIndex) => SliverToBoxAdapter(
-    child: SwipeStationary(
-      child: HomeHero(
-        key: _heroKey,
-        onSearch: _openSearch,
-        onCategory: _openCategory,
-        siteName: tabIndex >= 0 && tabIndex < homeCategories.length && homeCategories[tabIndex].label == '短剧'
-            ? dramaSiteById(_dramaSiteId).name
-            : null,
-        onSiteTap: _openSiteList,
-        cueLoader: widget.cueLoader,
+  /// 短剧分类下搜索行左侧是短剧站点药丸，影视分类下是影视站点药丸
+  /// （走影视区站表，点它切影视站）；其余分类保持原版式。
+  SliverToBoxAdapter _heroSliver(int tabIndex) {
+    final label =
+        tabIndex >= 0 && tabIndex < homeCategories.length
+        ? homeCategories[tabIndex].label
+        : null;
+    return SliverToBoxAdapter(
+      child: SwipeStationary(
+        child: HomeHero(
+          key: _heroKey,
+          onSearch: _openSearch,
+          onCategory: _openCategory,
+          siteName: label == '短剧'
+              ? dramaSiteById(_dramaSiteId).name
+              : label == '影视'
+              ? _filmSiteName
+              : null,
+          onSiteTap: label == '影视' ? _openFilmSiteList : _openSiteList,
+          cueLoader: widget.cueLoader,
+        ),
       ),
-    ),
-  );
+    );
+  }
 
   /// 短剧站点列表：点药丸弹居中弹窗，站点四列网格，
   /// 点一项即切换药丸并持久化。
@@ -550,6 +682,60 @@ class _HomePageState extends ConsumerState<HomePage> {
                       style: TextStyle(
                         fontSize: 13,
                         color: category.id == _dramaCategoryId
+                            ? palette.canvas
+                            : palette.ink,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 影视站点的分类条：放在分类条下方、内容上方，只在影视分类下出现。
+  /// 分类随站点变化（客户端分类优先，取不到退回站点登记的分类）；
+  /// 点一项切分类，网格即换内容。分类还在取时先占 40 高防版式跳动。
+  Widget _filmCategoryStrip() {
+    final siteId = _filmSiteId;
+    final palette = HomePalette.of(context);
+    if (siteId == null) return const SliverToBoxAdapter();
+    if (_filmCategoriesSiteId != siteId) {
+      _refreshFilmCategories(siteId);
+    }
+    final categories = _filmCategories;
+    if (categories == null) {
+      return const SliverToBoxAdapter(child: SizedBox(height: 40));
+    }
+    if (categories.isEmpty) return const SliverToBoxAdapter();
+    return SliverToBoxAdapter(
+      child: SizedBox(
+        height: 40,
+        child: ListView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          children: [
+            for (final category in categories)
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: GestureDetector(
+                  onTap: () => setState(() => _filmCategoryId = category.id),
+                  child: Container(
+                    alignment: Alignment.center,
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    decoration: BoxDecoration(
+                      color: category.id == _filmCategoryId
+                          ? palette.ink
+                          : palette.searchBar,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      category.displayName,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: category.id == _filmCategoryId
                             ? palette.canvas
                             : palette.ink,
                       ),
@@ -681,13 +867,46 @@ class _HomePageState extends ConsumerState<HomePage> {
     if (state.tabIndex >= 0 &&
         state.tabIndex < homeCategories.length &&
         homeCategories[state.tabIndex].label == '短剧' &&
-        (dramaSiteContentClient(_dramaSiteId) != null ||
-            SourceRegistry.instance.customById(_dramaSiteId) != null)) {
+        SourceRegistry.instance.hasDramaContentClient(_dramaSiteId)) {
       return [
         DramaSiteGrid(
           key: ValueKey('drama-site-$_dramaSiteId-$_dramaCategoryId'),
           siteId: _dramaSiteId,
           categoryId: _dramaCategoryId,
+          gridWidth: gridWidth,
+        ),
+        _bottomSpacer(context),
+      ];
+    }
+    // 影视页：不画书城流，改画当前影视站的目录网格（与底部导航影视区
+    // 同一路：站表、分类、卡片点开都走现有影视详情链路）。站选择还在
+    // 读时先给加载态；一个已解锁站都没有时给空态（去站源管理加站）。
+    if (state.tabIndex >= 0 &&
+        state.tabIndex < homeCategories.length &&
+        homeCategories[state.tabIndex].label == '影视') {
+      if (_filmSiteLoading) {
+        return const [SliverToBoxAdapter(child: HomeFeedLoading())];
+      }
+      final filmSiteId = _filmSiteId;
+      if (filmSiteId == null) {
+        return [
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: HomeFeedEmpty(
+              title: '暂无影视站源',
+              message: '核心影视站见影视区；要加站去站源管理添加 MacCMS 站点，'
+                  '或导入 Python / Jar / JS 蜘蛛。',
+              actionLabel: '重新加载',
+              onRefresh: () => _loadFilmSite(),
+            ),
+          ),
+        ];
+      }
+      return [
+        DramaSiteGrid(
+          key: ValueKey('film-site-$filmSiteId-$_filmCategoryId'),
+          siteId: filmSiteId,
+          categoryId: _filmCategoryId,
           gridWidth: gridWidth,
         ),
         _bottomSpacer(context),

@@ -104,6 +104,20 @@ const builtinImportedSeeds = [
     kind: SourceKind.pyImport,
   ),
   BuiltinImportedSeed(
+    seedId: 'aihi',
+    asset: 'assets/builtin_sites/aihi.py',
+    fileName: 'aihi.py',
+    name: '🔞AIHI短剧',
+    kind: SourceKind.pyImport,
+  ),
+  BuiltinImportedSeed(
+    seedId: 'aiyinhang',
+    asset: 'assets/builtin_sites/aiyinhang.py',
+    fileName: 'aiyinhang.py',
+    name: '🔞AI淫航',
+    kind: SourceKind.pyImport,
+  ),
+  BuiltinImportedSeed(
     seedId: 'aimove',
     asset: 'assets/builtin_sites/aimove.py',
     fileName: 'aimove.py',
@@ -111,10 +125,17 @@ const builtinImportedSeeds = [
     kind: SourceKind.pyImport,
   ),
   BuiltinImportedSeed(
+    seedId: 'aipornx',
+    asset: 'assets/builtin_sites/aipornx.py',
+    fileName: 'aipornx.py',
+    name: '🔞AiPorn短剧',
+    kind: SourceKind.pyImport,
+  ),
+  BuiltinImportedSeed(
     seedId: 'aisxpc',
     asset: 'assets/builtin_sites/aisxpc.py',
     fileName: 'aisxpc.py',
-    name: '🔞Ai小视频',
+    name: '🔞Ai小视频┃短剧',
     kind: SourceKind.pyImport,
   ),
   BuiltinImportedSeed(
@@ -164,6 +185,13 @@ const builtinImportedSeeds = [
     asset: 'assets/builtin_sites/chinax.py',
     fileName: 'chinax.py',
     name: '🔞中国X站',
+    kind: SourceKind.pyImport,
+  ),
+  BuiltinImportedSeed(
+    seedId: 'chinaxjx',
+    asset: 'assets/builtin_sites/chinaxjx.py',
+    fileName: 'chinaxjx.py',
+    name: '🔞中国X站精选',
     kind: SourceKind.pyImport,
   ),
   BuiltinImportedSeed(
@@ -762,6 +790,13 @@ const builtinImportedSeeds = [
     kind: SourceKind.pyImport,
   ),
   BuiltinImportedSeed(
+    seedId: 'ywly',
+    asset: 'assets/builtin_sites/ywly.py',
+    fileName: 'ywly.py',
+    name: '🔞欲望乐园',
+    kind: SourceKind.pyImport,
+  ),
+  BuiltinImportedSeed(
     seedId: 'ywmm',
     asset: 'assets/builtin_sites/ywmm.py',
     fileName: 'ywmm.py',
@@ -780,6 +815,20 @@ const builtinImportedSeeds = [
     asset: 'assets/builtin_sites/zwwm.py',
     fileName: 'zwwm.py',
     name: '🔞中文无码',
+    kind: SourceKind.pyImport,
+  ),
+  BuiltinImportedSeed(
+    seedId: 'kankux',
+    asset: 'assets/builtin_sites/kankux.py',
+    fileName: 'kankux.py',
+    name: '🔞看裤X',
+    kind: SourceKind.pyImport,
+  ),
+  BuiltinImportedSeed(
+    seedId: 'sexaix',
+    asset: 'assets/builtin_sites/sexaix.py',
+    fileName: 'sexaix.py',
+    name: '🔞幻影AI',
     kind: SourceKind.pyImport,
   ),
 ];

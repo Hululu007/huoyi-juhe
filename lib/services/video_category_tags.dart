@@ -80,7 +80,8 @@ Future<VideoCategoryData> loadVideoCategoryData(String siteId) async {
         ];
         if (valid.isNotEmpty) cats = valid;
       } else {
-        final client = dramaSiteContentClient(siteId);
+        final client = dramaSiteContentClient(siteId) ??
+            await SourceRegistry.instance.clientFor(siteId);
         if (client != null) {
           final live = await client
               .categories()

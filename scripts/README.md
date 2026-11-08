@@ -9,6 +9,7 @@
 | [build_rust_backend.ps1](build_rust_backend.ps1) / [.sh](build_rust_backend.sh) | 生成 FRB 绑定并交叉编译 Rust 核心（arm64-v8a + armeabi-v7a） | Rust、NDK、FRB codegen 2.13.0；输出到 `android/app/src/main/jniLibs/<abi>/` |
 | [run_rust_host_tests.ps1](run_rust_host_tests.ps1) / [.sh](run_rust_host_tests.sh) | 构建宿主核心，运行真实 Dart → FRB → Rust 集成测试 | Rust、Flutter；使用本地 Mock 上游和临时运行目录 |
 | [verify_android_apk.py](verify_android_apk.py) | 检查 APK 签名、库、版本、资源及 16 KiB 对齐 | Python 3、Android Build-Tools；报告目录由参数指定 |
+| [sync_jar_fingerprint.sh](sync_jar_fingerprint.sh) | 同步/校验内置 jar 指纹：算 `assets/jars/zakatv.jar` 与 `youtube.jar` 的 MD5，写回 `lib/services/zakatv_builtin.dart` 的 `zakatvJarMd5` / `youtubeJarMd5` 声明；`--check` 只校验、不一致退出 1 | Bash、md5sum、Python 3；合 jar 完必跑，跑完再跑 `flutter test test/jar_builtin_test.dart` |
 | [check_native_alignment.cjs](check_native_alignment.cjs) | 检查一个或多个 ELF 库（ARM64/ARM）的 LOAD 段对齐 | Node.js；只读取指定 `.so` |
 | [check_line_budget.sh](check_line_budget.sh) | 仅供参考的源码行数报告，无固定上限，不判断通过/失败 | Bash、Python 3、Git；只读已跟踪源码，列出最大的 20 个文件；无预算更新操作，CI 不因此阻塞 |
 | [check_so_freshness.cjs](check_so_freshness.cjs) | 打版前检查 `libfqapi_core.so` 是否比 `rust/` 的最新改动新（判据 CRIT-011）；mtime 不是内容证明，`--expect-sha256` 可比对内容哈希 | Node.js、git；只读取文件时间与 git 历史；未接入 CI（CI 每次重编 Rust） |
@@ -53,6 +54,16 @@ node --test test/web_assets_test.cjs test/verify_audio_cenc_test.cjs test/build_
 ```
 
 `flutter test` 在宿主动态库存在时会运行 FRB 集成；库缺失时相关测试会明确跳过。`run_rust_host_tests.*` 可先重建宿主库再执行这组测试。C/JNI 主机回归和编译器要求见 [native/README.md](../native/README.md)。Android JVM 测试须在 `android/` 目录中执行：Windows 使用 `.\gradlew.bat :app:testDebugUnitTest`，Linux/macOS 使用 `./gradlew :app:testDebugUnitTest`。
+
+### 内置 jar 指纹同步（铁律）
+
+每次合 `assets/jars/zakatv.jar`（或 `youtube.jar`）完，必须先跑同步再提交，否则声明过期会导致启动时原生校验拒载、全部内置站不注册（火蚁TV +40/+41 已因此丢过 244 站）：
+
+```bash
+bash scripts/sync_jar_fingerprint.sh          # 同步声明
+bash scripts/sync_jar_fingerprint.sh --check  # 只校验，不一致退出 1
+flutter test test/jar_builtin_test.dart        # 含指纹一致性测试，声明与盘上 jar 对不上即失败
+```
 
 ## APK、诊断与资源
 

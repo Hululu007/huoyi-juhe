@@ -90,7 +90,15 @@ void main() {
     expect(page.items.single.id, 'drama-a-11');
     expect(page.items.single.title, '剧A');
     expect(page.hasMore, isTrue);
+    // 封面走图床中继（hgimg.ystv.top）：原地址整体编码在 ?u= 后，
+    // 图片组件只须连通中继域名，不再直连图床。
+    expect(
+      page.items.single.cover,
+      'https://hgimg.ystv.top/?u='
+      'https%3A%2F%2Fhuangju.net%2Fc%2Fa.jpg',
+    );
     final detail = await client.detail('drama-a-11');
+    expect(detail.cover, page.items.single.cover);
     expect(detail.episodes.map((e) => e.videoId), ['e1', 'e2']);
     expect(detail.episodes.map((e) => e.title), ['第 1 集', '第 2 集']);
   });

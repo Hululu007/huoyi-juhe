@@ -1581,6 +1581,15 @@ class ApiClient {
   /// `/reading/bookapi/bookmall/cell/change` 返回
   /// （`com/dragon/read/shortvideo/common/c.java`）。所以视频 tab 在第一段之后
   /// 追加第二段；第二段拿不到就退回第一段的结果，老后端没有第二段时行为不变。
+  ///
+  /// cell 只从两处取：`data` 顶层的 `cell_id_str`（官方第一段直接给的 feed
+  /// cell），或所要 tab 自己的 `cell_data` 里的 `cell_id_str`。绝不从别的
+  /// tab 的 cell 里取——别的 tab 的 cell 是书 cell（2026-11-07 实测：上游
+  /// 只回推荐/男生/女生三个书 tab，第一段的第一个 cell 是推荐区书 cell
+  /// 7156181637888212999），拿它去换视频流只会回 0 条视频。
+  ///
+  /// 视频 tab 在响应里根本没有、第一段又没有卡片时，不再回空白页假装没内容，
+  /// 而是如实抛错，让页面显示重试。
   Future<HomepagePage> homepagePage({
     int tabType = 2,
     int offset = 0,
@@ -1588,6 +1597,21 @@ class ApiClient {
     int? tabIndex,
     int? lastTabIndex,
   }) async {
+    // 新链路（2026-11-08）：短剧 tab 先走 Rust 核心的 plan→cell/change
+    // 合并路由（/api/v1/recommend/fanqie-feed）——plan 匿名取排行榜视频
+    // cell，再按 App 首页面形状打 cell/change；change 为空时核心直接回
+    // plan 自带的首屏 10 条。拿到就直接用，不再走 tab/v 老路；拿不到
+    // 才落回老路（老路末尾仍是诚实报错，不出空白页）。offset==0 时不带
+    // 旧 cell，强制 plan 重新开种子；翻页才带缓存的 cell 继续换流。
+    if (_seriesFlowTabs.contains(tabType)) {
+      final fanqie = await _fanqieFeedPage(
+        tabType: tabType,
+        offset: offset,
+        cellId: offset == 0 ? null : _seriesCellIds[tabType],
+        sessionId: offset == 0 ? null : sessionId,
+      );
+      if (fanqie != null) return fanqie;
+    }
     // 翻页时第一段只是用来开 cell 的：它的游标和视频流不是一回事，而且把第二段
     // 的 session 再传给 tab 接口会被上游拒掉（客户端表现为 SERVICE_ERROR）。所以
     // 已经知道 cell 的翻页直接打第二段。
@@ -1612,6 +1636,11 @@ class ApiClient {
         tabIndex: tabIndex,
         lastTabIndex: lastTabIndex,
       ),
+      // 视频流第一段实测 9~28 秒才回，20 秒默认死线没等到就掐断；
+      // 只给视频 tab 放宽到与影视区目录同款的 45 秒预算（见
+      // dramaCatalogTimeout），书 tab 不动。放宽只是让请求有机会跑完，
+      // 拿不到正确 cell 的结构问题由下面的 cell 归属与报错兜底。
+      timeout: _seriesFlowTabs.contains(tabType) ? dramaCatalogTimeout : null,
     );
     final statusCode = r.statusCode;
     final bodyBytes = r.bodyBytes;
@@ -1623,8 +1652,15 @@ class ApiClient {
       final tabs = <HomeTabItem>[];
       var tabScoped = false;
       int? answeredTabType;
+      // 所要 tab 自己的 cell（见本方法头注释）；data 顶层的 cell 另算。
+      String? tabCellId;
       final data = payload['data'];
       if (data is Map) {
+        // data 顶层的 cell_id_str：官方第一段直接给的 feed cell。
+        final dataCellId = data['cell_id_str'];
+        final topCellId = dataCellId is String && dataCellId.isNotEmpty
+            ? dataCellId
+            : null;
         final tabItems = data['tab_item'];
         if (tabItems is List) {
           tabScoped = true;
@@ -1642,6 +1678,9 @@ class ApiClient {
             }
             selectedPayload = Map<String, dynamic>.from(raw);
             answeredTabType = rawType is num ? rawType.toInt() : tabType;
+            // 数字型 `cell_id` 在 JSON 里是 double，会被精度截断成上游认不出的值，
+            // 必须取 `cell_id_str`。
+            tabCellId ??= _firstStringField(raw, 'cell_id_str');
             final candidate = raw['next_offset'];
             if (candidate is num &&
                 candidate.toInt() > offset &&
@@ -1654,6 +1693,25 @@ class ApiClient {
             }
           }
         }
+        final items = parseMediaItems(
+          selectedPayload,
+          kind: tabType == 24 ? 'manju' : null,
+        );
+        final cells = parseHomeCells(selectedPayload);
+        return (
+          page: HomepagePage(
+            items: items,
+            cells: cells,
+            tabs: tabs,
+            nextOffset: nextOffset,
+            sessionId: nextSessionId,
+            answeredTabType: answeredTabType,
+            tabScoped: tabScoped,
+          ),
+          // cell 归属：先取 data 顶层（老形状），再取所要 tab 自己的；
+          // 别的 tab 的 cell 一律不取（书 cell 换不出视频流）。
+          cellId: topCellId ?? tabCellId,
+        );
       }
       final items = parseMediaItems(
         selectedPayload,
@@ -1670,9 +1728,7 @@ class ApiClient {
           answeredTabType: answeredTabType,
           tabScoped: tabScoped,
         ),
-        // 数字型 `cell_id` 在 JSON 里是 double，会被精度截断成上游认不出的值，
-        // 必须取 `cell_id_str`。
-        cellId: _firstStringField(payload, 'cell_id_str'),
+        cellId: null,
       );
     });
     if (!_seriesFlowTabs.contains(tabType)) return tab.page;
@@ -1681,7 +1737,14 @@ class ApiClient {
       return tab.page;
     }
     final cellId = tab.cellId ?? _seriesCellIds[tabType];
-    if (cellId == null || cellId.isEmpty) return tab.page;
+    if (cellId == null || cellId.isEmpty) {
+      // 上游没给这个视频 tab 的 cell、第一段也没有卡片：取数链没拿到流，
+      // 不是“没内容”——如实抛错，页面显示重试，别出空白页。
+      if (tab.page.items.isEmpty) {
+        throw const ApiException('番茄短剧流暂时拉不到，请稍后重试');
+      }
+      return tab.page;
+    }
     _seriesCellIds[tabType] = cellId;
     final flow = await _seriesFlowPage(
       tabType: tabType,
@@ -1709,7 +1772,8 @@ class ApiClient {
         offset: offset,
         sessionId: sessionId,
       );
-      final r = await _get(url);
+      // 第二段同样是上游慢接口，与第一段同款 45 秒预算（见 homepagePage）。
+      final r = await _get(url, timeout: dramaCatalogTimeout);
       final statusCode = r.statusCode;
       final bodyBytes = r.bodyBytes;
       return await Isolate.run(() {
@@ -1765,6 +1829,86 @@ class ApiClient {
     'offset': '$offset',
     // 首屏 ChangeFilter(2)，翻页 GetMore(1)：官方 `c.java` 的 q()/m() 两个分支。
     'unlimited_selector_change_type': offset > 0 ? '1' : '2',
+    if (sessionId != null && sessionId.isNotEmpty) 'session_id': sessionId,
+  });
+
+  /// 走 Rust 核心新链路（plan→cell/change 合并路由）拉短剧流；任何失败
+  /// 都返回 null，由调用方落回 tab/v 老路。回包与 `_seriesFlowPage` 同形：
+  /// data 是 Map 时取 next_offset / session_id / cell_id_str（翻页接着用）。
+  Future<HomepagePage?> _fanqieFeedPage({
+    required int tabType,
+    required int offset,
+    String? cellId,
+    String? sessionId,
+  }) async {
+    try {
+      final r = await _get(
+        _fanqieFeedUrl(
+          tabType: tabType,
+          offset: offset,
+          cellId: cellId,
+          sessionId: sessionId,
+        ),
+        timeout: dramaCatalogTimeout,
+      );
+      final statusCode = r.statusCode;
+      final bodyBytes = r.bodyBytes;
+      final result = await Isolate.run(() {
+        final payload = _decodeEnvelope(statusCode, bodyBytes);
+        final items = parseMediaItems(payload, kind: 'video');
+        if (items.isEmpty) return null;
+        final cells = parseHomeCells(payload);
+        int? nextOffset;
+        String? nextSessionId;
+        String? cellIdStr;
+        final data = payload['data'];
+        if (data is Map) {
+          final candidate = data['next_offset'];
+          if (candidate is num && candidate.toInt() > offset) {
+            nextOffset = candidate.toInt();
+          }
+          final candidateSession = data['session_id'];
+          if (candidateSession is String && candidateSession.isNotEmpty) {
+            nextSessionId = candidateSession;
+          }
+          final candidateCell = data['cell_id_str'];
+          if (candidateCell is String && candidateCell.isNotEmpty) {
+            cellIdStr = candidateCell;
+          }
+        }
+        return (
+          page: HomepagePage(
+            items: items,
+            cells: cells,
+            nextOffset: nextOffset,
+            sessionId: nextSessionId,
+            answeredTabType: tabType,
+            tabScoped: true,
+          ),
+          cellId: cellIdStr,
+        );
+      });
+      if (result == null) return null;
+      final seedCell = result.cellId;
+      if (seedCell != null && seedCell.isNotEmpty) {
+        _seriesCellIds[tabType] = seedCell;
+      }
+      return result.page;
+    } catch (error) {
+      AppLog.w('fanqie-feed', '新链路拉取失败，已回落老路: $error');
+      return null;
+    }
+  }
+
+  String _fanqieFeedUrl({
+    required int tabType,
+    required int offset,
+    String? cellId,
+    String? sessionId,
+  }) => _url('/api/v1/recommend/fanqie-feed', {
+    'tab_type': '$tabType',
+    'offset': '$offset',
+    if (cellId != null && cellId.isNotEmpty) 'cell_id': cellId,
     if (sessionId != null && sessionId.isNotEmpty) 'session_id': sessionId,
   });
 

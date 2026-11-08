@@ -1795,31 +1795,6 @@
    "note": "Singleton: no other collected site shares this extraction pattern."
   },
   {
-   "id": "site_zaka520av",
-   "kind": "site",
-   "cms_type": "custom_html",
-   "name": "520AV影城",
-   "detection": {
-    "probe": [
-     "GET https://520avtv.com/"
-    ],
-    "match": "exact domain match: 520avtv.com",
-    "page_feature": "site-specific"
-   },
-   "extraction": {
-    "categories": "site-specific",
-    "list": "site-specific",
-    "detail": "site-specific",
-    "search": "site-specific",
-    "stream": "/video/category/%s/; /video/category/%s/%d; /video/category/1/"
-   },
-   "sources": [
-    "zaka520av.py"
-   ],
-   "verified": false,
-   "note": "Singleton: no other collected site shares this extraction pattern."
-  },
-  {
    "id": "site_zakajavmap",
    "kind": "site",
    "cms_type": "custom_html",
@@ -2615,31 +2590,6 @@
    },
    "sources": [
     "zaka99jj.py"
-   ],
-   "verified": false,
-   "note": "Singleton: no other collected site shares this extraction pattern."
-  },
-  {
-   "id": "site_zakaaoxx69",
-   "kind": "site",
-   "cms_type": "custom_html",
-   "name": "🔞AOXX69┃亞洲綜合",
-   "detection": {
-    "probe": [
-     "GET https://www.aoxx69.app/"
-    ],
-    "match": "exact domain match: www.aoxx69.app",
-    "page_feature": "site-specific"
-   },
-   "extraction": {
-    "categories": "site-specific",
-    "list": "site-specific",
-    "detail": "site-specific",
-    "search": "site-specific",
-    "stream": "site-specific"
-   },
-   "sources": [
-    "zakaaoxx69.py"
    ],
    "verified": false,
    "note": "Singleton: no other collected site shares this extraction pattern."

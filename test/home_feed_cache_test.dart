@@ -159,7 +159,7 @@ void main() {
       await cache.save(7, [_item('a')], hasMore: true);
 
       // Pin the old format: the record on disk carries no `cells` key.
-      final box = await Hive.openBox('home_feed_cache_v1');
+      final box = await Hive.openBox('home_feed_cache_v2');
       final raw = Map<String, dynamic>.from(box.get('7') as Map);
       expect(raw.containsKey('cells'), isFalse);
 
@@ -180,7 +180,7 @@ void main() {
 
     // Rewrite savedAt far into the past through the same box. Hive returns
     // the box singleton the cache already holds, so no reopen is needed.
-    final box = await Hive.openBox('home_feed_cache_v1');
+    final box = await Hive.openBox('home_feed_cache_v2');
     final raw = Map<String, dynamic>.from(box.get('0') as Map);
     raw['savedAt'] =
         DateTime.now().millisecondsSinceEpoch -

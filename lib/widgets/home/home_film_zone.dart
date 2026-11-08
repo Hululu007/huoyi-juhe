@@ -8,6 +8,7 @@ import '../../services/api_client.dart';
 import '../../services/cultivation.dart';
 import '../../services/drama_site_content.dart';
 import '../../services/drama_site_play.dart';
+import '../../services/source_registry.dart';
 import 'home_design.dart';
 import 'home_feed_states.dart';
 import 'home_media_card.dart';
@@ -138,10 +139,11 @@ class _HomeFilmZoneState extends State<HomeFilmZone> {
     }
   }
 
-  DramaSiteContentClient? _clientFor(String siteId) {
+  Future<DramaSiteContentClient?> _clientFor(String siteId) async {
     final injected = widget.clientForSite;
     if (injected != null) return injected(siteId);
-    return dramaSiteContentClient(siteId);
+    return dramaSiteContentClient(siteId) ??
+        await SourceRegistry.instance.clientFor(siteId);
   }
 
   /// 取一站推荐：null = 该站失败（超时/报错），跳过并记入 `_failed`；
@@ -151,7 +153,7 @@ class _HomeFilmZoneState extends State<HomeFilmZone> {
     ({String id, String name, String kind}) site,
   ) async {
     try {
-      final client = _clientFor(site.id);
+      final client = await _clientFor(site.id);
       if (client == null) return null;
       // 先取真实首分类再取列表：核心站登记里只有「全部」兜底，
       // `catalog('all')` 对多数核心站是空的（mjv011 的 all 地址

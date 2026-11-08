@@ -126,10 +126,45 @@ abstract class DramaSiteContentClient {
   Future<List<DramaSiteItem>> search(String query) async => const [];
 }
 
+/// 按名在站分类表里找分类 id：先精确匹配 `name` / `displayName`，
+/// 再匹配多级分类展示路径的末段（如 `电影/动作` 认标签 `动作`）。
+/// 找不到回 null（调用方退到站源搜索，不出空白页）。
+String? findSiteCategoryIdIn(List<DramaSiteCategory> categories, String name) {
+  final wanted = name.trim();
+  if (wanted.isEmpty) return null;
+  for (final category in categories) {
+    if (category.name.trim() == wanted ||
+        category.displayName.trim() == wanted) {
+      return category.id;
+    }
+  }
+  for (final category in categories) {
+    final path = category.displayName.trim();
+    final last = path.split('/').map((part) => part.trim()).last;
+    if (last.isNotEmpty && last == wanted) return category.id;
+  }
+  return null;
+}
+
+/// 按名在站分类里找分类 id（先取一次分类表，再按
+/// [findSiteCategoryIdIn] 匹配）。相关推荐（[loadSiteRelatedItems]）
+/// 与详情页标签点按共用这一个匹配口径。
+Future<String?> findSiteCategoryIdForName(
+  DramaSiteContentClient client,
+  String name,
+) async {
+  final categories = await client.categories();
+  return findSiteCategoryIdIn(categories, name);
+}
+
 /// 同站相关推荐（影视区详情页用）：先按详情 `category` / `tags` 里
 /// 的名去匹配站分类，拉同分类第一页；取不到（无匹配分类、分类页
-/// 为空、请求失败）退本站首页（`catalog('', 1)`）；仍取不到回空
-/// 列表，详情页不画推荐区。排除本片、按 id 去重、最多 [maxItems] 条。
+/// 为空、请求失败）退两步兜底——①本站首页（`catalog('all', 1)`；
+/// jar 站走 homeVideoContent，py / 核心 / JS 站把 'all' 转空串走
+/// 首页）；②分类表第一个真实分类（py 站的 'all' 会被转成空串，
+/// 空 tid 在个别站（如 mjv011）上拼不出有效地址，只有这一步对
+/// py 站也生效）；仍取不到回空列表，详情页不画推荐区。排除本片、
+/// 按 id 去重、最多 [maxItems] 条。
 Future<List<DramaSiteItem>> loadSiteRelatedItems(
   DramaSiteContentClient client,
   DramaSiteDetail detail,
@@ -163,13 +198,7 @@ Future<List<DramaSiteItem>> loadSiteRelatedItems(
       final categories = await client.categories();
       String? categoryId;
       for (final name in names) {
-        for (final category in categories) {
-          if (category.name.trim() == name ||
-              category.displayName.trim() == name) {
-            categoryId = category.id;
-            break;
-          }
-        }
+        categoryId = findSiteCategoryIdIn(categories, name);
         if (categoryId != null) break;
       }
       if (categoryId != null && categoryId.isNotEmpty) {
@@ -181,12 +210,29 @@ Future<List<DramaSiteItem>> loadSiteRelatedItems(
   } catch (_) {
     // 同分类取不到就退首页，不把失败当结果。
   }
+  // 兜底一：本站首页。jar 站走 homeVideoContent；py / 核心 / JS 站
+  // 把 'all' 转成空串走首页。
   try {
-    final page = await client.catalog('', 1);
-    return pick(page.items);
+    final page = await client.catalog('all', 1);
+    final related = pick(page.items);
+    if (related.isNotEmpty) return related;
   } catch (_) {
-    return const <DramaSiteItem>[];
+    // 首页拉不到就退分类表第一项。
   }
+  // 兜底二：分类表第一个真实分类（跳过 'all' 伪分类，它与兜底一
+  // 是同一路）。空 tid 在个别站上拼不出有效地址，首页兜底回空时
+  // 只有这一步能出东西。
+  try {
+    final categories = await client.categories();
+    for (final category in categories) {
+      if (category.id.isEmpty || category.id == 'all') continue;
+      final page = await client.catalog(category.id, 1);
+      return pick(page.items);
+    }
+  } catch (_) {
+    // 取不到就回空，详情页不画推荐区。
+  }
+  return const <DramaSiteItem>[];
 }
 
 String _unescape(String value) {

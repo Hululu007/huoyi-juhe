@@ -59,8 +59,8 @@ void main() {
     await tester.pump();
 
     expect(find.text('直播源需要元婴期'), findsNothing);
-    // 源 chips 已按火蚁TV去掉：源名只在当前卡 caption 与「切换直播源」框里，
-    // 不再以独立 Text 出现在页上。
+    // 源 chips 已按火蚁TV去掉：源名只在「切换直播源」框与房间列表的
+    // 平台列里，当前卡副标题只显示“分组 · 序号/总数”，不再带平台名。
     expect(find.text('内置直播源'), findsNothing);
     await tester.tap(find.byTooltip('切换直播源'));
     await tester.pump();

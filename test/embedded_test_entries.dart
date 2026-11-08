@@ -8,8 +8,8 @@ import 'package:fqapp/services/zakatv_builtin.dart';
 /// 供分档测试直接传给 visibleVideoZoneSites / visibleFilmZoneSites，
 /// 不走 SharedPreferences 与 asset 拷贝。
 ///
-/// jar 244 行（zakatvBuiltinSites 244 条里 243 条视频/混合 + YouTube 1 条；
-/// 听书 go_tingshu 是 audio，不进视频区）+ 种子 108 条。
+/// jar 247 行（zakatvBuiltinSites 247 条里 246 条视频/混合 + YouTube 1 条；
+/// 听书 go_tingshu 是 audio，不进视频区）+ 种子 115 条。
 List<SourceEntry> embeddedTestEntries() {
   final entries = <SourceEntry>[];
   for (final site in zakatvBuiltinSites) {

@@ -161,9 +161,11 @@ class JarBridge {
       final result = await _channel.invokeMapMethod<String, dynamic>(
         'jarProxy',
         {
+          'siteId': spec.siteId,
           'configId': spec.configId,
           'jarPath': jarPath,
           'className': spec.className,
+          'ext': spec.ext,
           'param': param,
         },
       );
@@ -200,6 +202,23 @@ class JarBridge {
     try {
       await _channel.invokeMethod<void>('release', {'siteId': siteId});
     } catch (_) {}
+  }
+
+  /// 把系统出口代理交给 jar 侧：原生 JarBridge 经反射调 ZakaCfg.setProxy，
+  /// 之后所有 jar 站的 ZakaHttp 请求都走该代理；传空串清掉回直连。
+  /// 与核心出口代理同款接线（见 SystemProxyService.applyEgressProxy）。
+  /// 尽力而为：桥未就绪或原生侧失败时返回 false，不抛错，不挡启动。
+  static Future<bool> setJarProxy(String url) async {
+    if (!supported) return false;
+    try {
+      final result = await _channel.invokeMapMethod<String, dynamic>(
+        'setJarProxy',
+        {'url': url},
+      );
+      return result != null;
+    } catch (_) {
+      return false;
+    }
   }
 
   static Future<Map<String, dynamic>> callJson(

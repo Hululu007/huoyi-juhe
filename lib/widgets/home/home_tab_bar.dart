@@ -14,6 +14,7 @@ const homeCategories = [
   HomeCategory('推荐', Icons.circle),
   HomeCategory('小说', Icons.circle),
   HomeCategory('短剧', Icons.circle),
+  HomeCategory('影视', Icons.circle),
   HomeCategory('漫剧', Icons.circle),
   HomeCategory('漫画', Icons.circle),
   HomeCategory('听书', Icons.circle),
@@ -39,7 +40,7 @@ const homeCategories = [
 /// 首页的栏距是搜索框那对 16dp（`HomeHero` 的 `fua`），短剧频道条也用同一对
 /// 16dp，所以这里跟着收口成对称 16dp，让条带与它正上方的搜索框对齐。
 ///
-/// 只收口 padding 还不够：六个分类在 361dp 的手机上只有 308dp 宽，右边多出来
+/// 只收口 padding 还不够：七个分类在 361dp 的手机上只有 308dp 宽，右边多出来
 /// 的空间是**剩余空间**而不是 padding，所以末位 tab 右缘照样离屏 40dp。条带放
 /// 得下时会把富余按间隔平摊（见 [_gapWidth]），两端才同时落在 [sidePadding] 那
 /// 条竖线上。
@@ -61,7 +62,7 @@ class HomeTabBarDelegate extends SliverPersistentHeaderDelegate {
   /// 条带的左右栏距：与 [HomeHero] 搜索框一致（官方 20/13 的不对称见类注释）。
   static const double sidePadding = 16;
 
-  /// 放得下时每个间隔最多再撑这么多：桌面宽窗里若按富余等比摊开，六个分类会被
+  /// 放得下时每个间隔最多再撑这么多：桌面宽窗里若按富余等比摊开，七个分类会被
   /// 摊到整屏两端，比留白更难看。
   static const double maxExtraSpacing = 12;
 
@@ -154,7 +155,7 @@ class HomeTabBarDelegate extends SliverPersistentHeaderDelegate {
 
   /// tab 之间的间隔。
   ///
-  /// 官方 `avb` = 20dp 是「条带一定放不下」的前提下的值。本地六个分类在手机宽
+  /// 官方 `avb` = 20dp 是「条带一定放不下」的前提下的值。本地七个分类在手机宽
   /// 上放得下，此时右边露出来的空白是剩余空间，跟 padding 无关——所以要把它按
   /// 间隔平摊，首个 tab 的左缘与末位 tab 的右缘才同时落在 [sidePadding] 竖线上。
   /// 摊得太多（桌面宽窗）就封顶到 [maxExtraSpacing]，宁可留一边空白也不要把分类

@@ -86,6 +86,7 @@ class SeriesDetailPage extends StatefulWidget {
     this.relatedLoader,
     this.onOpenRelatedFilm,
     this.onOpenRelatedSeries,
+    this.onFilmCategoryTap,
     this.engineSiteId = '',
     this.shelfKind = 'video',
   });
@@ -153,6 +154,12 @@ class SeriesDetailPage extends StatefulWidget {
   /// 影视区专属：点推荐卡片的打开方式（`openDramaSiteItem` 传，调
   /// `openDramaSiteItem` 进新详情页）。为空时点卡片不做事。
   final void Function(DramaSiteItem item)? onOpenRelatedFilm;
+
+  /// 影视区专属：点毛玻璃详情区分类标签的打开方式（`openDramaSiteItem`
+  /// 传，调 `openFilmCategoryTag`：先按标签名匹配本站分类进浏览页，
+  /// 匹配不到退站源搜索）。为空时标签只展示、不可点；短剧分支不传，
+  /// 短剧头项标签保持原样不动。
+  final ValueChanged<String>? onFilmCategoryTap;
 
   @override
   State<SeriesDetailPage> createState() => _SeriesDetailPageState();
@@ -919,6 +926,10 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
                       ),
                     ),
                     const SizedBox(height: 8),
+                    // 分类标签（站原字段 category + tags，见 _filmCategories）：
+                    // 标题正下方的横排小标签，照原始版 fqapp 可点，点后按
+                    // 标签筛出本站电影；没数据时整行不占位。
+                    ..._filmCategoryTags(),
                     if (count > 0)
                       Text(
                         '共 $count 集 · 当前第 ${_currentIndex + 1} 集',
@@ -942,6 +953,55 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  /// 毛玻璃详情区顶部的分类标签行：站原字段 `category` + `tags`
+  /// 拆开去重后的横排小标签（`_filmCategories`）。站详情没回来
+  /// （标签为空）时整行不占位；回调为空时只展示、不可点。
+  List<Widget> _filmCategoryTags() {
+    final categories = _filmCategories();
+    if (categories.isEmpty) return const [];
+    return [
+      Wrap(
+        key: const ValueKey('film-detail-categories'),
+        spacing: 6,
+        runSpacing: 6,
+        children: [for (final name in categories) _filmCategoryTag(name)],
+      ),
+      const SizedBox(height: 8),
+    ];
+  }
+
+  /// 一颗分类标签：半透明白底 + 白字胶囊（毛玻璃深色区里可读）。
+  /// 回调在时包一层 InkWell 可点，点后把标签名交给
+  /// [onFilmCategoryTap]；回调为空时就是普通展示块。
+  Widget _filmCategoryTag(String name) {
+    final onTap = widget.onFilmCategoryTap;
+    final chip = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(99),
+      ),
+      child: Text(
+        name,
+        style: const TextStyle(
+          fontSize: 12,
+          height: 1.5,
+          color: Colors.white,
+        ),
+      ),
+    );
+    if (onTap == null) return chip;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        key: ValueKey('film-detail-category-$name'),
+        borderRadius: BorderRadius.circular(99),
+        onTap: () => onTap(name),
+        child: chip,
       ),
     );
   }

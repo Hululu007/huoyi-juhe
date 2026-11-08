@@ -9,7 +9,9 @@ import 'package:fqapp/services/zakatv_builtin.dart';
 import 'embedded_test_entries.dart';
 
 /// 境界成人分档（内嵌版）：批量转站后核心只剩 hgdj/hgdj58/hgdjv 3 站，
-/// 分档改读 adultVideoSiteOrder（删核心前的核心登记顺序，201 站）。
+/// 分档改读 adultVideoSiteOrder（删核心前的核心登记顺序 201 站，加上
+/// 2026-11-07 新入的中国X站精选 chinaxjx，再减 2026-11-08 摘掉的
+/// AOXX69，共 201 站）。
 /// 影视区统一表里的行 id（种子 `seed_<id>`、jar `jar:zakatv:<key>`、
 /// 核心裸 id）查档位时先归一化成核心站 id。
 ///
@@ -58,7 +60,7 @@ void main() {
     }
   });
 
-  test('4 档规模与删前一致：49/50/50/52', () {
+  test('4 档规模：49/50/50/52（201 站时第 2 档少 1 站）', () {
     expect(adultTierSiteIds(0, adultVideoSiteOrder).length, 49);
     expect(adultTierSiteIds(1, adultVideoSiteOrder).length, 50);
     expect(adultTierSiteIds(2, adultVideoSiteOrder).length, 50);
@@ -72,7 +74,7 @@ void main() {
       'mjv011': 0,
       'missav': 3,
       'javrate': 3,
-      'hgdj': 2,
+      'hgdj': 1,
       'hgdj58': 3,
       'hgdjv': 0,
       'aiye': 1,
@@ -81,7 +83,7 @@ void main() {
       'xj2': 0,
       'haijiao': 0,
       'haijiao4k': 2,
-      'rou': 1,
+      'rou': 0,
       'rouvideo': 3,
       'wohs': 3,
       '123av': 0,
@@ -156,8 +158,9 @@ void main() {
   });
 
   test('199 个内嵌站全有档位：种子 + jar + 核心 3 站覆盖全部 201 个登记 id', () {
-    // 198 个已转的 tiered 站（199 个删掉的模块里 yaguo 是短剧站，
-    // 从不在分档表里）+ 3 个留站 = 201。
+    // 197 个已转的 tiered 站（199 个删掉的模块里 yaguo 是短剧站，
+    // 从不在分档表里；2026-11-08 又摘了 AOXX69）+ 2026-11-07 新入的
+    // 中国X站精选 + 3 个留站 = 201。
     final covered = <String>{};
     for (final seed in builtinImportedSeeds) {
       final id = 'seed_${seed.seedId}';

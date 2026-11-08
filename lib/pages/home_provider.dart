@@ -347,10 +347,13 @@ MediaItem coreAdultRecommendItem(
     coreReadingRecommendItem(item, siteId, type);
 
 class HomeNotifier extends Notifier<HomeState> {
-  static const tabs = ['全部', '小说', '短剧', '漫剧', '漫画', '听书', '视频'];
+  static const tabs = ['全部', '小说', '短剧', '影视', '漫剧', '漫画', '听书', '视频'];
   static const tabKinds = {
     '小说': 'book',
     '短剧': 'video',
+    // 首页「影视」是站驱动的 tab（走影视区站表 + DramaSiteGrid，不拉书城流）：
+    // 种类 video 只决定卡片过滤口径，tabType 不给——没有对应的书城流。
+    '影视': 'video',
     '漫剧': 'manju',
     '漫画': 'manga',
     '听书': 'audio',
@@ -1484,8 +1487,8 @@ class HomeNotifier extends Notifier<HomeState> {
 }
 
 final homeProvider = NotifierProvider<HomeNotifier, HomeState>(
-  // 2026-10-24 用户决定：首页顶栏回到本地六分类（推荐/小说/短剧/漫剧/
-  // 漫画/听书），不用服务端下发的 11 项——服务端表里没有「短剧/漫剧」，
+  // 2026-10-24 用户决定：首页顶栏回到本地七分类（推荐/小说/短剧/影视/
+  // 漫剧/漫画/听书），不用服务端下发的 11 项——服务端表里没有「短剧/漫剧」，
   // 过滤不出这套组合，所以身份口径整条走本地表（同 dramaProvider 的
   // usesLocalTabs 机制）。
   () => HomeNotifier(usesLocalTabs: true),

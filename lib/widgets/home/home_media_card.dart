@@ -6,6 +6,7 @@ import 'package:flutter_lucide/flutter_lucide.dart';
 
 import '../../models/media_item.dart';
 import '../../services/poster_cache.dart';
+import '../../services/shell_proxy_url.dart';
 import '../cover_tag_chip.dart';
 import '../media_card.dart' show mediaLengthLabel;
 import 'home_design.dart';
@@ -67,9 +68,14 @@ class StoryCover extends StatelessWidget {
       ),
     );
     if (item.cover.isEmpty) return fallback;
+    // jar 蜘蛛常把封面包成旧壳本地代理地址（127.0.0.1:9978/proxy?...），
+    // 本应用没有服务在听那个端口，直取永远失败（棕色占位图）；解包后
+    // 用真实地址 + Referer 直取，解不开的原样用原地址。
+    final unwrapped = unwrapShellProxyUrl(item.cover);
     return CachedNetworkImage(
       cacheManager: PosterCache.instance,
-      imageUrl: item.cover,
+      imageUrl: unwrapped?.url ?? item.cover,
+      httpHeaders: unwrapped?.headers,
       fit: fit,
       alignment: alignment,
       memCacheWidth: cacheWidth.clamp(1, 1200),

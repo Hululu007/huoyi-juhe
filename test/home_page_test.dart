@@ -11,6 +11,7 @@ import 'package:fqapp/pages/home_page.dart';
 import 'package:fqapp/pages/home_provider.dart';
 import 'package:fqapp/services/api_client.dart';
 import 'package:fqapp/widgets/home/home_design.dart';
+import 'package:fqapp/widgets/home/home_feed_states.dart';
 import 'package:fqapp/widgets/home/home_hero.dart';
 import 'package:fqapp/widgets/home/home_shelf.dart';
 import 'package:fqapp/widgets/home/home_skeleton.dart';
@@ -495,17 +496,24 @@ void main() {
       tester.state<ScrollableState>(scrollable).position.maxScrollExtent,
       greaterThan(0),
     );
-    expect(find.text('重试').hitTestable(), findsNothing);
+    // 「重试」只认错误卡片里那一个：推荐页顶部的影视区取不到内容时也
+    // 有自己的「重试」按钮（在首屏内），全局找文本会把它当成错误卡
+    // 片的按钮，断言就不是在测「长错误能不能滚到重试」了。
+    final errorRetry = find.descendant(
+      of: find.byType(HomeFeedError),
+      matching: find.text('重试'),
+    );
+    expect(errorRetry.hitTestable(), findsNothing);
     await tester.scrollUntilVisible(
-      find.text('重试'),
+      errorRetry,
       400,
       scrollable: scrollable,
     );
     await tester.pumpAndSettle();
-    expect(find.text('重试').hitTestable(), findsOneWidget);
+    expect(errorRetry.hitTestable(), findsOneWidget);
 
     failing = false;
-    await tester.tap(find.text('重试'));
+    await tester.tap(errorRetry);
     await tester.pumpAndSettle();
     expect(homepageRequests, 2);
     expect(find.text('暂无内容'), findsOneWidget);

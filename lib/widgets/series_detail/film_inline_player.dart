@@ -10,6 +10,7 @@ import '../../services/inline_video_playback.dart';
 import '../../services/library_store.dart';
 import '../../services/native_player.dart';
 import '../../services/player_history.dart';
+import '../../services/shell_proxy_url.dart';
 
 /// 影视区详情页顶部的内联播放器：照火蚁TV播放详情页的版式。
 ///
@@ -416,8 +417,12 @@ class FilmInlinePlayerState extends State<FilmInlinePlayer> {
   }
 
   Widget _poster() {
+    // 封面也可能是 jar 蜘蛛包的旧壳代理地址（127.0.0.1:9978），本应用
+    // 没有服务在听那个端口；解包后用真实地址 + Referer 直取。
+    final unwrapped = unwrapShellProxyUrl(widget.coverUrl);
     return CachedNetworkImage(
-      imageUrl: widget.coverUrl,
+      imageUrl: unwrapped?.url ?? widget.coverUrl,
+      httpHeaders: unwrapped?.headers,
       fit: BoxFit.cover,
       errorWidget: (_, _, _) => const ColoredBox(color: Colors.black),
       placeholder: (_, _) => const ColoredBox(color: Colors.black),

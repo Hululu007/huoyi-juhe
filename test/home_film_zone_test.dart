@@ -19,10 +19,12 @@ import 'embedded_test_entries.dart';
 /// 不分池，widget 层只取其中视频站平铺推荐，阅读站走各自的分站区）。
 ///
 /// 影视区不含短剧：显示名带「短剧」的行已在统一表里摘掉。视频行
-/// 291 行 = 分档影视行 240（第 1 档 49 + 第 2 档 62 + 第 3 档 54 +
-/// 第 4 档 75）+ 不分档影视行 51（TG影视库 + 从未进核心的 jar/种子站
+/// 293 行 = 分档影视行 239（第 1 档 49 + 第 2 档 61 + 第 3 档 54 +
+/// 第 4 档 75）+ 不分档影视行 54（TG影视库 + 从未进核心的 jar/种子站
 /// 与 YouTube 行）；阅读档位按 31 站登记顺序的固定分档
 /// （阅读站表不变，变了再改这里）。
+/// 相对旧数 290：第 2 档 62→61 是 aisxpc 改名「🔞Ai小视频┃短剧」后
+/// 出影视区；不分档 50→54 是 jar 登记新增 4 个未进分档表的站。
 void main() {
   /// 内嵌站测试条目（种子 + jar），与生产登记一致。
   final entries = embeddedTestEntries();
@@ -58,11 +60,12 @@ void main() {
     final sites = visibleFilmZoneSites(0, entries);
     expect(
       sites.length,
-      51 + nonAdultReading.length,
+      54 + nonAdultReading.length,
     );
     final video = [for (final s in sites) if (s.kind == 'video') s];
-    // 51 行 = TG影视库 + 50 个不分档影视行；分档行一个都不露。
-    expect(video.length, 51);
+    // 54 行 = TG影视库 + 53 个不分档影视行；分档行一个都不露。
+    // 旧数 50：jar 登记新增 4 个不分档站（均未进分档表）。
+    expect(video.length, 54);
     expect(
       video.map((s) => s.id).toList(),
       contains('tgdrama'),
@@ -104,10 +107,10 @@ void main() {
     // 在第 4 档，3000 修为还看不到。
     expect(ids.contains('1000novel'), isTrue);
     expect(ids.contains('hsvoice31'), isFalse);
-    // 视频不分档 51 + 第 1 档 49；阅读非成人 + 第 1 档 7 个。
+    // 视频不分档 54 + 第 1 档 49；阅读非成人 + 第 1 档 7 个。
     expect(
       sites.where((s) => s.kind == 'video').length,
-      100,
+      103,
     );
     expect(
       sites.where((s) => s.kind != 'video').length,
@@ -120,7 +123,7 @@ void main() {
     final at8000 = visibleFilmZoneSites(8000, entries);
     expect(
       at8000.where((s) => s.kind == 'video').length,
-      162,
+      164,
     );
     expect(
       at8000.where((s) => s.kind != 'video').length,
@@ -136,7 +139,7 @@ void main() {
     final at15000 = visibleFilmZoneSites(15000, entries);
     expect(
       at15000.where((s) => s.kind == 'video').length,
-      216,
+      218,
     );
     expect(
       at15000.where((s) => s.kind != 'video').length,
@@ -152,14 +155,14 @@ void main() {
   test('合体 30000 时全部开完，四类齐全，无重复 id', () {
     gateOff();
     final sites = visibleFilmZoneSites(30000, entries);
-    // 视频 291 行；阅读 31 站。
+    // 视频 293 行；阅读 31 站。
     expect(
       sites.where((s) => s.kind == 'video').length,
-      291,
+      293,
     );
     expect(
       sites.length,
-      291 + coreReadingSiteIds.length,
+      293 + coreReadingSiteIds.length,
     );
     final kinds = <String, int>{};
     for (final s in sites) {
@@ -169,7 +172,7 @@ void main() {
     for (final kind in coreReadingKinds.values) {
       readingKinds[kind] = (readingKinds[kind] ?? 0) + 1;
     }
-    expect(kinds['video'], 291);
+    expect(kinds['video'], 293);
     expect(kinds['novel'], readingKinds['novel']);
     expect(kinds['comic'], readingKinds['comic']);
     expect(kinds['audio'], readingKinds['audio']);

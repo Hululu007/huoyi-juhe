@@ -7,9 +7,10 @@ import '../widgets/home/drama_site_grid.dart';
 /// TG影视库频道页：点频道后看该频道收录的剧。
 ///
 /// 列表走 `TgdramaContentClient.catalog`（分类 id 为 `channel:` 加频道号）
-/// （读插件本地库 tgdrama.db），点剧走 DramaSiteGrid 默认的
-/// openDramaSiteItem → 剧详情 → 选集播放；点剧不直接播第 1 集。
-/// 库不存在/打不开时网格页如实报错，不回空假装频道没剧。
+/// （走插件接口 /api/shows + /api/episodes/{id}/lines 扫描，不读库），
+/// 点剧走 DramaSiteGrid 默认的 openDramaSiteItem → 剧详情 → 选集播放；
+/// 点剧不直接播第 1 集。
+/// 频道未同步/未启用/不在账号里时网格页如实报错，不回空假装频道没剧。
 class TgdramaChannelPage extends StatelessWidget {
   const TgdramaChannelPage({
     super.key,

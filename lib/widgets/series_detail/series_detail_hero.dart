@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
 
 import '../home/home_design.dart';
+import '../../services/shell_proxy_url.dart';
 import 'series_detail_theme.dart';
 
 /// 头部：封面、标题、`全80集 · 8.7万次播放`、分类标签，紧接播放 / 收藏。
@@ -118,28 +119,35 @@ class SeriesDetailHero extends StatelessWidget {
     ),
   );
 
-  Widget _cover(HomePalette palette) => Container(
-    width: 96,
-    height: 136,
-    clipBehavior: Clip.antiAlias,
-    decoration: BoxDecoration(
-      borderRadius: BorderRadius.circular(6),
-      border: palette.eink ? Border.all(color: palette.line) : null,
-    ),
-    child: coverUrl.isEmpty
-        ? ColoredBox(
-            color: palette.soft,
-            child: Icon(LucideIcons.clapperboard, color: palette.muted),
-          )
-        : CachedNetworkImage(
-            imageUrl: coverUrl,
-            fit: BoxFit.cover,
-            errorWidget: (_, _, _) => ColoredBox(
+  Widget _cover(HomePalette palette) {
+    // 封面也可能是 jar 蜘蛛包的旧壳代理地址（127.0.0.1:9978），本应用
+    // 没有服务在听那个端口；解包后用真实地址 + Referer 直取。
+    final unwrapped =
+        coverUrl.isEmpty ? null : unwrapShellProxyUrl(coverUrl);
+    return Container(
+      width: 96,
+      height: 136,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(6),
+        border: palette.eink ? Border.all(color: palette.line) : null,
+      ),
+      child: coverUrl.isEmpty
+          ? ColoredBox(
               color: palette.soft,
               child: Icon(LucideIcons.clapperboard, color: palette.muted),
+            )
+          : CachedNetworkImage(
+              imageUrl: unwrapped?.url ?? coverUrl,
+              httpHeaders: unwrapped?.headers,
+              fit: BoxFit.cover,
+              errorWidget: (_, _, _) => ColoredBox(
+                color: palette.soft,
+                child: Icon(LucideIcons.clapperboard, color: palette.muted),
+              ),
             ),
-          ),
-  );
+    );
+  }
 
   Widget _actions(HomePalette palette) => Row(
     key: const ValueKey('series-detail-actions'),

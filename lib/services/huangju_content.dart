@@ -14,6 +14,22 @@ const String _huangjuUserAgent =
     'Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 '
     '(KHTML, like Gecko) Chrome/90.0.4430.91 Mobile Safari/537.36';
 
+// 封面图床中继：与核心 hgdjv.rs 的 IMG_RELAY 同一条（hgimg.ystv.top）。
+// 图床在手机网络上不通或极慢时封面全棕；本地 127.0.0.1 代理跑在手机
+// 本机、走同一条手机网络，解不了这个问题。中继由远端服务器先把图取
+// 回来，手机只须连通中继域名（ystv 中继族已是多站取流/封面的现成路）。
+// 只包封面：取数（分类/目录/搜索/详情/取流）本身没问题，一字不动。
+const String _huangjuCoverRelay = 'https://hgimg.ystv.top/?u=';
+
+/// 封面地址包一层图床中继：相对地址先按站址补全，再整体编码进中继。
+/// 空封面仍返回空；已包过中继的不重复包。
+String _huangjuCoverUrl(String cover) {
+  if (cover.isEmpty) return '';
+  final resolved = Uri.parse(_huangjuSite).resolve(cover).toString();
+  if (resolved.startsWith(_huangjuCoverRelay)) return resolved;
+  return '$_huangjuCoverRelay${Uri.encodeComponent(resolved)}';
+}
+
 String _huangjuUuid() {
   final random = Random.secure();
   final bytes = List<int>.generate(16, (_) => random.nextInt(256));
@@ -163,9 +179,7 @@ class HuangjuContentClient implements DramaSiteContentClient {
         DramaSiteItem(
           id: '$slug-$id',
           title: title,
-          cover: cover.isEmpty
-              ? ''
-              : Uri.parse(_huangjuSite).resolve(cover).toString(),
+          cover: _huangjuCoverUrl(cover),
           remark: '${entry['totalEpisodes'] ?? ''}',
         ),
       );
@@ -249,9 +263,7 @@ class HuangjuContentClient implements DramaSiteContentClient {
     return DramaSiteDetail(
       id: seriesId,
       title: title,
-      cover: cover.isEmpty
-          ? ''
-          : Uri.parse(_huangjuSite).resolve(cover).toString(),
+      cover: _huangjuCoverUrl(cover),
       episodes: episodes,
     );
   }

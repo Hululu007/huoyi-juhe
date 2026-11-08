@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../services/drama_site_content.dart';
 import '../services/live_sources.dart';
 import '../services/source_registry.dart';
 import '../services/file_text_picker.dart';
@@ -497,7 +496,7 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
     final checking = _checking.contains(entry.id);
     final checkError = _checkResults[entry.id];
     final clientExists =
-        dramaSiteContentClient(entry.id) != null ||
+        SourceRegistry.instance.hasDramaContentClient(entry.id) ||
         entry.id == 'original';
     return ListTile(
       title: Text(entry.name),

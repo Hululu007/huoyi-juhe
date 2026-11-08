@@ -389,6 +389,7 @@ class _SeriesDetailEpisodesState extends State<SeriesDetailEpisodes> {
                 index: index,
                 trailer: episode.trailer,
                 highlight: episode.highlight,
+                title: episode.title,
               ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,

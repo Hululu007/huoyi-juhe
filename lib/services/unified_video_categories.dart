@@ -9,7 +9,8 @@ import 'package:flutter/services.dart';
 /// 静态 CATS 抽取生成，Dart 侧不写死分类名；分类变了重新生成一遍即可）。
 /// 现状：127 站有静态 CATS（2838 条，1600 去重名）；标签已接进
 /// （2026-11-06，`~/workspace/tpd_harvest/all_stations_tags.json`，
-/// 50 站、38205 名、40648 条，只收 `browsable` 为真的）；53 站既无
+/// 50 站、38205 名、40648 条，只收 `browsable` 为真的；2026-11-08 摘
+/// AOXX69 后为 49 站、38065 名、40486 条）；53 站既无
 /// 静态 CATS 也无可用标签（见 `sitesWithoutCategories` 与工作笔记
 /// `unified_category_work/tags_notes.md`），另 21 站只有标签、没有
 /// 静态 CATS。

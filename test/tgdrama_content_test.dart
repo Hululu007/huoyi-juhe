@@ -5,6 +5,7 @@ import 'package:fqapp/pages/video_page.dart';
 import 'package:fqapp/services/drama_site_content.dart';
 import 'package:fqapp/services/drama_sites.dart';
 import 'package:fqapp/services/tgdrama_content.dart';
+import 'package:fqapp/services/tgdrama_hardcoded_channels.dart';
 import 'package:fqapp/services/tgdrama_service.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -56,6 +57,78 @@ MockClient _jsonClient(
       headers: {'content-type': 'application/json; charset=utf-8'},
     );
   });
+}
+
+/// 假插件 HTTP 层：按（方法、路径、查询）分发；GET /api/chats 按
+/// 调用次数依次回 chatsBodies（用完重复最后一个），模拟“同步前
+/// 没有、同步后有”；POST /api/chats/sync 只记录 body，不真同步。
+class _PluginTransport {
+  _PluginTransport({
+    this.chatsBodies = const [],
+    this.showsPages = const {},
+    this.showEpisodes = const {},
+    this.episodeLines = const {},
+  }) {
+    client = MockClient((request) async {
+      final path = request.url.path;
+      if (request.method == 'POST' && path == '/api/chats/sync') {
+        final body = request.body;
+        syncPosts.add(jsonDecode(body) as Map<String, Object?>);
+        return _ok({'ok': true, 'syncing': true});
+      }
+      if (request.method == 'GET' && path == '/api/chats') {
+        final index = chatsCalls < chatsBodies.length
+            ? chatsCalls
+            : chatsBodies.length - 1;
+        chatsCalls++;
+        if (chatsBodies.isEmpty) return _ok({'list': []});
+        return _ok(chatsBodies[index]);
+      }
+      if (request.method == 'GET' && path == '/api/shows') {
+        final page =
+            int.tryParse(request.url.queryParameters['page'] ?? '1') ?? 1;
+        return _ok(showsPages[page] ?? {'list': [], 'total': 0});
+      }
+      final showMatch = RegExp(r'^/api/shows/(\d+)$').firstMatch(path);
+      if (request.method == 'GET' && showMatch != null) {
+        final id = int.parse(showMatch.group(1)!);
+        return _ok({
+          'show': {'id': id},
+          'episodes': showEpisodes[id] ?? [],
+        });
+      }
+      final linesMatch = RegExp(
+        r'^/api/episodes/(\d+)/lines$',
+      ).firstMatch(path);
+      if (request.method == 'GET' && linesMatch != null) {
+        final id = int.parse(linesMatch.group(1)!);
+        return _ok({'lines': episodeLines[id] ?? []});
+      }
+      return http.Response('not found', 404);
+    });
+  }
+
+  /// GET /api/chats 依次回这些 body，用完后重复最后一个。
+  final List<Map<String, Object?>> chatsBodies;
+
+  /// /api/shows?page=N 的 body（缺页回空 list）。
+  final Map<int, Map<String, Object?>> showsPages;
+
+  /// /api/shows/{id} 的 episodes 数组。
+  final Map<int, List<Map<String, Object?>>> showEpisodes;
+
+  /// /api/episodes/{id}/lines 的 lines 数组。
+  final Map<int, List<Map<String, Object?>>> episodeLines;
+
+  late final MockClient client;
+  var chatsCalls = 0;
+  final syncPosts = <Map<String, Object?>>[];
+
+  http.Response _ok(Object body) => http.Response.bytes(
+    utf8.encode(jsonEncode(body)),
+    200,
+    headers: const {'content-type': 'application/json; charset=utf-8'},
+  );
 }
 
 void main() {
@@ -191,7 +264,7 @@ void main() {
       expect(TgdramaContentClient.parseChats(null), isEmpty);
     });
 
-    test('catalog(channels) 调 /api/chats、一次全量不翻页', () async {
+    test('catalog(channels) 调 /api/chats：插件启用的在前、硬编 52 在后', () async {
       final seen = <Uri>[];
       final transport = _jsonClient({
         '/api/chats': chatsBody(),
@@ -200,8 +273,16 @@ void main() {
       final page = await _client(transport).catalog('channels', 1);
       expect(seen.last.path, '/api/chats');
       expect(seen.last.queryParameters.containsKey('tag'), isFalse);
-      expect(page.items.length, 3);
-      expect(page.items.first.id, 'channel:-100111');
+      // 插件里启用的 2 个（-100111、-100333）在前，硬编 52 条在后；
+      // 未启用的 -100222 不在硬编里，不出。
+      expect(page.items.length, 2 + hardcodedChannels.length);
+      expect(page.items[0].id, 'channel:-100111');
+      expect(page.items[0].title, '剧场一号');
+      expect(page.items[1].id, 'channel:-100333');
+      expect(page.items[1].title, '布尔开关');
+      expect(page.items[2].id, 'channel:-1002753266064');
+      expect(page.items[2].title, '日本精品av|中文字幕|Jav');
+      expect(page.items[2].remark, '未同步，点击同步');
       expect(page.hasMore, isFalse);
     });
 
@@ -250,7 +331,7 @@ void main() {
       expect(detail.synopsis, contains('点开该频道可看它收录的剧。'));
     });
 
-    test('detail(channel:id) 名空时标题回退、找不到频道抛错', () async {
+    test('detail(channel:id) 名空时标题回退、硬编外频道抛“不在当前账号里”', () async {
       final transport = _jsonClient({
         '/api/chats': chatsBody(),
       });
@@ -265,10 +346,24 @@ void main() {
           isA<StateError>().having(
             (e) => e.message,
             'message',
-            '找不到该频道',
+            contains('不在当前账号里'),
           ),
         ),
       );
+    });
+
+    test('detail(channel:id) 硬编频道未进插件：回未同步详情，不抛错', () async {
+      final transport = _jsonClient({
+        '/api/chats': {'list': []},
+      });
+      addTearDown(transport.close);
+      final detail = await _client(transport).detail('channel:jav_all');
+      expect(detail.id, 'channel:-1002753266064');
+      expect(detail.title, '日本精品av|中文字幕|Jav');
+      expect(detail.episodes, isEmpty);
+      expect(detail.synopsis, contains('用户名：@jav_all'));
+      expect(detail.synopsis, contains('TG 频道 ID：-1002753266064'));
+      expect(detail.synopsis, contains('未同步到插件'));
     });
 
     test('服务未启动时频道 catalog/detail 也抛错', () async {
@@ -290,49 +385,332 @@ void main() {
     });
   });
 
-  group('频道里的剧（本地库直读）', () {
-    test('parseChannelShows：去重、跳缺 id/缺标题、封面补全、备注共N集', () {
-      final items = TgdramaContentClient.parseChannelShows([
-        {
-          'id': 1,
-          'name': '剧一',
-          'cover_path': '/api/covers/1',
-          'intro': '简介一',
-          'episode_count': 12,
-        },
-        {
-          'id': 2,
-          'name': '剧二',
-          'cover_path': 'covers/2.jpg',
-          'intro': '简介二',
-          'episode_count': 0,
-        },
-        {'id': 1, 'name': '重复剧一', 'episode_count': 3},
-        {'id': '', 'name': '缺 id 跳过'},
-        {'id': 3, 'name': ''},
-        {'id': 4, 'name': '无分集数', 'cover_path': ''},
-      ]);
-      expect(items.length, 3);
-      expect(items[0].id, '1');
-      expect(items[0].title, '剧一');
+  group('硬编频道表', () {
+    test('52 条主表：与 jar 的 HARDCODED 同序，裸号唯一', () {
+      expect(hardcodedChannels.length, 52);
+      expect(hardcodedChannels.first.name, '日本精品av|中文字幕|Jav');
+      expect(hardcodedChannels.first.username, 'jav_all');
+      expect(hardcodedChannels.first.bareTgId, '2753266064');
+      expect(hardcodedChannels.first.fullTgId, -1002753266064);
+      expect(hardcodedChannels.last.name, '海角社区|偷情乱伦精选');
+      expect(hardcodedChannels.last.username, 'haijiaojingxuan');
+      expect(hardcodedChannels.last.fullTgId, -1002401842508);
+      final bares = hardcodedChannels.map((c) => c.bareTgId).toList();
+      expect(bares.toSet().length, bares.length);
+      final users = hardcodedChannels
+          .map((c) => c.username)
+          .where((u) => u.isNotEmpty)
+          .toList();
+      expect(users.toSet().length, users.length);
+      // 4 条无用户名，只有裸号。
       expect(
-        items[0].cover,
-        'http://127.0.0.1:5278/api/covers/1',
+        hardcodedChannels.where((c) => c.username.isEmpty).length,
+        4,
       );
-      expect(items[0].remark, '共12集');
-      expect(items[1].id, '2');
-      expect(items[1].remark, '');
-      expect(items[2].id, '4');
-      expect(items[2].remark, '');
     });
 
-    test('parseChannelShows：空行与缺失字段容错', () {
-      expect(TgdramaContentClient.parseChannelShows([]), isEmpty);
+    test('7 条 ext 表：与 tree_104 的 ZakaTg ext 同序', () {
+      expect(extChannels.length, 7);
+      expect(extChannels.first.username, 'cctv_av');
+      expect(extChannels.last.username, 'shoucangav');
+    });
+  });
+
+  group('频道列表合并', () {
+    test('插件没频道：出硬编 52 条，id 用完整 TG 号', () async {
+      final transport = _jsonClient({
+        '/api/chats': {'list': []},
+      });
+      addTearDown(transport.close);
+      final page = await _client(transport).catalog('channels', 1);
+      expect(page.items.length, 52);
+      expect(page.items.first.id, 'channel:-1002753266064');
+      expect(page.items.first.title, '日本精品av|中文字幕|Jav');
+      expect(page.items.first.remark, '未同步，点击同步');
+      expect(page.hasMore, isFalse);
+    });
+
+    test('插件里有硬编频道：显示名用硬编名，排在插件独有频道前面', () async {
+      final transport = _jsonClient({
+        '/api/chats': {
+          'list': [
+            {
+              'id': 3,
+              'tg_chat_id': -1001879901314,
+              'name': '插件里的姐姐',
+              'type': 'channel',
+              'username': 'zfjp1024',
+              'enabled': 1,
+              'message_count': 9,
+              'source_count': 4,
+            },
+            {
+              'id': 4,
+              'tg_chat_id': -100555,
+              'name': '插件独有',
+              'type': 'channel',
+              'username': 'only_plugin',
+              'enabled': 1,
+            },
+          ],
+        },
+      });
+      addTearDown(transport.close);
+      final page = await _client(transport).catalog('channels', 1);
+      expect(page.items.first.id, 'channel:-1001879901314');
+      expect(page.items.first.title, '那些极品姐姐');
+      expect(page.items.first.remark, '9条消息 · 4个视频来源');
+      expect(page.items[1].id, 'channel:-100555');
+      expect(page.items[1].title, '插件独有');
+      // 硬编 52 条里 zfjp1024 已在第一段出过，第三段去重，只剩 51 条。
+      expect(page.items.length, 2 + hardcodedChannels.length - 1);
+    });
+  });
+
+  group('频道里的剧（插件接口扫描）', () {
+    Map<String, Object?> chatRow(
+      int id,
+      int tgChatId,
+      String username, {
+      String name = '',
+      int enabled = 1,
+    }) {
+      return {
+        'id': id,
+        'tg_chat_id': tgChatId,
+        'name': name.isEmpty ? username : name,
+        'type': 'channel',
+        'username': username,
+        'enabled': enabled,
+      };
+    }
+
+    test('扫描：首集线路 chat_id 对上才算该频道的剧，集数备注补 ep_count', () async {
+      final transport = _PluginTransport(
+        chatsBodies: [
+          {
+            'list': [chatRow(5, -100111, 'juchang1', name: '剧场一号')],
+          },
+        ],
+        showsPages: {
+          1: {
+            'list': [
+              {
+                'id': 10,
+                'name': '剧十',
+                'cover_path': '/api/covers/10',
+                'ep_count': 12,
+              },
+              {
+                'id': 11,
+                'name': '剧十一',
+                'cover_path': '/api/covers/11',
+                'ep_count': 3,
+              },
+            ],
+            'total': 2,
+          },
+        },
+        showEpisodes: {
+          10: [
+            {'id': 101, 'episode_no': 1},
+          ],
+          11: [
+            {'id': 111, 'episode_no': 1},
+          ],
+        },
+        episodeLines: {
+          101: [
+            {'chat_id': 5, 'name': '剧场一号'},
+          ],
+          111: [
+            {'chat_id': 9, 'name': '别的频道'},
+          ],
+        },
+      );
+      addTearDown(transport.client.close);
+      final client = _client(transport.client);
+      final page = await client.catalog('channel:-100111', 1);
+      expect(page.items.length, 1);
+      expect(page.items.single.id, '10');
+      expect(page.items.single.title, '剧十');
+      expect(page.items.single.remark, '共12集');
       expect(
-        TgdramaContentClient.parseChannelShows([
-          {'id': 9, 'name': '只有 id 与名'},
-        ]).single.title,
-        '只有 id 与名',
+        page.items.single.cover,
+        'http://127.0.0.1:5278/api/covers/10',
+      );
+      expect(page.hasMore, isFalse);
+    });
+
+    test('扫描翻页：21 部全中，第 1 页 20 条 hasMore 真、第 2 页 1 条为假', () async {
+      final shows = [
+        for (var i = 1; i <= 21; i++)
+          {'id': i, 'name': '剧$i', 'ep_count': 2},
+      ];
+      final transport = _PluginTransport(
+        chatsBodies: [
+          {
+            'list': [chatRow(5, -100111, 'juchang1', name: '剧场一号')],
+          },
+        ],
+        showsPages: {
+          1: {'list': shows, 'total': 21},
+        },
+        showEpisodes: {
+          for (var i = 1; i <= 21; i++)
+            i: [
+              {'id': 1000 + i, 'episode_no': 1},
+            ],
+        },
+        episodeLines: {
+          for (var i = 1; i <= 21; i++)
+            1000 + i: [
+              {'chat_id': 5},
+            ],
+        },
+      );
+      addTearDown(transport.client.close);
+      final client = _client(transport.client);
+      final first = await client.catalog('channel:-100111', 1);
+      expect(first.items.length, 20);
+      expect(first.hasMore, isTrue);
+      final second = await client.catalog('channel:-100111', 2);
+      expect(second.items.length, 1);
+      expect(second.items.single.id, '21');
+      expect(second.hasMore, isFalse);
+    });
+
+    test('点硬编频道：插件没有时只调一次单同步，同步后重查到就出剧', () async {
+      final transport = _PluginTransport(
+        chatsBodies: [
+          {'list': []},
+          {
+            'list': [
+              chatRow(7, -1002753266064, 'jav_all', name: '日本精品av'),
+            ],
+          },
+        ],
+        showsPages: {
+          1: {
+            'list': [
+              {'id': 20, 'name': '同步到的剧', 'ep_count': 5},
+            ],
+            'total': 1,
+          },
+        },
+        showEpisodes: {
+          20: [
+            {'id': 201, 'episode_no': 1},
+          ],
+        },
+        episodeLines: {
+          201: [
+            {'chat_id': 7},
+          ],
+        },
+      );
+      addTearDown(transport.client.close);
+      final client = _client(transport.client);
+      final page = await client.catalog('channel:jav_all', 1);
+      expect(page.items.length, 1);
+      expect(page.items.single.title, '同步到的剧');
+      expect(transport.syncPosts.length, 1);
+      expect(transport.syncPosts.single, {'tg_chat_id': -1002753266064});
+      expect(transport.chatsCalls, 2);
+      // 同一客户端再点同一频道（裸号键）：不再重复调同步。
+      await client.catalog('channel:2753266064', 1);
+      expect(transport.syncPosts.length, 1);
+    });
+
+    test('点硬编频道：同步后仍没有，抛“正在同步”', () async {
+      final transport = _PluginTransport(
+        chatsBodies: [
+          {'list': []},
+        ],
+      );
+      addTearDown(transport.client.close);
+      await expectLater(
+        _client(transport.client).catalog('channel:jav_all', 1),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('正在同步'),
+          ),
+        ),
+      );
+      expect(transport.syncPosts.length, 1);
+      expect(transport.syncPosts.single, {'tg_chat_id': -1002753266064});
+    });
+
+    test('硬编外的频道键：不调同步，直接抛“不在当前账号里”', () async {
+      final transport = _PluginTransport(
+        chatsBodies: [
+          {'list': []},
+        ],
+      );
+      addTearDown(transport.client.close);
+      await expectLater(
+        _client(transport.client).catalog('channel:qqq_unknown', 1),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('不在当前账号里'),
+          ),
+        ),
+      );
+      expect(transport.syncPosts, isEmpty);
+    });
+
+    test('频道未启用：抛“未启用”，不扫剧', () async {
+      final transport = _PluginTransport(
+        chatsBodies: [
+          {
+            'list': [
+              chatRow(5, -100111, 'juchang1', name: '剧场一号', enabled: 0),
+            ],
+          },
+        ],
+      );
+      addTearDown(transport.client.close);
+      await expectLater(
+        _client(transport.client).catalog('channel:-100111', 1),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('未启用'),
+          ),
+        ),
+      );
+    });
+
+    test('扫描第 1 页调不通：抛“TG影视库列表”，不回空假装没剧', () async {
+      final transport = MockClient((request) async {
+        if (request.url.path == '/api/chats') {
+          return http.Response.bytes(
+            utf8.encode(
+              jsonEncode({
+                'list': [chatRow(5, -100111, 'juchang1', name: '剧场一号')],
+              }),
+            ),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        return http.Response('nope', 500);
+      });
+      addTearDown(transport.close);
+      await expectLater(
+        _client(transport).catalog('channel:-100111', 1),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('TG影视库列表'),
+          ),
+        ),
       );
     });
 
@@ -362,8 +740,8 @@ void main() {
 
     test('catalog(channel:id) 走注入的加载器，满 20 条 hasMore 为真', () async {
       final seen = <(String, int)>[];
-      final client = loaderClient((tgChatId, page) async {
-        seen.add((tgChatId, page));
+      final client = loaderClient((channelKey, page) async {
+        seen.add((channelKey, page));
         return shows(20);
       });
       final page = await client.catalog('channel:-100111', 1);
@@ -375,8 +753,8 @@ void main() {
 
     test('catalog(channel:id) 不满 20 条 hasMore 为假，页码透传', () async {
       final seen = <(String, int)>[];
-      final client = loaderClient((tgChatId, page) async {
-        seen.add((tgChatId, page));
+      final client = loaderClient((channelKey, page) async {
+        seen.add((channelKey, page));
         return shows(3);
       });
       final page = await client.catalog('channel:-100222', 2);
@@ -394,7 +772,7 @@ void main() {
 
     test('catalog(channel:id) 加载器抛错：原样抛 StateError，不回空假装没剧', () async {
       final client = loaderClient(
-        (_, _) async => throw StateError('TG影视库本地数据库不存在'),
+        (_, _) async => throw StateError('频道正在同步，稍后下拉刷新再进'),
       );
       await expectLater(
         client.catalog('channel:-100111', 1),
@@ -402,7 +780,7 @@ void main() {
           isA<StateError>().having(
             (e) => e.message,
             'message',
-            contains('本地数据库不存在'),
+            contains('正在同步'),
           ),
         ),
       );

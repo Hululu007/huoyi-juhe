@@ -533,6 +533,20 @@ fn match_recommend(parts: &[&str], q: &Params) -> Option<RouteMatch> {
             params: q.clone(),
         });
     }
+    // 番茄短剧新链路：plan 种子（fanqie-plan）与 plan→cell/change 合并
+    // 路由（fanqie-feed），见 endpoints/home.rs。
+    if parts[0] == "fanqie-plan" {
+        return Some(RouteMatch {
+            api: "fanqie_video_plan",
+            params: q.clone(),
+        });
+    }
+    if parts[0] == "fanqie-feed" {
+        return Some(RouteMatch {
+            api: "fanqie_video_feed",
+            params: q.clone(),
+        });
+    }
     // 服务端频道表（`BookstoreTabData.title` / `tab_type`）。
     if parts[0] == "channels" {
         return Some(RouteMatch {

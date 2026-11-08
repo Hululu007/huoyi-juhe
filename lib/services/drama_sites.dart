@@ -143,7 +143,6 @@ const dramaSites = [
   DramaSite('gqck', '🔞高清仓库'),
   DramaSite('wuyetv', '🔞午夜TV'),
   DramaSite('hjw', '🔞海角网'),
-  DramaSite('aoxx69', '🔞AOXX69'),
   DramaSite('pigav', '🔞PIGAV'),
   DramaSite('sihucdn', '🔞四虎·免盾CDN'),
   DramaSite('sihu', '🔞四虎·4hu'),
@@ -215,7 +214,7 @@ const dramaSites = [
   DramaSite('tinyav', '🔞TinyAV'),
   DramaSite('pachub', '🔞PacHub'),
   DramaSite('ssis', '🔞ssisJAV'),
-  DramaSite('aisxpc', '🔞Ai小视频'),
+  DramaSite('aisxpc', '🔞Ai小视频┃短剧'),
   DramaSite('321av', '🔞321AV'),
   DramaSite('porncgw', '🔞Porn吃瓜网'),
   DramaSite('xlook', '🔞XLook中文大全'),
@@ -227,6 +226,7 @@ const dramaSites = [
   DramaSite('javmap', '🔞JAVMAP'),
   DramaSite('madao', '🔞麻豆傳媒'),
   DramaSite('chinax', '🔞中国X站'),
+  DramaSite('chinaxjx', '🔞中国X站精选'),
   DramaSite('swagr', '🔞SWAG资源合集'),
   DramaSite('tanhua91', '🔞九色'),
   DramaSite('theporny', '🔞thePorny'),
@@ -320,6 +320,13 @@ const dramaSites = [
   DramaSite('javsiri', '🔞JAVSiri'),
   DramaSite('sexkbj', '🔞SexKbj'),
   DramaSite('wohs', '🔍whos识图┃原生'),
+  DramaSite('kankux', '🔞看裤X'),
+  // 2026-11-07 短剧区改造新进站：种子 py + 短剧区加载代码（见
+  // SourceRegistry.clientFor 的种子/jar 兜底），不进影视区、不进分档表。
+  DramaSite('aihi', '🔞AIHI短剧'),
+  DramaSite('aipornx', '🔞AiPorn短剧'),
+  DramaSite('aiyinhang', '🔞AI淫航'),
+  DramaSite('sexaix', '🔞幻影AI'),
   // TG影视库：本地插件站（127.0.0.1:5278），不是核心远程站，
   // 不计 200 数、不进修仙分档；分类默认只有“全部”。
   DramaSite('tgdrama', 'TG影视库'),

@@ -122,4 +122,37 @@ void main() {
     await tester.tap(find.text('国产'));
     await pumpUntilText(tester, '国产片');
   });
+
+  testWidgets('initialCategoryId：在表里就打开即选中该分类', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SiteBrowsePage(
+          siteId: 'test_site',
+          siteName: '测试站',
+          client: _HierarchicalClient(),
+          dbSink: MemoryM3uExportDb(),
+          initialCategoryId: 'c',
+        ),
+      ),
+    );
+    // 不用点 chip，网格直接就是喜剧分类的内容。
+    await pumpUntilText(tester, '喜剧片');
+    expect(find.text('电影片'), findsNothing);
+  });
+
+  testWidgets('initialCategoryId：不在表里时仍按默认选，不留白页', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SiteBrowsePage(
+          siteId: 'test_site',
+          siteName: '测试站',
+          client: _HierarchicalClient(),
+          dbSink: MemoryM3uExportDb(),
+          initialCategoryId: 'missing',
+        ),
+      ),
+    );
+    // 默认选中第一个顶级，网格是电影分类的内容。
+    await pumpUntilText(tester, '电影片');
+  });
 }

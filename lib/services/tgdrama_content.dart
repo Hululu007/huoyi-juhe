@@ -5,20 +5,41 @@ import 'package:http/http.dart' as http;
 import 'drama_playback.dart';
 import 'drama_site_content.dart';
 import 'drama_sites.dart';
-import 'tgdrama_channel_db.dart';
+import 'tgdrama_hardcoded_channels.dart';
 import 'tgdrama_service.dart';
 
-/// 按频道列剧的加载器：(频道 tg_chat_id, 页码) → 该频道的剧。
-/// 默认走本地库直读（见 TgdramaContentClient._defaultChannelShows）；
+/// 按频道列剧的加载器：(频道键, 页码) → 该频道的剧。
+/// 频道键是插件 /api/chats 里的 tg_chat_id（完整 TG 号，如 -100…），
+/// 或硬编频道用户名；默认实现在内部解析，不依赖调用方先换算。
 /// 测试可注入假实现。
 typedef ChannelShowsLoader =
-    Future<List<DramaSiteItem>> Function(String tgChatId, int page);
+    Future<List<DramaSiteItem>> Function(String channelKey, int page);
 
 /// TG影视库：插件 tgdrama-android 在手机本地跑的 Go 服务
-/// （127.0.0.1:5278），内容走插件接口取，不走核心、不走远程站。
-/// 接口形状是 strings 反推、未实跑验证，所以解析处处多键容错：
-/// 字段缺失或类型不对只跳过该条，不抛错；只有整包 JSON 解不出
-/// 来才抛 StateError（带接口名）。
+/// （127.0.0.1:5278），内容走插件接口取，不走核心、不走远程站，
+/// 也不直读插件的本地库 tgdrama.db。
+///
+/// 写法与 jar 站 tg频道（ZakaTgAmns）同构：
+/// - 频道只走 /api/chats 解析（按用户名 / 完整 TG 号找频道，
+///   拿的是库里 chats.id 本地编号；取视频时按本地编号
+///   过滤，不按 tg_chat_id 直读库）；
+/// - 频道里的剧没有“按频道列剧”的接口，改走 HTTP 扫描：
+///   翻 /api/shows 拿剧 → 每部剧取首集 /api/episodes/{id}/lines，
+///   lines 里的 chat_id（本地编号）对上频道才算该频道的剧；
+/// - 52 个视频频道是硬编主表（见 tgdrama_hardcoded_channels.dart，
+///   与 ZakaTgAmns.HARDCODED 同序）：插件有频道走插件、没频道
+///   出硬编；点硬编里插件还没有的频道，调一次
+///   POST /api/chats/sync 单频道同步（只同步这一个频道，
+///   不走全量同步），同步完重查一次，仍没有就报“正在同步”。
+///
+/// 接口形状是插件源码（~/workspace/tgdrama_rebuild）核实的：
+/// /api/shows?page=N 回 {list, total, page, page_size:30}，
+/// /api/shows/{id} 回 {show, episodes:[{id, episode_no, title}]}，
+/// /api/episodes/{id}/lines 回 {lines:[{chat_id, ...}]}，
+/// /api/chats 回 {list:[{id, tg_chat_id, name, username, type,
+/// enabled, message_count, source_count, syncing}]}。
+/// 解析处处多键容错：字段缺失或类型不对只跳过该条，不抛错；
+/// 只有整包 JSON 解不出来才抛 StateError（带接口名）。
 ///
 /// 每次调接口前先过 TgdramaService.ensureRunning()：服务没起来
 /// （没解压、没拉起、没登录）就诚实抛错，不静默回空、不假装有
@@ -37,12 +58,27 @@ class TgdramaContentClient implements DramaSiteContentClient {
   /// 公开给 openDramaSiteItem 用：频道条目点开进频道剧列表页，不进剧详情页。
   static const channelItemPrefix = 'channel:';
 
+  /// 频道一页的剧数（与旧直读库版同值，网格翻页口径不变）。
+  static const channelPageSize = 20;
+
+  /// HTTP 扫描上限：一个频道最多扫 200 部剧（与 jar 的
+  /// SCAN_MAX_DEFAULT 同值），防插件剧库很大时扫个没完。
+  static const _channelScanMax = 200;
+
   /// 是否频道条目 id（channel: 前缀）。
   static bool isChannelItemId(String id) => id.startsWith(channelItemPrefix);
 
   final http.Client _client;
   final TgdramaService _service;
   final ChannelShowsLoader? _channelShowsLoader;
+
+  /// 剧 → 它所属频道的本地编号缓存（本客户端实例内有效，
+  /// 频道页翻页时不再重复调详情/线路接口）。
+  final Map<int, Set<int>> _showChatIdsCache = {};
+
+  /// 已触发过单频道同步的硬编频道（用户名小写，或无用户名时
+  /// 用裸号），防同一次打开里对同一频道重复调同步接口。
+  final Set<String> _syncTriggered = {};
 
   TgdramaContentClient({
     http.Client? httpClient,
@@ -51,20 +87,274 @@ class TgdramaContentClient implements DramaSiteContentClient {
   }) : _client = httpClient ?? http.Client(),
        _service = service ?? TgdramaService.instance;
 
-  /// 默认的按频道列剧：读插件本地库 tgdrama.db（只读），按链路
-  /// 频道 → sources → episodes → shows 查出该频道的剧。
-  /// 库不存在/打不开时抛 StateError（带原因），调用方据此报错或回退。
+  /// 默认的按频道列剧（jar 式 HTTP 扫描，不读库）：
+  /// 先按频道键解析出插件里的频道（本地编号），再翻
+  /// /api/shows 逐部核对首集线路的 chat_id，筛出该频道的剧，
+  /// 按页切片。频道不在插件里时解析步已触发单同步或抛错，
+  /// 不会走到扫描；频道未启用也抛错，不回空假装频道没剧。
   Future<List<DramaSiteItem>> _defaultChannelShows(
-    String tgChatId,
+    String channelKey,
     int page,
   ) async {
-    final dbPath = await _service.databasePath();
-    final rows = await TgdramaChannelDb.queryChannelShows(
-      dbPath: dbPath,
-      tgChatId: tgChatId,
-      page: page,
+    final target = await _resolveChannel(channelKey);
+    if (!target.inPlugin) {
+      throw StateError('频道 ${target.name} 正在同步，稍后下拉刷新再进');
+    }
+    if (!target.enabled) {
+      throw StateError('频道 ${target.name} 未启用采集，先去 TG影视库的频道管理页启用它');
+    }
+    return _scanChannelShows(target.localId, page < 1 ? 1 : page);
+  }
+
+  /// HTTP 扫描：翻 /api/shows（每页 30 条，插件的 page_size），
+  /// 每部剧取首集线路的 chat_id 集合，含本频道本地编号的才算
+  /// 该频道的剧；扫到够本页为止，最多扫 [_channelScanMax] 部。
+  /// 第 1 页就调不通（非 200 / 坏 JSON / 连不上）时抛错，
+  /// 不回空假装频道没剧；后面页调不通就停在已扫到的结果。
+  Future<List<DramaSiteItem>> _scanChannelShows(
+    int localChatId,
+    int page,
+  ) async {
+    final matched = <Map<String, dynamic>>[];
+    var scanned = 0;
+    var total = 0;
+    var p = 1;
+    while (matched.length < page * channelPageSize &&
+        scanned < _channelScanMax) {
+      List<dynamic> batch;
+      try {
+        final response = await _client.get(
+          Uri.parse(
+            '$baseUrl/api/shows',
+          ).replace(queryParameters: {'page': '$p'}),
+        );
+        if (response.statusCode != 200) {
+          if (p == 1) {
+            throw StateError('TG影视库列表 HTTP ${response.statusCode}');
+          }
+          break;
+        }
+        final decoded = _decodeJson(response.body, '列表');
+        batch = _showRows(decoded);
+        total = parseTotal(decoded);
+      } catch (e) {
+        if (p == 1) {
+          if (e is StateError) rethrow;
+          throw StateError('TG影视库列表请求失败：$e');
+        }
+        break;
+      }
+      if (batch.isEmpty) break;
+      for (final entry in batch) {
+        if (scanned >= _channelScanMax) break;
+        final node = _asMap(entry);
+        final showId = _intOf(node['id']);
+        if (showId == 0) continue;
+        scanned++;
+        if ((await _showChatIds(showId)).contains(localChatId)) {
+          // /api/shows 的行用 ep_count，列表解析认 episode_count，
+          // 这里补一键，频道页备注才能出“共N集”。
+          final normalized = Map<String, dynamic>.from(node);
+          if (normalized['episode_count'] == null &&
+              normalized['ep_count'] != null) {
+            normalized['episode_count'] = normalized['ep_count'];
+          }
+          matched.add(normalized);
+        }
+      }
+      if (total > 0 && scanned >= total) break;
+      p++;
+    }
+    final start = (page - 1) * channelPageSize;
+    if (start >= matched.length) return const [];
+    final end = matched.length > start + channelPageSize
+        ? start + channelPageSize
+        : matched.length;
+    return parseShows(matched.sublist(start, end));
+  }
+
+  /// 某部剧所属频道的本地编号集合：取详情的首集，
+  /// 再调该集的线路接口，lines 里的 chat_id 就是本地编号。
+  /// 与 jar 的 showChatIds 同逻辑（只看首集）。调不通时
+  /// 回空集（该剧不算任何频道的），不抛错；结果缓存。
+  Future<Set<int>> _showChatIds(int showId) async {
+    final cached = _showChatIdsCache[showId];
+    if (cached != null) return cached;
+    final ids = <int>{};
+    try {
+      final response = await _client.get(
+        Uri.parse('$baseUrl/api/shows/$showId'),
+      );
+      if (response.statusCode == 200) {
+        final node = _asMap(_decodeJson(response.body, '详情'));
+        final episodes = node['episodes'];
+        if (episodes is List && episodes.isNotEmpty) {
+          final episodeId = _intOf(_asMap(episodes.first)['id']);
+          if (episodeId > 0) {
+            final linesResponse = await _client.get(
+              Uri.parse('$baseUrl/api/episodes/$episodeId/lines'),
+            );
+            if (linesResponse.statusCode == 200) {
+              final linesNode = _asMap(
+                _decodeJson(linesResponse.body, '详情'),
+              );
+              final lines = linesNode['lines'];
+              if (lines is List) {
+                for (final line in lines) {
+                  final chatId = _intOf(_asMap(line)['chat_id']);
+                  if (chatId != 0) ids.add(chatId);
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (_) {
+      // 调不通只影响这一部剧的归属判断，不拦整个频道列表。
+    }
+    _showChatIdsCache[showId] = ids;
+    return ids;
+  }
+
+  /// 调一次 /api/chats，拿插件里的频道（本地编号 + TG 号 +
+  /// 用户名 + 是否启用）。非 200 / 坏 JSON 抛带接口名的
+  /// StateError，调用方据此报错，不回空假装没频道。
+  Future<List<_PluginChat>> _fetchChats() async {
+    final response = await _client.get(Uri.parse('$baseUrl/api/chats'));
+    if (response.statusCode != 200) {
+      throw StateError('TG影视库频道 HTTP ${response.statusCode}');
+    }
+    return _pluginChatsFrom(_decodeJson(response.body, '频道'));
+  }
+
+  /// 在插件频道里找频道键：纯数字先按完整 TG 号找（负数），
+  /// 再按裸号换算（-(1000000000000 + 裸号)，与 jar 的
+  /// fullTgId 同算法）；非数字按用户名找（不区分大小写）。
+  static _PluginChat? _findPluginChat(
+    List<_PluginChat> chats,
+    String key,
+  ) {
+    final trimmed = key.trim();
+    if (trimmed.isEmpty) return null;
+    final number = int.tryParse(trimmed);
+    final lower = trimmed.toLowerCase();
+    for (final chat in chats) {
+      if (number != null) {
+        if (chat.tgChatId == number) return chat;
+        if (number > 0 &&
+            chat.tgChatId == -(1000000000000 + number)) {
+          return chat;
+        }
+      }
+      if (chat.username.isNotEmpty &&
+          chat.username.toLowerCase() == lower) {
+        return chat;
+      }
+    }
+    return null;
+  }
+
+  /// 在硬编 52 条里找频道键：用户名（不区分大小写）、
+  /// 裸号、完整 TG 号都能找；找不到回 null。
+  static TgHardcodedChannel? _findHardcoded(String key) {
+    final trimmed = key.trim();
+    if (trimmed.isEmpty) return null;
+    final lower = trimmed.toLowerCase();
+    for (final hard in hardcodedChannels) {
+      if (hard.username.isNotEmpty &&
+          hard.username.toLowerCase() == lower) {
+        return hard;
+      }
+      if (hard.bareTgId == trimmed) return hard;
+      if (hard.fullTgId.toString() == trimmed) return hard;
+    }
+    return null;
+  }
+
+  /// 在插件频道里找某条硬编频道：有用户名按用户名找，
+  /// 无用户名按裸号算出的完整 TG 号找。
+  static _PluginChat? _matchHardcoded(
+    List<_PluginChat> chats,
+    TgHardcodedChannel hard,
+  ) {
+    for (final chat in chats) {
+      if (hard.username.isNotEmpty) {
+        if (chat.username.isNotEmpty &&
+            chat.username.toLowerCase() == hard.username.toLowerCase()) {
+          return chat;
+        }
+      } else if (chat.tgChatId == hard.fullTgId) {
+        return chat;
+      }
+    }
+    return null;
+  }
+
+  /// 解析频道键：插件里有就直接用；没有但在硬编 52 条里，
+  /// 触发一次单频道同步再重查一次；两次都没有就回一个
+  /// 未进插件的目标（调用方报“正在同步”）；硬编里也
+  /// 没有就抛“不在当前账号里”。与 jar 的 categoryContent
+  /// 同顺序（先查插件、再查硬编、再同步、再查一次）。
+  Future<_ChannelTarget> _resolveChannel(String key) async {
+    final trimmed = key.trim();
+    var chats = await _fetchChats();
+    var chat = _findPluginChat(chats, trimmed);
+    if (chat != null) {
+      return _ChannelTarget(
+        localId: chat.localId,
+        tgChatId: chat.tgChatId,
+        username: chat.username,
+        name: chat.name.isEmpty ? '频道 ${chat.tgChatId}' : chat.name,
+        enabled: chat.enabled,
+        inPlugin: true,
+        node: chat.node,
+      );
+    }
+    final hard = _findHardcoded(trimmed);
+    if (hard == null) {
+      throw StateError('该频道不在当前账号里：$trimmed');
+    }
+    await _triggerChannelSync(hard);
+    chats = await _fetchChats();
+    chat = _findPluginChat(chats, trimmed);
+    if (chat != null) {
+      return _ChannelTarget(
+        localId: chat.localId,
+        tgChatId: chat.tgChatId,
+        username: chat.username,
+        name: chat.name.isEmpty ? hard.name : chat.name,
+        enabled: chat.enabled,
+        inPlugin: true,
+        node: chat.node,
+      );
+    }
+    return _ChannelTarget(
+      localId: 0,
+      tgChatId: hard.fullTgId,
+      username: hard.username,
+      name: hard.name,
+      enabled: false,
+      inPlugin: false,
+      node: const {},
     );
-    return parseChannelShows(rows);
+  }
+
+  /// 单频道同步：POST /api/chats/sync，只同步这一个频道，
+  /// 不走全量同步（tg_chat_id 为 0 才是全量，绝不发 0）。
+  /// 同一客户端实例里同一频道只触发一次；接口调不通也
+  /// 不抛错（同步是后台任务，重查一次没进插件就报“正在同步”）。
+  Future<void> _triggerChannelSync(TgHardcodedChannel hard) async {
+    final key = hard.username.isNotEmpty
+        ? hard.username.toLowerCase()
+        : hard.bareTgId;
+    if (!_syncTriggered.add(key)) return;
+    try {
+      await _client.post(
+        Uri.parse('$baseUrl/api/chats/sync'),
+        headers: const {'Content-Type': 'application/json'},
+        body: jsonEncode({'tg_chat_id': hard.fullTgId}),
+      );
+    } catch (_) {}
   }
 
   Future<void> _ensureRunning() async {
@@ -225,31 +515,47 @@ class TgdramaContentClient implements DramaSiteContentClient {
   /// id 用 channel: 前缀，detail() 靠它识别频道。封面频道没有，
   /// 备注写消息数与视频来源数，未启用的加“未启用”。
   static List<DramaSiteItem> parseChats(dynamic decoded) {
+    return [
+      for (final chat in _pluginChatsFrom(decoded))
+        DramaSiteItem(
+          id: '$channelItemPrefix${chat.id}',
+          title: chat.name.isEmpty ? '频道 ${chat.id}' : chat.name,
+          cover: '',
+          remark: _chatRemarkOf(chat.node),
+        ),
+    ];
+  }
+
+  /// 插件频道行解析（/api/chats 的原始行）：tg_chat_id 没有
+  /// 就依次回退 tgChatId/chat_id/id，仍没有或为 0 就跳过；
+  /// 同号去重。localId 取 id 键（库里 chats.id，取视频
+  /// 时 sources.chat_id 指的就是它）。
+  static List<_PluginChat> _pluginChatsFrom(dynamic decoded) {
     final rows = _chatRows(decoded);
     final seen = <String>{};
-    final items = <DramaSiteItem>[];
+    final chats = <_PluginChat>[];
     for (final entry in rows) {
       final node = _asMap(entry);
-      final tgChatId = _stringOf(
+      final id = _stringOf(
         node['tg_chat_id'] ??
             node['tgChatId'] ??
             node['chat_id'] ??
             node['id'],
       );
-      if (tgChatId.isEmpty || tgChatId == '0' || !seen.add(tgChatId)) {
-        continue;
-      }
-      final name = _stringOf(node['name']);
-      items.add(
-        DramaSiteItem(
-          id: '$channelItemPrefix$tgChatId',
-          title: name.isEmpty ? '频道 $tgChatId' : name,
-          cover: '',
-          remark: _chatRemarkOf(node),
+      if (id.isEmpty || id == '0' || !seen.add(id)) continue;
+      chats.add(
+        _PluginChat(
+          localId: _intOf(node['id']),
+          tgChatId: _intOf(id),
+          id: id,
+          name: _stringOf(node['name']),
+          username: _stringOf(node['username']),
+          enabled: _boolOf(node['enabled']),
+          node: node,
         ),
       );
     }
-    return items;
+    return chats;
   }
 
   static List<dynamic> _chatRows(dynamic decoded) {
@@ -284,38 +590,9 @@ class TgdramaContentClient implements DramaSiteContentClient {
     return parts.join(' · ');
   }
 
-  /// 频道里剧的行解析（本地库查出的原始行）：id/name 必有其一
-  /// 缺失跳过该条；同剧去重（同一剧在频道里多集只留一条）；
-  /// 封面与列表同规则（cover_path 相对路径按本地服务补全）；
-  /// 备注有分集数写“共N集”，没有写空（intro 太长不放备注，
-  /// 简介在剧详情页看）。episode_count/intro 缺失都容错。
-  static List<DramaSiteItem> parseChannelShows(
-    List<Map<String, Object?>> rows,
-  ) {
-    final seen = <String>{};
-    final items = <DramaSiteItem>[];
-    for (final row in rows) {
-      final node = _asMap(row);
-      final id = _stringOf(node['id']);
-      if (id.isEmpty || !seen.add(id)) continue;
-      final title = _stringOf(node['name'] ?? node['title']);
-      if (title.isEmpty) continue;
-      final episodeCount = _intOf(node['episode_count']);
-      items.add(
-        DramaSiteItem(
-          id: id,
-          title: title,
-          cover: _coverOf(node),
-          remark: episodeCount > 0 ? '共$episodeCount集' : '',
-        ),
-      );
-    }
-    return items;
-  }
-
   /// 频道详情：标题取 name（没有回退“频道 + id”），简介写频道信息。
   /// 分集为空：频道不是剧，没有可播的分集；点开频道看它收录的剧
-  /// 走频道剧列表页（catalog('channel:id') 读本地库），不走这里。
+  /// 走频道剧列表页（catalog('channel:id') 走插件接口扫描），不走这里。
   /// 详情页对空分集显示空选集区，不会崩。
   static DramaSiteDetail parseChannelDetail(
     Map<String, dynamic> node,
@@ -347,6 +624,26 @@ class TgdramaContentClient implements DramaSiteContentClient {
     return DramaSiteDetail(
       id: '$channelItemPrefix$tgChatId',
       title: title,
+      cover: '',
+      synopsis: lines.join('\n'),
+      episodes: const [],
+    );
+  }
+
+  /// 硬编频道还没进插件时的详情：标题用硬编名，简介写清
+  /// “未同步到插件”，点开频道会触发单频道同步。
+  static DramaSiteDetail _hardcodedChannelDetail(_ChannelTarget target) {
+    final lines = <String>['类型：频道'];
+    if (target.username.isNotEmpty) {
+      lines.add('用户名：@${target.username}');
+    }
+    lines.add('TG 频道 ID：${target.tgChatId}');
+    lines.add('状态：未同步到插件');
+    lines.add('');
+    lines.add('点开该频道会触发单频道同步，同步完成后下拉刷新再进。');
+    return DramaSiteDetail(
+      id: '$channelItemPrefix${target.tgChatId}',
+      title: target.name,
       cover: '',
       synopsis: lines.join('\n'),
       episodes: const [],
@@ -480,30 +777,116 @@ class TgdramaContentClient implements DramaSiteContentClient {
     return DramaSiteCatalogPage(items: items, hasMore: hasMore);
   }
 
-  /// 频道里的剧：调加载器（默认读本地库）查该频道收录的剧。
-  /// 库不存在/打不开时加载器抛 StateError（带原因），网格页如实
-  /// 报错，不回空假装频道没剧；库能读但该频道没剧时回空页。
+  /// 频道里的剧：调加载器（默认走插件接口扫描）查该频道收录的剧。
+  /// 解析步抛 StateError 时原样抛（频道未同步 / 未启用 /
+  /// 不在账号里），网格页如实报错，不回空假装频道没剧；
+  /// 插件里有且已启用、但还没同步到剧时回空页。
   /// hasMore 按“满页”算：满 20 条认为还有下一页。
   Future<DramaSiteCatalogPage> _channelShowsCatalog(
-    String tgChatId,
+    String channelKey,
     int page,
   ) async {
     final loader = _channelShowsLoader ?? _defaultChannelShows;
-    final items = await loader(tgChatId, page < 1 ? 1 : page);
+    final items = await loader(channelKey, page < 1 ? 1 : page);
     return DramaSiteCatalogPage(
       items: items,
-      hasMore: items.length >= TgdramaChannelDb.pageSize,
+      hasMore: items.length >= channelPageSize,
     );
   }
 
-  /// 频道列表：调 /api/chats，一次全量，没有翻页。
+  /// 频道列表：插件有频道走插件、没频道出硬编 52 条。
+  /// 合并顺序与 jar 的 homeContent 三段式同构（只是把 jar
+  /// 的 ext 7 条换成 52 条主表）：①硬编里插件已有且启用的
+  /// （显示名用硬编名）；②插件里有且启用、但不在硬编里的；
+  /// ③硬编里其余的（未启用、或还没同步到插件）。
   Future<DramaSiteCatalogPage> _channelsCatalog() async {
-    final response = await _client.get(Uri.parse('$baseUrl/api/chats'));
-    if (response.statusCode != 200) {
-      throw StateError('TG影视库频道 HTTP ${response.statusCode}');
+    final chats = await _fetchChats();
+    if (chats.isEmpty) {
+      return DramaSiteCatalogPage(
+        items: _hardcodedChannelItems(),
+        hasMore: false,
+      );
     }
-    final items = parseChats(_decodeJson(response.body, '频道'));
+    final items = <DramaSiteItem>[];
+    final usedTgIds = <int>{};
+    for (final hard in hardcodedChannels) {
+      final chat = _matchHardcoded(chats, hard);
+      if (chat != null && chat.enabled && !usedTgIds.contains(chat.tgChatId)) {
+        items.add(
+          DramaSiteItem(
+            id: '$channelItemPrefix${chat.tgChatId}',
+            title: hard.name,
+            cover: '',
+            remark: _chatRemarkOf(chat.node),
+          ),
+        );
+        usedTgIds.add(chat.tgChatId);
+      }
+    }
+    final hardcodedUsers = <String>{
+      for (final hard in hardcodedChannels)
+        if (hard.username.isNotEmpty) hard.username.toLowerCase(),
+    };
+    final hardcodedTgIds = <int>{
+      for (final hard in hardcodedChannels) hard.fullTgId,
+    };
+    for (final chat in chats) {
+      if (!chat.enabled) continue;
+      if (usedTgIds.contains(chat.tgChatId)) continue;
+      if (chat.username.isNotEmpty &&
+          hardcodedUsers.contains(chat.username.toLowerCase())) {
+        continue;
+      }
+      if (hardcodedTgIds.contains(chat.tgChatId)) continue;
+      items.add(
+        DramaSiteItem(
+          id: '$channelItemPrefix${chat.tgChatId}',
+          title: chat.name.isEmpty ? '频道 ${chat.tgChatId}' : chat.name,
+          cover: '',
+          remark: _chatRemarkOf(chat.node),
+        ),
+      );
+      usedTgIds.add(chat.tgChatId);
+    }
+    for (final hard in hardcodedChannels) {
+      final chat = _matchHardcoded(chats, hard);
+      if (chat != null && usedTgIds.contains(chat.tgChatId)) continue;
+      if (chat != null) {
+        items.add(
+          DramaSiteItem(
+            id: '$channelItemPrefix${chat.tgChatId}',
+            title: hard.name,
+            cover: '',
+            remark: _chatRemarkOf(chat.node),
+          ),
+        );
+        usedTgIds.add(chat.tgChatId);
+      } else {
+        items.add(
+          DramaSiteItem(
+            id: '$channelItemPrefix${hard.fullTgId}',
+            title: hard.name,
+            cover: '',
+            remark: '未同步，点击同步',
+          ),
+        );
+      }
+    }
     return DramaSiteCatalogPage(items: items, hasMore: false);
+  }
+
+  /// 插件没频道时出的硬编 52 条：id 用裸号算出的完整 TG 号，
+  /// 点开触发单频道同步。
+  static List<DramaSiteItem> _hardcodedChannelItems() {
+    return [
+      for (final hard in hardcodedChannels)
+        DramaSiteItem(
+          id: '$channelItemPrefix${hard.fullTgId}',
+          title: hard.name,
+          cover: '',
+          remark: '未同步，点击同步',
+        ),
+    ];
   }
 
   @override
@@ -521,27 +904,15 @@ class TgdramaContentClient implements DramaSiteContentClient {
     return parseDetail(_decodeJson(response.body, '详情'), seriesId);
   }
 
-  /// 频道详情：再调一次 /api/chats，按 tg_chat_id 找到该频道，
-  /// 回频道信息详情（分集为空）；找不到抛“找不到该频道”。
-  Future<DramaSiteDetail> _channelDetail(String tgChatId) async {
-    final response = await _client.get(Uri.parse('$baseUrl/api/chats'));
-    if (response.statusCode != 200) {
-      throw StateError('TG影视库频道 HTTP ${response.statusCode}');
+  /// 频道详情：先解析频道键（插件里没有的硬编频道会触发
+  /// 一次单同步再重查）；插件里有回插件行详情，没有回
+  /// 硬编详情；硬编里也没有解析步已抛“不在当前账号里”。
+  Future<DramaSiteDetail> _channelDetail(String channelKey) async {
+    final target = await _resolveChannel(channelKey);
+    if (target.inPlugin) {
+      return parseChannelDetail(target.node, '${target.tgChatId}');
     }
-    final rows = _chatRows(_decodeJson(response.body, '频道'));
-    for (final entry in rows) {
-      final node = _asMap(entry);
-      final id = _stringOf(
-        node['tg_chat_id'] ??
-            node['tgChatId'] ??
-            node['chat_id'] ??
-            node['id'],
-      );
-      if (id == tgChatId) {
-        return parseChannelDetail(node, tgChatId);
-      }
-    }
-    throw StateError('找不到该频道');
+    return _hardcodedChannelDetail(target);
   }
 
   @override
@@ -565,4 +936,55 @@ class TgdramaContentClient implements DramaSiteContentClient {
     }
     return parseShows(_decodeJson(response.body, '搜索'));
   }
+}
+
+/// 插件 /api/chats 的一行：本地编号 + 完整 TG 号 + 显示信息。
+/// localId 是库里 chats.id，取视频时 sources.chat_id 指的就是它；
+/// tgChatId 是完整 TG 号（负数），频道条目 id 用它。
+class _PluginChat {
+  const _PluginChat({
+    required this.localId,
+    required this.tgChatId,
+    required this.id,
+    required this.name,
+    required this.username,
+    required this.enabled,
+    required this.node,
+  });
+
+  final int localId;
+  final int tgChatId;
+
+  /// tg_chat_id 的原始字符串（parseChats 的条目 id 用它，
+  /// 与旧版输出一致）。
+  final String id;
+  final String name;
+  final String username;
+  final bool enabled;
+
+  /// 原始行，供备注与详情复用。
+  final Map<String, dynamic> node;
+}
+
+/// 解析出的频道目标：插件里有（inPlugin 为真）就带本地编号
+/// 与插件行；没有就是硬编里的一条（inPlugin 为假，调用方
+/// 报“正在同步”，不再拿本地编号去读库）。
+class _ChannelTarget {
+  const _ChannelTarget({
+    required this.localId,
+    required this.tgChatId,
+    required this.username,
+    required this.name,
+    required this.enabled,
+    required this.inPlugin,
+    required this.node,
+  });
+
+  final int localId;
+  final int tgChatId;
+  final String username;
+  final String name;
+  final bool enabled;
+  final bool inPlugin;
+  final Map<String, dynamic> node;
 }

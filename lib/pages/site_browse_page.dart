@@ -67,6 +67,7 @@ class SiteBrowsePage extends StatefulWidget {
     required this.siteName,
     this.client,
     this.dbSink,
+    this.initialCategoryId,
   });
 
   final String siteId;
@@ -77,6 +78,11 @@ class SiteBrowsePage extends StatefulWidget {
 
   /// 测试注入的库；为空时用真实 Hive 库（预爬取与浏览存库都走它）。
   final M3uExportDbSink? dbSink;
+
+  /// 打开即选中的分类 id（如详情页标签点按解析出的分类）：
+  /// 在分类表里找得到就选中它，找不到（或取分类失败）仍按默认
+  /// 逻辑选，页面照常出内容，不留白页。
+  final String? initialCategoryId;
 
   @override
   State<SiteBrowsePage> createState() => _SiteBrowsePageState();
@@ -114,11 +120,17 @@ class _SiteBrowsePageState extends State<SiteBrowsePage> {
         _loading = false;
         _client = resolved;
         _categories = browseCategories(cats);
-        // 多级分类初次打开默认选中第一个顶级（而不是留在一个不存在
-        // 的 all 上导致首屏空白）；平铺分类保持原样不动。
-        if (browseHasHierarchy(_categories) &&
+        // 指定分类优先：详情页标签点按带进来的分类 id 在表里就
+        // 直接选中（走该分类的 catalog 接口）；不在表里才走默认。
+        if (widget.initialCategoryId != null &&
+            widget.initialCategoryId!.isNotEmpty &&
+            _categories.any((c) => c.id == widget.initialCategoryId)) {
+          _selectedId = widget.initialCategoryId!;
+        } else if (browseHasHierarchy(_categories) &&
             _selectedId == 'all' &&
             !_categories.any((c) => c.id == 'all')) {
+          // 多级分类初次打开默认选中第一个顶级（而不是留在一个不存在
+          // 的 all 上导致首屏空白）；平铺分类保持原样不动。
           final roots = browseRoots(_categories);
           if (roots.isNotEmpty) _selectedId = roots.first.id;
         }

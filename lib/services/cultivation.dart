@@ -603,10 +603,24 @@ const adultTierRealmNames = <String>['元婴期', '化神期', '炼虚期', '合
 /// 成人站分档登记顺序（内嵌版）：批量转站后核心只剩 hgdj/hgdj58/hgdjv
 /// 3 站，分档不再读 coreVideoSiteIds，改读这张表。
 ///
-/// 这 201 个 id 与删核心之前的核心登记顺序一字不差（来源：
+/// 这 201 个 id 是删核心之前的核心登记顺序 201 条，加上 2026-11-07
+/// 新入的中国X站精选（chinaxjx，插在末站 wohs 之前进第 4 档），再减
+/// 2026-11-08 摘掉的 AOXX69（aoxx69，站方主机无响应，见
+/// zakatvExcludedSites 墓碑）。
+/// 原 201 条与删核心之前的核心登记顺序一字不差（来源：
 /// `~/workspace/batch_convert_work/delete/backup/drama_site_content.dart.bak`
 /// 里的旧 coreVideoSiteIds，201 条、无重复；分档只认顺序不认来源，
 /// 所以原来在第几档、现在还在第几档，不洗牌）。
+/// 201 站时档位是 49/50/50/52（ai4k 因总数变 202 从第 4 档回到第 3 档，
+/// 其余抽查站不动；见 adult_tier_embedded_test）。摘 AOXX69 后总数
+/// 202→201，只动两站的档：rou 1→0、hgdj 2→1（解锁各提前一档），
+/// 其余抽查站不动。
+///
+/// 注意：不要为短剧区新站往这张表追加——档位是按总数比例均分的，
+/// 总数一变边界站就换档（实测：201→203 会让 hgdj 2→1、ai4k 3→2、
+/// muzi 3→2，其中 muzi 是影视区站，解锁会从合体 30000 提前到炼虚
+/// 15000）。短剧站不进影视区，本表对它不可见；新短剧站（aihi、
+/// aipornx）暂不进表，等分档规则本身改版时再议。
 ///
 /// 表里是核心站 id（裸 id，如 `mjv011`）；影视区统一表里的行 id
 /// 是另一套写法（种子 `seed_<id>`、jar `jar:zakatv:<key>`、核心裸 id），
@@ -620,7 +634,7 @@ const adultVideoSiteOrder = <String>[
   'mjv011', 'huangguo', 'huangguotv', 'hgtvim', 'huai', 'hl365', 'sex8', 'hgdjv',
   'km2', 'cucumber', 'haijiao', 'md', 'utube', 'av91', 'lxs', 'javrate',
   'xszav', 'txfans', 'juyin', '99jj', 'dayday', 'dsav', 'kuaihuo', 'jack20',
-  'gqck', 'wuyetv', 'hjw', 'aoxx69', 'pigav', 'sihucdn', 'sihu', 'xx9',
+  'gqck', 'wuyetv', 'hjw', 'pigav', 'sihucdn', 'sihu', 'xx9',
   '69vj', 'avcnn', 'javhd', 'fq', 'wnzs', 'tudou', 'xjh5', 'xj2',
   'missav', 'hddj', 'jm', 'getav', 'hsck', 'missavoff', 'mirror', '123av',
   'dsd', 'lissav', 'xhamster', 'rou', 'pb', 'rouav', 'av18av', 'dage',
@@ -642,7 +656,7 @@ const adultVideoSiteOrder = <String>[
   'tiktvod', 'topjav', 'avhwa', 'javdino', 'javhdtube', 'javmit', 'roshy', 'abjav',
   'herexxx', 'japanwhores', 'javfun', 'koreanporn', 'mythav', 'senzuri', 'tokyomotion', 'x51',
   'taiav', 'rouvideo', 'porna91', 'asextv', 'kissjav', 'javtsunami', 'javsiri', 'sexkbj',
-  'wohs',
+  'chinaxjx', 'wohs',
 ];
 
 /// 成人站档位：按在核心登记表里的下标均分 4 档。
@@ -696,13 +710,14 @@ String adultSiteIdForUnifiedId(String unifiedId) {
   if (unifiedId.startsWith('seed_')) return unifiedId.substring(5);
   if (unifiedId.startsWith('jar:')) {
     final key = unifiedId.split(':').last;
-    return _adultJarKeyToCoreId(key);
+    return adultJarKeyToCoreId(key);
   }
   return unifiedId;
 }
 
-/// jar 登记 key → 核心站 id（见 _adultJarKeyAliases）。
-String _adultJarKeyToCoreId(String key) {
+/// jar 登记 key → 核心站 id（见 _adultJarKeyAliases）。短剧区加载代码
+/// 复用同一份归一化：jar 内置站按 key 找到对应的裸站 id。
+String adultJarKeyToCoreId(String key) {
   var stripped = key;
   if (stripped.toLowerCase().startsWith('zaka')) {
     stripped = stripped.substring(4);

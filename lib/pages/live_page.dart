@@ -898,7 +898,7 @@ class _LivePageState extends State<LivePage> {
 
   /// 播放器下方频道信息行（目标版式）：台标 + 频道名（大）+ 当前节目/信息，
   /// 右边是频道号。直播源不带节目单（EPG），节目行显示副标题，
-  /// 没有副标题时显示“源 · 分组 · 序号/总数”。
+  /// 没有副标题时显示“分组 · 序号/总数”（不显示平台名）。
   Widget _channelInfoRow() {
     final theme = Theme.of(context);
     final channel = _channel;
@@ -969,9 +969,8 @@ class _LivePageState extends State<LivePage> {
   String _caption() {
     if (_loading) return '载入中…';
     final channel = _channel;
-    if (channel == null) return '${_source.name} · 选择一个频道';
-    return '${_source.name} · ${channel.group} · '
-        '${_index + 1}/${_channels.length}';
+    if (channel == null) return '选择一个频道';
+    return '${channel.group} · ${_index + 1}/${_channels.length}';
   }
 
   Widget _logoFallback(ThemeData theme) => Container(

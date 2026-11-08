@@ -48,7 +48,11 @@ class HomeFeedCache {
   HomeFeedCache({HiveInterface? hive}) : _hive = hive ?? Hive;
 
   static final HomeFeedCache instance = HomeFeedCache();
-  static const _boxName = 'home_feed_cache_v1';
+
+  /// 快照盒版本：v2（2026-11-07 首页顶栏加「影视」后下标移位：旧 v1
+  /// 记录按旧下标存，漫剧/漫画/听书三页会读到别人的快照；换盒名让旧
+  /// 记录直接失效，冷启动一次即重建，不串台）。
+  static const _boxName = 'home_feed_cache_v2';
 
   /// Snapshots older than this are not restored. The refresh always replaces
   /// them, so the bound only stops a long-absent user from being shown an

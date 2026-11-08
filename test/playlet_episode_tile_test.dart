@@ -55,6 +55,28 @@ void main() {
     expect(episodeTileLabel(index: 5, highlight: true), '高光');
   });
 
+  test('quality titles show the quality instead of the number', () {
+    // 蜘蛛把多清晰度展开成“集”时（如 mjv011 的 480P / 720P /
+    // 1080P），格子显示档名而不是序号。
+    expect(episodeTileLabel(index: 0, title: '480P'), '480P');
+    expect(episodeTileLabel(index: 1, title: '720P'), '720P');
+    expect(episodeTileLabel(index: 2, title: '1080P'), '1080P');
+    // 小写也认，统一显示大写。
+    expect(episodeTileLabel(index: 0, title: '1080p'), '1080P');
+    expect(episodeTileLabel(index: 0, title: '4K'), '4K');
+    expect(episodeTileLabel(index: 0, title: ' 720P '), '720P');
+    // 非清晰度集名仍按序号显示。
+    expect(episodeTileLabel(index: 0, title: '第 1 集'), '1');
+    expect(episodeTileLabel(index: 3, title: '花絮'), '4');
+    expect(episodeTileLabel(index: 0, title: ''), '1');
+    // 预告 / 高光优先于清晰度档名。
+    expect(episodeTileLabel(index: 0, title: '480P', trailer: true), '预告');
+    expect(
+      episodeTileLabel(index: 0, title: '720P', highlight: true),
+      '高光',
+    );
+  });
+
   test('the new badge needs all four official conditions', () {
     bool shows({
       bool current = false,
@@ -116,6 +138,47 @@ void main() {
     expect(episode.disabled, isFalse);
     expect(episode.trailer, isFalse);
     expect(episode.newlyUpdate, isFalse);
+  });
+
+  testWidgets('quality-titled episodes show the quality in the grid', (
+    tester,
+  ) async {
+    final episodes = [
+      Chapter(itemId: 'v1', title: '480P', volumeName: ''),
+      Chapter(itemId: 'v2', title: '720P', volumeName: ''),
+      Chapter(itemId: 'v3', title: '1080P', volumeName: ''),
+    ];
+    final scroll = ScrollController();
+    addTearDown(scroll.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            height: 400,
+            child: StoryPlayerPanel(
+              scrollController: scroll,
+              episodes: episodes,
+              currentIndex: 0,
+              playingIndex: 0,
+              playing: true,
+              onSelectEpisode: (_) {},
+              onDragStart: (_) {},
+              onDragUpdate: (_) {},
+              onDragEnd: (_) {},
+              onDragCancel: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.text('480P'), findsOneWidget);
+    expect(find.text('720P'), findsOneWidget);
+    expect(find.text('1080P'), findsOneWidget);
+    expect(find.text('1'), findsNothing);
+    expect(find.text('2'), findsNothing);
+    expect(find.text('3'), findsNothing);
   });
 
   testWidgets('a disabled tile refuses to switch but says why', (tester) async {

@@ -26,6 +26,10 @@ class OriginalContentClient extends DramaSiteContentClient {
                  tabType: 8,
                  offset: offset,
                  sessionId: sessionId,
+                 // 短剧在顶栏是下标 2（HomeNotifier.tabs）：只带 tab_type
+                 // 时后端补 tab_index=0，等于永远要推荐流的区块；短剧页
+                 // 的看剧频道一直带 2，这里对齐它。
+                 tabIndex: 2,
                )),
        _directoryLoader =
            directoryLoader ??

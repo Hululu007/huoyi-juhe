@@ -98,15 +98,25 @@ Color _episodeTextColor(EpisodeTileState state, HomePalette palette) {
 Color _episodeTileBackground(bool current, HomePalette palette) =>
     current ? _currentBg : (palette.dark ? const Color(0x14FFFFFF) : _tileBg);
 
+/// 纯清晰度集名（蜘蛛把多清晰度展开成“集”时，如 mjv011 的
+/// 480P / 720P / 1080P）：格子里显示档名而不是序号。只认
+/// 480P / 720P / 1080P / 1440P / 2160P / 2K / 4K / 8K（大小写不限），
+/// 其余集名仍按序号显示。
+final _qualityLabelPattern = RegExp(r'^(\d{3,4}[pP]|[248][kK])$');
+
 /// 官方选集格子文案（`hj3/r0.java:413-419`）：预告 -> 「预告」（`epd`）、
-/// 推荐流插入项 -> 「高光」（`esr`），其余是纯序号。
+/// 推荐流插入项 -> 「高光」（`esr`），其余是纯序号；集名是清晰度标签时
+/// 显示档名（如 `480P`），让用户一眼选高清。
 String episodeTileLabel({
   required int index,
   bool trailer = false,
   bool highlight = false,
+  String title = '',
 }) {
   if (trailer) return '预告';
   if (highlight) return '高光';
+  final quality = title.trim().toUpperCase();
+  if (_qualityLabelPattern.hasMatch(quality)) return quality;
   return '${index + 1}';
 }
 
@@ -819,6 +829,7 @@ class _StoryPlayerPanelState extends State<StoryPlayerPanel> {
                     index: index,
                     trailer: episode.trailer,
                     highlight: episode.highlight,
+                    title: episode.title,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,

@@ -255,7 +255,8 @@ class _VideoPageState extends State<VideoPage> {
     final generation = ++_videoZoneCategoryGeneration;
     String? resolved;
     try {
-      final client = dramaSiteContentClient(siteId);
+      final client = dramaSiteContentClient(siteId) ??
+          await SourceRegistry.instance.clientFor(siteId);
       if (client != null) {
         final categories = await client.categories().timeout(
           ApiClient.dramaCategoriesTimeout + const Duration(seconds: 5),

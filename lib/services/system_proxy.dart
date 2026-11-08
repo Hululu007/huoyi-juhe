@@ -2,6 +2,7 @@ import 'dart:async';
 
 import '../src/rust/api.dart' as rust;
 import 'app_log.dart';
+import 'jar_bridge.dart';
 import 'platform_channel.dart';
 
 /// 系统代理自动检测：读手机的系统代理（用户 VPN / 梯子设的代理），
@@ -71,14 +72,41 @@ class SystemProxyService {
   /// 把当前系统代理应用到核心：每次都明确表态——读到代理就设进去，
   /// 读不到就传空串清掉，让核心回直连（防旧代理滞留）。
   /// 成功（核心回 "ok"）返回 true；失败返回 false，不抛错，不影响启动。
+  /// 同一份代理也会交给 jar 侧（见 [_setJarProxy]），返回值只反映核心那一路。
   static Future<bool> applyEgressProxy() async {
     final proxyUrl = await getProxyUrl();
-    return _setEgressProxy(proxyUrl ?? '');
+    final coreOk = await _setEgressProxy(proxyUrl ?? '');
+    await _setJarProxy(proxyUrl ?? '');
+    return coreOk;
   }
 
   /// 显式清除核心的出口代理（恢复直连）：供手动代理设置页清空时调用，
   /// 不要只删本地存储。成功返回 true；失败返回 false，不抛错。
-  static Future<bool> clearEgressProxy() => _setEgressProxy('');
+  /// jar 侧也一起清除。
+  static Future<bool> clearEgressProxy() async {
+    final coreOk = await _setEgressProxy('');
+    await _setJarProxy('');
+    return coreOk;
+  }
+
+  /// 把同一份代理交给 jar 侧：Java 侧的 ZakaHttp 同样读不到系统代理，
+  /// 17 轮之前核心也是这样直连被墙拦；所以启动与网络变化时与核心一起
+  /// 应用、一起清除（JarBridge.setJarProxy -> JarBridge.kt 经反射调
+  /// ZakaCfg.setProxy）。非 Android 上 jar 桥不存在时直接跳过、不记警告；
+  /// Android 上失败只记日志、不挡启动——jar 站失败时仍走直连与 PxBank 备用池。
+  static Future<void> _setJarProxy(String proxyUrl) async {
+    if (!JarBridge.supported) return;
+    final jarOk = await JarBridge.setJarProxy(proxyUrl);
+    if (jarOk) {
+      if (proxyUrl.isEmpty) {
+        AppLog.i('proxy', 'jar 侧出口代理已清除，jar 站恢复直连');
+      } else {
+        AppLog.i('proxy', '已把系统代理交给 jar 侧：$proxyUrl');
+      }
+    } else {
+      AppLog.w('proxy', 'jar 侧代理设置失败，jar 站仍走直连');
+    }
+  }
 
   static Future<bool> _setEgressProxy(String proxyUrl) async {
     try {

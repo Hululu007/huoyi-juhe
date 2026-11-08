@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'builtin_imported_sites.dart';
+import 'cultivation.dart';
 import 'drama_site_content.dart';
 import 'drama_sites.dart';
 import 'engine_site_content.dart';
@@ -603,8 +604,47 @@ class SourceRegistry {
     await _persist();
   }
 
+  /// 短剧区裸站 id 的后备登记条目：种子 py / jar 内置站只在登记表里
+  /// 以 `seed_<id>` / `jar:<jarId>:<key>` 形式存在，短剧区站表
+  /// （dramaSites）里却是裸 id。短剧区加载代码走这条通用兜底找条目，
+  /// 不给单个站写特判——新站（种子 py / jar）只要进了 dramaSites
+  /// 与登记表，裸 id 就能取到客户端。
+  ///
+  /// 顺序：直连条目 → 种子条目 → jar 内置条目（key 按
+  /// cultivation.dart 的 adultJarKeyToCoreId 归一化，如
+  /// `ZakaHgdj`→`hgdj`、`ZakaHddj`→`hddj`）。用户自导的 jar 也算，
+  /// 不只认 builtin。调用前须已 load（clientFor 内已 load；
+  /// 同步调用方须保证登记表已加载，与 customById 同款约定）。
+  SourceEntry? backingEntryForDramaSite(String siteId) {
+    final direct = customById(siteId);
+    if (direct != null && direct.enabled) return direct;
+    final seed = customById('seed_$siteId');
+    if (seed != null && seed.enabled) return seed;
+    for (final entry in _custom) {
+      if (entry.kind != SourceKind.jarImport) continue;
+      if (!entry.enabled) continue;
+      final id = entry.id;
+      if (!id.startsWith('jar:')) continue;
+      final key = id.split(':').last;
+      if (adultJarKeyToCoreId(key) == siteId) return entry;
+    }
+    return null;
+  }
+
+  /// 短剧区裸站 id 有没有取数客户端（同步判断，供首页短剧页
+  /// “有客户端画网格、没客户端走原站流”的分流用）：Dart/核心客户端、
+  /// 直连条目、种子条目、jar 内置条目任一能取到即为真。
+  bool hasDramaContentClient(String siteId) {
+    if (dramaSiteContentClient(siteId) != null) return true;
+    return backingEntryForDramaSite(siteId) != null;
+  }
+
   List<DramaSite> visibleDramaSites({Set<ContentType>? types}) {
     final sites = <DramaSite>[];
+    final listedBareIds = <String>{
+      for (final site in dramaSites)
+        if (isBuiltinEnabled(site.id)) site.id,
+    };
     for (final site in dramaSites) {
       if (isBuiltinEnabled(site.id)) sites.add(site);
     }
@@ -620,6 +660,24 @@ class SourceRegistry {
           entry.kind != SourceKind.legadoImport) {
         continue;
       }
+      // 种子/内置 jar 行若已有裸站行代表（seedId 或 jar key 归一化后
+      // 与 dramaSites 里的裸 id 相同），不重复列出：短剧区药丸里一个站
+      // 只出现一次，点裸行走 backingEntryForDramaSite 取客户端。
+      // 只认已列出的裸行：裸行被用户关掉时，对应条目不跟着藏。
+      final seedId = entry.extra['seedId'] as String?;
+      if (seedId != null &&
+          seedId.isNotEmpty &&
+          listedBareIds.contains(seedId)) {
+        continue;
+      }
+      if (entry.kind == SourceKind.jarImport &&
+          entry.id.startsWith('jar:') &&
+          listedBareIds.contains(
+            adultJarKeyToCoreId(entry.id.split(':').last),
+          )) {
+        continue;
+      }
+      if (listedBareIds.contains(entry.id)) continue;
       sites.add(
         DramaSite(entry.id, entry.name, [
           const DramaSiteCategory('all', '全部'),
@@ -1402,7 +1460,16 @@ class SourceRegistry {
       return null;
     }
     if (!isBuiltinEnabled(siteId)) return null;
-    return dramaSiteContentClient(siteId);
+    final dartClient = dramaSiteContentClient(siteId);
+    if (dartClient != null) return dartClient;
+    // 短剧区裸站 id 的通用兜底：Dart/核心里没有的站，按种子 py /
+    // jar 内置条目取客户端（backingEntryForDramaSite）。只补原来
+    // 回 null 的站，已有客户端的站行为不变；hddj（只剩 jar 版）与
+    // 种子 py 短剧站（ai2026/ai4k/aidj/aiduanju/aimove/aisxpc、
+    // aihi/aipornx）走这条路进短剧区。
+    final backing = backingEntryForDramaSite(siteId);
+    if (backing != null) return clientFor(backing.id);
+    return null;
   }
 
   Future<String?> checkSite(String siteId) async {

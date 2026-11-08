@@ -5,6 +5,46 @@ import 'dart:math';
 
 import 'package:http/http.dart' as http;
 
+/// 单个已取回的分片/密钥：整包字节 + 上游类型 + 状态码，供缓存直出。
+class _CachedSegment {
+  const _CachedSegment(this.body, this.contentType, this.status);
+
+  final List<int> body;
+  final String? contentType;
+  final int status;
+}
+
+/// 预取并发门：同时最多 4 路上游拉取；播放器当次请求不走这道门，
+/// 永远直接拉，预取排队绝不拖住正在播的分片。
+class _PrefetchGate {
+  _PrefetchGate(this.maxConcurrent);
+
+  final int maxConcurrent;
+  int _running = 0;
+  final _waiters = <Completer<void>>[];
+
+  bool get isIdle => _running == 0 && _waiters.isEmpty;
+
+  Future<void> acquire() {
+    if (_running < maxConcurrent) {
+      _running++;
+      return Future.value();
+    }
+    final completer = Completer<void>();
+    _waiters.add(completer);
+    return completer.future;
+  }
+
+  void release() {
+    if (_waiters.isNotEmpty) {
+      // 名额直接转给下一个排队者，_running 不变。
+      _waiters.removeAt(0).complete();
+    } else {
+      _running--;
+    }
+  }
+}
+
 /// 蜘蛛本地代理一次调用的回包：状态码、类型、字节与头。
 class LocalProxyResponse {
   const LocalProxyResponse({
@@ -42,11 +82,61 @@ class LocalMediaProxy {
   final _order = <String>[];
   http.Client _client = http.Client();
 
+  // 多线程拉流（B 路：中继侧并发预取分片）：ExoPlayer 的 HLS 分片是
+  // 顺序拉取的，改原生 ChunkSource 风险大、本机也验不了；本地代理
+  // 改写播放列表后全部变体/分片/密钥本来就走 /r/ 地址，所以在代理
+  // 侧做——播放列表下发后并发拉取随后 4 个分片进缓存，播放器随后取
+  // 分片时直接命中缓存；取到某分片后滑动窗口再往后预取 4 个。只预取
+  // 媒体分片：变体播放列表（.m3u8/.mpd 行）不预取、不缓存，避免未经
+  // 改写的播放列表被直接回给播放器；/h/ 蜘蛛会话（localProxy 回包
+  // 不透明）不动。预取失败一律静默丢弃，绝不拦播放。
+  static const int _prefetchWindow = 4;
+  static const int _prefetchMaxEntries = 64;
+  static const int _prefetchMaxBytes = 64 * 1024 * 1024;
+  final _segmentCache = <String, _CachedSegment>{};
+  final _segmentInflight = <String, Future<_CachedSegment?>>{};
+  final _playlistSegments = <String, List<String>>{};
+  int _segmentCacheBytes = 0;
+  int _prefetchStarted = 0;
+  int _prefetchCompleted = 0;
+  int _cacheHits = 0;
+  int _epoch = 0;
+  final _prefetchGate = _PrefetchGate(4);
+
+  /// 预取统计（单测/诊断用）：发起数、完成数、缓存命中数、缓存现况。
+  Map<String, int> prefetchStatsForTest() => {
+        'started': _prefetchStarted,
+        'completed': _prefetchCompleted,
+        'cacheHits': _cacheHits,
+        'cachedEntries': _segmentCache.length,
+        'cachedBytes': _segmentCacheBytes,
+      };
+
+  /// 等预取全部落定（在途取完、门空闲），超时即返回，不抛错。
+  Future<void> debugWaitForPrefetchIdle({
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    final deadline = DateTime.now().add(timeout);
+    while (_segmentInflight.isNotEmpty || !_prefetchGate.isIdle) {
+      if (DateTime.now().isAfter(deadline)) return;
+      await Future<void>.delayed(const Duration(milliseconds: 25));
+    }
+  }
+
   void debugResetForTest() {
     _client.close();
     _client = http.Client();
     _sessions.clear();
     _order.clear();
+    _segmentCache.clear();
+    _segmentInflight.clear();
+    _playlistSegments.clear();
+    _segmentCacheBytes = 0;
+    _prefetchStarted = 0;
+    _prefetchCompleted = 0;
+    _cacheHits = 0;
+    // 世代 +1：在途的旧预取回包时按世代丢弃，不污染新缓存。
+    _epoch++;
   }
 
   Future<void> _ensureStarted() async {
@@ -256,6 +346,143 @@ class LocalMediaProxy {
     return base.resolveUri(rel).toString();
   }
 
+  /// 媒体目标才可缓存/预取：变体播放列表（.m3u8/.mpd）永远重新拉取
+  /// 并改写，不进缓存。
+  bool _isCacheableTarget(String target) {
+    final path = target.split('?').first.toLowerCase();
+    return !path.endsWith('.m3u8') && !path.endsWith('.mpd');
+  }
+
+  /// 播放列表里的媒体分片目标（按顺序）：# 标签行跳过，变体播放列表
+  /// 行（.m3u8/.mpd）跳过，只留分片/密钥类相对或绝对地址。
+  List<String> _playlistSegmentTargets(String text, String baseUrl) {
+    final targets = <String>[];
+    for (final line in text.split('\n')) {
+      final trimmed = line.trim();
+      if (trimmed.isEmpty || trimmed.startsWith('#')) continue;
+      final resolved = _resolveUrl(baseUrl, trimmed);
+      if (_isCacheableTarget(resolved)) targets.add(resolved);
+    }
+    return targets;
+  }
+
+  void _storeSegment(String target, _CachedSegment segment) {
+    final old = _segmentCache.remove(target);
+    if (old != null) _segmentCacheBytes -= old.body.length;
+    while (_segmentCache.isNotEmpty &&
+        (_segmentCache.length >= _prefetchMaxEntries ||
+            _segmentCacheBytes + segment.body.length > _prefetchMaxBytes)) {
+      final oldestKey = _segmentCache.keys.first;
+      final evicted = _segmentCache.remove(oldestKey)!;
+      _segmentCacheBytes -= evicted.body.length;
+    }
+    _segmentCache[target] = segment;
+    _segmentCacheBytes += segment.body.length;
+  }
+
+  /// 单路预取拉取：过并发门、30 秒超时；非 200、播放列表正文、失败
+  /// 一律回 null（不缓存、不抛错）。
+  Future<_CachedSegment?> _fetchSegment(
+    String target,
+    Map<String, String> headers,
+    int epoch,
+  ) async {
+    await _prefetchGate.acquire();
+    try {
+      final res = await _client
+          .get(Uri.parse(target), headers: headers)
+          .timeout(const Duration(seconds: 30));
+      if (res.statusCode != HttpStatus.ok) return null;
+      if (_isHlsContentType(res.headers['content-type']) ||
+          _startsWithExtM3u(res.bodyBytes)) {
+        return null;
+      }
+      if (epoch != _epoch) return null;
+      return _CachedSegment(
+        res.bodyBytes,
+        res.headers['content-type'],
+        res.statusCode,
+      );
+    } catch (_) {
+      return null;
+    } finally {
+      _prefetchGate.release();
+    }
+  }
+
+  /// 并发预取一批分片：已缓存/在途的去重跳过，其余各起一路拉取；
+  /// 落定后进缓存。调用方不 await（fire-and-forget），内部绝不抛错。
+  void _prefetchSegments(
+    List<String> targets,
+    Map<String, String> headers,
+  ) {
+    for (final target in targets) {
+      if (_segmentCache.containsKey(target) ||
+          _segmentInflight.containsKey(target)) {
+        continue;
+      }
+      _prefetchStarted++;
+      final epoch = _epoch;
+      final future = _fetchSegment(target, headers, epoch);
+      _segmentInflight[target] = future;
+      future.then((cached) {
+        if (identical(_segmentInflight[target], future)) {
+          _segmentInflight.remove(target);
+        }
+        if (cached != null && epoch == _epoch) {
+          _prefetchCompleted++;
+          _storeSegment(target, cached);
+        }
+      }).catchError((_) {});
+    }
+  }
+
+  /// 滑动窗口：刚取到第 i 个分片，往后预取 i+1..i+4。
+  void _prefetchFollowing(
+    String token,
+    String target,
+    Map<String, String> headers,
+  ) {
+    final list = _playlistSegments[token];
+    if (list == null) return;
+    final index = list.indexOf(target);
+    if (index < 0) return;
+    final end = min(index + 1 + _prefetchWindow, list.length);
+    if (index + 1 < end) {
+      _prefetchSegments(list.sublist(index + 1, end), headers);
+    }
+  }
+
+  /// 缓存直出：整包 200 或按 Range 切 206，类型沿用上游回的类型。
+  Future<void> _serveCachedSegment(
+    HttpRequest request,
+    _CachedSegment cached,
+    String? rangeHeader,
+  ) async {
+    final response = request.response;
+    var body = cached.body;
+    var status = cached.status;
+    if (rangeHeader != null) {
+      final sliced = _sliceRange(body, rangeHeader);
+      if (sliced != null) {
+        body = sliced.body;
+        status = HttpStatus.partialContent;
+        response.headers.set(
+          HttpHeaders.contentRangeHeader,
+          sliced.contentRange,
+        );
+        response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+      }
+    }
+    response.statusCode = status;
+    if (cached.contentType != null) {
+      response.headers.set(HttpHeaders.contentTypeHeader, cached.contentType!);
+    }
+    response.headers.contentLength = body.length;
+    response.add(body);
+    await response.close();
+  }
+
   /// Range 切片：解析 bytes=a-b / bytes=a- / bytes=-n，非法时返回 null
   /// 走整包 200，不谎报 416。
   ({List<int> body, String contentRange})? _sliceRange(
@@ -419,6 +646,28 @@ class LocalMediaProxy {
       final headers = Map<String, String>.from(session.headers);
       final rangeHeader = request.headers.value(HttpHeaders.rangeHeader);
       if (rangeHeader != null) headers[HttpHeaders.rangeHeader] = rangeHeader;
+      // 多线程拉流：媒体目标先查预取缓存，命中直接回（并滑动窗口往后
+      // 预取）；在途的等它落定（比重新拉上游快）；都落空才走下面正常拉取。
+      if (_isCacheableTarget(target)) {
+        final cached = _segmentCache[target];
+        if (cached != null) {
+          _cacheHits++;
+          _prefetchFollowing(token, target, session.headers);
+          await _serveCachedSegment(request, cached, rangeHeader);
+          return;
+        }
+        final inflight = _segmentInflight[target];
+        if (inflight != null) {
+          final done = await inflight;
+          if (done != null) {
+            _cacheHits++;
+            _prefetchFollowing(token, target, session.headers);
+            await _serveCachedSegment(request, done, rangeHeader);
+            return;
+          }
+          // 预取失败：落到下面正常拉取，不拦播放。
+        }
+      }
       final upstream = await _client
           .get(Uri.parse(target), headers: headers)
           .timeout(const Duration(seconds: 30));
@@ -436,17 +685,39 @@ class LocalMediaProxy {
         response.headers.set(HttpHeaders.acceptRangesHeader, acceptRanges);
       }
       if (isPlaylist && upstream.statusCode == 200) {
-        final rewritten = _rewritePlaylist(
-          utf8.decode(upstream.bodyBytes, allowMalformed: true),
-          token,
-          target,
-        );
+        final playlistText =
+            utf8.decode(upstream.bodyBytes, allowMalformed: true);
+        final rewritten = _rewritePlaylist(playlistText, token, target);
+        // 播放列表下发即触发并发预取：取随后 4 个分片（变体播放列表行
+        // 已在 _playlistSegmentTargets 里排除）。
+        final segmentTargets = _playlistSegmentTargets(playlistText, target);
+        if (segmentTargets.isNotEmpty) {
+          _playlistSegments[token] = segmentTargets;
+          _prefetchSegments(
+            segmentTargets.take(_prefetchWindow).toList(),
+            session.headers,
+          );
+        }
         final bytes = utf8.encode(rewritten);
         response.headers.contentType =
             ContentType('application', 'vnd.apple.mpegurl', charset: 'utf-8');
         response.headers.contentLength = bytes.length;
         response.add(bytes);
       } else {
+        // 媒体直取也进缓存：下次同分片/密钥直接命中；取到后滑动窗口
+        // 往后预取（播放器顺序取分片时窗口跟着走）。
+        if (upstream.statusCode == HttpStatus.ok &&
+            _isCacheableTarget(target)) {
+          _storeSegment(
+            target,
+            _CachedSegment(
+              upstream.bodyBytes,
+              upstream.headers['content-type'],
+              upstream.statusCode,
+            ),
+          );
+          _prefetchFollowing(token, target, session.headers);
+        }
         final contentType = upstream.headers['content-type'];
         if (contentType != null) {
           response.headers.set(HttpHeaders.contentTypeHeader, contentType);

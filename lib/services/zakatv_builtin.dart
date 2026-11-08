@@ -1,11 +1,15 @@
 // ZakaTV jar 内置站点表，从火蚁TV树移植（lib/zakatv_builtin.dart）。
 //
+// 铁律：每次合 jar 完必须跑 scripts/sync_jar_fingerprint.sh 同步指纹
+// （声明 zakatvJarMd5 / youtubeJarMd5 与盘上 jar 实测 MD5 对不上时，
+// 启动时原生 ensureJar 会拒载，全部内置站都不注册；火蚁TV +40/+41
+// 已因此丢过 244 站）。只校验不改写用 --check。
 // jar 文件与 YouTube 配置随安装包走 assets，站名、类名、ext 与原树一致；
 // 成人站名保留 🔞 前缀，午夜门禁按既有名字规则分流，不另立规则。
-// 被排除的 4 站见 zakatvExcludedSites，恢复须用户另行下令。
+// 被排除的 6 站见 zakatvExcludedSites，恢复须用户另行下令。
 
 const String zakatvJarAsset = 'assets/jars/zakatv.jar';
-const String zakatvJarMd5 = 'f3679304b77a237766118cc6e6374e4e';
+const String zakatvJarMd5 = '3ae27b474203ae8250353955b45f64e0';
 const String zakatvJarId = 'zakatv';
 const String youtubeJarAsset = 'assets/jars/youtube.jar';
 const String youtubeJarMd5 = 'd294ce251d3b2aa8528efff12cc4bf19';
@@ -64,12 +68,10 @@ const List<ZakatvBuiltinSite> zakatvBuiltinSites = [
   ZakatvBuiltinSite('zakaqmdj', '🔞七猫短剧┃VIP破解', 'com.github.catvod.spider.ZakaQmdjAmns', ''),
   ZakatvBuiltinSite('ZakaHxc', '🔞含羞草┃VIP破解', 'com.github.catvod.spider.ZakaHxcAmns', ''),
   ZakatvBuiltinSite('ZakaUu', '🔞Uu视频┃多线路', 'com.github.catvod.spider.ZakaUuAmns', ''),
-  ZakatvBuiltinSite('zaka520av', '🔞520AV影城', 'com.github.catvod.spider.Zaka520avAmns', ''),
   ZakatvBuiltinSite('ZakaHjw', '🔞海角网┃hj2', 'com.github.catvod.spider.ZakaHjwAmns', ''),
   ZakatvBuiltinSite('ZakaHj1', '🔞海角社区┃hj1', 'com.github.catvod.spider.ZakaHj1Amns', ''),
   ZakatvBuiltinSite('ZakaJav380', '🆕🔞JAV380┃無碼', 'com.github.catvod.spider.ZakaJav380Amns', ''),
   ZakatvBuiltinSite('ZakaJavher', '🆕🔞JavHer┃JAV庫', 'com.github.catvod.spider.ZakaJavherAmns', ''),
-  ZakatvBuiltinSite('zakaaoxx69', '🔞AOXX69┃亞洲綜合', 'com.github.catvod.spider.ZakaAoxx69Amns', ''),
   ZakatvBuiltinSite('zakajavmap', '🔞JAVMAP┃日本AV大全', 'com.github.catvod.spider.ZakaJavmapAmns', ''),
   ZakatvBuiltinSite('zakapigav', '🔞PIGAV┃朱古力', 'com.github.catvod.spider.ZakaPigavAmns', ''),
   ZakatvBuiltinSite('zakasihucdn', '🔞四虎┃免盾CDN', 'com.github.catvod.spider.ZakaSihuCdnAmns', ''),
@@ -157,7 +159,7 @@ const List<ZakatvBuiltinSite> zakatvBuiltinSites = [
   ZakatvBuiltinSite('MyAll', '📁资源┃中心', 'com.github.catvod.spider.MyAllAmns', ''),
   ZakatvBuiltinSite('zakajavdb', '🔞JAVDB┃磁力自动离线', 'com.github.catvod.spider.ZakaJavdbAmns', ''),
   ZakatvBuiltinSite('hongguo', '🍎红果短剧·听书┃官方直采+自建朗读', 'com.github.catvod.spider.ZakaHongguoAmns', '{"host":"https://hongguoduanju.com"}'),
-  ZakatvBuiltinSite('ZakaLiveTv', '📡电视直播┃110台', 'com.github.catvod.spider.ZakaLiveTvAmns', ''),
+  ZakatvBuiltinSite('ZakaLiveTv', '🔞📡电视直播┃110台', 'com.github.catvod.spider.ZakaLiveTvAmns', ''),
   ZakatvBuiltinSite('thdh', '🔞探花短视频┃thdh', 'com.github.catvod.spider.ZakaThdhApp', '{"host":"https://thdhhaj.xyz","brand":"🔞 探花短视频","tg":"https://t.me/+3t5XRPPo9mlkZDRl"}'),
   ZakatvBuiltinSite('qishe', '🔞妻社┃qishe', 'com.github.catvod.spider.ZakaQiSheAmns', '{"host":"https://qs.qsh52693.org.cn","brand":"🔞 妻社","tg":"https://t.me/+3t5XRPPo9mlkZDRl"}'),
   ZakatvBuiltinSite('ZakaHjApp', '🔞海角社区┃App版', 'com.github.catvod.spider.ZakaHjAppAmns', '{"brand":"🔞 海角社区App","tg":"https://t.me/+3t5XRPPo9mlkZDRl"}'),
@@ -169,7 +171,7 @@ const List<ZakatvBuiltinSite> zakatvBuiltinSites = [
   ZakatvBuiltinSite('hgkpz', '🔞黄瓜┃黄瓜看片', 'com.github.catvod.spider.ZakaHgkpzAmns', ''),
   ZakatvBuiltinSite('Wukong', '🔞悟空传媒', 'com.github.catvod.spider.Wukong', ''),
   ZakatvBuiltinSite('Chengren91', '🔞91成人', 'com.github.catvod.spider.Chengren91', ''),
-  ZakatvBuiltinSite('go_tingshu', '听书', 'com.github.catvod.spider.TingShu', '{}', contentTypeKey: 'audio'),
+  ZakatvBuiltinSite('go_tingshu', '飞卢听书', 'com.github.catvod.spider.TingShu', '{}', contentTypeKey: 'audio'),
   // C2 批（2026-11-07）：核心 key 别名登记，类与 ext 照抄右侧已有登记。
   ZakatvBuiltinSite('av123', '🎬123AV┃原生', 'com.github.catvod.spider.Zaka123avAmns', ''),
   ZakatvBuiltinSite('av321', '🔞321AV┃中文字幕', 'com.github.catvod.spider.Zaka321avAmns', ''),
@@ -221,6 +223,7 @@ ZakatvBuiltinSite('ZakaJin18', '🔞18禁乐园', 'com.github.catvod.spider.Zaka
 ZakatvBuiltinSite('ZakaJiuse', '🔞九色', 'com.github.catvod.spider.ZakaJiuseAmns', ''),
 ZakatvBuiltinSite('ZakaJiuseduanju', '🔞九色短剧', 'com.github.catvod.spider.ZakaJiuseduanjuAmns', ''),
 ZakatvBuiltinSite('ZakaJptt', '🔞JPTT禁片天堂', 'com.github.catvod.spider.ZakaJpttAmns', ''),
+ZakatvBuiltinSite('ZakaKankux', '🔞看裤X', 'com.github.catvod.spider.ZakaKankuxAmns', ''),
 ZakatvBuiltinSite('ZakaKissjav', '🔞KissJAV', 'com.github.catvod.spider.ZakaKissjavAmns', ''),
 ZakatvBuiltinSite('ZakaKlxq', '🔞快乐星球', 'com.github.catvod.spider.ZakaKlxqAmns', ''),
 ZakatvBuiltinSite('ZakaKoreanporn', '🔞Korean Porn Movie', 'com.github.catvod.spider.ZakaKoreanpornAmns', ''),
@@ -241,6 +244,7 @@ ZakatvBuiltinSite('ZakaPx8x', '🔞Px8x', 'com.github.catvod.spider.ZakaPx8xAmns
 ZakatvBuiltinSite('ZakaRoshy', '🔞Roshy', 'com.github.catvod.spider.ZakaRoshyAmns', ''),
 ZakatvBuiltinSite('ZakaRscg91', '🔞91人兽吃瓜', 'com.github.catvod.spider.ZakaRscg91Amns', ''),
 ZakatvBuiltinSite('ZakaSenzuri', '🔞Senzuri Tube', 'com.github.catvod.spider.ZakaSenzuriAmns', ''),
+  ZakatvBuiltinSite('ZakaSexaix', '🔞幻影AI', 'com.github.catvod.spider.ZakaSexaixAmns', ''),
 ZakatvBuiltinSite('ZakaSexkbj', '🔞SexKbj', 'com.github.catvod.spider.ZakaSexkbjAmns', ''),
   ZakatvBuiltinSite('ZakaShaofu', '🔞少妇·短剧AV', 'com.github.catvod.spider.ZakaShaofuAmns', ''),
   ZakatvBuiltinSite('ZakaShunvqu', '🔞熟女群', 'com.github.catvod.spider.ZakaShunvquAmns', ''),
@@ -266,9 +270,12 @@ ZakatvBuiltinSite('ZakaSexkbj', '🔞SexKbj', 'com.github.catvod.spider.ZakaSexk
   ZakatvBuiltinSite('ZakaYaguo', '芽果', 'com.github.catvod.spider.ZakaYaguoAmns', ''),
   ZakatvBuiltinSite('ZakaYiren', '🔞伊人AV', 'com.github.catvod.spider.ZakaYirenAmns', ''),
   ZakatvBuiltinSite('ZakaYunmeng', '🔞云梦在线', 'com.github.catvod.spider.ZakaYunmengAmns', ''),
+  ZakatvBuiltinSite('ZakaYwly', '🔞欲望乐园', 'com.github.catvod.spider.ZakaYwlyAmns', ''),
   ZakatvBuiltinSite('ZakaYwmm', '🔞高清开苞处女', 'com.github.catvod.spider.ZakaYwmmAmns', ''),
   ZakatvBuiltinSite('ZakaZwdj', '🔞中文短剧网', 'com.github.catvod.spider.ZakaZwdjAmns', ''),
   ZakatvBuiltinSite('ZakaZwwm', '🔞中文无码', 'com.github.catvod.spider.ZakaZwwmAmns', ''),
+  ZakatvBuiltinSite('ZakaChinaxjx', '🔞中国X站精选', 'com.github.catvod.spider.ZakaChinaxjxAmns', ''),
+  ZakatvBuiltinSite('ZakaAiyinhang', '🔞AI淫航', 'com.github.catvod.spider.ZakaAiyinhangAmns', ''),
 ];
 
 class ZakatvExcludedSite {
@@ -283,6 +290,8 @@ const List<ZakatvExcludedSite> zakatvExcludedSites = [
   ZakatvExcludedSite('zakahzai', '🔞盒子AI视频┃原生', '盒子AI：服务端 register 全 404，2026-10-24 修复批已摘，服务端死亡未进成品'),
   ZakatvExcludedSite('ZakaXme', '🔞樱桃破解┃站群直连', '樱桃：服务端 register 500，2026-10-24 修复批已摘，服务端死亡未进成品'),
   ZakatvExcludedSite('zakajavbus', '🔞JAVBUS┃磁力自动离线', 'JavBus：全是磁力、App 内无磁力播放，2026-10-31 摘除令'),
+  ZakatvExcludedSite('zaka520av', '🔞520AV影城', '520AV：视频 CDN lovebb.520avtv.com 无响应（TLS 通、GET 后零字节，出口 504），详情页无其他播放源；搜索 303 跳女优页、女优页 307 回首页，2026-11-07 修复批已摘，CDN 恢复再议'),
+  ZakatvExcludedSite('zakaaoxx69', '🔞AOXX69┃亞洲綜合', 'AOXX69：站方 www.aoxx69.app 自 2026-11-08 起本机出口多次实测无响应（curl https/http 与 Python urllib 各 20-30 秒超时、0 字节；同出口 Google/香蕉 API/img 域名均通，非出口断）；无其他镜像（aoxx69.com 301 回同一 www 主机）；站内链接已去掉 /hk/ 前缀、蜘蛛 /hk/ 路径与列表正则亦过期；2026-11-08 修不好按令摘登记，主机恢复再议'),
 ];
 
 /// YouTube 站走独立 youtube.jar，ext 在使用时从 youtube3.json 现取（84KB，不进登记表）。
