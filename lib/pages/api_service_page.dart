@@ -7,6 +7,8 @@ import 'package:flutter_lucide/flutter_lucide.dart';
 
 import '../services/backend_service.dart';
 import '../services/lan_share_preferences.dart';
+import '../services/local_media_proxy.dart';
+import '../services/local_proxy_preferences.dart';
 import '../widgets/home/home_design.dart';
 import '../widgets/settings/settings_widgets.dart';
 import 'log_viewer_page.dart';
@@ -34,6 +36,19 @@ class _ApiServicePageState extends State<ApiServicePage> {
   bool _lanShare = false;
   bool _showEndpoints = false;
 
+  /// 本地代理（FongMiTV 同款）：开关、端口、运行状态。开关默认开
+  /// （FongMiTV 常驻无开关，等价默认开）；关掉会停掉监听、正在播的
+  /// 代理流断一次，蜘蛛与播放器退回直连或报「本地代理已关闭」。
+  String _proxyStatus = '';
+  int? _proxyPort;
+  bool _proxyEnabled = true;
+  bool _proxySwitching = false;
+  bool _proxyChecking = false;
+
+  /// Result of the manual local-proxy connectivity check, null when never run.
+  String? _proxyProbeResult;
+  bool _proxyProbeOk = false;
+
   /// Device-pool size reported by `/health`; null until the first answer.
   int? _devices;
 
@@ -50,6 +65,93 @@ class _ApiServicePageState extends State<ApiServicePage> {
     super.initState();
     _loadShareState();
     _refresh();
+    _loadProxyState();
+  }
+
+  Future<void> _loadProxyState() async {
+    await LocalProxyPreferences.instance.load();
+    _refreshProxyState();
+  }
+
+  /// 只读内存里的服务状态：不发请求、不起服务，进页即显示。
+  void _refreshProxyState() {
+    if (!mounted) return;
+    final proxy = LocalMediaProxy.instance;
+    setState(() {
+      _proxyEnabled = LocalProxyPreferences.instance.enabled.value;
+      _proxyStatus = proxy.isRunning ? '运行中' : '已停止';
+      _proxyPort = proxy.port;
+    });
+  }
+
+  /// Explicit self-test for the local proxy: GET / must answer
+  /// `local-proxy-ok`. Reports what the client actually got back.
+  Future<void> _probeProxy() async {
+    if (_proxyChecking) return;
+    setState(() => _proxyChecking = true);
+    String result;
+    var ok = false;
+    final base = LocalMediaProxy.instance.baseUrl;
+    if (base.isEmpty) {
+      result = '未运行 · 先打开本地代理开关';
+    } else {
+      final client = HttpClient();
+      try {
+        final request = await client
+            .getUrl(Uri.parse('$base/'))
+            .timeout(const Duration(seconds: 3));
+        final response = await request
+            .close()
+            .timeout(const Duration(seconds: 3));
+        final body = await response.transform(utf8.decoder).join();
+        ok = response.statusCode == 200 && body.contains('local-proxy-ok');
+        result = ok
+            ? '通了 · HTTP 200 · 本地代理在听'
+            : '返回 HTTP ${response.statusCode}';
+      } catch (error) {
+        result = '不通 · $error';
+      } finally {
+        client.close();
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _proxyProbeOk = ok;
+      _proxyProbeResult = result;
+      _proxyChecking = false;
+    });
+    _refreshProxyState();
+  }
+
+  Future<void> _toggleLocalProxy(bool value) async {
+    if (_proxySwitching) return;
+    if (!value) {
+      final confirmed = await showSettingsConfirmDialog(
+        context: context,
+        title: '关闭本地代理',
+        message:
+            '蜘蛛与播放器将不再走本地代理取数/取流，部分站点的封面与播放'
+            '会走直连或报错，正在播的代理流会中断一次。\n\n'
+            'FongMiTV 的本地代理是常驻的，这里默认也是开着的。',
+        confirmLabel: '关闭',
+      );
+      if (!confirmed) return;
+    }
+    if (!mounted) return;
+    setState(() => _proxySwitching = true);
+    await LocalProxyPreferences.instance.setEnabled(value);
+    try {
+      if (value) {
+        await LocalMediaProxy.instance.start();
+      } else {
+        await LocalMediaProxy.instance.stop();
+      }
+    } catch (_) {
+      // The status row below reports it after the refresh.
+    }
+    if (!mounted) return;
+    setState(() => _proxySwitching = false);
+    _refreshProxyState();
   }
 
   Future<void> _loadShareState() async {
@@ -376,6 +478,135 @@ class _ApiServicePageState extends State<ApiServicePage> {
             ),
           ),
 
+          const SizedBox(height: 8),
+          // 本地代理（FongMiTV 同款）：开关、端口、运行状态、地址、自测。
+          // 蜘蛛与播放器走它取数/取流：/r/ 直取转发（带头、HLS 改写）、
+          // /h/ 蜘蛛 localProxy 会话、/proxy 兼容 FongMiTV 的
+          // 127.0.0.1:9978/proxy 地址（jar 蜘蛛的封面、danai 的加密图）。
+          _card(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      key: const ValueKey('local-proxy-status-dot'),
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: _proxyStatus == '运行中'
+                            ? palette.accentText
+                            : palette.muted,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '本地代理',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: palette.ink,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      _proxyPort == null
+                          ? _proxyStatus
+                          : '$_proxyStatus · 端口 $_proxyPort',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: palette.ink,
+                      ),
+                    ),
+                    const Spacer(),
+                    TextButton.icon(
+                      onPressed: _proxyChecking ? null : _probeProxy,
+                      icon: _proxyChecking
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(LucideIcons.activity, size: 16),
+                      label: const Text('自测'),
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        foregroundColor: palette.muted,
+                      ),
+                    ),
+                  ],
+                ),
+                if (_proxyProbeResult != null)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 20, bottom: 4),
+                    child: Text(
+                      _proxyProbeResult!,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: _proxyProbeOk ? palette.accentText : palette.ink,
+                      ),
+                    ),
+                  ),
+                Divider(height: 20, color: palette.line),
+                _addressRow(
+                  palette: palette,
+                  theme: theme,
+                  label: '地址',
+                  value: LocalMediaProxy.instance.baseUrl,
+                  emptyText: '已关闭',
+                ),
+                Divider(height: 20, color: palette.line),
+                InkWell(
+                  onTap: _proxySwitching
+                      ? null
+                      : () => _toggleLocalProxy(!_proxyEnabled),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Row(
+                      children: [
+                        Icon(
+                          _proxyEnabled
+                              ? LucideIcons.globe
+                              : LucideIcons.globe_off,
+                          size: 16,
+                          color: palette.muted,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          '本地代理开关',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: palette.ink,
+                          ),
+                        ),
+                        const Spacer(),
+                        if (_proxySwitching)
+                          const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        else
+                          SettingsSwitch(
+                            value: _proxyEnabled,
+                            semanticLabel: '本地代理开关',
+                            onChanged: _proxySwitching
+                                ? null
+                                : _toggleLocalProxy,
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'FongMiTV 同款：蜘蛛包出的 127.0.0.1:9978/proxy 地址由本服务接住，/r/ 带头转发、/h/ 走蜘蛛 localProxy。关掉后部分站点封面与播放会走直连或报错。',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: palette.muted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
           // 接口是参考信息，默认收起；要用的人自己点开。
           const SizedBox(height: 8),
           TextButton.icon(
@@ -470,6 +701,7 @@ class _ApiServicePageState extends State<ApiServicePage> {
     required ThemeData theme,
     required String label,
     required String value,
+    String emptyText = '等待服务启动',
   }) {
     return InkWell(
       onTap: value.isEmpty ? null : () => _copy('地址', value),
@@ -489,7 +721,7 @@ class _ApiServicePageState extends State<ApiServicePage> {
             ),
             Expanded(
               child: Text(
-                value.isEmpty ? '等待服务启动' : value,
+                value.isEmpty ? emptyText : value,
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: palette.ink,
                   fontFamily: 'monospace',

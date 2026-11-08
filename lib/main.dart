@@ -56,6 +56,9 @@ import 'services/playlet_share.dart';
 import 'services/poster_cache.dart';
 import 'services/shelf_store.dart';
 import 'services/swipe_guide_store.dart';
+import 'services/local_media_proxy.dart';
+import 'services/local_proxy_preferences.dart';
+import 'services/local_proxy_route.dart';
 import 'services/system_proxy.dart';
 import 'widgets/lazy_indexed_stack.dart';
 import 'widgets/cultivation_level_up_dialog.dart';
@@ -187,6 +190,25 @@ Future<void> _initializeLocalData() async {
   // 短剧「边看边往后缓存」的开关与集数：同一条装配链里读，避免播放页
   // 起来时还没加载完、拿默认值把用户关掉的开关又打开。
   unawaited(DramaCachePreferences.instance.load());
+  // 本地代理（FongMiTV 同款）：开关默认开，启动时读盘、开着就起服务
+  // （9978 起找空闲端口），关着就不起；/proxy 的 do/siteKey 分发同
+  // 时接线。失败只退化为「本次启动不常驻」，播放时按需再起，不挡启动。
+  bindLocalProxyRoutes();
+  unawaited(() async {
+    try {
+      await LocalProxyPreferences.instance.load();
+      if (LocalProxyPreferences.instance.enabled.value) {
+        await LocalMediaProxy.instance.start();
+      }
+    } catch (error, stack) {
+      AppLog.w(
+        'startup',
+        '本地代理启动失败，本次启动不常驻',
+        error: error,
+        stack: stack,
+      );
+    }
+  }());
   // ZakaTV jar 内置站首次启动补进登记表：幂等、开关保留、删过的不复活。
   unawaited(SourceRegistry.instance.ensureBuiltinJarSites());
   // 内置 jar 启动时校验一次落盘：覆盖安装后指纹变了就重解，避免用户

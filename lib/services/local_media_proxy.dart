@@ -5,6 +5,9 @@ import 'dart:math';
 
 import 'package:http/http.dart' as http;
 
+import 'local_proxy_preferences.dart';
+import 'shell_proxy_url.dart';
+
 /// 单个已取回的分片/密钥：整包字节 + 上游类型 + 状态码，供缓存直出。
 class _CachedSegment {
   const _CachedSegment(this.body, this.contentType, this.status);
@@ -76,11 +79,87 @@ class LocalMediaProxy {
 
   static final LocalMediaProxy instance = LocalMediaProxy._();
 
+  /// FongMiTV 的本地代理从 9978 起找空闲端口（9978–9998）：jar 蜘蛛包出
+  /// 的 `http://127.0.0.1:9978/proxy?...` 地址就是按这个约定写的，本应用
+  /// 以前随机端口、9978 上没有服务在听，那类地址只能靠各处解包绕过。
+  /// 这里跟 FongMiTV 对齐：先试 9978–9998，全占才回落随机端口。
+  static const int _firstPort = 9978;
+  static const int _lastPort = 9998;
+
   HttpServer? _server;
   Future<void>? _starting;
   final _sessions = <String, _ProxySession>{};
   final _order = <String>[];
   http.Client _client = http.Client();
+
+  /// FongMiTV 形态的代理分发：`proxy://do=py&siteKey=xxx&u=...` 这类
+  /// 地址（见 danai.py）没有蜘蛛上下文可解，交给调用方按 siteKey 找
+  /// 客户端再调蜘蛛 localProxy；未接线时 /proxy 回 404，不猜。
+  /// 由 local_proxy_route.dart 的 bindLocalProxyRoutes 接线。
+  LocalProxyHandler? onProxyRequest;
+
+  /// 开关状态（偏好里的实时值）：FongMiTV 常驻无开关，等价默认开。
+  bool get enabled => LocalProxyPreferences.instance.enabled.value;
+
+  /// 服务跑没跑、监听端口、对外地址（设置页直接读这三项）。
+  bool get isRunning => _server != null;
+
+  int? get port => _server?.port;
+
+  String get baseUrl =>
+      _server == null ? '' : 'http://127.0.0.1:${_server!.port}';
+
+  /// 显式启动（设置开关打开、应用启动时开关开着）：已在跑直接回 true。
+  Future<bool> start() async {
+    if (_server != null) return true;
+    if (_starting != null) {
+      await _starting;
+      return _server != null;
+    }
+    _starting = () async {
+      _server = await _bindServer();
+      _server!.listen(_handle);
+    }();
+    try {
+      await _starting;
+    } catch (_) {
+      _starting = null;
+      return false;
+    }
+    _starting = null;
+    return _server != null;
+  }
+
+  /// 显式停止（设置开关关闭）：正在播的代理流会断一次；会话里记的
+  /// 地址都带旧端口，停掉即失效，下次启动重建，不留僵尸地址。
+  Future<void> stop() async {
+    final server = _server;
+    _server = null;
+    _starting = null;
+    _sessions.clear();
+    _order.clear();
+    _playlistSegments.clear();
+    if (server != null) {
+      await server.close(force: true);
+    }
+  }
+
+  /// 按开关起服务：关着就绝不偷偷起来，回 false 让调用方走直连或报错。
+  Future<bool> ensureStarted() async {
+    if (!enabled) return false;
+    return start();
+  }
+
+  Future<HttpServer> _bindServer() async {
+    for (var port = _firstPort; port <= _lastPort; port++) {
+      try {
+        return await HttpServer.bind(InternetAddress.loopbackIPv4, port);
+      } catch (_) {
+        // 端口被占就试下一个，9978–9998 全占才回落随机端口。
+      }
+    }
+    return HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+  }
 
   // 多线程拉流（B 路：中继侧并发预取分片）：ExoPlayer 的 HLS 分片是
   // 顺序拉取的，改原生 ChunkSource 风险大、本机也验不了；本地代理
@@ -135,25 +214,20 @@ class LocalMediaProxy {
     _prefetchStarted = 0;
     _prefetchCompleted = 0;
     _cacheHits = 0;
+    onProxyRequest = null;
     // 世代 +1：在途的旧预取回包时按世代丢弃，不污染新缓存。
     _epoch++;
-  }
-
-  Future<void> _ensureStarted() async {
-    if (_server != null) return;
-    if (_starting != null) return _starting!;
-    _starting = () async {
-      _server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-      _server!.listen(_handle);
-    }();
-    await _starting;
   }
 
   Future<String> register({
     required String targetUrl,
     required Map<String, String> headers,
   }) async {
-    await _ensureStarted();
+    // 开关关着：不起服务，直接回原地址（直链原样，丢代理头——用户主动
+    // 关的后果，设置页写明）；服务起不来也一样回原地址，不拦播放。
+    if (!enabled) return targetUrl;
+    final started = await ensureStarted();
+    if (!started) return targetUrl;
     final token = _randomToken();
     _sessions[token] = _ProxySession(Map<String, String>.from(headers));
     _order.add(token);
@@ -178,10 +252,16 @@ class LocalMediaProxy {
 
   /// 蜘蛛本地代理会话：播放器请求的路径与查询原样交给 handler（蜘蛛的
   /// localProxy），返回的地址形如 `http://127.0.0.1:端口/h/令牌?原查询`。
+  /// 开关关着时不建会话、报诚实错误（调用方 _proxyIfNeeded 本来就会把
+  /// StateError 往上抛，播放失败时报「本地代理已关闭」，不静默）。
   Future<String> registerHandler({
     required LocalProxyHandler handler,
   }) async {
-    await _ensureStarted();
+    if (!enabled) {
+      throw StateError('本地代理已关闭，请在设置 → 服务 → 本地代理里开启');
+    }
+    final started = await ensureStarted();
+    if (!started) throw StateError('本地代理启动失败');
     final token = _randomToken();
     _sessions[token] = _ProxySession(const {}, handler: handler);
     _order.add(token);
@@ -550,9 +630,210 @@ class LocalMediaProxy {
     return out.join('\n');
   }
 
+  /// FongMiTV 同款 `/proxy` 入口：蜘蛛包出的
+  /// `http://127.0.0.1:9978/proxy?type=img&site=<站>&p=<base64 JSON>` 在
+  /// 本应用以前没有服务接，播放器或图片组件直接拿它请求只会失败。
+  /// 两形态：
+  /// - `p=` 打包载荷：解出真实地址 + Referer，直接带头取回（蜘蛛
+  ///   proxy() 里实际干的就是这件事，见 ZakaSex8Amns.proxy；解不出
+  ///   `u` 的令牌型地址回 404，调用方走 /h/ 会话 + 蜘蛛 localProxy）。
+  /// - `do`/`siteKey` 形态（`proxy://do=py&siteKey=xxx&u=...`，见
+  ///   danai.py 的封面地址）：交给 onProxyRequest 按站找蜘蛛
+  ///   localProxy（danai 的封面还要蜘蛛侧 AES 解密，Dart 侧取不来），
+  ///   未接线回 404，不猜。
+  Future<void> _handleProxy(HttpRequest request) async {
+    final response = request.response;
+    final query = request.uri.queryParameters;
+    final packed = query['p'];
+    if (packed != null && packed.isNotEmpty) {
+      final unwrapped = unwrapShellProxyUrl(
+        'http://127.0.0.1/proxy?${request.uri.query}',
+      );
+      if (unwrapped != null) {
+        await _serveProxiedFetch(request, unwrapped.url, unwrapped.headers);
+        return;
+      }
+      response
+        ..statusCode = HttpStatus.notFound
+        ..write('unknown proxy payload');
+      await response.close();
+      return;
+    }
+    final handler = onProxyRequest;
+    if (handler != null &&
+        (query.containsKey('do') || query.containsKey('siteKey'))) {
+      final proxied = await handler(request.uri);
+      if (proxied == null) {
+        response
+          ..statusCode = HttpStatus.notFound
+          ..write('local proxy not implemented');
+        await response.close();
+        return;
+      }
+      await _serveProxiedResult(request, proxied);
+      return;
+    }
+    response
+      ..statusCode = HttpStatus.notFound
+      ..write('unknown proxy request');
+    await response.close();
+  }
+
+  /// 打包载荷的直取：带 Referer（图床没它就 406）与图片 Accept 头取回。
+  Future<void> _serveProxiedFetch(
+    HttpRequest request,
+    String target,
+    Map<String, String> headers,
+  ) async {
+    final response = request.response;
+    final uri = Uri.tryParse(target);
+    if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) {
+      response
+        ..statusCode = HttpStatus.badRequest
+        ..write('bad target');
+      await response.close();
+      return;
+    }
+    try {
+      final upstream = await _client
+          .get(
+            uri,
+            headers: {
+              ...headers,
+              HttpHeaders.acceptHeader:
+                  'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+            },
+          )
+          .timeout(const Duration(seconds: 30));
+      if (upstream.statusCode != HttpStatus.ok) {
+        response.statusCode = upstream.statusCode;
+        await response.close();
+        return;
+      }
+      // bodyBytes 是 Uint8List，Range 切片回的是 List<int>：显式声明
+      // List<int>，否则切片赋值报类型错。
+      List<int> body = upstream.bodyBytes;
+      var status = HttpStatus.ok;
+      final rangeHeader = request.headers.value(HttpHeaders.rangeHeader);
+      if (rangeHeader != null) {
+        final sliced = _sliceRange(body, rangeHeader);
+        if (sliced != null) {
+          body = sliced.body;
+          status = HttpStatus.partialContent;
+          response.headers.set(
+            HttpHeaders.contentRangeHeader,
+            sliced.contentRange,
+          );
+          response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+        }
+      }
+      response.statusCode = status;
+      response.headers.set(
+        HttpHeaders.contentTypeHeader,
+        _sniffMime(target, upstream.headers['content-type']),
+      );
+      response.headers.contentLength = body.length;
+      response.add(body);
+      await response.close();
+    } catch (_) {
+      try {
+        response
+          ..statusCode = HttpStatus.badGateway
+          ..write('proxy error');
+        await response.close();
+      } catch (_) {}
+    }
+  }
+
+  /// 蜘蛛 localProxy 回包的直出：类型与头沿用蜘蛛回的；Range 按需切 206；
+  /// 是播放列表时相对行按查询里的 `u`（上游播放列表地址）解析成绝对
+  /// 地址，否则播放器按 /proxy 地址解析分片行必 404。
+  Future<void> _serveProxiedResult(
+    HttpRequest request,
+    LocalProxyResponse proxied,
+  ) async {
+    final response = request.response;
+    var body = proxied.body;
+    var status = proxied.status;
+    final rangeHeader = request.headers.value(HttpHeaders.rangeHeader);
+    if (rangeHeader != null) {
+      final sliced = _sliceRange(body, rangeHeader);
+      if (sliced != null) {
+        body = sliced.body;
+        status = HttpStatus.partialContent;
+        response.headers.set(
+          HttpHeaders.contentRangeHeader,
+          sliced.contentRange,
+        );
+        response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+      }
+    }
+    final isPlaylist = _isHlsContentType(proxied.mime) ||
+        _startsWithExtM3u(proxied.body);
+    if (isPlaylist && status == 200) {
+      final base = request.uri.queryParameters['u'] ?? '';
+      final text = utf8.decode(body, allowMalformed: true);
+      final lines = text.split('\n');
+      final out = <String>[];
+      for (final line in lines) {
+        final trimmed = line.trim();
+        if (trimmed.isEmpty ||
+            trimmed.startsWith('#') ||
+            trimmed.startsWith('http://') ||
+            trimmed.startsWith('https://')) {
+          out.add(line);
+          continue;
+        }
+        out.add(base.isEmpty ? line : _resolveUrl(base, trimmed));
+      }
+      body = utf8.encode(out.join('\n'));
+      response.headers.contentType = ContentType(
+        'application',
+        'vnd.apple.mpegurl',
+        charset: 'utf-8',
+      );
+    } else if (proxied.mime.isNotEmpty) {
+      response.headers.set(HttpHeaders.contentTypeHeader, proxied.mime);
+    }
+    for (final entry in proxied.headers.entries) {
+      response.headers.set(entry.key, entry.value);
+    }
+    response.statusCode = status;
+    response.headers.contentLength = body.length;
+    response.add(body);
+    await response.close();
+  }
+
+  /// 按上游类型或地址后缀猜类型：上游给了明确类型就用上游的，否则按
+  /// 后缀；都认不出回通用二进制，不谎报图片类型。
+  String _sniffMime(String target, String? contentType) {
+    final type = (contentType ?? '').split(';').first.trim().toLowerCase();
+    if (type.isNotEmpty && type != 'application/octet-stream') return type;
+    final path = target.split('?').first.toLowerCase();
+    if (path.endsWith('.jpg') || path.endsWith('.jpeg')) return 'image/jpeg';
+    if (path.endsWith('.png')) return 'image/png';
+    if (path.endsWith('.gif')) return 'image/gif';
+    if (path.endsWith('.webp')) return 'image/webp';
+    if (path.endsWith('.m3u8')) return 'application/vnd.apple.mpegurl';
+    if (path.endsWith('.mp4')) return 'video/mp4';
+    return 'application/octet-stream';
+  }
+
   Future<void> _handle(HttpRequest request) async {
     try {
       final segments = request.uri.pathSegments;
+      if (segments.isEmpty) {
+        // 探活：设置页自测打这个地址，200 即服务在听。
+        request.response
+          ..statusCode = HttpStatus.ok
+          ..write('local-proxy-ok');
+        await request.response.close();
+        return;
+      }
+      if (segments.first == 'proxy') {
+        await _handleProxy(request);
+        return;
+      }
       if (segments.length < 2) {
         request.response
           ..statusCode = HttpStatus.notFound
