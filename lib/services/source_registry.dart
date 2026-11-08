@@ -432,7 +432,33 @@ class SourceRegistry {
     final addedIds = <String>[];
     for (final seed in builtinImportedSeeds) {
       if (_deletedSeeds.contains(seed.seedId)) continue;
-      if (_custom.any((e) => e.extra['seedId'] == seed.seedId)) continue;
+      final existingIndex = _custom.indexWhere(
+        (e) => e.extra['seedId'] == seed.seedId,
+      );
+      if (existingIndex >= 0) {
+        // 已登记的种子也要跟进包内更新：以前这里直接跳过，覆盖安装后
+        // 手机上一直跑旧版蜘蛛（18 轮 ywly 新接口、aiyinhang 分类修复
+        // 都因此到不了手机，站还是旧写法在跑）。文件内容与包内不
+        // 一致就重写一份；宿主按文件 mtime 重新加载蜘蛛，正在跑的站
+        // 下次调用即用新版。登记表本身不动，不触发分类提取
+        // （分类现取时走新蜘蛛，注册表里的旧分类只是展示 fallback）。
+        try {
+          final text = await rootBundle.loadString(seed.asset);
+          final path =
+              _custom[existingIndex].extra['path'] as String? ?? '';
+          if (path.isNotEmpty) {
+            final file = File(path);
+            final current = await file.exists()
+                ? await file.readAsString()
+                : null;
+            if (current != text) {
+              await file.parent.create(recursive: true);
+              await file.writeAsString(text);
+            }
+          }
+        } catch (_) {}
+        continue;
+      }
       String text;
       try {
         text = await rootBundle.loadString(seed.asset);

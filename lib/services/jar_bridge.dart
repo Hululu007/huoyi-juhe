@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -86,15 +87,59 @@ class JarBridge {
   static const _channel = MethodChannel('juhe/jarbridge');
   static final Map<String, String> _jarPaths = {};
 
-  static bool get supported => Platform.isAndroid;
+  /// 同一 configId 正在跑的解包任务：并发的 callJson 共用同一份在途
+  /// 任务，不各调一次原生 ensureJar（见 ensureJarPath 的说明）。
+  static final Map<String, Future<String>> _ensureInFlight = {};
+
+  static bool get supported => debugForceSupported ?? Platform.isAndroid;
+
+  /// 仅供测试：flutter test 跑在宿主 Linux 上时 Platform.isAndroid 为
+  /// false，用它强制打开 jar 桥调用路径（通道本身由测试 mock）。
+  /// 生产代码绝不设置。
+  @visibleForTesting
+  static bool? debugForceSupported;
 
   static Future<String> ensureJarPath({
     required String configId,
     required String url,
     String md5 = '',
   }) async {
+    // 缓存的路径先验文件还在：覆盖安装后 jarbridge 目标文件一旦没了
+    // （旧版并发解包竞态会把目标删空），旧缓存会让原生 loaderFor 的
+    // sealForLoad 直接报“jar 文件不存在，无法加载”，且重试也不好
+    // （同进程内一直走缓存）。文件不在就丢缓存、重解一次。
     final cached = _jarPaths[configId];
-    if (cached != null) return cached;
+    if (cached != null) {
+      try {
+        if (await File(cached).exists()) return cached;
+      } catch (_) {}
+      _jarPaths.remove(configId);
+    }
+    // 同一 configId 的并发解包共用同一份在途任务：否则 3 站并发加载
+    // 会各调一次原生 ensureJar、抢同一个 .part 临时文件和同一个目标
+    // 文件（首页影视区一窗 3 站 Future.wait；原生侧也有同 configId
+    // 锁，这里是 Dart 侧的第二道，避免重复调通道与重复读盘）。
+    // 只让一份真正跑，其余等它；跑完那份把路径写进缓存，后到的直接复用。
+    final inFlight = _ensureInFlight[configId];
+    if (inFlight != null) return inFlight;
+    final future = _ensureJarPathUncached(
+      configId: configId,
+      url: url,
+      md5: md5,
+    );
+    _ensureInFlight[configId] = future;
+    try {
+      return await future;
+    } finally {
+      _ensureInFlight.remove(configId);
+    }
+  }
+
+  static Future<String> _ensureJarPathUncached({
+    required String configId,
+    required String url,
+    String md5 = '',
+  }) async {
     if (!supported) {
       throw JarBridgeFailure('jar 桥仅支持 Android，当前平台无法下载与加载远程 jar');
     }
@@ -114,6 +159,25 @@ class JarBridge {
     } on MissingPluginException {
       throw JarBridgeFailure('jar 桥未就绪：当前安装包未包含 jar 桥通道');
     }
+  }
+
+  /// 启动时校验内置 jar 是否已落盘：不存在或指纹对不上就重解一次。
+  /// 尽力而为：任何失败都不抛、不挡启动（点站时还会再解一次）。
+  /// 覆盖安装后指纹变了，先在启动时把 jar 落盘，避免用户第一次点站
+  /// 才解包、还撞上并发（见 ensureJarPath 的说明）。
+  static Future<void> verifyBuiltinJar({
+    required String assetPath,
+    required String configId,
+    required String md5,
+  }) async {
+    try {
+      final local = await resolveBuiltinJarAsset(
+        assetPath: assetPath,
+        configId: configId,
+        md5: md5,
+      );
+      await ensureJarPath(configId: configId, url: local, md5: md5);
+    } catch (_) {}
   }
 
   /// 内置 jar 站的 asset 落盘：asset 不是文件路径，原生桥接只能吃本地路径，
@@ -154,6 +218,23 @@ class JarBridge {
     Map<String, String> param,
   ) async {
     final jarPath = await _ensureJar(spec);
+    try {
+      return await _invokeJarProxy(spec, jarPath, param);
+    } on JarBridgeFailure catch (failure) {
+      // 与 callJson 同款 stale 重试：目标文件在解包与代理调用之间没了
+      // 就清缓存、重解一次、再调一次；只重试一次。
+      if (!failure.message.contains('jar 文件不存在')) rethrow;
+      _jarPaths.remove(spec.configId);
+      final freshPath = await _ensureJar(spec);
+      return await _invokeJarProxy(spec, freshPath, param);
+    }
+  }
+
+  static Future<Map<String, dynamic>> _invokeJarProxy(
+    JarSiteSpec spec,
+    String jarPath,
+    Map<String, String> param,
+  ) async {
     if (!supported) {
       throw JarBridgeFailure('jar 桥仅支持 Android，当前平台无法调用本地代理');
     }
@@ -230,9 +311,19 @@ class JarBridge {
     try {
       return await _invokeCall(spec, jarPath, method, args);
     } on JarBridgeFailure catch (failure) {
-      if (!failure.message.contains('未找到站点类')) rethrow;
-      final recovered = await _retryWithFreshJar(spec, method, args);
-      if (recovered != null) return recovered;
+      if (failure.message.contains('未找到站点类')) {
+        final recovered = await _retryWithFreshJar(spec, method, args);
+        if (recovered != null) return recovered;
+        rethrow;
+      }
+      if (failure.message.contains('jar 文件不存在')) {
+        // 目标文件在解包与加载之间没了（旧版竞态残留、或外部清理）：
+        // 清掉缓存路径、重解一次、再调一次；重解仍失败时原错上抛。
+        // 只重试一次，避免把真正的站方错误也循环重调。
+        _jarPaths.remove(spec.configId);
+        final freshPath = await _ensureJar(spec);
+        return await _invokeCall(spec, freshPath, method, args);
+      }
       rethrow;
     }
   }

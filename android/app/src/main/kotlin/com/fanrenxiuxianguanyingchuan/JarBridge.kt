@@ -25,6 +25,14 @@ object JarBridge {
     private val loaders = ConcurrentHashMap<String, DexClassLoader>()
     private val spiders = ConcurrentHashMap<String, Any>()
     private val initialized = ConcurrentHashMap.newKeySet<String>()
+    // 同一 configId 的解包锁：Dart 侧首页影视区一窗 3 站并发加载时，
+    // 3 路 callJson 会同时调 ensureJar；不加锁时它们抢同一个
+    // `<configId>.jar.part` 临时文件和同一个目标文件，互相删文件、
+    // 互相抢临时文件，能把目标删空（18 轮升级后指纹变了、首次解包
+    // 必走替换路径，撞上即全部 jar 站报“jar 文件不存在，无法加载”，
+    // 且 Dart 侧缓存了路径、重试也不好）。锁按 configId 分，
+    // 不同 jar 的解包互不阻塞。
+    private val ensureLocks = ConcurrentHashMap<String, Any>()
     // 当前系统出口代理（与 Rust 核心走同一份，见 SystemProxyService）：
     // Dart 侧启动与网络变化时经 setJarProxy 送进来；新起的加载器在建蜘蛛
     // 时补上，已在的加载器在 setJarProxy 里当场刷一遍。
@@ -161,6 +169,13 @@ object JarBridge {
     }
 
     private fun ensureJar(context: Context, configId: String, url: String, expectedMd5: String): Map<String, Any?> {
+        val lock = ensureLocks.computeIfAbsent(configId) { Any() }
+        synchronized(lock) {
+            return ensureJarLocked(context, configId, url, expectedMd5)
+        }
+    }
+
+    private fun ensureJarLocked(context: Context, configId: String, url: String, expectedMd5: String): Map<String, Any?> {
         val target = jarFile(context, configId)
         val expected = expectedMd5.trim().lowercase()
         if (target.exists()) {

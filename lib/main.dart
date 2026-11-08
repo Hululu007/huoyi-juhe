@@ -49,6 +49,8 @@ import 'services/cultivation.dart';
 import 'services/rank_cache.dart';
 import 'services/player_style_config.dart';
 import 'services/source_registry.dart';
+import 'services/jar_bridge.dart';
+import 'services/zakatv_builtin.dart';
 import 'services/short_series_font_scale.dart';
 import 'services/playlet_share.dart';
 import 'services/poster_cache.dart';
@@ -187,6 +189,23 @@ Future<void> _initializeLocalData() async {
   unawaited(DramaCachePreferences.instance.load());
   // ZakaTV jar 内置站首次启动补进登记表：幂等、开关保留、删过的不复活。
   unawaited(SourceRegistry.instance.ensureBuiltinJarSites());
+  // 内置 jar 启动时校验一次落盘：覆盖安装后指纹变了就重解，避免用户
+  // 第一次点站才解包、还撞上并发（见 jar_bridge 的竞态修复说明）。
+  // 尽力而为，不挡启动；已落盘且指纹对得上时只是两次 MD5 读盘。
+  unawaited(
+    JarBridge.verifyBuiltinJar(
+      assetPath: zakatvJarAsset,
+      configId: zakatvJarId,
+      md5: zakatvJarMd5,
+    ),
+  );
+  unawaited(
+    JarBridge.verifyBuiltinJar(
+      assetPath: youtubeJarAsset,
+      configId: youtubeJarId,
+      md5: youtubeJarMd5,
+    ),
+  );
   // 内置导入站（随包 py / 阅读 JSON）首次启动补进登记表：同款规矩。
   unawaited(SourceRegistry.instance.ensureBuiltinImportedSites());
   // 短剧切后台悬浮窗开关（#24）：异步读取，失败退化为默认关闭。
