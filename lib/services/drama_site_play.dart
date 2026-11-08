@@ -160,6 +160,24 @@ Future<DramaPlaySource> _proxyIfNeeded(
     return url;
   }
 
+  // 漫画 pics://：把每张图也过一遍 mapOne——站方给的 Referer/UA
+  // （如 kuaikan）本来只存在 source.headers 里，之前 parsePicsUrls
+  // 只取 url 把头丢光，PicsViewerPage 拿裸 URL 直连 CDN，遇防盗链
+  // 就 403/限速。有头时 mapOne 把图包进本地代理 9978（头随会话存），
+  // 无头时原样返回，行为不变。
+  if (source.url.startsWith('pics://')) {
+    final picUrls = parsePicsUrls(source.url);
+    final mapped = <String>[];
+    for (final picUrl in picUrls) {
+      mapped.add(await mapOne(picUrl));
+    }
+    return DramaPlaySource(
+      url: 'pics://${mapped.join('&&')}',
+      keyHex: source.keyHex,
+      headers: source.headers,
+    );
+  }
+
   final mappedUrl = await mapOne(source.url);
   final variants = <DramaPlayVariant>[];
   for (final variant in source.variants) {
@@ -175,6 +193,7 @@ Future<DramaPlaySource> _proxyIfNeeded(
   return DramaPlaySource(
     url: mappedUrl,
     keyHex: source.keyHex,
+    headers: source.headers,
     variants: variants,
   );
 }
@@ -662,6 +681,14 @@ Future<void> openDramaSiteItem(
   if (!context.mounted) return;
   if (client == null) return;
   final entry = SourceRegistry.instance.customById(siteId);
+  // 阅读站（小说/漫画/听书）详情 extra 是空的，相关推荐没有分类
+  // 信号，兜底等于白抓两次上游；影视站保持老行为。
+  final isReadingSite = entry == null
+      ? coreReadingKinds[siteId] == 'novel' ||
+          coreReadingKinds[siteId] == 'comic' ||
+          coreReadingKinds[siteId] == 'audio'
+      : entry.contentType != ContentType.video &&
+          entry.contentType != ContentType.mixed;
   final isEngineSite = siteId.startsWith('localdb:') ||
       coreReadingSiteIds.contains(siteId) ||
       (entry != null &&
@@ -738,7 +765,12 @@ Future<void> openDramaSiteItem(
         // 一次；先按详情分类匹配同分类，取不到退本站首页。
         relatedLoader: (id) async {
           final loaded = await loadSiteDetail();
-          return loadSiteRelatedItems(client, loaded, item.id);
+          return loadSiteRelatedItems(
+            client,
+            loaded,
+            item.id,
+            allowCatalogFallback: !isReadingSite,
+          );
         },
         onOpenRelatedFilm: (related) =>
             openDramaSiteItem(context, siteId, related),

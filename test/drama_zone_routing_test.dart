@@ -65,6 +65,9 @@ Future<void> _seedRegistry() async {
       _seed('aisxpc', '🔞Ai小视频┃短剧'),
       _seed('aihi', '🔞AIHI短剧'),
       _seed('aipornx', '🔞AiPorn短剧'),
+      _seed('yaguo', '芽果'),
+      _seed('aiyinhang', '🔞AI淫航'),
+      _seed('sexaix', '🔞幻影AI'),
       _seed('xojav', '🔞XOJAV'),
       _seed('porncgw', '🔞Porn吃瓜网'),
       _seed('x51', '🔞51X'),
@@ -145,7 +148,61 @@ void main() {
     expect(adultJarKeyToCoreId('ZakaJavverse'), 'javverse');
   });
 
-  test('影视区不再出现短剧站：种子/jar 短剧站全被名字过滤掉', () {
+  test('短剧区药丸不再含影视站：只留短剧站', () {
+    final sites = SourceRegistry.instance.visibleShortDramaSites(
+      types: {ContentType.video, ContentType.mixed},
+    );
+    final ids = {for (final site in sites) site.id};
+    // 短剧站都在：果站（名字里没有「短剧」也算）、名字带短剧的站。
+    for (final shortDrama in [
+      'original',
+      'hongguo',
+      'hgtv',
+      'hgtvmirror',
+      'huangdou',
+      'huangju',
+      'yeguo',
+      'yaguo',
+      'maoguo',
+      'fanguo',
+      'guanguo',
+      'heguo',
+      'xingguo',
+      'huaguo',
+      'niuguo',
+      'wangguo',
+      'faguo',
+      'wuguo',
+      'huangdou_yh',
+      'hddj',
+      'hgdj',
+      'aihi',
+      'aipornx',
+      'aiyinhang',
+      'sexaix',
+    ]) {
+      expect(ids.contains(shortDrama), isTrue, reason: shortDrama);
+    }
+    // 影视站一个都不进短剧区药丸。
+    for (final film in [
+      'mjv011',
+      'missav',
+      'pornhub',
+      'javrate',
+      'ddys',
+      'xojav',
+      'porncgw',
+      'x51',
+      'av18av',
+      'hl365',
+    ]) {
+      expect(ids.contains(film), isFalse, reason: film);
+    }
+    expect(ids.any((id) => id.startsWith('seed_')), isFalse);
+    expect(ids.any((id) => id.startsWith('jar:')), isFalse);
+  });
+
+  test('影视区不再出现短剧站：种子/jar 短剧站全被共用判据拦掉', () {
     final entries = SourceRegistry.instance.custom;
     final unified = unifiedVideoZoneSites(entries);
     final ids = {for (final site in unified) site.id};
@@ -158,6 +215,11 @@ void main() {
       'seed_aisxpc',
       'seed_aihi',
       'seed_aipornx',
+      // 名字里不带「短剧」的短剧站：以前只靠名字过滤会漏进来，
+      // 现在行 id 先归一化成裸 id 再按短剧集判。
+      'seed_yaguo',
+      'seed_aiyinhang',
+      'seed_sexaix',
       'jar:zakatv:ZakaHddj',
       'jar:zakatv:ZakaHgdj',
     ]) {
@@ -205,5 +267,32 @@ void main() {
     expect(ids.contains('seed_aipornx'), isFalse);
     expect(ids.contains('aihi'), isFalse);
     expect(ids.contains('aipornx'), isFalse);
+  });
+
+  test('影视判据：果站与带前缀的行 id 都按裸 id 判', () {
+    // 12 个名字里没有「短剧」的果站都是短剧站，不是影视站。
+    for (final entry in const [
+      ('hongguo', '红果'),
+      ('hgtv', 'HGTV'),
+      ('hgtvmirror', '红果镜像'),
+      ('maoguo', '猫果'),
+      ('fanguo', '饭果'),
+      ('guanguo', '观果'),
+      ('heguo', '河果'),
+      ('xingguo', '星果'),
+      ('huaguo', '花果'),
+      ('wangguo', '网果'),
+      ('faguo', '发果'),
+      ('wuguo', '伍果'),
+    ]) {
+      expect(isFilmVideoSite(entry.$1, entry.$2), isFalse, reason: entry.$1);
+    }
+    // 种子/jar 行 id 先归一化再判，不再只靠名字兜底。
+    expect(isFilmVideoSite('seed_yaguo', '芽果'), isFalse);
+    expect(isFilmVideoSite('seed_aiyinhang', '🔞AI淫航'), isFalse);
+    expect(isFilmVideoSite('seed_sexaix', '🔞幻影AI'), isFalse);
+    expect(isFilmVideoSite('jar:zakatv:ZakaHddj', '🔞黄豆短剧'), isFalse);
+    expect(isFilmVideoSite('seed_xojav', '🔞XOJAV'), isTrue);
+    expect(isFilmVideoSite('jar:zakatv:ZakaXxx', '🔞X站'), isTrue);
   });
 }

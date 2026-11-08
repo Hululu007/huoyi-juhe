@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/media_item.dart';
@@ -118,8 +120,21 @@ class _PicsViewerPageState extends State<PicsViewerPage> {
                         : PageView.builder(
                             controller: _controller,
                             itemCount: _urls.length,
-                            onPageChanged: (page) =>
-                                setState(() => _page = page),
+                            onPageChanged: (page) {
+                              setState(() => _page = page);
+                              // 看到当前页就预取下 1–2 页的图片字节，
+                              // 翻页不再现下现等；失败静默，不管它。
+                              for (var i = 1; i <= 2; i++) {
+                                final next = page + i;
+                                if (next >= _urls.length) break;
+                                unawaited(
+                                  precacheImage(
+                                    NetworkImage(_urls[next]),
+                                    context,
+                                  ).then((_) {}, onError: (_) {}),
+                                );
+                              }
+                            },
                             itemBuilder: (_, i) => InteractiveViewer(
                               child: Center(
                                 child: Image.network(

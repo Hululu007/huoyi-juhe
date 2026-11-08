@@ -8,6 +8,7 @@ import '../../models/media_item.dart';
 import '../../services/episode_source_cache.dart';
 import '../../services/inline_video_playback.dart';
 import '../../services/library_store.dart';
+import '../../services/local_media_proxy.dart';
 import '../../services/native_player.dart';
 import '../../services/player_history.dart';
 import '../../services/shell_proxy_url.dart';
@@ -417,12 +418,15 @@ class FilmInlinePlayerState extends State<FilmInlinePlayer> {
   }
 
   Widget _poster() {
-    // 封面也可能是 jar 蜘蛛包的旧壳代理地址（127.0.0.1:9978），本应用
-    // 没有服务在听那个端口；解包后用真实地址 + Referer 直取。
-    final unwrapped = unwrapShellProxyUrl(widget.coverUrl);
+    // 封面形态不止旧壳代理一种（proxy://、http 明文图、回环不透明
+    // 形态都会在手机上失败），统一走 resolveCoverUrl 换地址。
+    final resolved = resolveCoverUrl(
+      widget.coverUrl,
+      proxyBase: LocalMediaProxy.instance.baseUrl,
+    );
     return CachedNetworkImage(
-      imageUrl: unwrapped?.url ?? widget.coverUrl,
-      httpHeaders: unwrapped?.headers,
+      imageUrl: resolved.url,
+      httpHeaders: resolved.headers,
       fit: BoxFit.cover,
       errorWidget: (_, _, _) => const ColoredBox(color: Colors.black),
       placeholder: (_, _) => const ColoredBox(color: Colors.black),

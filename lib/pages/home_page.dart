@@ -344,8 +344,31 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
     unawaited(HomeContinuePreferences.instance.load());
     unawaited(
-      DramaSitePreferences.load().then((_) {
-        if (mounted) setState(() => _dramaSiteId = DramaSitePreferences.selectedId);
+      DramaSitePreferences.load().then((_) async {
+        if (!mounted) return;
+        // 以前短剧药丸混着影视站，存过的选择可能是影视站：不在
+        // 短剧表里就回落到第一个短剧站并持久化，短剧区不再接着
+        // 播影视站的内容。
+        await SourceRegistry.instance.load();
+        if (!mounted) return;
+        final sites = SourceRegistry.instance.visibleShortDramaSites(
+          types: {ContentType.video, ContentType.mixed},
+        );
+        final picked = DramaSitePreferences.selectedId;
+        if (sites.any((site) => site.id == picked)) {
+          setState(() => _dramaSiteId = picked);
+          return;
+        }
+        final fallback = sites.isEmpty ? 'original' : sites.first.id;
+        await DramaSitePreferences.save(fallback);
+        if (!mounted) return;
+        setState(() {
+          _dramaSiteId = fallback;
+          _dramaCategoryId =
+              dramaSiteById(fallback).categories.first.id;
+          _engineCategories = null;
+          _engineCategoriesSiteId = '';
+        });
       }),
     );
     unawaited(_loadFilmSite());
@@ -613,13 +636,13 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
-  /// 短剧站点列表：点药丸弹居中弹窗，站点四列网格，
-  /// 点一项即切换药丸并持久化。
+  /// 短剧站点列表：只列短剧站，影视站不进（`visibleShortDramaSites`）。
+  /// 点药丸弹居中弹窗，站点四列网格，点一项即切换药丸并持久化。
   Future<void> _openSiteList() async {
     await SourceRegistry.instance.load();
     if (!mounted) return;
     final sites = SourceRegistry.instance
-        .visibleDramaSites(
+        .visibleShortDramaSites(
           types: {ContentType.video, ContentType.mixed},
         )
         .where((site) {

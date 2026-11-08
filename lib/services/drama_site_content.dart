@@ -164,11 +164,18 @@ Future<String?> findSiteCategoryIdForName(
 /// 空 tid 在个别站（如 mjv011）上拼不出有效地址，只有这一步对
 /// py 站也生效）；仍取不到回空列表，详情页不画推荐区。排除本片、
 /// 按 id 去重、最多 [maxItems] 条。
+///
+/// [allowCatalogFallback] 默认 true（影视站老行为，测试钉住）。
+/// 阅读站（小说/漫画/听书）的详情 extra 是空 `{}`，本来就没有
+/// 分类信号，两步兜底等于在详情页固定多抓两次上游首页/分类，
+/// 对“相关”毫无意义还拖慢详情页；阅读站调用方传 false，
+/// 同分类取不到直接回空。
 Future<List<DramaSiteItem>> loadSiteRelatedItems(
   DramaSiteContentClient client,
   DramaSiteDetail detail,
   String selfId, {
   int maxItems = 10,
+  bool allowCatalogFallback = true,
 }) async {
   List<DramaSiteItem> pick(List<DramaSiteItem> items) {
     final seen = <String>{};
@@ -209,6 +216,7 @@ Future<List<DramaSiteItem>> loadSiteRelatedItems(
   } catch (_) {
     // 同分类取不到就退首页，不把失败当结果。
   }
+  if (!allowCatalogFallback) return const <DramaSiteItem>[];
   // 兜底一：本站首页。jar 站走 homeVideoContent；py / 核心 / JS 站
   // 把 'all' 转成空串走首页。
   try {

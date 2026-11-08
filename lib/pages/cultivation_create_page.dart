@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../services/cultivation.dart';
 import '../services/cultivation_bgm.dart';
-import '../widgets/standing_character.dart';
+import '../widgets/game_hero_portrait.dart';
 
 /// 首次安装全屏创建人物界面：按凡人修仙传网页游戏（2010）选职业界面
 /// charsel_1 定版——仙山飘渺背景 + 粒子特效，中央是站立大人物
@@ -240,15 +240,10 @@ class _CultivationCreatePageState extends State<CultivationCreatePage>
           ),
         ),
         const SizedBox(height: 2),
-        StandingCharacter(
+        GameHeroFullPortrait(
+          isFemale: _gender == CultivationGender.female,
           width: 250,
           height: 300,
-          isFemale: _gender == CultivationGender.female,
-          costume: cultivationCostumeById(_costumeId),
-          profession: _profession,
-          face: _face,
-          hairstyle: _hairstyle,
-          hairColor: cultivationHairColorById(_hairColorId),
         ),
         Text(
           _profession,
@@ -688,16 +683,9 @@ class _ProfessionCard extends StatelessWidget {
         ),
         child: Column(
           children: [
-            StandingCharacter(
-              width: 48,
-              height: 66,
+            GameHeroPortrait(
               isFemale: isFemale,
-              costume: costume,
-              profession: profession,
-              face: face,
-              hairstyle: hairstyle,
-              hairColor: hairColor,
-              autoCastSkill: false,
+              size: 56,
             ),
             const SizedBox(height: 2),
             Text(

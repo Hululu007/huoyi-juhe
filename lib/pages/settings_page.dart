@@ -21,7 +21,6 @@ import '../services/drama_mute_preferences.dart';
 import '../services/library_store.dart';
 import '../widgets/home/home_design.dart';
 import '../widgets/settings/settings_widgets.dart';
-import 'about_page.dart';
 import 'api_service_page.dart';
 import 'cached_books_page.dart';
 import 'cached_dramas_page.dart';
@@ -211,13 +210,6 @@ class SettingsPage extends StatelessWidget {
         title: '服务',
         subtitle: '本地接口地址与可用端点',
         pageBuilder: (_) => const ApiServicePage(),
-        items: const [],
-      ),
-      SettingsCategory(
-        icon: LucideIcons.info,
-        title: '关于',
-        subtitle: '版本与应用信息',
-        pageBuilder: (_) => const AboutPage(),
         items: const [],
       ),
     ];
@@ -1046,10 +1038,6 @@ class SettingsPage extends StatelessWidget {
       }
     }
   }
-
-  // ── 关于 ──────────────────────────────────────────────────────────────
-  // The About category opens the About page directly via its pageBuilder;
-  // no category-page items are needed.
 }
 
 /// 主题模式的可选项：三种深浅色模式 + 墨水屏。墨水屏本不是 ThemeMode，

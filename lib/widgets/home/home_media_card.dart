@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
 
 import '../../models/media_item.dart';
+import '../../services/local_media_proxy.dart';
 import '../../services/poster_cache.dart';
 import '../../services/shell_proxy_url.dart';
 import '../cover_tag_chip.dart';
@@ -68,14 +69,20 @@ class StoryCover extends StatelessWidget {
       ),
     );
     if (item.cover.isEmpty) return fallback;
-    // jar 蜘蛛常把封面包成旧壳本地代理地址（127.0.0.1:9978/proxy?...），
-    // 本应用没有服务在听那个端口，直取永远失败（棕色占位图）；解包后
-    // 用真实地址 + Referer 直取，解不开的原样用原地址。
-    final unwrapped = unwrapShellProxyUrl(item.cover);
+    // 蜘蛛给的封面形态不止一种：旧壳代理地址（127.0.0.1/proxy?p=）、
+    // proxy://do=py 形态（danai 加密图）、http 明文图（系统禁明文直取）、
+    // 回环 proxy 不透明形态（蜘蛛写死 9978 端口）。只解 p= 包的
+    // 老路会让后三种在手机上永远失败（棕色占位图），统一走
+    // resolveCoverUrl 换成图片组件能直接取的地址；本地代理没起
+    // 来时退化为老行为。
+    final resolved = resolveCoverUrl(
+      item.cover,
+      proxyBase: LocalMediaProxy.instance.baseUrl,
+    );
     return CachedNetworkImage(
       cacheManager: PosterCache.instance,
-      imageUrl: unwrapped?.url ?? item.cover,
-      httpHeaders: unwrapped?.headers,
+      imageUrl: resolved.url,
+      httpHeaders: resolved.headers,
       fit: fit,
       alignment: alignment,
       memCacheWidth: cacheWidth.clamp(1, 1200),

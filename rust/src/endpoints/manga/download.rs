@@ -7,7 +7,10 @@ use super::*;
 /// How many chapter images are downloaded, decrypted and written at once.
 /// Each image is independent and network-bound, so a small window hides the
 /// round-trip latency without opening an unbounded number of connections.
-const IMAGE_DOWNLOAD_CONCURRENCY: usize = 4;
+/// 4 → 12（2026-11-08 加载慢修法）：一章常有 85 张图，4 并发下开章
+/// 要等整章下完才出首图；图片各自独立、只受网络限制，12 并发仍在
+/// 合理范围，首图时间随并发数线性下降。
+const IMAGE_DOWNLOAD_CONCURRENCY: usize = 12;
 
 /// Keeps up to `limit` downloads active, refilling on any completion rather
 /// than waiting for a slow image's batch. Results retain their input order.

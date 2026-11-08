@@ -127,20 +127,26 @@ class _AudioPlaybackController extends ChangeNotifier
   final Map<String, AudioSource> _audioSourceCache = {};
   Timer? _sleepTimerTick;
 
+  /// 预取后 2 章的取流地址进缓存（只缓存 URL 字符串，不建播放器、
+  /// 不拉音频字节——真预缓冲见 _syncListenClock 的放宽触发与
+  /// 章末倒计时；URL 缓存让换章少一次 playinfo 往返）。
+  /// 之前只预取 +1 章、缓存上限 5 条，连播长书时刚预取就被顶掉。
   void _prefetchNextAudioChapter() {
-    if (request.sourceLoader != null ||
-        !_autoAdvance ||
-        _index + 1 >= _chapters.length) {
+    if (request.sourceLoader != null || !_autoAdvance) {
       return;
     }
-    final nextId = _chapters[_index + 1].itemId;
-    final cacheKey = '$nextId|$_toneId';
-    if (_audioSourceCache.containsKey(cacheKey)) return;
-    unawaited(
-      _loadSourceWithRetry(
-        nextId,
-      ).catchError((Object _) => AudioSource(itemId: nextId, url: '')),
-    );
+    for (var offset = 1; offset <= 2; offset++) {
+      final nextIndex = _index + offset;
+      if (nextIndex >= _chapters.length) break;
+      final nextId = _chapters[nextIndex].itemId;
+      final cacheKey = '$nextId|$_toneId';
+      if (_audioSourceCache.containsKey(cacheKey)) continue;
+      unawaited(
+        _loadSourceWithRetry(
+          nextId,
+        ).catchError((Object _) => AudioSource(itemId: nextId, url: '')),
+      );
+    }
   }
 
   /// Resolves the listening-page decorations. See [AudioExtras].
@@ -693,7 +699,7 @@ class _AudioPlaybackController extends ChangeNotifier
       result = await _fetchSource(itemId, tone);
     }
     _audioSourceCache[cacheKey] = result;
-    while (_audioSourceCache.length > 5) {
+    while (_audioSourceCache.length > 10) {
       _audioSourceCache.remove(_audioSourceCache.keys.first);
     }
     return result;
@@ -999,9 +1005,13 @@ class _AudioPlaybackController extends ChangeNotifier
         player.playing &&
         !player.buffering) {
       _listenTime.start();
-      _prefetchNextAudioChapter();
     } else {
       _listenTime.stop();
+    }
+    // 预取不等起播：本章还在缓冲时就把后 2 章的取流地址先取回来，
+    // 之前要求 playing 且 !buffering，缓冲久时预取根本不启动。
+    if (_wantPlay && !_loading && _error == null && player != null) {
+      _prefetchNextAudioChapter();
     }
   }
 

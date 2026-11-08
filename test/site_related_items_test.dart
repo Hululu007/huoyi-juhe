@@ -199,6 +199,26 @@ void main() {
     expect(client.catalogCalls, ['all']);
   });
 
+  test('阅读站关掉兜底：详情无分类无标签时不再拉首页/分类', () async {
+    final client = _StubClient(
+      categoriesResult: const [DramaSiteCategory('c1', '动漫')],
+      catalogByCategory: const {
+        'c1': [DramaSiteItem(id: 'a', title: '同类一', cover: '')],
+      },
+      homeItems: const [
+        DramaSiteItem(id: 'h1', title: '首页一', cover: ''),
+      ],
+    );
+    final related = await loadSiteRelatedItems(
+      client,
+      _detailWith(),
+      'self',
+      allowCatalogFallback: false,
+    );
+    expect(related, isEmpty);
+    expect(client.catalogCalls, isEmpty);
+  });
+
   test('全部取不到时回空列表', () async {
     final client = _StubClient(throwOnCatalog: true);
     final related = await loadSiteRelatedItems(

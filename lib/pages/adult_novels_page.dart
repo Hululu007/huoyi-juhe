@@ -57,7 +57,26 @@ String _adultKindKey(ContentType type) => switch (type) {
 /// 成人聚合页（_AdultTypeGrid）与首页三 tab 下的卡片轨道
 /// （AdultCardRailSliver）共用同一份取数，不各写一套；站表、分类、
 /// 内容源、门禁逻辑都不在这里动，只取数。
-Future<List<MediaItem>> loadAdultReadingItems(ContentType type) async {
+///
+/// 加载慢修法（2026-11-08）：结果按类进内存缓存（TTL 5 分钟），
+/// 轨道与聚合页共用同一份缓存，进页不再各抓一轮；聚合页走
+/// [loadAdultReadingItemsStream] 逐站先回先画，不再等最慢的站。
+final _adultReadingCache =
+    <ContentType, ({DateTime at, List<MediaItem> items})>{};
+
+bool _adultCacheFresh(ContentType type) {
+  final entry = _adultReadingCache[type];
+  return entry != null &&
+      DateTime.now().difference(entry.at) < const Duration(minutes: 5);
+}
+
+/// 成人聚合取数的站任务表（核心站 + 登记源，各站独立 Future）。
+///
+/// [loadAdultReadingItems] 与 [loadAdultReadingItemsStream] 共用，
+/// 两处不再各写一套扇出逻辑。
+Future<List<Future<List<MediaItem>>>> _adultReadingJobs(
+  ContentType type,
+) async {
   await SourceRegistry.instance.load();
   final sources = adultRecommendSources(
     SourceRegistry.instance.custom,
@@ -65,14 +84,15 @@ Future<List<MediaItem>> loadAdultReadingItems(ContentType type) async {
   );
 
   /// 首分类第一页：只取首分类时，首分类恰好为空（站方改版、该分类
-  /// 下线）整站就被判空。按序试前四个分类，拿到非空第一页即停；
+  /// 下线）整站就被判空。按序试前两个分类，拿到非空第一页即停；
   /// 'author' 是 hsvoice31 的主播索引，里面是 folder 项不是作品，
   /// 跳过（作品分类 home/toplist/latest 都在它之前或之后）。
+  /// 只试 2 个不试 4 个：单站最多 2 次串行抓取，空分类不再拖墙钟。
   Future<List<DramaSiteItem>> firstPageItems(
     DramaSiteContentClient client,
   ) async {
     final categories = await client.categories();
-    for (final category in categories.take(4)) {
+    for (final category in categories.take(2)) {
       if (category.id == 'author') continue;
       final page = await client.catalog(category.id, 1);
       if (page.items.isNotEmpty) return page.items.take(20).toList();
@@ -123,13 +143,50 @@ Future<List<MediaItem>> loadAdultReadingItems(ContentType type) async {
     onTimeout: () => const <MediaItem>[],
   );
 
-  final results = await Future.wait([
+  return [
     ...coreSiteIds.map((id) => timed(fetchCore(id))),
     ...sources.map((entry) => timed(fetch(entry))),
-  ]);
-  return [
+  ];
+}
+
+Future<List<MediaItem>> loadAdultReadingItems(ContentType type) async {
+  final cached = _adultReadingCache[type];
+  if (cached != null && _adultCacheFresh(type)) return cached.items;
+  final jobs = await _adultReadingJobs(type);
+  final results = await Future.wait(jobs);
+  final items = [
     for (final list in results) ...list,
   ].take(60).toList();
+  _adultReadingCache[type] = (at: DateTime.now(), items: items);
+  return items;
+}
+
+/// 逐站先回先画的流式版：每站回来立刻吐一波，调用方边收边画，
+/// 首屏不再等最慢的站；缓存命中时只吐一次全量。聚合页用它，
+/// 轨道仍用 [loadAdultReadingItems]（同一份缓存，不重复抓）。
+Stream<List<MediaItem>> loadAdultReadingItemsStream(
+  ContentType type,
+) async* {
+  final cached = _adultReadingCache[type];
+  if (cached != null && _adultCacheFresh(type)) {
+    yield cached.items;
+    return;
+  }
+  final jobs = await _adultReadingJobs(type);
+  final pending = jobs.toList();
+  final all = <MediaItem>[];
+  while (pending.isNotEmpty) {
+    final first = await Future.any(
+      pending.map((job) => job.then((items) => (job: job, items: items))),
+    );
+    pending.remove(first.job);
+    all.addAll(first.items);
+    yield first.items;
+  }
+  _adultReadingCache[type] = (
+    at: DateTime.now(),
+    items: all.take(60).toList(),
+  );
 }
 
 /// 点成人卡走站内详情链路（source 带 `engine:` 前缀才进，不进番茄详情页）。
@@ -375,11 +432,19 @@ class _AdultTypeGridState extends State<_AdultTypeGrid> {
       }
       return;
     }
+    // 流式取数：每站回来立刻画一波，不等最慢的站；缓存命中时
+    // 流只吐一次全量，与原来一次到位的外观一致。
     try {
-      final items = await loadAdultReadingItems(widget.type);
+      _items = const [];
+      await for (final batch in loadAdultReadingItemsStream(widget.type)) {
+        if (!mounted) return;
+        setState(() {
+          _items = [..._items, ...batch].take(60).toList();
+          _loading = false;
+        });
+      }
       if (!mounted) return;
       setState(() {
-        _items = items;
         _loading = false;
       });
     } catch (_) {

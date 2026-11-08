@@ -8,7 +8,7 @@ import '../services/game_data.dart';
 import '../services/game_service.dart';
 import '../services/game_sound.dart';
 import '../widgets/game_battle_stage.dart';
-import '../widgets/standing_character.dart';
+import '../widgets/game_hero_portrait.dart';
 
 /// 凡人修仙挂机游戏页：全屏 2.5D 俯视战场（见 [GameBattleStage]），
 /// 顶部是元宝 / 境界 + 静音 / 离开 / 金色“观影”切换钮，
@@ -1074,14 +1074,13 @@ class _ProfileSheet extends StatelessWidget {
                   ),
                 ),
                 child: Center(
-                  child: StandingCharacter(
-                    width: 130,
-                    height: 210,
-                    isFemale:
-                        snapshot.gender == CultivationGender.female,
-                    costume: cultivationCostumeById(snapshot.costumeId),
-                    profession: snapshot.profession,
-                    autoCastSkill: true,
+                  child: ClipOval(
+                    child: GameHeroFullPortrait(
+                      isFemale:
+                          snapshot.gender == CultivationGender.female,
+                      width: 170,
+                      height: 220,
+                    ),
                   ),
                 ),
               ),

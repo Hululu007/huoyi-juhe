@@ -42,25 +42,18 @@ List<SourceEntry> midnightJarVideoSites(List<SourceEntry> entries) {
   ];
 }
 
-/// 影视区不含短剧：5 个果站（黄豆/剧果/野果/芽果/牛果）是短剧站，
-/// 显示名带「短剧」的站也是短剧站，两者都不进影视区。短剧区
-/// （短剧 tab）原样不动，这里只管影视区自己的站表，不碰短剧区。
-const _shortDramaVideoSiteIds = <String>{
-  'huangdou',
-  'huangju',
-  'yeguo',
-  'yaguo',
-  'niuguo',
-};
-
 /// 该站是不是影视站（电影/剧集）：短剧站返回 false。
-/// 判据只有两条——5 个果站 id、显示名含「短剧」；其余站原样保留，
-/// 不按分类名/标题再筛。
+/// 判据走短剧区共用的 [isShortDramaSite]，行 id 先归一化成裸 id
+/// 再判：种子行 `seed_yaguo`→`yaguo`、jar 行
+/// `jar:zakatv:ZakaHddj`→`hddj`，否则 id 判据永远对不上、只剩
+/// 名字兜底（芽果/AI淫航/幻影AI 这种名字不带「短剧」的短剧站
+/// 就漏进影视区）；红果/HGTV/猫果等果站名字里也没有「短剧」，
+/// 同样靠裸 id 判据拦。
 bool isFilmVideoSite(String id, String name) =>
-    !_shortDramaVideoSiteIds.contains(id) && !name.contains('短剧');
+    !isShortDramaSite(adultSiteIdForUnifiedId(id), name);
 
-/// 影视区内置站：核心影视站（只留影视，短剧已摘掉；黄豆等 5 个
-/// 果站是短剧站，不进核心也不在这里）。顺序跟登记表
+/// 影视区内置站：核心影视站（只留影视，短剧已摘掉；判据走
+/// [isFilmVideoSite]，与短剧区共用同一份短剧判据）。顺序跟登记表
 /// 一致，只列影视站，不动主列表“只列用户导入站”的规则。
 /// 默认选中仍是保存过的选择，没有保存过才取第一个。
 List<DramaSite> videoZoneSites() {
@@ -92,8 +85,8 @@ List<SourceEntry> builtinImportedVideoSites(List<SourceEntry> entries) {
 
 /// 影视区统一站表：午夜区就是影视区，不再分两块。内置影视站
 /// 在前、午夜 jar 视频站次之、内置导入视频站在后，按 id 去重，
-/// 供统一切换器与网格共用。三路都只留影视站，显示名带「短剧」
-/// 的一律摘掉（短剧归短剧区，影视区只放影视）。
+/// 供统一切换器与网格共用。三路都只留影视站，短剧站一律摘掉
+/// （判据走 [isFilmVideoSite]，与短剧区共用同一份短剧判据）。
 List<({String id, String name})> unifiedVideoZoneSites(
   List<SourceEntry> customEntries,
 ) {

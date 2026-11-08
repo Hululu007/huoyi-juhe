@@ -1,7 +1,9 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
+import '../../services/local_media_proxy.dart';
 import '../../services/poster_cache.dart';
+import '../../services/shell_proxy_url.dart';
 
 /// The same cover is used during loading and while swiping adjacent pages.
 /// A bounded decode avoids keeping a full-resolution poster per page.
@@ -18,22 +20,31 @@ class PlayerCover extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => Stack(
-    fit: StackFit.expand,
-    children: [
-      const DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFF27242C), Color(0xFF101014)],
+  Widget build(BuildContext context) {
+    // 播放器封面同样可能来自 proxy://、http 明文图等形态，统一换地址。
+    final resolved = url.isEmpty
+        ? (url: '', headers: null)
+        : resolveCoverUrl(
+            url,
+            proxyBase: LocalMediaProxy.instance.baseUrl,
+          );
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        const DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFF27242C), Color(0xFF101014)],
+            ),
           ),
         ),
-      ),
-      if (url.isNotEmpty)
-        CachedNetworkImage(
-          cacheManager: PosterCache.instance,
-          imageUrl: url,
+        if (resolved.url.isNotEmpty)
+          CachedNetworkImage(
+            cacheManager: PosterCache.instance,
+            imageUrl: resolved.url,
+            httpHeaders: resolved.headers,
           fit: BoxFit.cover,
           memCacheWidth: 720,
           fadeInDuration: Duration.zero,
@@ -70,5 +81,6 @@ class PlayerCover extends StatelessWidget {
           ),
         ),
     ],
-  );
+    );
+  }
 }

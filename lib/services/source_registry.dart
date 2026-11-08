@@ -713,6 +713,21 @@ class SourceRegistry {
     return sites;
   }
 
+  /// 短剧区站表：只留短剧站，影视站不进。
+  ///
+  /// 在 [visibleDramaSites] 之上按短剧判据过滤：裸 id 在短剧集里
+  /// 或名字带「短剧」的才留；种子/jar 行先归一化成裸 id 再判
+  /// （`seed_yaguo`→`yaguo`、`jar:zakatv:ZakaHddj`→`hddj`）。
+  /// [visibleDramaSites] 本身不动：站源搜索要搜全部站。
+  List<DramaSite> visibleShortDramaSites({Set<ContentType>? types}) {
+    final out = <DramaSite>[];
+    for (final site in visibleDramaSites(types: types)) {
+      final bareId = adultSiteIdForUnifiedId(site.id);
+      if (isShortDramaSite(bareId, site.name)) out.add(site);
+    }
+    return out;
+  }
+
   List<SourceEntry> builtinEntries() => [
     for (final site in dramaSites)
       SourceEntry(

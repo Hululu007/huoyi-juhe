@@ -7,7 +7,7 @@ import 'package:flutter_lucide/flutter_lucide.dart';
 import '../services/cultivation.dart';
 import '../services/game_data.dart';
 import '../services/game_sound.dart';
-import 'standing_character.dart';
+import 'game_hero_portrait.dart';
 
 /// 一次出招的结算（页面用来记修为/元宝时可忽略，真正结算
 /// 走 [GameBattleStage.onMonsterKilled] 后的服务层）。
@@ -37,8 +37,19 @@ class BattleStrike {
 /// 人物很小（约占画面十分之一），3-4 人紧贴 BOSS 围成半弧
 /// 贴身打，BOSS 居中偏上；全程自动战斗自动寻路，不用手操作。
 /// 人物改小（用户看截图说原来太大互相重叠）：主角 46×58、
-/// 队友 38×48、BOSS 96×112，名牌栏 96 宽、9px 小字不截断
+/// 队友 38×48、BOSS 120×140，名牌栏 96 宽、9px 小字不截断
 /// 不压叠；50 个托机器人只在地图五条边缘带活动，不进中央。
+///
+/// 人物图：用户发来的豆包 AI 生成图——男白发 Q 版小男孩持剑
+/// 浅蓝道袍、女白发 Q 版小女孩浅蓝道袍站云上，选男用男图、
+/// 选女用女图；战场上缩成金环圆形徽章（只占画面高度十分之一
+/// 左右），创建页 / 人物页 / 档案卡同源整幅图。
+/// 怪物：不再用原来那个造型，每只怪按 id 随机一种动漫野兽
+/// （狼兽 / 狐兽 / 虎兽 / 蛟龙 / 蛛兽 / 雷鸟），BOSS 大一圈。
+///
+/// 技能特效要酷：剑气又长又亮带拖尾，万剑归宗满屏飞剑，
+/// 大庚剑阵金色剑阵铺开，乾蓝冰焰蓝白火焰加冰晶，辟邪神雷
+/// 紫白闪电从天劈下，绝招全屏大光效加震屏，命中爆裂光加飘字。
 ///
 /// 界面布局照视频里来：
 /// - 中央金字“自动战斗中…/自动寻路中…”；
@@ -472,6 +483,12 @@ class _GameBattleStageState extends State<GameBattleStage>
       _ultStrike(skill, damage * 2, isCrit);
       return;
     }
+    // 万剑归宗：满屏飞剑落下，单独走剑雨，不走单发。
+    if (skill.id == 'wanjian') {
+      unawaited(GameSoundService.instance.playSkill(skill.id));
+      _swordRain(damage, isCrit);
+      return;
+    }
     final kind = switch (skill.id) {
       'bixie' => _ProjectileKind.lightning,
       'qianlan' || 'zhenmo' => _ProjectileKind.flame,
@@ -485,11 +502,57 @@ class _GameBattleStageState extends State<GameBattleStage>
     if (skill.id == 'taiyang') {
       _spawnBurst(_BurstKind.goldRing, _monsterCenter);
     }
+    // 大庚剑阵：金色剑阵铺开 + 金环罩队。
+    if (skill.id == 'dageng') {
+      _spawnBurst(_BurstKind.swordArray, _monsterCenter);
+      _halo.forward(from: 0);
+    }
+    // 乾蓝冰焰：蓝白火焰加冰晶爆开。
+    if (skill.id == 'qianlan') {
+      _spawnBurst(_BurstKind.iceCrystal, _monsterCenter);
+    }
+    // 辟邪神雷：紫白闪电从天劈下。
+    if (skill.id == 'bixie') {
+      _spawnBurst(_BurstKind.lightningStrike, _monsterCenter);
+    }
     _launchProjectile(
       kind,
       _heroCenter,
       () => _applyDamage(damage, isCrit: isCrit, skillName: skill.name),
     );
+  }
+
+  /// 万剑归宗：12 把飞剑从屏幕上方满屏落下，只最后一把结算
+  /// 伤害，其余只看剑雨特效。
+  void _swordRain(
+    int damage,
+    bool isCrit, {
+    bool isUlt = false,
+    String skillName = '',
+  }) {
+    final random = math.Random();
+    for (var i = 0; i < 12; i++) {
+      final isLast = i == 11;
+      Future<void>.delayed(Duration(milliseconds: 70 * i), () {
+        if (!mounted || _monsterDying) return;
+        _launchProjectile(
+          _ProjectileKind.sword,
+          Offset(
+            _arenaSize.width * (0.12 + random.nextDouble() * 0.76),
+            -10,
+          ),
+          isLast
+              ? () => _applyDamage(
+                    damage,
+                    isCrit: isCrit,
+                    isUlt: isUlt,
+                    skillName: skillName,
+                  )
+              : null,
+          dyOffset: random.nextDouble() * 40 - 20,
+        );
+      });
+    }
   }
 
   /// 队友机器人出招：从队友站位发一枚小法宝，打中飘小伤害数字。
@@ -566,12 +629,30 @@ class _GameBattleStageState extends State<GameBattleStage>
     unawaited(GameSoundService.instance.playSkill(skill.id));
     _showUltBanner(skill.name);
     _halo.forward(from: 0);
+    // 绝招：全屏大光效 + 震屏（开场先闪一下，350ms 后收）。
+    setState(() => _impactFlash = true);
+    _shake.forward(from: 0);
+    Future<void>.delayed(const Duration(milliseconds: 350), () {
+      if (mounted) setState(() => _impactFlash = false);
+    });
+    // 万剑归宗当绝招：满屏剑雨。
+    if (skill.id == 'wanjian') {
+      _swordRain(damage, isCrit, isUlt: true, skillName: skill.name);
+      return;
+    }
+    // 大庚剑阵当绝招：金色剑阵铺开。
+    if (skill.id == 'dageng') {
+      _spawnBurst(_BurstKind.swordArray, _monsterCenter);
+    }
     final perWave = (damage / 3).ceil();
-    const kinds = <_ProjectileKind>[
-      _ProjectileKind.sword,
-      _ProjectileKind.lightning,
-      _ProjectileKind.flame,
-    ];
+    // 大庚剑阵三波全是飞剑，其余三波剑 / 雷 / 焰轮着轰。
+    final kinds = skill.id == 'dageng'
+        ? const <_ProjectileKind>[_ProjectileKind.sword]
+        : const <_ProjectileKind>[
+            _ProjectileKind.sword,
+            _ProjectileKind.lightning,
+            _ProjectileKind.flame,
+          ];
     for (var wave = 0; wave < 3; wave++) {
       final waveDamage = wave == 2 ? damage - perWave * 2 : perWave;
       Future<void>.delayed(Duration(milliseconds: 350 * wave), () {
@@ -689,17 +770,22 @@ class _GameBattleStageState extends State<GameBattleStage>
       // 大招音效已在出招时放过，这里只补命中音。
       unawaited(GameSoundService.instance.playHit());
     } else if (isCrit) {
+      // 暴击：红爆炸 + 金闪光 + 震屏，命中爆裂光加飘字。
       unawaited(GameSoundService.instance.playCrit());
       _spawnBurst(_BurstKind.redBlast, _monsterCenter);
+      _spawnBurst(_BurstKind.goldFlash, _monsterCenter);
+      _shake.forward(from: 0);
     } else if (!isBot) {
       unawaited(GameSoundService.instance.playHit());
+      // 普通命中也有白金爆裂星光。
+      _spawnBurst(_BurstKind.hitSpark, _monsterCenter);
     }
     _addFloater(
       '-$damage',
       isCrit
           ? const Color(0xFFFFD54F)
           : const Color(0xFFFFB300),
-      isCrit ? 20 : (isBot ? 12 : 16),
+      isCrit ? 24 : (isBot ? 12 : 18),
     );
     if (isCrit) _shake.forward(from: 0);
     if (!isBot) {
@@ -851,9 +937,9 @@ class _GameBattleStageState extends State<GameBattleStage>
   static const double _botW = 38;
   static const double _botH = 48;
 
-  /// BOSS 立绘宽高（比人物大，居中偏上；照网页版改小那轮：96 宽）。
-  static const double _bossW = 96;
-  static const double _bossH = 112;
+  /// BOSS 立绘宽高（比人物大一圈，居中偏上）。
+  static const double _bossW = 120;
+  static const double _bossH = 140;
 
   /// 头顶名牌栏宽（比立绘宽，名字才放得下不截断；
   /// 三人名牌各隔 0.26 屏宽，96 宽不互相压叠）。
@@ -1001,10 +1087,10 @@ class _GameBattleStageState extends State<GameBattleStage>
                   builder: (context, _) {
                     final t = _halo.value;
                     return Positioned(
-                      left: _arenaSize.width / 2 - 150,
-                      top: _arenaSize.height * 0.27 - 100,
-                      width: 300,
-                      height: 300,
+                      left: _arenaSize.width / 2 - 190,
+                      top: _arenaSize.height * 0.27 - 125,
+                      width: 380,
+                      height: 380,
                       child: Opacity(
                         opacity: t == 0 ? 0 : (1 - t) * 0.9,
                           child: CustomPaint(
@@ -1194,13 +1280,9 @@ class _GameBattleStageState extends State<GameBattleStage>
             _FighterFigure(
               width: _heroW,
               height: _heroH,
-              child: StandingCharacter(
-                width: _heroW,
-                height: _heroH,
+              child: GameHeroPortrait(
                 isFemale: widget.heroIsFemale,
-                costume: widget.heroCostume,
-                profession: widget.profession,
-                autoCastSkill: true,
+                size: _heroW,
               ),
             ),
           ],
@@ -1249,13 +1331,9 @@ class _GameBattleStageState extends State<GameBattleStage>
           _FighterFigure(
             width: _botW,
             height: _botH,
-            child: StandingCharacter(
-              width: _botW,
-              height: _botH,
+            child: GameHeroPortrait(
               isFemale: bot.isFemale,
-              costume: cultivationCostumeById(bot.costumeId),
-              profession: bot.profession,
-              autoCastSkill: true,
+              size: _botW,
             ),
           ),
         ],
@@ -1288,7 +1366,7 @@ class _GameBattleStageState extends State<GameBattleStage>
                 height: _bossH,
                 child: CustomPaint(
                   size: const Size(_bossW, _bossH),
-                  painter: _BattleMonsterPainter(monster.kind),
+                  painter: _BattleMonsterPainter(monster),
                 ),
               ),
             ],
@@ -1302,10 +1380,10 @@ class _GameBattleStageState extends State<GameBattleStage>
   Widget _buildSlashArc() {
     final center = _monsterCenter;
     return Positioned(
-      left: center.dx - 36,
-      top: center.dy - 36,
-      width: 72,
-      height: 72,
+      left: center.dx - 58,
+      top: center.dy - 58,
+      width: 116,
+      height: 116,
       child: const CustomPaint(painter: _SlashPainter()),
     );
   }
@@ -1323,15 +1401,22 @@ class _GameBattleStageState extends State<GameBattleStage>
             (to.dy - from.dy) * t -
             math.sin(t * math.pi) * 30 +
             projectile.dyOffset * (1 - t);
+        // 剑气又长又亮（96 宽带拖尾），神雷从天劈下（44x96 竖着），
+        // 冰焰是蓝白火球加冰晶（48 见方）。
+        final (w, h) = switch (projectile.kind) {
+          _ProjectileKind.sword => (96.0, 24.0),
+          _ProjectileKind.lightning => (44.0, 96.0),
+          _ProjectileKind.flame => (48.0, 48.0),
+        };
         return Positioned(
-          left: x - 20,
-          top: y - 12,
-          width: 40,
-          height: 24,
+          left: x - w / 2,
+          top: y - h / 2,
+          width: w,
+          height: h,
           child: switch (projectile.kind) {
             _ProjectileKind.sword => _SwordMissile(),
             _ProjectileKind.lightning => const CustomPaint(
-                size: Size(40, 24),
+                size: Size(44, 96),
                 painter: _LightningPainter(),
               ),
             _ProjectileKind.flame => _FlameMissile(),
@@ -1391,6 +1476,18 @@ class _GameBattleStageState extends State<GameBattleStage>
                       width: 3,
                     ),
                   ),
+                ),
+              _BurstKind.iceCrystal => CustomPaint(
+                  painter: _IceShardPainter(progress: t),
+                ),
+              _BurstKind.lightningStrike => CustomPaint(
+                  painter: _SkyLightningPainter(progress: t),
+                ),
+              _BurstKind.swordArray => CustomPaint(
+                  painter: _SwordArrayPainter(progress: t),
+                ),
+              _BurstKind.hitSpark => CustomPaint(
+                  painter: _SparkPainter(progress: t),
                 ),
             },
           ),
@@ -1724,6 +1821,18 @@ enum _BurstKind {
 
   /// 泰阳诀：金环。
   goldRing,
+
+  /// 乾蓝冰焰：蓝白冰晶爆开。
+  iceCrystal,
+
+  /// 辟邪神雷：紫白闪电从天劈下。
+  lightningStrike,
+
+  /// 大庚剑阵：金色剑阵铺开。
+  swordArray,
+
+  /// 命中：白金爆裂星光。
+  hitSpark,
 }
 
 /// 一个一次性特效。
@@ -2130,52 +2239,122 @@ class _SkillDiamond extends StatelessWidget {
 }
 
 /// 青竹蜂云剑飞弹：绿光剑身。
+/// 剑气飞弹：又长又亮带拖尾——后面 52 宽渐隐绿光拖尾，
+/// 前面 40 宽白绿剑身，带强光晕。
 class _SwordMissile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Transform.rotate(
       angle: -0.35,
-      child: Container(
-        width: 38,
-        height: 7,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(4),
-          gradient: const LinearGradient(
-            colors: [Color(0xFF69F0AE), Color(0xFF00C853), Color(0xFFE8F5E9)],
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.greenAccent.withValues(alpha: 0.7),
-              blurRadius: 10,
-              spreadRadius: 1,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 52,
+            height: 6,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(3),
+              gradient: const LinearGradient(
+                colors: [
+                  Colors.transparent,
+                  Color(0xFF69F0AE),
+                  Color(0xFFE8F5E9),
+                ],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.greenAccent.withValues(alpha: 0.55),
+                  blurRadius: 12,
+                  spreadRadius: 1,
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+          Container(
+            width: 40,
+            height: 9,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(4),
+              gradient: const LinearGradient(
+                colors: [
+                  Color(0xFF69F0AE),
+                  Color(0xFFFFFFFF),
+                  Color(0xFF00C853),
+                ],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.white.withValues(alpha: 0.9),
+                  blurRadius: 16,
+                  spreadRadius: 2,
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-/// 乾蓝冰焰飞弹：蓝色火球。
+/// 乾蓝冰焰飞弹：蓝白火焰球心 + 外圈冰蓝光晕 + 三枚冰晶。
 class _FlameMissile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 22,
-      height: 22,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: const RadialGradient(
-          colors: [Color(0xFFFFFFFF), Color(0xFF4FC3F7), Color(0xFF01579B)],
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.lightBlueAccent.withValues(alpha: 0.8),
-            blurRadius: 14,
-            spreadRadius: 2,
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: const RadialGradient(
+              colors: [
+                Color(0xFFFFFFFF),
+                Color(0xFF4FC3F7),
+                Color(0xFF01579B),
+                Colors.transparent,
+              ],
+              stops: [0.0, 0.45, 0.75, 1.0],
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.lightBlueAccent.withValues(alpha: 0.9),
+                blurRadius: 18,
+                spreadRadius: 3,
+              ),
+            ],
           ),
-        ],
-      ),
+        ),
+        for (final (dx, dy, angle) in [
+          (-16.0, -12.0, 0.5),
+          (16.0, -10.0, -0.6),
+          (0.0, 18.0, 0.2),
+        ])
+          Positioned(
+            left: 24 + dx - 4,
+            top: 24 + dy - 6,
+            child: Transform.rotate(
+              angle: angle,
+              child: Container(
+                width: 8,
+                height: 12,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFB3E5FC),
+                  borderRadius: BorderRadius.circular(2),
+                  border: Border.all(color: Colors.white, width: 1),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.cyanAccent.withValues(alpha: 0.8),
+                      blurRadius: 6,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
@@ -2534,58 +2713,105 @@ class _VortexPainter extends CustomPainter {
       oldDelegate.rotation != rotation;
 }
 
-/// 写实妖兽立绘：鳞甲、獠牙、利爪、发光兽瞳，没有腮红没有大圆眼。
+/// 动漫野兽：每只怪按 id 随机一种动漫野兽造型（狼兽 / 狐兽 /
+/// 虎兽 / 蛟龙 / 蛛兽 / 雷鸟），同一只怪固定同一种，不同怪不
+/// 一样；画法是动漫风——圆身、大眼睛带高光、尖耳 / 角 / 翅膀 /
+/// 尾巴，BOSS 大一圈（120x140）。
 class _BattleMonsterPainter extends CustomPainter {
-  const _BattleMonsterPainter(this.kind);
+  _BattleMonsterPainter(this.monster);
 
-  final GameMonsterKind kind;
+  final GameMonster monster;
+
+  /// 按 id 稳定随机 0..5（codeUnits 求和取模，跨启动不变）。
+  int get variant =>
+      monster.id.codeUnits.fold(0, (a, c) => a * 31 + c).abs() % 6;
 
   @override
   void paint(Canvas canvas, Size size) {
     final cx = size.width / 2;
     final cy = size.height * 0.55;
-    final bodyColor = switch (kind) {
-      GameMonsterKind.wolf => const Color(0xFF5D4037),
-      GameMonsterKind.jiao => const Color(0xFF1B5E20),
-      GameMonsterKind.spider => const Color(0xFF311B92),
-      GameMonsterKind.mantis => const Color(0xFF33691E),
-      GameMonsterKind.ant => const Color(0xFF4E342E),
-      GameMonsterKind.python => const Color(0xFF00695C),
-      GameMonsterKind.demon => const Color(0xFF4A148C),
-      GameMonsterKind.ghost => const Color(0xFF90A4AE),
-      GameMonsterKind.king => const Color(0xFF8D6E00),
+    final (bodyColor, bellyColor, eyeColor) = switch (variant) {
+      // 狼兽：灰棕。
+      0 => (
+          const Color(0xFF8D6E63),
+          const Color(0xFFD7CCC8),
+          const Color(0xFFFFB300),
+        ),
+      // 狐兽：橙红。
+      1 => (
+          const Color(0xFFE65100),
+          const Color(0xFFFFF3E0),
+          const Color(0xFFFF8F00),
+        ),
+      // 虎兽：金橙。
+      2 => (
+          const Color(0xFFF57F17),
+          const Color(0xFFFFECB3),
+          const Color(0xFF2E7D32),
+        ),
+      // 蛟龙：青绿。
+      3 => (
+          const Color(0xFF00897B),
+          const Color(0xFFB2DFDB),
+          const Color(0xFFFF1744),
+        ),
+      // 蛛兽：紫。
+      4 => (
+          const Color(0xFF7B1FA2),
+          const Color(0xFFE1BEE7),
+          const Color(0xFFFF1744),
+        ),
+      // 雷鸟：蓝紫。
+      _ => (
+          const Color(0xFF5C6BC0),
+          const Color(0xFFC5CAE9),
+          const Color(0xFF00E5FF),
+        ),
     };
-    final bellyColor = switch (kind) {
-      GameMonsterKind.ghost => const Color(0xFFECEFF1),
-      GameMonsterKind.king => const Color(0xFFFFD54F),
-      _ => const Color(0xFF212121),
-    };
-    // 尾巴（蛟 / 蟒 / 蛟王拖长尾）。
-    if (kind == GameMonsterKind.jiao ||
-        kind == GameMonsterKind.python ||
-        kind == GameMonsterKind.king) {
+    // 尾巴（狼 / 狐蓬松大尾、蛟龙长尾）。
+    if (variant == 0 || variant == 1 || variant == 3) {
       final tailPaint = Paint()
         ..color = bodyColor
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 14
+        ..strokeWidth = variant == 1 ? 20 : 14
         ..strokeCap = StrokeCap.round;
       final tail = Path()
-        ..moveTo(cx - 26, cy + 34)
-        ..quadraticBezierTo(cx - 60, cy + 60, cx - 44, cy + 82);
+        ..moveTo(cx - 26, cy + 30)
+        ..quadraticBezierTo(cx - 62, cy + 56, cx - 42, cy + 84);
       canvas.drawPath(tail, tailPaint);
+      if (variant == 1) {
+        final tip = Paint()
+          ..color = Colors.white
+          ..style = PaintingStyle.fill;
+        canvas.drawCircle(Offset(cx - 42, cy + 84), 9, tip);
+      }
     }
-    // 腿 / 爪（蜘蛛 8 条、螳螂刀臂、其余 4 条）。
+    // 翅膀（蛟龙小翼、雷鸟大翼）。
+    if (variant == 3 || variant == 5) {
+      final wingPaint = Paint()
+        ..color = bodyColor.withValues(alpha: 0.85)
+        ..style = PaintingStyle.fill;
+      for (final side in [-1, 1]) {
+        final wing = Path()
+          ..moveTo(cx + side * 20, cy - 6)
+          ..quadraticBezierTo(
+            cx + side * 58,
+            cy - 52,
+            cx + side * 52,
+            cy + 6,
+          )
+          ..quadraticBezierTo(cx + side * 34, cy - 2, cx + side * 20, cy - 6)
+          ..close();
+        canvas.drawPath(wing, wingPaint);
+      }
+    }
+    // 腿 / 爪（蛛兽 8 条、其余 4 条）。
     final legPaint = Paint()
       ..color = const Color(0xFF1A1A1A)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 4
       ..strokeCap = StrokeCap.round;
-    final legCount = switch (kind) {
-      GameMonsterKind.spider => 8,
-      GameMonsterKind.mantis => 2,
-      GameMonsterKind.ghost => 0,
-      _ => 4,
-    };
+    final legCount = variant == 4 ? 8 : 4;
     for (var i = 0; i < legCount; i++) {
       final side = i.isEven ? -1 : 1;
       final spread = (i ~/ 2 + 1) * 12.0;
@@ -2595,7 +2821,7 @@ class _BattleMonsterPainter extends CustomPainter {
       canvas.drawLine(start, mid, legPaint);
       canvas.drawLine(mid, end, legPaint);
     }
-    // 身体：椭圆 + 鳞甲纹。
+    // 身体：圆身 + 腹部。
     final bodyPaint = Paint()
       ..color = bodyColor
       ..style = PaintingStyle.fill;
@@ -2607,28 +2833,8 @@ class _BattleMonsterPainter extends CustomPainter {
       ),
       bodyPaint,
     );
-    final scalePaint = Paint()
-      ..color = Colors.black.withValues(alpha: 0.25)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5;
-    for (var row = 0; row < 3; row++) {
-      for (var col = -2; col <= 2; col++) {
-        canvas.drawArc(
-          Rect.fromCenter(
-            center: Offset(cx + col * 14, cy - 12 + row * 16),
-            width: 16,
-            height: 11,
-          ),
-          0,
-          math.pi,
-          false,
-          scalePaint,
-        );
-      }
-    }
-    // 腹部。
     final bellyPaint = Paint()
-      ..color = bellyColor.withValues(alpha: 0.85)
+      ..color = bellyColor.withValues(alpha: 0.9)
       ..style = PaintingStyle.fill;
     canvas.drawOval(
       Rect.fromCenter(
@@ -2638,14 +2844,49 @@ class _BattleMonsterPainter extends CustomPainter {
       ),
       bellyPaint,
     );
-    // 角（蛟 / 魔 / 王）。
-    if (kind == GameMonsterKind.jiao ||
-        kind == GameMonsterKind.king ||
-        kind == GameMonsterKind.demon) {
+    // 虎纹。
+    if (variant == 2) {
+      final stripePaint = Paint()
+        ..color = Colors.black.withValues(alpha: 0.55)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3
+        ..strokeCap = StrokeCap.round;
+      for (final dy in [-18.0, -2.0, 14.0]) {
+        canvas.drawLine(
+          Offset(cx - 22, cy + dy),
+          Offset(cx - 6, cy + dy + 6),
+          stripePaint,
+        );
+        canvas.drawLine(
+          Offset(cx + 6, cy + dy + 6),
+          Offset(cx + 22, cy + dy),
+          stripePaint,
+        );
+      }
+    }
+    // 尖耳（狼 / 狐 / 虎圆耳）与角（蛟龙）。
+    if (variant == 0 || variant == 1) {
+      final earPaint = Paint()
+        ..color = bodyColor
+        ..style = PaintingStyle.fill;
+      for (final side in [-1, 1]) {
+        final ear = Path()
+          ..moveTo(cx + side * 22, cy - 34)
+          ..lineTo(cx + side * 34, cy - 62)
+          ..lineTo(cx + side * 10, cy - 44)
+          ..close();
+        canvas.drawPath(ear, earPaint);
+      }
+    } else if (variant == 2) {
+      final earPaint = Paint()
+        ..color = bodyColor
+        ..style = PaintingStyle.fill;
+      for (final side in [-1, 1]) {
+        canvas.drawCircle(Offset(cx + side * 22, cy - 38), 9, earPaint);
+      }
+    } else if (variant == 3) {
       final hornPaint = Paint()
-        ..color = kind == GameMonsterKind.king
-            ? const Color(0xFFFFD54F)
-            : const Color(0xFFD7CCC8)
+        ..color = const Color(0xFFFFD54F)
         ..style = PaintingStyle.fill;
       for (final side in [-1, 1]) {
         final horn = Path()
@@ -2655,79 +2896,53 @@ class _BattleMonsterPainter extends CustomPainter {
           ..close();
         canvas.drawPath(horn, hornPaint);
       }
-    }
-    // 狼耳。
-    if (kind == GameMonsterKind.wolf) {
-      final earPaint = Paint()
-        ..color = bodyColor
-        ..style = PaintingStyle.fill;
+      // 龙须。
+      final whisker = Paint()
+        ..color = const Color(0xFFFFD54F)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2;
       for (final side in [-1, 1]) {
-        final ear = Path()
-          ..moveTo(cx + side * 22, cy - 34)
-          ..lineTo(cx + side * 32, cy - 56)
-          ..lineTo(cx + side * 12, cy - 44)
-          ..close();
-        canvas.drawPath(ear, earPaint);
+        canvas.drawLine(
+          Offset(cx + side * 18, cy + 2),
+          Offset(cx + side * 34, cy + 10),
+          whisker,
+        );
+      }
+    } else if (variant == 5) {
+      // 雷鸟羽冠。
+      final crest = Paint()
+        ..color = const Color(0xFF00E5FF)
+        ..style = PaintingStyle.fill;
+      for (final dx in [-8.0, 0.0, 8.0]) {
+        canvas.drawCircle(Offset(cx + dx, cy - 52), 5, crest);
       }
     }
-    // 发光兽瞳：红 / 橙竖瞳，没有大圆眼。
-    final eyeGlow = Paint()
-      ..color = Colors.red.withValues(alpha: 0.45)
-      ..style = PaintingStyle.fill;
-    final eyePaint = Paint()
-      ..color = const Color(0xFFFF1744)
-      ..style = PaintingStyle.fill;
-    final pupilPaint = Paint()
-      ..color = Colors.black
-      ..style = PaintingStyle.fill;
+    // 动漫大眼睛：白眼底 + 彩色虹膜 + 黑瞳 + 白高光（蛛兽 6 只）。
     final eyeY = cy - 15;
-    if (kind == GameMonsterKind.spider) {
-      for (var i = -1; i <= 1; i++) {
-        final ex = cx + i * 14;
-        canvas.drawCircle(Offset(ex, eyeY), 6, eyeGlow);
-        canvas.drawCircle(Offset(ex, eyeY), 3.5, eyePaint);
-      }
-    } else if (kind == GameMonsterKind.ghost) {
-      // 鬼物：空洞黑眼 + 青光。
-      final hollow = Paint()
-        ..color = Colors.black.withValues(alpha: 0.85)
+    final eyeXs = variant == 4
+        ? [-21.0, 0.0, 21.0]
+        : [-15.0, 15.0];
+    for (final dx in eyeXs) {
+      final ex = cx + dx;
+      final white = Paint()
+        ..color = Colors.white
         ..style = PaintingStyle.fill;
-      for (final side in [-1, 1]) {
-        canvas.drawOval(
-          Rect.fromCenter(
-            center: Offset(cx + side * 14, eyeY),
-            width: 14,
-            height: 17,
-          ),
-          hollow,
-        );
-        canvas.drawCircle(
-          Offset(cx + side * 14, eyeY + 2),
-          2.5,
-          Paint()..color = const Color(0xFF80DEEA),
-        );
-      }
-    } else {
-      for (final side in [-1, 1]) {
-        final ex = cx + side * 15;
-        canvas.drawCircle(Offset(ex, eyeY), 8, eyeGlow);
-        canvas.drawOval(
-          Rect.fromCenter(
-            center: Offset(ex, eyeY),
-            width: 11,
-            height: 7,
-          ),
-          eyePaint,
-        );
-        canvas.drawOval(
-          Rect.fromCenter(
-            center: Offset(ex, eyeY),
-            width: 3,
-            height: 7,
-          ),
-          pupilPaint,
-        );
-      }
+      canvas.drawOval(
+        Rect.fromCenter(center: Offset(ex, eyeY), width: 15, height: 18),
+        white,
+      );
+      final iris = Paint()
+        ..color = eyeColor
+        ..style = PaintingStyle.fill;
+      canvas.drawCircle(Offset(ex, eyeY + 1), 6, iris);
+      final pupil = Paint()
+        ..color = Colors.black
+        ..style = PaintingStyle.fill;
+      canvas.drawCircle(Offset(ex, eyeY + 1), 3, pupil);
+      final shine = Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.fill;
+      canvas.drawCircle(Offset(ex - 2, eyeY - 3), 2, shine);
     }
     // 獠牙。
     final fangPaint = Paint()
@@ -2741,52 +2956,51 @@ class _BattleMonsterPainter extends CustomPainter {
         ..close();
       canvas.drawPath(fang, fangPaint);
     }
-    // 蟒信子。
-    if (kind == GameMonsterKind.python) {
-      final tonguePaint = Paint()
-        ..color = const Color(0xFFE53935)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.5
-        ..strokeCap = StrokeCap.round;
-      final tongue = Path()
-        ..moveTo(cx, cy + 19)
-        ..lineTo(cx - 3, cy + 34)
-        ..moveTo(cx, cy + 19)
-        ..lineTo(cx + 3, cy + 34);
-      canvas.drawPath(tongue, tonguePaint);
-    }
-    // 螳螂刀臂。
-    if (kind == GameMonsterKind.mantis) {
-      final bladePaint = Paint()
-        ..color = const Color(0xFF9CCC65)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 4
-        ..strokeCap = StrokeCap.round;
-      for (final side in [-1, 1]) {
-        canvas.drawLine(
-          Offset(cx + side * 31, cy - 5),
-          Offset(cx + side * 53, cy - 29),
-          bladePaint,
-        );
-      }
+    // 雷鸟尖喙。
+    if (variant == 5) {
+      final beak = Paint()
+        ..color = const Color(0xFFFF8F00)
+        ..style = PaintingStyle.fill;
+      final beakPath = Path()
+        ..moveTo(cx - 7, cy + 4)
+        ..lineTo(cx + 7, cy + 4)
+        ..lineTo(cx, cy + 16)
+        ..close();
+      canvas.drawPath(beakPath, beak);
     }
   }
 
   @override
   bool shouldRepaint(covariant _BattleMonsterPainter oldDelegate) =>
-      oldDelegate.kind != kind;
+      oldDelegate.monster.id != monster.id;
 }
 
-/// 近身斩弧：白色弧光。
 class _SlashPainter extends CustomPainter {
   const _SlashPainter();
 
   @override
   void paint(Canvas canvas, Size size) {
-    final arcPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.9)
+    // 外圈青白光晕 + 内圈亮白斩弧，双弧更炸。
+    final glowPaint = Paint()
+      ..color = const Color(0xFF69F0AE).withValues(alpha: 0.4)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 5
+      ..strokeWidth = 16
+      ..strokeCap = StrokeCap.round;
+    canvas.drawArc(
+      Rect.fromCenter(
+        center: Offset(size.width / 2, size.height / 2),
+        width: size.width * 0.95,
+        height: size.height * 0.95,
+      ),
+      -0.6,
+      2.4,
+      false,
+      glowPaint,
+    );
+    final arcPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.95)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 7
       ..strokeCap = StrokeCap.round;
     canvas.drawArc(
       Rect.fromCenter(
@@ -2799,21 +3013,13 @@ class _SlashPainter extends CustomPainter {
       false,
       arcPaint,
     );
-    final glowPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.3)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 12
-      ..strokeCap = StrokeCap.round;
-    canvas.drawArc(
-      Rect.fromCenter(
-        center: Offset(size.width / 2, size.height / 2),
-        width: size.width * 0.9,
-        height: size.height * 0.9,
-      ),
-      -0.6,
-      2.2,
-      false,
-      glowPaint,
+    final sparkPaint = Paint()
+      ..color = const Color(0xFFFFD54F)
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(
+      Offset(size.width * 0.82, size.height * 0.3),
+      5,
+      sparkPaint,
     );
   }
 
@@ -2821,31 +3027,187 @@ class _SlashPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-/// 辟邪神雷：黄色锯齿闪电。
+/// 辟邪神雷：紫白闪电从天劈下——竖着的锯齿电光，
+/// 外紫晕、内白芯，带分叉。
 class _LightningPainter extends CustomPainter {
   const _LightningPainter();
 
   @override
   void paint(Canvas canvas, Size size) {
     final path = Path()
-      ..moveTo(4, 2)
-      ..lineTo(26, 2)
-      ..lineTo(18, 12)
-      ..lineTo(34, 12)
-      ..lineTo(12, 26)
-      ..lineTo(20, 15)
-      ..lineTo(6, 15)
+      ..moveTo(size.width * 0.5, 0)
+      ..lineTo(size.width * 0.68, size.height * 0.3)
+      ..lineTo(size.width * 0.48, size.height * 0.36)
+      ..lineTo(size.width * 0.72, size.height * 0.62)
+      ..lineTo(size.width * 0.38, size.height)
+      ..lineTo(size.width * 0.48, size.height * 0.66)
+      ..lineTo(size.width * 0.28, size.height * 0.58)
+      ..lineTo(size.width * 0.42, size.height * 0.32)
       ..close();
     final glow = Paint()
-      ..color = Colors.yellow.withValues(alpha: 0.4)
-      ..style = PaintingStyle.fill;
+      ..color = const Color(0xFF7C4DFF).withValues(alpha: 0.55)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 10
+      ..strokeJoin = StrokeJoin.round;
     canvas.drawPath(path, glow);
     final bolt = Paint()
-      ..color = const Color(0xFFFFEA00)
+      ..color = Colors.white
       ..style = PaintingStyle.fill;
     canvas.drawPath(path, bolt);
+    final core = Paint()
+      ..color = const Color(0xFFEDE7F6).withValues(alpha: 0.9)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+    canvas.drawPath(path, core);
   }
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+/// 从天劈下的闪电特效（爆裂框内用，带落点闪光）。
+class _SkyLightningPainter extends CustomPainter {
+  const _SkyLightningPainter({required this.progress});
+
+  final double progress;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final bolt = _LightningPainter();
+    bolt.paint(canvas, size);
+    final flash = Paint()
+      ..color = Colors.white.withValues(alpha: (1 - progress) * 0.7)
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(
+      Offset(size.width / 2, size.height * 0.92),
+      size.width * 0.3 * (1 - progress * 0.5),
+      flash,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _SkyLightningPainter oldDelegate) =>
+      oldDelegate.progress != progress;
+}
+
+/// 乾蓝冰焰冰晶爆开：蓝白菱形冰晶向外炸 + 中心白光。
+class _IceShardPainter extends CustomPainter {
+  const _IceShardPainter({required this.progress});
+
+  final double progress;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final flash = Paint()
+      ..color = Colors.white.withValues(alpha: (1 - progress) * 0.85)
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(center, size.width * 0.22 * (1 - progress * 0.4), flash);
+    for (var i = 0; i < 8; i++) {
+      final angle = i * math.pi / 4 + progress * 0.6;
+      final dist = size.width * (0.18 + progress * 0.3);
+      final pos = center + Offset(math.cos(angle) * dist, math.sin(angle) * dist);
+      canvas.save();
+      canvas.translate(pos.dx, pos.dy);
+      canvas.rotate(angle);
+      final shard = Path()
+        ..moveTo(0, -11)
+        ..lineTo(6, 0)
+        ..lineTo(0, 11)
+        ..lineTo(-6, 0)
+        ..close();
+      final paint = Paint()
+        ..color = const Color(0xFFB3E5FC).withValues(alpha: 1 - progress)
+        ..style = PaintingStyle.fill;
+      canvas.drawPath(shard, paint);
+      canvas.restore();
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _IceShardPainter oldDelegate) =>
+      oldDelegate.progress != progress;
+}
+
+/// 大庚剑阵铺开：金色法阵圆环 + 8 把金剑向外辐射。
+class _SwordArrayPainter extends CustomPainter {
+  const _SwordArrayPainter({required this.progress});
+
+  final double progress;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final ring = Paint()
+      ..color = const Color(0xFFFFD54F).withValues(alpha: 1 - progress)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3;
+    canvas.drawCircle(center, size.width * (0.2 + progress * 0.28), ring);
+    final inner = Paint()
+      ..color = const Color(0xFFFFD54F).withValues(alpha: 0.3)
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(center, size.width * 0.18, inner);
+    for (var i = 0; i < 8; i++) {
+      final angle = i * math.pi / 4;
+      final dist = size.width * (0.3 + progress * 0.12);
+      final pos = center + Offset(math.cos(angle) * dist, math.sin(angle) * dist);
+      canvas.save();
+      canvas.translate(pos.dx, pos.dy);
+      canvas.rotate(angle + math.pi / 2);
+      final sword = Path()
+        ..moveTo(0, -16)
+        ..lineTo(5, -4)
+        ..lineTo(3, 12)
+        ..lineTo(-3, 12)
+        ..lineTo(-5, -4)
+        ..close();
+      final paint = Paint()
+        ..color = const Color(0xFFFFD54F).withValues(alpha: 1 - progress)
+        ..style = PaintingStyle.fill;
+      canvas.drawPath(sword, paint);
+      canvas.restore();
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SwordArrayPainter oldDelegate) =>
+      oldDelegate.progress != progress;
+}
+
+/// 命中白金爆裂星光：四角星 + 光晕。
+class _SparkPainter extends CustomPainter {
+  const _SparkPainter({required this.progress});
+
+  final double progress;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final glow = Paint()
+      ..color = Colors.white.withValues(alpha: (1 - progress) * 0.8)
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(center, size.width * 0.2 * (1 - progress * 0.4), glow);
+    final star = Path();
+    final r = size.width * (0.28 + progress * 0.2);
+    final inner = r * 0.25;
+    for (var i = 0; i < 8; i++) {
+      final angle = i * math.pi / 4 - math.pi / 2;
+      final rad = i.isEven ? r : inner;
+      final p = center + Offset(math.cos(angle) * rad, math.sin(angle) * rad);
+      if (i == 0) {
+        star.moveTo(p.dx, p.dy);
+      } else {
+        star.lineTo(p.dx, p.dy);
+      }
+    }
+    star.close();
+    final paint = Paint()
+      ..color = const Color(0xFFFFD54F).withValues(alpha: 1 - progress)
+      ..style = PaintingStyle.fill;
+    canvas.drawPath(star, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _SparkPainter oldDelegate) =>
+      oldDelegate.progress != progress;
 }

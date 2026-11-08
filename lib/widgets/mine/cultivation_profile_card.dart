@@ -579,8 +579,8 @@ class _ProfileFigureState extends State<_ProfileFigure>
         },
         child: Image.asset(
           widget.isFemale
-              ? 'assets/images/cultivation/profile_female.png'
-              : 'assets/images/cultivation/profile_male.webp',
+              ? 'assets/images/game/hero_female.jpg'
+              : 'assets/images/game/hero_male.jpg',
           fit: BoxFit.cover,
         ),
       ),

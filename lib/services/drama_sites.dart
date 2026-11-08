@@ -331,6 +331,39 @@ const dramaSites = [
 
 List<DramaSite> _extraDramaSites = const [];
 
+/// 短剧站裸 id：`dramaSites` 表头 19 站（番茄/红果/HGTV/各果站）
+/// 与名字里不带「短剧」的两个新进短剧站（AI淫航、幻影AI）。
+/// 短剧区与影视区的分区共用这一个判据，不各写一套。
+const shortDramaSiteIds = <String>{
+  'original',
+  'hongguo',
+  'hgtv',
+  'hgtvmirror',
+  'huangdou',
+  'huangju',
+  'yeguo',
+  'yaguo',
+  'maoguo',
+  'fanguo',
+  'guanguo',
+  'heguo',
+  'xingguo',
+  'huaguo',
+  'niuguo',
+  'wangguo',
+  'faguo',
+  'wuguo',
+  'huangdou_yh',
+  'aiyinhang',
+  'sexaix',
+};
+
+/// 该站是不是短剧站：裸 id 在短剧集里，或显示名带「短剧」。
+/// 名字判据兜底新站：以后新加的短剧站只要名字带「短剧」就自动
+/// 归短剧区，不用再改这张表。
+bool isShortDramaSite(String id, String name) =>
+    shortDramaSiteIds.contains(id) || name.contains('短剧');
+
 List<DramaSite> get allDramaSites => [...dramaSites, ..._extraDramaSites];
 
 void registerExtraDramaSites(List<DramaSite> sites) {

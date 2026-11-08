@@ -132,6 +132,7 @@ flutter:
     - assets/images/reader/
     # 道友档案卡右侧精修人物大图（按性别切换，白发女修/蓝金男修）。
     - assets/images/cultivation/
+    - assets/images/game/
     # 「上滑查看更多视频」的官方箭头动画（`more_wonderful_series_up_arrow.json`），
     # 原样复制、仅把填充色改为白色——官方运行时用 LottieValueCallback 强制
     # `@color/al`=#ffffffff（见同文档 §19）。

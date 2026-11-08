@@ -9,7 +9,7 @@
 // 被排除的 6 站见 zakatvExcludedSites，恢复须用户另行下令。
 
 const String zakatvJarAsset = 'assets/jars/zakatv.jar';
-const String zakatvJarMd5 = '3ae27b474203ae8250353955b45f64e0';
+const String zakatvJarMd5 = '77f046d6e03161b4edf5b984ee4b4d04';
 const String zakatvJarId = 'zakatv';
 const String youtubeJarAsset = 'assets/jars/youtube.jar';
 const String youtubeJarMd5 = 'd294ce251d3b2aa8528efff12cc4bf19';

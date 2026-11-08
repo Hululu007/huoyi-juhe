@@ -224,16 +224,25 @@ typedef _RoutePlayback = ({
 });
 
 Future<AudioExtras> _defaultAudioExtras(String bookId) async {
-  final tones = await ApiClient.instance
-      .bookTones(bookId)
-      .catchError((Object _) => const AudioToneSet());
-  final related = await ApiClient.instance
-      .relatedWorks(bookId)
-      .catchError((Object _) => const <RelatedWork>[]);
-  final detail = await ApiClient.instance
-      .bookDetail(bookId)
-      .catchError((Object _) => const BookDetail());
-  return AudioExtras(tones: tones, related: related, detail: detail);
+  // 三路装饰请求并行：之前是 tones → related → detail 三个 await
+  // 串行，一路慢就拖三路的总时间；起播不依赖它们，但它们占着
+  // 并发与首屏装饰的出数时间。各自失败仍回空兜底。
+  final results = await Future.wait([
+    ApiClient.instance
+        .bookTones(bookId)
+        .catchError((Object _) => const AudioToneSet()),
+    ApiClient.instance
+        .relatedWorks(bookId)
+        .catchError((Object _) => const <RelatedWork>[]),
+    ApiClient.instance
+        .bookDetail(bookId)
+        .catchError((Object _) => const BookDetail()),
+  ]);
+  return AudioExtras(
+    tones: results[0] as AudioToneSet,
+    related: results[1] as List<RelatedWork>,
+    detail: results[2] as BookDetail,
+  );
 }
 
 class _AudioPageState extends State<AudioPage> {
