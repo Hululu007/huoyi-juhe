@@ -360,7 +360,10 @@ class _HomePageState extends ConsumerState<HomePage> {
           return;
         }
         final fallback = sites.isEmpty ? 'original' : sites.first.id;
-        await DramaSitePreferences.save(fallback);
+        // 短剧表空了（全部被关掉/删掉）时只在内存里回落到 original
+        // 当展示兜底，不持久化：否则每次启动都会把一个不在可见表里
+        // 的站写回偏好，禁用的站照样显示、回落逻辑下次还得再跑一遍。
+        if (sites.isNotEmpty) await DramaSitePreferences.save(fallback);
         if (!mounted) return;
         setState(() {
           _dramaSiteId = fallback;

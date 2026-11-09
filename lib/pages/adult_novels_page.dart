@@ -84,16 +84,20 @@ Future<List<Future<List<MediaItem>>>> _adultReadingJobs(
   );
 
   /// 首分类第一页：只取首分类时，首分类恰好为空（站方改版、该分类
-  /// 下线）整站就被判空。按序试前两个分类，拿到非空第一页即停；
-  /// 'author' 是 hsvoice31 的主播索引，里面是 folder 项不是作品，
-  /// 跳过（作品分类 home/toplist/latest 都在它之前或之后）。
+  /// 下线）整站就被判空。按序试前两个非 author 分类，拿到非空第一页
+  /// 即停；'author' 是 hsvoice31 的主播索引，里面是 folder 项不是
+  /// 作品，跳过且不占两次试取的名额（之前 take(2) 先截再跳过，
+  /// 分类表以 author 开头时实际只试了一个分类）。
   /// 只试 2 个不试 4 个：单站最多 2 次串行抓取，空分类不再拖墙钟。
   Future<List<DramaSiteItem>> firstPageItems(
     DramaSiteContentClient client,
   ) async {
     final categories = await client.categories();
-    for (final category in categories.take(2)) {
+    var tried = 0;
+    for (final category in categories) {
       if (category.id == 'author') continue;
+      if (tried >= 2) break;
+      tried++;
       final page = await client.catalog(category.id, 1);
       if (page.items.isNotEmpty) return page.items.take(20).toList();
     }
@@ -296,12 +300,37 @@ class _AdultCardRailSliverState extends State<AdultCardRailSliver> {
   }
 
   Future<void> _load() async {
+    if (widget.loader != null) {
+      try {
+        final items = await widget.loader!();
+        if (!mounted) return;
+        setState(() {
+          _items = items.take(12).toList();
+          _loading = false;
+        });
+      } catch (_) {
+        if (!mounted) return;
+        setState(() {
+          _loading = false;
+        });
+      }
+      return;
+    }
+    // 流式取数：每站回来立刻画一波，不等最慢的站；之前这里走
+    // loadAdultReadingItems 的 Future.wait，冷启动要等 60 秒帽下
+    // 最慢的那站才出第一张卡，缓存共用修好了、轨道仍在等。
+    // 缓存命中时流只吐一次全量，与原来一次到位的外观一致。
     try {
-      final items = await (widget.loader ??
-          () => loadAdultReadingItems(widget.type))();
+      await for (final batch
+          in loadAdultReadingItemsStream(widget.type)) {
+        if (!mounted) return;
+        setState(() {
+          _items = [..._items, ...batch].take(12).toList();
+          _loading = false;
+        });
+      }
       if (!mounted) return;
       setState(() {
-        _items = items.take(12).toList();
         _loading = false;
       });
     } catch (_) {

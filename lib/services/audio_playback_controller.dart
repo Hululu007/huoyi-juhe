@@ -125,6 +125,7 @@ class _AudioPlaybackController extends ChangeNotifier
   bool _inShelf = false;
   bool _switchingVersion = false;
   final Map<String, AudioSource> _audioSourceCache = {};
+  final Map<String, Future<AudioSource>> _pendingSources = {};
   Timer? _sleepTimerTick;
 
   /// 预取后 2 章的取流地址进缓存（只缓存 URL 字符串，不建播放器、
@@ -513,11 +514,16 @@ class _AudioPlaybackController extends ChangeNotifier
     unawaited(_loadExcerpt(_chapters[index].itemId));
     NativePlayer? candidate;
     try {
-      await _settingsReady;
-      if (!_current(generation)) return;
-      if (toneId != null) _toneId = toneId;
-      _skipOutroFired = false;
-      _toneSwitchedForChapter = false;
+      // 首章取流不等音色设置走完：_prepareSettings 里真正慢的是
+      // 音色列表（8 秒封顶）与装饰请求（符合条件时再等 3 秒），
+      // 而取流只认音色。候选音色在设置回来前就已确定——显式 toneId
+      // > 请求的初始音色 > 本地历史已存音色 > 当前音色，历史是
+      // 磁盘读、不走网络。先按候选音色取流（只在真实网络取流时；
+      // 注入 loader 要求精确调用，不推测、不乘不并），设置回来
+      // 音色没变就直接用这一份，变了就丢弃重取：取流地址按音色
+      // 分键缓存，旧音色结果不会污染新音色，只多一次上游请求。
+      // 直接提前取流会取到旧音色地址的担心不存在——用不上的
+      // 那份永远不会进播放器。
       Map<String, dynamic>? saved;
       if (restoreHistory) {
         try {
@@ -526,6 +532,33 @@ class _AudioPlaybackController extends ChangeNotifier
           // Listening can still start when local storage is unavailable.
         }
       }
+      final itemId = _chapters[index].itemId;
+      String? savedTone;
+      final rawSavedTone = saved?['toneId'];
+      if (rawSavedTone is String && rawSavedTone.trim().isNotEmpty) {
+        savedTone = rawSavedTone.trim();
+      }
+      final initialTone = request.initialToneId?.trim();
+      final candidateTone = toneId ??
+          (initialTone != null && initialTone.isNotEmpty
+              ? initialTone
+              : null) ??
+          savedTone ??
+          _toneId;
+      if (toneId != null) _toneId = toneId;
+      _skipOutroFired = false;
+      _toneSwitchedForChapter = false;
+      final bool speculate = request.sourceLoader == null;
+      if (speculate) _toneId = candidateTone;
+      final Future<AudioSource>? speculativeSource = speculate
+          ? _loadSourceWithRetry(itemId)
+          : null;
+      if (speculativeSource != null) {
+        // 无论后面用不用这一份，先挂一个吞错的监听，避免丢弃时
+        // 变成未处理异步错误；真正 await 时错误仍会原样抛出。
+        unawaited(speculativeSource.then((_) {}, onError: (_) {}));
+      }
+      await _settingsReady;
       if (!_current(generation)) return;
       final sameChapter = resumeAudioChapterIndex(saved, _chapters) == index;
       final resume =
@@ -543,8 +576,12 @@ class _AudioPlaybackController extends ChangeNotifier
       final wasCompleted =
           completed ??
           (position == null && sameChapter && saved?['completed'] == true);
-      final itemId = _chapters[index].itemId;
-      final source = await _loadSourceWithRetry(itemId);
+      final AudioSource source;
+      if (speculativeSource != null && _toneId == candidateTone) {
+        source = await speculativeSource;
+      } else {
+        source = await _loadSourceWithRetry(itemId);
+      }
       if (!_current(generation)) return;
       final uri = Uri.tryParse(source.url);
       // 离线命中给的是 `file://<path>`：本地文件桥不经 HTTP，没有 host。
@@ -682,7 +719,30 @@ class _AudioPlaybackController extends ChangeNotifier
     final cacheKey = '$itemId|$_toneId';
     final cached = _audioSourceCache[cacheKey];
     if (cached != null) return cached;
-    final toneId = _toneId;
+    // 在途去重：_syncListenClock 每 5 秒 tick 都可能再触发预取，
+    // 没进缓存前重复调用会把同一章的 playinfo 再发一遍；在途的
+    // 直接并进同一个 Future。注入 loader 与本地命中在上面已返回，
+    // 不参与去重（注入 loader 要求精确调用、不乘不并）。
+    final pending = _pendingSources[cacheKey];
+    if (pending != null) return pending;
+    final future = _fetchAndCacheSource(itemId, _toneId, cacheKey);
+    _pendingSources[cacheKey] = future;
+    try {
+      return await future;
+    } finally {
+      if (identical(_pendingSources[cacheKey], future)) {
+        _pendingSources.remove(cacheKey);
+      }
+    }
+  }
+
+  /// 取流网络段（供 [_loadSourceWithRetry] 去重后调用）：只这一段
+  /// 发请求、写缓存；调用方保证同键同一时间只有一个实例在跑。
+  Future<AudioSource> _fetchAndCacheSource(
+    String itemId,
+    String toneId,
+    String cacheKey,
+  ) async {
     AudioSource result;
     try {
       result = await _fetchSource(itemId, toneId);
@@ -694,8 +754,15 @@ class _AudioPlaybackController extends ChangeNotifier
       }
       final fallback = _firstSelectableTone();
       if (fallback == null) rethrow;
+      // 只给当前章记换音色：预取下章时也可能走到这条回退，
+      // 之前无条件置位会让当前章的错误文案误带「已为你换用」。
+      if (_chapters.isNotEmpty &&
+          _index >= 0 &&
+          _index < _chapters.length &&
+          _chapters[_index].itemId == itemId) {
+        _toneSwitchedForChapter = true;
+      }
       final tone = fallback;
-      _toneSwitchedForChapter = true;
       result = await _fetchSource(itemId, tone);
     }
     _audioSourceCache[cacheKey] = result;

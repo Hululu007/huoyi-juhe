@@ -58,24 +58,26 @@ void main() {
     expect(ids.contains('jar:zakatv:zakaaiye'), isTrue);
     expect(ids.contains('jar:zakatv:av18avmcg'), isTrue);
     // 全开 = 统一表原样，不多不少。
-    // 291 行 = 第 1 档 49 + 第 2 档 60 + 第 3 档 54 + 第 4 档 77
-    // （240 个分档影视行）+ 51 个不分档影视行；
+    // 289 行 = 第 1 档 49 + 第 2 档 60 + 第 3 档 54 + 第 4 档 77
+    // （240 个分档影视行）+ 49 个不分档影视行；
     // 短剧站已在统一表里摘掉：芽果/AI淫航/幻影AI 各 jar+种子两行
-    // （6 行）都是短剧站，不分档，297→291 全是这 6 行。
+    // （6 行）都是短剧站，不分档，297→291 全是这 6 行；2026-11-09
+    // 复核又摘掉 AI不用钱与黄果漫剧 2 行种子（纯短剧/漫剧站，
+    // 之前误判进影视区），291→289。
     // 相对旧数 293 的变化：并行加站（种子 108→115、jar 登记 243→247）
     // 让不分档行 54→57、分档行 239→240；再减 AOXX69 一行（分档
     // 239→240 里已含摘站影响：aoxx69 本是第 1 档行，rou 1→0 与
     // hgdj 2→1 的档位移动见 adult_tier_embedded_test）。
     // 不分档原 58，已删站减 1。
     expect(ids.length, unifiedVideoZoneSites(entries).length);
-    expect(ids.length, 291);
+    expect(ids.length, 289);
   });
 
   test('门禁开关开时修为 0 也全可见', () {
     cultivationAdultTierGateDisabledForTesting = true;
     final visible = visibleVideoZoneSites(entries, 0);
     expect(visible.length, unifiedVideoZoneSites(entries).length);
-    expect(visible.length, 291);
+    expect(visible.length, 289);
   });
 
   test('第 4 档末尾顺序：missav 在前、鉴黄师压最后', () {

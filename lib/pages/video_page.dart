@@ -46,9 +46,9 @@ List<SourceEntry> midnightJarVideoSites(List<SourceEntry> entries) {
 /// 判据走短剧区共用的 [isShortDramaSite]，行 id 先归一化成裸 id
 /// 再判：种子行 `seed_yaguo`→`yaguo`、jar 行
 /// `jar:zakatv:ZakaHddj`→`hddj`，否则 id 判据永远对不上、只剩
-/// 名字兜底（芽果/AI淫航/幻影AI 这种名字不带「短剧」的短剧站
+/// 名字兜底（芽果/AI淫航/幻影AI/AI不用钱这种名字不带「短剧」的短剧站
 /// 就漏进影视区）；红果/HGTV/猫果等果站名字里也没有「短剧」，
-/// 同样靠裸 id 判据拦。
+/// 同样靠裸 id 判据拦；黄果漫剧靠名字里的「漫剧」拦。
 bool isFilmVideoSite(String id, String name) =>
     !isShortDramaSite(adultSiteIdForUnifiedId(id), name);
 
@@ -161,14 +161,17 @@ List<({String id, String name, String kind})> visibleFilmZoneSites(
   return out;
 }
 
-/// 影视区用户自导站列表：只留已解锁的站。
+/// 影视区用户自导站列表：只留已解锁的影视站。
 ///
-/// 在 [videoPagePlayableSites]（只列用户自己导入的站）之上再过一遍
-/// 现有的可见性逻辑（[visibleSiteIds]）：行 id 能归一化到分档表里
-/// 的成人站按档位解锁（元婴 3000 开第 1 档、化神 8000 第 2 档、
-/// 炼虚 15000 第 3 档、合体 30000 全开），未解锁的不进列表；
-/// 不在表里的站（用户自己的采集/py 站）原样保留。修为到了自动
-/// 出现，列表随修为变化（VideoPage 监听修为快照）。
+/// 在 [videoPagePlayableSites]（只列用户自己导入的站）之上再过两遍：
+/// ①短剧过滤（[isFilmVideoSite]，与短剧区共用同一份短剧判据）——
+/// 用户自导的短剧蜘蛛（名字带短剧/漫剧、或 id 在短剧集里）归短剧区
+/// 药丸（visibleShortDramaSites 已收用户导入站，不会丢站），不进
+/// 影视区这张用户网格；②现有的可见性逻辑（[visibleSiteIds]）：
+/// 行 id 能归一化到分档表里的成人站按档位解锁（元婴 3000 开第 1 档、
+/// 化神 8000 第 2 档、炼虚 15000 第 3 档、合体 30000 全开），未解锁
+/// 的不进列表；不在表里的站（用户自己的采集/py 站）原样保留。
+/// 修为到了自动出现，列表随修为变化（VideoPage 监听修为快照）。
 List<SourceEntry> visibleVideoPagePlayableSites(
   List<SourceEntry> entries,
   int xp,
@@ -181,7 +184,9 @@ List<SourceEntry> visibleVideoPagePlayableSites(
   ).toSet();
   return [
     for (final entry in playable)
-      if (visibleIds.contains(entry.id)) entry,
+      if (visibleIds.contains(entry.id) &&
+          isFilmVideoSite(entry.id, entry.name))
+        entry,
   ];
 }
 

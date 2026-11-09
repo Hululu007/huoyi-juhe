@@ -416,15 +416,23 @@ Future<void> openDramaSitePlayback(
       loader: () => client.playSource(episode),
     );
     final source = await _proxyIfNeeded(client, raw);
-    final loaded = await loadSiteDetail();
-    final found = loaded.episodes.indexWhere(
-      (e) => e.videoId == episode.videoId,
+    // 下 2 集预取的下标直接用已拿到的目录（chapters）：之前这里
+    // 又调了一次 loadSiteDetail()，详情页进来时目录明明已经传进
+    // 来了（episodes 参数），等于每打开一本书就把目录（小说站是整
+    // 本书的章节表）白抓一遍。loadSiteDetail 只在没传目录时才走。
+    final found = chapters.indexWhere(
+      (c) => c.itemId == episode.videoId,
     );
     if (found >= 0) {
       for (var i = 1; i <= 2; i++) {
         final next = found + i;
-        if (next >= loaded.episodes.length) break;
-        final nextEpisode = loaded.episodes[next];
+        if (next >= chapters.length) break;
+        final nextChapter = chapters[next];
+        final nextEpisode = DramaSiteEpisode(
+          videoId: nextChapter.itemId,
+          title: nextChapter.title,
+          seriesId: seriesId,
+        );
         DramaPlaySourceCache.instance.prefetch(
           siteId: siteId,
           seriesId: seriesId,

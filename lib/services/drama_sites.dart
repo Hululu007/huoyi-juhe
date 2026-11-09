@@ -327,12 +327,29 @@ const dramaSites = [
   DramaSite('aipornx', '🔞AiPorn短剧'),
   DramaSite('aiyinhang', '🔞AI淫航'),
   DramaSite('sexaix', '🔞幻影AI'),
+  // jar 独占的短剧站：种子/py 表里没有，只有 jar 内置行。裸行必须
+  // 在这里占位，否则 visibleDramaSites 跳过午夜 jar 行、短剧药丸
+  // 里没有它，影视区统一表又按短剧判据把它摘掉，两区都不可见
+  // （2026-11-09 复核发现 qmdj/hgdjapp 正是这样丢了）。
+  // 客户端走 backingEntryForDramaSite 按 jar key 归一化找
+  // （zakaqmdj→qmdj、ZakaHgdjApp→hgdjapp）；不进 coreVideoSiteIds，
+  // 不会漏进影视区；也不进分档表，短剧区不分档。
+  DramaSite('qmdj', '🔞七猫短剧'),
+  DramaSite('hgdjapp', '🔞黄果短剧App'),
+  // 种子 py 独占的短剧站：与 ai2026/aihi 同款，裸行占位、种子行去重
+  // （visibleDramaSites 认 seedId 去重，药丸里只出现一次裸 id）。
+  // xandaskday（AI不用钱）全部分类都是 AI 短剧/漫剧；huangguomanju
+  // （黄果漫剧）全部分类都是短剧/漫剧；两站此前没有裸行，药丸里
+  // 只能以 seed_ 行出现、且 xandaskday 还被误判进影视区。
+  DramaSite('xandaskday', '🔞AI不用钱'),
+  DramaSite('huangguomanju', '🔞黄果漫剧'),
 ];
 
 List<DramaSite> _extraDramaSites = const [];
 
 /// 短剧站裸 id：`dramaSites` 表头 19 站（番茄/红果/HGTV/各果站）
-/// 与名字里不带「短剧」的两个新进短剧站（AI淫航、幻影AI）。
+/// 与名字里不带「短剧」/「漫剧」的纯短剧站（AI淫航、幻影AI、
+/// AI不用钱：全部分类都是 AI 成人短剧/漫剧，见各站 py 的 classes）。
 /// 短剧区与影视区的分区共用这一个判据，不各写一套。
 const shortDramaSiteIds = <String>{
   'original',
@@ -356,13 +373,21 @@ const shortDramaSiteIds = <String>{
   'huangdou_yh',
   'aiyinhang',
   'sexaix',
+  'xandaskday',
 };
 
-/// 该站是不是短剧站：裸 id 在短剧集里，或显示名带「短剧」。
-/// 名字判据兜底新站：以后新加的短剧站只要名字带「短剧」就自动
-/// 归短剧区，不用再改这张表。
+/// 该站是不是短剧站：裸 id 在短剧集里，或显示名带「短剧」/「漫剧」。
+/// 「漫剧」是短剧的一种形态（见 rank.dart isDrama 同款：短剧或漫剧
+/// 都算剧；黄果漫剧 3 个分类是精选短剧/热播漫剧/擦边风月，全是剧）。
+/// 名字判据兜底新站：以后新加的短剧站只要名字带「短剧」/「漫剧」
+/// 就自动归短剧区，不用再改这张表。
+/// 只含一个短剧分类的混合影视站不算：91三级（多为三级片电影）、
+/// 古装AI/丁香色库类（多为视频库、仅一个 AI短剧分类）、探花短视频
+/// （短视频无分集）仍归影视区，见 drama_zone_routing_test 的反例。
 bool isShortDramaSite(String id, String name) =>
-    shortDramaSiteIds.contains(id) || name.contains('短剧');
+    shortDramaSiteIds.contains(id) ||
+    name.contains('短剧') ||
+    name.contains('漫剧');
 
 List<DramaSite> get allDramaSites => [...dramaSites, ..._extraDramaSites];
 

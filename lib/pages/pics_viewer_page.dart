@@ -63,6 +63,16 @@ class _PicsViewerPageState extends State<PicsViewerPage> {
         _loading = false;
       });
       if (_controller.hasClients) _controller.jumpToPage(0);
+      // 首屏第 0 页不会触发 onPageChanged，之前下 1–2 页要等用户
+      // 翻到第 1 页才开始预取；开章就把第 1–2 页也预取上。
+      for (var i = 1; i <= 2 && i < _urls.length; i++) {
+        unawaited(
+          precacheImage(
+            NetworkImage(_urls[i]),
+            context,
+          ).then((_) {}, onError: (_) {}),
+        );
+      }
     } catch (error) {
       if (!mounted) return;
       setState(() {

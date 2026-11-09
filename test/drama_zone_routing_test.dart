@@ -68,6 +68,8 @@ Future<void> _seedRegistry() async {
       _seed('yaguo', '芽果'),
       _seed('aiyinhang', '🔞AI淫航'),
       _seed('sexaix', '🔞幻影AI'),
+      _seed('xandaskday', '🔞AI不用钱'),
+      _seed('huangguomanju', '🔞黄果漫剧'),
       _seed('xojav', '🔞XOJAV'),
       _seed('porncgw', '🔞Porn吃瓜网'),
       _seed('x51', '🔞51X'),
@@ -75,6 +77,10 @@ Future<void> _seedRegistry() async {
           'com.github.catvod.spider.ZakaHddjAmns'),
       _jar('ZakaHgdj', '🔞黄果短剧┃AI成人短剧',
           'com.github.catvod.spider.ZakaHgdjAmns'),
+      _jar('zakaqmdj', '🔞七猫短剧┃VIP破解',
+          'com.github.catvod.spider.ZakaQmdjAmns'),
+      _jar('ZakaHgdjApp', '🆕🔞黄果短剧App┃App网关',
+          'com.github.catvod.spider.ZakaHgdjAppAmns'),
     ]),
   });
   await SourceRegistry.instance.load();
@@ -180,6 +186,13 @@ void main() {
       'aipornx',
       'aiyinhang',
       'sexaix',
+      // 2026-11-09 复核补的漏站：AI不用钱（纯 AI 短剧，名字不带短剧）、
+      // 黄果漫剧（纯漫剧，名字带「漫剧」）、七猫短剧与黄果短剧App
+      // （jar 独占站，此前两区都不可见，裸行占位后才进短剧药丸）。
+      'xandaskday',
+      'huangguomanju',
+      'qmdj',
+      'hgdjapp',
     ]) {
       expect(ids.contains(shortDrama), isTrue, reason: shortDrama);
     }
@@ -220,8 +233,14 @@ void main() {
       'seed_yaguo',
       'seed_aiyinhang',
       'seed_sexaix',
+      'seed_xandaskday',
+      'seed_huangguomanju',
       'jar:zakatv:ZakaHddj',
       'jar:zakatv:ZakaHgdj',
+      // jar 独占短剧站：七猫短剧与黄果短剧App，名字带短剧、
+      // 裸行是 qmdj/hgdjapp，影视区统一表里同样不出现。
+      'jar:zakatv:zakaqmdj',
+      'jar:zakatv:ZakaHgdjApp',
     ]) {
       expect(ids.contains(shortDrama), isFalse, reason: shortDrama);
     }
@@ -254,7 +273,11 @@ void main() {
     expect(adultTierForSiteId('seed_porncgw', adultVideoSiteOrder), 1);
     expect(adultTierForSiteId('seed_x51', adultVideoSiteOrder), 3);
     expect(adultTierForSiteId('hddj', adultVideoSiteOrder), 0);
-    expect(adultTierForSiteId('hgdj', adultVideoSiteOrder), 2);
+    // hgdj 是期望过时、不是分档真错：登记表里 hgdj 下标 100、总数
+    // 201，100*4~/201 = 1（第 2 档）。AOXX69 摘站后总数 202→201，
+    // hgdj 由 tier 2 回到 tier 1，cultivation.dart 的表头注释与
+    // adult_tier_embedded_test（hgdj: 1）都是 1，只有这里还写 2。
+    expect(adultTierForSiteId('hgdj', adultVideoSiteOrder), 1);
   });
 
   test('短剧区站表里有 aihi/aipornx，影视区站表里没有', () {
@@ -294,5 +317,80 @@ void main() {
     expect(isFilmVideoSite('jar:zakatv:ZakaHddj', '🔞黄豆短剧'), isFalse);
     expect(isFilmVideoSite('seed_xojav', '🔞XOJAV'), isTrue);
     expect(isFilmVideoSite('jar:zakatv:ZakaXxx', '🔞X站'), isTrue);
+  });
+
+  test('短剧判据补漏：漫剧算短剧，混合站不算', () {
+    // 名字带「漫剧」即短剧站：黄果漫剧 3 个分类全是短剧/漫剧。
+    expect(isShortDramaSite('huangguomanju', '🔞黄果漫剧'), isTrue);
+    expect(isFilmVideoSite('seed_huangguomanju', '🔞黄果漫剧'), isFalse);
+    // 名字不带短剧/漫剧的纯短剧站靠 id 集：AI不用钱全部分类都是
+    // AI 成人短剧/漫剧。
+    expect(isShortDramaSite('xandaskday', '🔞AI不用钱'), isTrue);
+    expect(isFilmVideoSite('seed_xandaskday', '🔞AI不用钱'), isFalse);
+    // 反例：只含一个短剧分类的混合影视站仍归影视区，不误判成短剧。
+    expect(isShortDramaSite('91sanji', '🔞91三级'), isFalse);
+    expect(isShortDramaSite('guzhuang', '🔞古装AI'), isFalse);
+    expect(isShortDramaSite('dingjiaseku', '🔞顶级AI色库'), isFalse);
+    expect(isShortDramaSite('thdh', '🔞探花短视频'), isFalse);
+    expect(isShortDramaSite('muzi', '🔞母子视频'), isFalse);
+    expect(isFilmVideoSite('seed_91sanji', '🔞91三级'), isTrue);
+    expect(isFilmVideoSite('seed_guzhuang', '🔞古装AI'), isTrue);
+  });
+
+  test('jar 独占短剧站有客户端：qmdj/hgdjapp 走 jar 兜底', () {
+    final registry = SourceRegistry.instance;
+    expect(registry.hasDramaContentClient('qmdj'), isTrue);
+    expect(registry.hasDramaContentClient('hgdjapp'), isTrue);
+    expect(
+      registry.backingEntryForDramaSite('qmdj')?.id,
+      'jar:zakatv:zakaqmdj',
+    );
+    expect(
+      registry.backingEntryForDramaSite('hgdjapp')?.id,
+      'jar:zakatv:ZakaHgdjApp',
+    );
+    // 裸行占位后药丸里只出现一次裸 id，不再出现 jar 行。
+    final sites = registry.visibleShortDramaSites(
+      types: {ContentType.video, ContentType.mixed},
+    );
+    final ids = [for (final site in sites) site.id];
+    expect(ids.where((id) => id == 'qmdj').length, 1);
+    expect(ids.where((id) => id == 'hgdjapp').length, 1);
+    expect(ids.any((id) => id == 'jar:zakatv:zakaqmdj'), isFalse);
+    expect(ids.any((id) => id == 'jar:zakatv:ZakaHgdjApp'), isFalse);
+  });
+
+  test('影视区用户网格：用户自导的短剧站不进，只留影视站', () {
+    final entries = [
+      _entry(
+        id: 'import_user_dj',
+        name: '用户导入的短剧站',
+        kind: SourceKind.pyImport,
+      ),
+      _entry(
+        id: 'import_user_manju',
+        name: '用户导入的漫剧站',
+        kind: SourceKind.pyImport,
+      ),
+      _entry(
+        id: 'import_user_film',
+        name: '用户导入的影视站',
+        kind: SourceKind.pyImport,
+      ),
+      _entry(
+        id: 'jar:user_jar:ZakaHddj',
+        name: '用户导入的黄豆短剧 jar 站',
+        kind: SourceKind.jarImport,
+      ),
+    ];
+    final visible = visibleVideoPagePlayableSites(entries, 30000);
+    final ids = {for (final entry in visible) entry.id};
+    expect(ids.contains('import_user_dj'), isFalse);
+    expect(ids.contains('import_user_manju'), isFalse);
+    expect(ids.contains('jar:user_jar:ZakaHddj'), isFalse);
+    expect(ids.contains('import_user_film'), isTrue);
+    // 底函数 videoPagePlayableSites 本身不管分区（只管“用户导入”），
+    // 分区过滤只在页面实际用的 visibleVideoPagePlayableSites 里做。
+    expect(videoPagePlayableSites(entries).length, 4);
   });
 }
