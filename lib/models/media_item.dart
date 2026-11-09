@@ -7,7 +7,8 @@ library;
 
 import 'dart:isolate';
 
-bool isVideoKind(String kind) => kind == 'video' || kind == 'manju';
+bool isVideoKind(String kind) =>
+    kind == 'video' || kind == 'manju' || kind == 'film';
 
 /// Runs [parseMediaItems] on a background isolate so deep recursive payload
 /// traversal never janks the UI thread.
@@ -36,7 +37,9 @@ class MediaItem {
   final String author;
   final String badge;
   final String ep;
-  final String kind; // 'book' | 'video' | 'manju' | 'manga' | 'audio'
+  final String kind; // 'book' | 'video' | 'manju' | 'manga' | 'audio' | 'film'
+  // 'film' 是外站影视（电影/剧集/JAV 等长视频）：与 'video'（短剧）
+  // 同走视频播放链路，但卡片下标「影视」不下标「短剧」。
 
   /// Novel length (`word_number`) from the search card's `book_data`.
   /// Zero when the card carries none, which is normal for non-novel kinds.

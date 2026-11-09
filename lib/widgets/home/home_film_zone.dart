@@ -300,7 +300,7 @@ class _HomeFilmZoneState extends State<HomeFilmZone> {
                       author: '',
                       badge: '',
                       ep: item.remark,
-                      kind: 'video',
+                      kind: 'film',
                     ),
                     coverWidth: cardWidth,
                     onTap: () => openDramaSiteItem(

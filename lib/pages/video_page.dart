@@ -6,6 +6,7 @@ import '../services/cultivation.dart';
 import '../services/drama_sites.dart';
 import '../services/drama_site_content.dart';
 import '../services/source_registry.dart';
+import '../services/video_zone_display_names.dart';
 import '../widgets/home/drama_site_grid.dart';
 import '../widgets/site_grid_dialog.dart';
 import 'category_page.dart';
@@ -87,21 +88,38 @@ List<SourceEntry> builtinImportedVideoSites(List<SourceEntry> entries) {
 /// 在前、午夜 jar 视频站次之、内置导入视频站在后，按 id 去重，
 /// 供统一切换器与网格共用。三路都只留影视站，短剧站一律摘掉
 /// （判据走 [isFilmVideoSite]，与短剧区共用同一份短剧判据）。
+/// 显示名走修仙版两段式短名（[videoZoneDisplayName]，如
+/// 「🔞黄枫谷·黄瓜」「🔞虚天殿·Verse」），只改显示、不动 id 与分档。
 List<({String id, String name})> unifiedVideoZoneSites(
   List<SourceEntry> customEntries,
 ) {
   final seen = <String>{};
   final out = <({String id, String name})>[];
   for (final site in videoZoneSites()) {
-    if (seen.add(site.id)) out.add((id: site.id, name: site.name));
+    if (seen.add(site.id)) {
+      out.add((
+        id: site.id,
+        name: videoZoneDisplayName(site.id, site.name),
+      ));
+    }
   }
   for (final entry in midnightJarVideoSites(customEntries)) {
     if (!isFilmVideoSite(entry.id, entry.name)) continue;
-    if (seen.add(entry.id)) out.add((id: entry.id, name: entry.name));
+    if (seen.add(entry.id)) {
+      out.add((
+        id: entry.id,
+        name: videoZoneDisplayName(entry.id, entry.name),
+      ));
+    }
   }
   for (final entry in builtinImportedVideoSites(customEntries)) {
     if (!isFilmVideoSite(entry.id, entry.name)) continue;
-    if (seen.add(entry.id)) out.add((id: entry.id, name: entry.name));
+    if (seen.add(entry.id)) {
+      out.add((
+        id: entry.id,
+        name: videoZoneDisplayName(entry.id, entry.name),
+      ));
+    }
   }
   return out;
 }

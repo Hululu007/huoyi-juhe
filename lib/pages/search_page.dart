@@ -12,6 +12,7 @@ import '../services/api_client.dart';
 import '../services/backend_transport.dart';
 import '../services/drama_site_play.dart';
 import '../services/drama_site_search.dart';
+import '../services/drama_sites.dart';
 import '../services/desktop_platform.dart';
 import '../services/search_history_store.dart';
 import '../services/user_facing_error.dart';
@@ -931,7 +932,10 @@ class _SearchPageState extends State<SearchPage> {
                               author: '',
                               badge: '',
                               ep: item.remark,
-                              kind: 'video',
+                              kind: videoCardKindForSite(
+                                group.siteId,
+                                group.siteName,
+                              ),
                             ),
                             coverWidth: homeShelfCardWidth(context, width),
                             onTap: () => openDramaSiteItem(

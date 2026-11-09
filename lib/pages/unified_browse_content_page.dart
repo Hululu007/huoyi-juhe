@@ -246,7 +246,10 @@ class _UnifiedBrowseContentPageState
                                     author: '',
                                     badge: '',
                                     ep: item.remark,
-                                    kind: 'video',
+                                    kind: videoCardKindForSite(
+                                      section.siteId,
+                                      section.siteName,
+                                    ),
                                   ),
                                   coverWidth: cardWidth,
                                   onTap: () => openDramaSiteItem(

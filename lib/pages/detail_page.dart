@@ -171,7 +171,8 @@ class _DetailPageState extends State<DetailPage> {
       ? '话'
       : '章';
   String get _readLabel => switch (widget.item.kind) {
-    'video' || 'manju' => _resumeIndex == null ? '开始观看' : '继续观看',
+    'video' || 'manju' || 'film' =>
+      _resumeIndex == null ? '开始观看' : '继续观看',
     'audio' => _resumeIndex == null ? '开始收听' : '继续收听',
     _ => _resumeIndex == null ? '开始阅读' : '继续阅读',
   };
@@ -225,7 +226,9 @@ class _DetailPageState extends State<DetailPage> {
   @override
   void initState() {
     super.initState();
-    _tab = _isVideo ? '短剧' : kindLabels[widget.item.kind] ?? '小说';
+    _tab = _isVideo
+        ? (widget.item.kind == 'film' ? '影视' : '短剧')
+        : kindLabels[widget.item.kind] ?? '小说';
     // A whole-book download outlives this page: coming back re-attaches to the
     // same batch instead of starting a second one.
     final active = WholeBookDownload.active;
@@ -1359,7 +1362,7 @@ class _DetailPageState extends State<DetailPage> {
     final store = widget.readerStore ?? LibraryStore.instance;
     try {
       final saved = switch (widget.item.kind) {
-        'video' || 'manju' => await PlayerHistory(store).load(_contentId),
+        'video' || 'manju' || 'film' => await PlayerHistory(store).load(_contentId),
         'audio' => await AudioHistory(store).load(_contentId),
         'manga' => await ReaderHistory(
           scopedHistoryStore(store, 'manga'),
@@ -1471,7 +1474,7 @@ class _DetailPageState extends State<DetailPage> {
     final index = _allChapters.indexWhere((c) => c.itemId == chapter.itemId);
     final startIndex = index < 0 ? 0 : index;
     final page = switch (widget.item.kind) {
-      'video' || 'manju' => PlayerPage(
+      'video' || 'manju' || 'film' => PlayerPage(
         bookId: _contentId,
         kind: widget.item.kind,
         title: widget.item.title,

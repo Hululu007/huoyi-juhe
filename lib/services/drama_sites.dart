@@ -389,6 +389,21 @@ bool isShortDramaSite(String id, String name) =>
     name.contains('短剧') ||
     name.contains('漫剧');
 
+/// 短剧站表里按 id 查站名；查不到回 null（不像 dramaSiteById 那样
+/// 回落首站——回落的名字会把未知影视站误判成短剧站）。
+String? dramaSiteNameOrNull(String id) {
+  for (final site in allDramaSites) {
+    if (site.id == id) return site.name;
+  }
+  return null;
+}
+
+/// 外站视频卡片的 kind：短剧站 'video'（卡片下标「短剧」），影视站
+/// 'film'（卡片下标「影视」）。判据与 isShortDramaSite 共用同一份
+/// （id 集 + 名字含「短剧」/「漫剧」）；名字传空时只按 id 集判。
+String videoCardKindForSite(String id, String name) =>
+    isShortDramaSite(id, name) ? 'video' : 'film';
+
 List<DramaSite> get allDramaSites => [...dramaSites, ..._extraDramaSites];
 
 void registerExtraDramaSites(List<DramaSite> sites) {

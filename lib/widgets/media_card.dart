@@ -11,6 +11,7 @@ import '../models/media_item.dart';
 const kindLabels = {
   'book': '小说',
   'video': '短剧',
+  'film': '影视',
   'manju': '漫剧',
   'manga': '漫画',
   'audio': '听书',

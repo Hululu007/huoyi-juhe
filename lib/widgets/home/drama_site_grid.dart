@@ -78,6 +78,18 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
   List<XbpqFilterGroup> _filterGroups = [];
   Map<String, String> _filters = {};
 
+  /// 本网格卡片的 kind：短剧站 'video'（下标「短剧」），影视站
+  /// 'film'（下标「影视」）。站名先问登记表（jar/py 内置站），再问
+  /// 短剧站表；两边都没有时按影视站算，不拿首站名字冒充。
+  String get _cardKind {
+    final id = widget.siteId;
+    final name =
+        SourceRegistry.instance.customById(id)?.name ??
+            dramaSiteNameOrNull(id) ??
+            '';
+    return videoCardKindForSite(id, name);
+  }
+
   void _onGateChanged() {
     if (!mounted) return;
     _loadFirst();
@@ -389,7 +401,7 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
                   author: '',
                   badge: '',
                   ep: item.remark,
-                  kind: 'video',
+                  kind: _cardKind,
                 ),
                 coverWidth: cardWidth,
                 onTap: () => openDramaSiteItem(context, widget.siteId, item),

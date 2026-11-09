@@ -1174,7 +1174,7 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
                       author: '',
                       badge: '',
                       ep: item.remark,
-                      kind: 'video',
+                      kind: 'film',
                     ),
                     coverWidth: _relatedCardWidth,
                     onTap: () => widget.onOpenRelatedFilm?.call(item),
