@@ -8,6 +8,8 @@ import '../services/drama_site_content.dart';
 import '../services/source_registry.dart';
 import '../services/video_zone_display_names.dart';
 import '../widgets/home/drama_site_grid.dart';
+import '../widgets/home/home_design.dart';
+import '../widgets/series_detail/moyi_detail_theme.dart';
 import '../widgets/site_grid_dialog.dart';
 import 'category_page.dart';
 import 'local_library_page.dart';
@@ -58,13 +60,10 @@ bool isFilmVideoSite(String id, String name) =>
 /// 一致，只列影视站，不动主列表“只列用户导入站”的规则。
 /// 默认选中仍是保存过的选择，没有保存过才取第一个。
 List<DramaSite> videoZoneSites() {
-  const ids = {
-    ...coreVideoSiteIds,
-  };
+  const ids = {...coreVideoSiteIds};
   return [
     for (final site in dramaSites)
-      if (ids.contains(site.id) && isFilmVideoSite(site.id, site.name))
-        site,
+      if (ids.contains(site.id) && isFilmVideoSite(site.id, site.name)) site,
   ];
 }
 
@@ -97,28 +96,19 @@ List<({String id, String name})> unifiedVideoZoneSites(
   final out = <({String id, String name})>[];
   for (final site in videoZoneSites()) {
     if (seen.add(site.id)) {
-      out.add((
-        id: site.id,
-        name: videoZoneDisplayName(site.id, site.name),
-      ));
+      out.add((id: site.id, name: videoZoneDisplayName(site.id, site.name)));
     }
   }
   for (final entry in midnightJarVideoSites(customEntries)) {
     if (!isFilmVideoSite(entry.id, entry.name)) continue;
     if (seen.add(entry.id)) {
-      out.add((
-        id: entry.id,
-        name: videoZoneDisplayName(entry.id, entry.name),
-      ));
+      out.add((id: entry.id, name: videoZoneDisplayName(entry.id, entry.name)));
     }
   }
   for (final entry in builtinImportedVideoSites(customEntries)) {
     if (!isFilmVideoSite(entry.id, entry.name)) continue;
     if (seen.add(entry.id)) {
-      out.add((
-        id: entry.id,
-        name: videoZoneDisplayName(entry.id, entry.name),
-      ));
+      out.add((id: entry.id, name: videoZoneDisplayName(entry.id, entry.name)));
     }
   }
   return out;
@@ -142,7 +132,10 @@ List<({String id, String name})> visibleVideoZoneSites(
     adultOrder,
     xp,
   ).toSet();
-  return [for (final site in all) if (visibleIds.contains(site.id)) site];
+  return [
+    for (final site in all)
+      if (visibleIds.contains(site.id)) site,
+  ];
 }
 
 /// 推荐页全局「影视」区的可见站表（纯函数，可单测）：视频站与
@@ -249,8 +242,7 @@ class _VideoPageState extends State<VideoPage> {
     // 表里（或未选站但已有可见站），回到第一个可见站；修为只涨不跌，
     // 已解锁的站不会再锁住，选中站一般不受影响。
     final sites = _playableSites();
-    if (_selectedId == null ||
-        !sites.any((site) => site.id == _selectedId)) {
+    if (_selectedId == null || !sites.any((site) => site.id == _selectedId)) {
       _selectedId = sites.isEmpty ? null : sites.first.id;
     }
     setState(() {});
@@ -279,10 +271,7 @@ class _VideoPageState extends State<VideoPage> {
     // 只从已解锁的站里选：修为不到的站完全不显示，保存过的选择若在
     // 未解锁档里也回落到第一个已解锁站。
     final xp = CultivationService.instance.snapshot.totalXp;
-    final videoZone = visibleVideoZoneSites(
-      SourceRegistry.instance.custom,
-      xp,
-    );
+    final videoZone = visibleVideoZoneSites(SourceRegistry.instance.custom, xp);
     setState(() {
       _loading = false;
       _selectedId = sites.isEmpty ? null : sites.first.id;
@@ -303,7 +292,8 @@ class _VideoPageState extends State<VideoPage> {
     final generation = ++_videoZoneCategoryGeneration;
     String? resolved;
     try {
-      final client = dramaSiteContentClient(siteId) ??
+      final client =
+          dramaSiteContentClient(siteId) ??
           await SourceRegistry.instance.clientFor(siteId);
       if (client != null) {
         final categories = await client.categories().timeout(
@@ -367,10 +357,7 @@ class _VideoPageState extends State<VideoPage> {
     await Navigator.push(
       context,
       MaterialPageRoute<void>(
-        builder: (_) => CategoryPage(
-          videoSiteId: siteId,
-          openVideoTab: true,
-        ),
+        builder: (_) => CategoryPage(videoSiteId: siteId, openVideoTab: true),
       ),
     );
   }
@@ -389,24 +376,29 @@ class _VideoPageState extends State<VideoPage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.lock_outline, size: 48),
+            const Icon(Icons.lock_outline, size: 48, color: moyiMutedOnDark),
             const SizedBox(height: 16),
             const Text(
               '影视源需要元婴期',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+              ),
             ),
             const SizedBox(height: 8),
             Text(
               '还差 ${snapshot.xpToVideoZone} 修为（约 ${snapshot.episodesToVideoZone} 集短剧）解锁，修为到了自动显示影视源。',
               textAlign: TextAlign.center,
+              style: const TextStyle(color: moyiBodyOnDark),
             ),
             const SizedBox(height: 16),
-            FilledButton(
+            MoyiGradientButton(
+              label: '去我的页看进度',
               onPressed: () => Navigator.push(
                 context,
                 MaterialPageRoute<void>(builder: (_) => const MinePage()),
               ),
-              child: const Text('去我的页看进度'),
             ),
           ],
         ),
@@ -426,14 +418,11 @@ class _VideoPageState extends State<VideoPage> {
         icon: const Icon(Icons.sports_esports, size: 18),
         label: const Text('游戏'),
         style: FilledButton.styleFrom(
-          backgroundColor: const Color(0xFFD4A017),
+          backgroundColor: moyiGold,
           foregroundColor: Colors.black,
           minimumSize: const Size(0, 36),
           padding: const EdgeInsets.symmetric(horizontal: 12),
-          textStyle: const TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w700,
-          ),
+          textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
         ),
       ),
     );
@@ -441,21 +430,41 @@ class _VideoPageState extends State<VideoPage> {
 
   @override
   Widget build(BuildContext context) {
+    // 全页深紫蓝渐变底：网格卡片等内层组件靠深色主题取浅色字（与首页同款
+    // 做法），墨水屏不强制、保持黑白。
+    final darkPage = !HomePalette.of(context).eink;
+    final pageTheme = Theme.of(
+      context,
+    ).copyWith(brightness: darkPage ? Brightness.dark : Brightness.light);
     if (_loading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
+      return Theme(
+        data: pageTheme,
+        child: const Scaffold(
+          backgroundColor: Colors.transparent,
+          body: MoyiPageBackground(
+            child: Center(child: CircularProgressIndicator()),
+          ),
+        ),
       );
     }
     // 未到元婴期（3000 修为）时整页上锁：与直播区锁页同款，不露任何
     // 站名与内容；修为到了自动显示影视源（页面监听修为快照）。
     final snapshot = CultivationService.instance.snapshot;
     if (!snapshot.unlockedVideo) {
-      return Scaffold(
-        appBar: AppBar(
-          title: const Text('影视'),
-          actions: [_gameSwitchButton()],
+      return Theme(
+        data: pageTheme,
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          appBar: AppBar(
+            title: const Text('影视'),
+            backgroundColor: Colors.transparent,
+            surfaceTintColor: Colors.transparent,
+            scrolledUnderElevation: 0,
+            foregroundColor: Colors.white,
+            actions: [_gameSwitchButton()],
+          ),
+          body: MoyiPageBackground(child: _lockedBody(context)),
         ),
-        body: _lockedBody(context),
       );
     }
     final sites = _playableSites();
@@ -471,166 +480,183 @@ class _VideoPageState extends State<VideoPage> {
       xp,
     );
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('影视'),
-        actions: [
-          _gameSwitchButton(),
-          TextButton(
-            onPressed: _videoZoneId == null
-                ? null
-                : _openVideoCategoryPage,
-            style: TextButton.styleFrom(
-              foregroundColor: IconTheme.of(context).color,
+    return Theme(
+      data: pageTheme,
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          title: const Text('影视'),
+          backgroundColor: Colors.transparent,
+          surfaceTintColor: Colors.transparent,
+          scrolledUnderElevation: 0,
+          foregroundColor: Colors.white,
+          actions: [
+            _gameSwitchButton(),
+            TextButton(
+              onPressed: _videoZoneId == null ? null : _openVideoCategoryPage,
+              style: TextButton.styleFrom(foregroundColor: Colors.white),
+              child: const Text('分类'),
             ),
-            child: const Text('分类'),
-          ),
-          IconButton(
-            icon: const Icon(Icons.video_library),
-            tooltip: '本地库',
-            onPressed: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const LocalLibraryPage(),
-                ),
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.list),
-            tooltip: '站源管理',
-            onPressed: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const SourceManagementPage(),
-                ),
-              );
-              await _load();
-            },
-          ),
-        ],
-      ),
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final width = constraints.maxWidth;
-          return CustomScrollView(
-            slivers: [
-              const SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
-                  child: Text(
-                    '午夜区',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
+            IconButton(
+              icon: const Icon(Icons.video_library),
+              tooltip: '本地库',
+              onPressed: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const LocalLibraryPage()),
+                );
+              },
+            ),
+            IconButton(
+              icon: const Icon(Icons.list),
+              tooltip: '站源管理',
+              onPressed: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const SourceManagementPage(),
                   ),
-                ),
-              ),
-              if (_videoZoneId != null) ...[
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                    child: InkWell(
-                      onTap: _openVideoZoneSiteSwitcher,
-                      borderRadius: BorderRadius.circular(20),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: Theme.of(context).dividerColor,
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              unifiedSites
-                                      .where(
-                                        (site) => site.id == _videoZoneId,
-                                      )
-                                      .firstOrNull
-                                      ?.name ??
-                                  '',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            const Icon(Icons.arrow_drop_down, size: 20),
-                          ],
+                );
+                await _load();
+              },
+            ),
+          ],
+        ),
+        body: MoyiPageBackground(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final width = constraints.maxWidth;
+              return CustomScrollView(
+                slivers: [
+                  const SliverToBoxAdapter(
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
+                      child: Text(
+                        '午夜区',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
                         ),
                       ),
                     ),
                   ),
-                ),
-                DramaSiteGrid(
-                  key: ValueKey(
-                    'video-zone-$_videoZoneId-${_videoZoneCategoryId ?? 'all'}',
-                  ),
-                  siteId: _videoZoneId!,
-                  categoryId: _videoZoneCategoryId ?? 'all',
-                  gridWidth: width,
-                  showFilterBar: false,
-                  columns: 3,
-                ),
-              ],
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
-                  child: Wrap(
-                    spacing: 8,
-                    children: [
-                      for (final site in sites)
-                        ChoiceChip(
-                          label: Text(site.name),
-                          selected: site.id == _selectedId,
-                          onSelected: (_) =>
-                              setState(() => _selectedId = site.id),
+                  if (_videoZoneId != null) ...[
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                        child: InkWell(
+                          onTap: _openVideoZoneSiteSwitcher,
+                          borderRadius: BorderRadius.circular(20),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: moyiDarkCardFill,
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: moyiDarkCardBorder),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  unifiedSites
+                                          .where(
+                                            (site) => site.id == _videoZoneId,
+                                          )
+                                          .firstOrNull
+                                          ?.name ??
+                                      '',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                const Icon(
+                                  Icons.arrow_drop_down,
+                                  size: 20,
+                                  color: moyiMutedOnDark,
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
-                    ],
-                  ),
-                ),
-              ),
-              if (sites.isEmpty)
-                const SliverToBoxAdapter(
-                  child: Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text(
-                      '暂无你导入的影视站源。核心影视站见上方午夜区；'
-                      '要加站去站源管理添加 MacCMS 站点，'
-                      '或导入 Python / Jar / JS 蜘蛛（引擎仅支持 Android）。',
+                      ),
+                    ),
+                    DramaSiteGrid(
+                      key: ValueKey(
+                        'video-zone-$_videoZoneId-${_videoZoneCategoryId ?? 'all'}',
+                      ),
+                      siteId: _videoZoneId!,
+                      categoryId: _videoZoneCategoryId ?? 'all',
+                      gridWidth: width,
+                      showFilterBar: false,
+                      columns: 3,
+                    ),
+                  ],
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
+                      child: Wrap(
+                        spacing: 8,
+                        children: [
+                          for (final site in sites)
+                            ChoiceChip(
+                              label: Text(site.name),
+                              selected: site.id == _selectedId,
+                              onSelected: (_) =>
+                                  setState(() => _selectedId = site.id),
+                              backgroundColor: moyiDarkCardFill,
+                              selectedColor: moyiPurple,
+                              labelStyle: const TextStyle(color: Colors.white),
+                              side: const BorderSide(color: moyiDarkCardBorder),
+                            ),
+                        ],
+                      ),
                     ),
                   ),
-                )
-              else if (_selectedId != null)
-                DramaSiteGrid(
-                  key: ValueKey('video-site-$_selectedId'),
-                  siteId: _selectedId!,
-                  categoryId: 'all',
-                  gridWidth: width,
-                  columns: 3,
-                ),
-              if (remoteJson.isNotEmpty)
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
-                    child: Text(
-                      '远程配置（已展开为上方选站）：'
-                      '${remoteJson.map((e) => e.name).join('、')}',
-                      style: const TextStyle(fontSize: 13),
+                  if (sites.isEmpty)
+                    const SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Text(
+                          '暂无你导入的影视站源。核心影视站见上方午夜区；'
+                          '要加站去站源管理添加 MacCMS 站点，'
+                          '或导入 Python / Jar / JS 蜘蛛（引擎仅支持 Android）。',
+                          style: TextStyle(color: moyiMutedOnDark),
+                        ),
+                      ),
+                    )
+                  else if (_selectedId != null)
+                    DramaSiteGrid(
+                      key: ValueKey('video-site-$_selectedId'),
+                      siteId: _selectedId!,
+                      categoryId: 'all',
+                      gridWidth: width,
+                      columns: 3,
                     ),
-                  ),
-                ),
-            ],
-          );
-        },
+                  if (remoteJson.isNotEmpty)
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
+                        child: Text(
+                          '远程配置（已展开为上方选站）：'
+                          '${remoteJson.map((e) => e.name).join('、')}',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: moyiMutedOnDark,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+        ),
       ),
     );
   }

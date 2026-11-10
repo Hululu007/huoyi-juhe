@@ -677,14 +677,22 @@ class _RootShellState extends State<RootShell>
     });
   }
 
+  /// A backend (re)start already in flight. Retries tapped twice must not
+  /// start the core twice; the guard also keeps a retry from flashing the
+  /// loading screen — while it runs, the old error stays on the degraded
+  /// banner and the main UI stays up (see [_degradedShell]).
+  bool _backendStarting = false;
+
   Future<void> _startBackend() async {
-    setState(() {
-      _backendError = null;
-    });
+    if (_backendStarting) return;
+    _backendStarting = true;
     try {
       await (widget.backendStarter ?? BackendService.instance.start)();
       if (mounted) {
-        setState(() => _backendReady = true);
+        setState(() {
+          _backendReady = true;
+          _backendError = null;
+        });
       }
     } catch (e) {
       if (mounted) {
@@ -692,7 +700,68 @@ class _RootShellState extends State<RootShell>
           _backendError = '$e';
         });
       }
+    } finally {
+      _backendStarting = false;
     }
+  }
+
+  /// Degraded shell: the normal main UI with a banner on top saying the
+  /// local service failed and some features are unavailable, plus a retry
+  /// that really restarts the core and an offline-reading entry. Used when
+  /// the backend never came up (e.g. its loopback port stayed held by a
+  /// stale process) instead of blocking the whole app on a failure page.
+  Widget _degradedShell(Widget shell) {
+    final error = _backendError;
+    return Scaffold(
+      body: SafeArea(
+        child: Column(
+          children: [
+            Material(
+              color: Theme.of(context).colorScheme.errorContainer,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                child: Row(
+                  children: [
+                    const Icon(LucideIcons.triangle_alert, size: 18),
+                    const SizedBox(width: 8),
+                    const Expanded(child: Text('本地服务启动失败，部分功能不可用')),
+                    TextButton(
+                      onPressed: _startBackend,
+                      child: const Text('重试'),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const CachedBooksPage(),
+                        ),
+                      ),
+                      child: const Text('离线阅读'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (error != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 4,
+                ),
+                child: Text(
+                  error,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 12, color: Colors.red),
+                ),
+              ),
+            Expanded(child: shell),
+          ],
+        ),
+      ),
+    );
   }
 
   /// 游戏 / 观影切换钮：像 3D 换界面一样翻转切换——
@@ -791,7 +860,11 @@ class _RootShellState extends State<RootShell>
         },
       );
     }
-    if (!_backendReady) {
+    // 本地服务起不来也不整页拦死：还没出结果时只显示加载；一旦失败就进
+    // 主界面、顶一条横幅提示部分功能不可用（见 [_degradedShell]），失败
+    // 原因仍留在横幅里，重试点下去重新拉起核心。
+    final backendDegraded = !_backendReady && _backendError != null;
+    if (!_backendReady && !backendDegraded) {
       return Scaffold(
         body: SafeArea(
           child: Center(
@@ -800,15 +873,9 @@ class _RootShellState extends State<RootShell>
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (_backendError == null)
-                    const CircularProgressIndicator()
-                  else
-                    Icon(
-                      LucideIcons.triangle_alert,
-                      color: Theme.of(context).colorScheme.error,
-                    ),
+                  const CircularProgressIndicator(),
                   const SizedBox(height: 16),
-                  Text(_backendError == null ? '正在启动本地服务...' : '启动失败'),
+                  const Text('正在启动本地服务...'),
                   TextButton.icon(
                     onPressed: () => Navigator.push(
                       context,
@@ -819,22 +886,6 @@ class _RootShellState extends State<RootShell>
                     icon: const Icon(LucideIcons.download),
                     label: const Text('离线阅读'),
                   ),
-                  if (_backendError != null) ...[
-                    const SizedBox(height: 8),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 24),
-                      child: Text(
-                        _backendError!,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(fontSize: 12, color: Colors.red),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    OutlinedButton(
-                      onPressed: _startBackend,
-                      child: const Text('重试'),
-                    ),
-                  ],
                 ],
               ),
             ),
@@ -842,8 +893,9 @@ class _RootShellState extends State<RootShell>
         ),
       );
     }
+    final Widget shell;
     if (isWindowsDesktop) {
-      return ValueListenableBuilder<int>(
+      shell = ValueListenableBuilder<int>(
         valueListenable: desktopTab,
         builder: (context, index, _) {
           AudioFloatingRouteScope.configure(context, hidden: index == 2);
@@ -872,7 +924,7 @@ class _RootShellState extends State<RootShell>
           );
         },
       );
-    }
+    } else {
     AudioFloatingRouteScope.configure(context, hidden: _index == 2);
     final palette = HomePalette.of(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -1011,7 +1063,7 @@ class _RootShellState extends State<RootShell>
     // light / dark 两套预设都把它写成纯黑底 + 白图标，浅色页面下会在最底部
     // 留一条突兀的黑带；短剧只有视频流（推荐）背后是视频，仍用黑。
     final lightSystemIcons = dramaOnVideo || isDark;
-    return Scaffold(
+    shell = Scaffold(
       extendBody: true,
       // 状态栏图标亮度挂在壳层、按选中 tab 切换：短剧页是黑底视频流（官方
       // SeriesMallFragment 的透明顶栏直接压在 feed 上），深色图标在黑底上
@@ -1124,5 +1176,7 @@ class _RootShellState extends State<RootShell>
         ),
       ),
     );
+    }
+    return backendDegraded ? _degradedShell(shell) : shell;
   }
 }

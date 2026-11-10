@@ -23,6 +23,7 @@ import '../../models/book_comment.dart' show formatCount;
 import '../../models/playlet_comment.dart';
 import '../../services/api_client.dart';
 import '../home/home_design.dart';
+import '../series_detail/moyi_detail_theme.dart';
 import 'playlet_discussion_tile.dart';
 import 'playlet_reply_panel.dart';
 
@@ -89,7 +90,7 @@ class PlayletCommentPanel extends StatefulWidget {
     isScrollControlled: true,
     useSafeArea: true,
     // 深色 / OLED 弹层取 surface + 发丝边：与听书/详情弹层同一规则。
-    backgroundColor: homeSheetColor(HomePalette.of(context)),
+    backgroundColor: moyiSheetFill,
     shape: homeSheetShape(HomePalette.of(context), top: 16),
     builder: (context) => PlayletCommentPanel(
       seriesId: seriesId,
@@ -319,7 +320,6 @@ class _PlayletCommentPanelState extends State<PlayletCommentPanel> {
   }
 
   Widget _header() {
-    final palette = HomePalette.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
       child: Row(
@@ -330,7 +330,7 @@ class _PlayletCommentPanelState extends State<PlayletCommentPanel> {
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.bold,
-              color: palette.ink,
+              color: Colors.white,
             ),
           ),
           const SizedBox(width: 8),
@@ -338,14 +338,14 @@ class _PlayletCommentPanelState extends State<PlayletCommentPanel> {
             Text(
               formatCount(_total!),
               key: const ValueKey('playlet-comment-total'),
-              style: TextStyle(fontSize: 13, color: palette.muted),
+              style: TextStyle(fontSize: 13, color: moyiMutedOnDark),
             ),
           const Spacer(),
           IconButton(
             key: const ValueKey('playlet-comment-close'),
             tooltip: '关闭',
             onPressed: () => Navigator.maybePop(context),
-            icon: Icon(LucideIcons.x, size: 20, color: palette.muted),
+            icon: Icon(LucideIcons.x, size: 20, color: moyiMutedOnDark),
           ),
         ],
       ),
@@ -367,7 +367,6 @@ class _PlayletCommentPanelState extends State<PlayletCommentPanel> {
 
   Widget _filterChip(_FilterOption option) {
     final selected = _sort == option.sort && _tag == option.tag;
-    final palette = HomePalette.of(context);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
       child: GestureDetector(
@@ -381,7 +380,7 @@ class _PlayletCommentPanelState extends State<PlayletCommentPanel> {
             // 官方选中样式：橙字 #FFFA6725 + 浅橙底 #1AFA6725。
             color: selected
                 ? const Color(0x1AFA6725)
-                : (palette.dark ? palette.soft : const Color(0xFFF5F5F7)),
+                : moyiDarkCardFill,
             borderRadius: BorderRadius.circular(14),
           ),
           child: Text(
@@ -389,7 +388,7 @@ class _PlayletCommentPanelState extends State<PlayletCommentPanel> {
             style: TextStyle(
               fontSize: 13,
               fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-              color: selected ? const Color(0xFFFA6725) : palette.muted,
+              color: selected ? const Color(0xFFFA6725) : moyiMutedOnDark,
             ),
           ),
         ),
@@ -398,7 +397,6 @@ class _PlayletCommentPanelState extends State<PlayletCommentPanel> {
   }
 
   Widget _body() {
-    final palette = HomePalette.of(context);
     if (_comments.isEmpty && _loading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -407,7 +405,7 @@ class _PlayletCommentPanelState extends State<PlayletCommentPanel> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('评论加载失败', style: TextStyle(color: palette.muted)),
+            Text('评论加载失败', style: TextStyle(color: moyiMutedOnDark)),
             const SizedBox(height: 8),
             OutlinedButton(
               key: const ValueKey('playlet-comment-retry'),
@@ -423,7 +421,7 @@ class _PlayletCommentPanelState extends State<PlayletCommentPanel> {
         child: Text(
           PlayletCommentPage(totalCount: _total ?? 0).emptyText,
           key: const ValueKey('playlet-comment-empty'),
-          style: TextStyle(color: palette.muted),
+          style: TextStyle(color: moyiMutedOnDark),
         ),
       );
     }

@@ -6,6 +6,7 @@ import 'package:flutter_lucide/flutter_lucide.dart';
 import '../../models/search_discovery.dart';
 import '../home/home_design.dart';
 import '../home/home_shelf.dart';
+import '../series_detail/moyi_detail_theme.dart';
 
 // 搜索页的发现区：联想词、热搜榜、搜索历史。
 //
@@ -29,7 +30,6 @@ class SearchSuggestionList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = HomePalette.of(context);
     if (suggestions.isEmpty) return const SizedBox.shrink();
     return ListView.separated(
       key: const Key('search_suggestions'),
@@ -39,7 +39,7 @@ class SearchSuggestionList extends StatelessWidget {
       separatorBuilder: (context, _) => Divider(
         height: 1,
         thickness: 1,
-        color: palette.line,
+        color: moyiDarkCardBorder,
         indent: homeGutter,
         endIndent: homeGutter,
       ),
@@ -54,12 +54,11 @@ class SearchSuggestionList extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: homeGutter),
               child: Row(
                 children: [
-                  Icon(LucideIcons.search, size: 14, color: palette.muted),
+                  Icon(LucideIcons.search, size: 14, color: moyiMutedOnDark),
                   const SizedBox(width: 12),
                   Expanded(
                     child: _SuggestionText(
                       suggestion: suggestion,
-                      palette: palette,
                     ),
                   ),
                 ],
@@ -76,15 +75,13 @@ class SearchSuggestionList extends StatelessWidget {
 /// than dropping it, since it shows why a suggestion matched.
 class _SuggestionText extends StatelessWidget {
   final SearchSuggestion suggestion;
-  final HomePalette palette;
-
-  const _SuggestionText({required this.suggestion, required this.palette});
+  const _SuggestionText({required this.suggestion});
 
   @override
   Widget build(BuildContext context) {
-    final base = TextStyle(color: palette.ink, fontSize: 14);
+    final base = TextStyle(color: Colors.white, fontSize: 14);
     final marked = base.copyWith(
-      color: palette.accentText,
+      color: moyiGold,
       fontWeight: FontWeight.w600,
     );
     final parts = _splitHighlight(suggestion.highlighted);
@@ -155,7 +152,7 @@ class HotSearchBoard extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const HomeSectionHeader(title: '热搜榜'),
+        const HomeSectionHeader(title: '热搜榜', titleColor: Colors.white),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: homeGutter),
           child: Column(
@@ -184,7 +181,6 @@ class _HotRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = HomePalette.of(context);
     final top = rank <= 3;
     return HomePressable(
       key: ValueKey('search_hot_${entry.title}'),
@@ -200,7 +196,7 @@ class _HotRow extends StatelessWidget {
               child: Text(
                 '$rank',
                 style: TextStyle(
-                  color: top ? HomePalette.accent : palette.muted,
+                  color: top ? moyiGold : moyiMutedOnDark,
                   fontSize: top ? 14 : 12.5,
                   height: 1.1,
                   fontWeight: top ? FontWeight.w800 : FontWeight.w500,
@@ -214,7 +210,7 @@ class _HotRow extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  color: palette.ink,
+                  color: Colors.white,
                   fontSize: 13.5,
                   height: 1.3,
                   fontWeight: top ? FontWeight.w600 : FontWeight.w500,
@@ -230,7 +226,7 @@ class _HotRow extends StatelessWidget {
               Text(
                 entry.hotValue,
                 style: TextStyle(
-                  color: palette.muted,
+                  color: moyiMutedOnDark,
                   fontSize: 11,
                   height: 1.2,
                   fontFeatures: const [FontFeature.tabularFigures()],
@@ -253,17 +249,16 @@ class _HotBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = HomePalette.of(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
       decoration: BoxDecoration(
-        color: palette.soft,
+        color: moyiDarkCardFill,
         borderRadius: BorderRadius.circular(4),
       ),
       child: Text(
         text,
         style: TextStyle(
-          color: palette.muted,
+          color: moyiMutedOnDark,
           fontSize: 9.5,
           height: 1.2,
           fontWeight: FontWeight.w600,
@@ -326,14 +321,13 @@ class SearchDiscoveryView extends StatelessWidget {
   /// 分区头复用 [HomeSectionHeader]，「清空」的点击区单独撑到 44 高，
   /// 但不改变标题和按钮的视觉位置。
   Widget _historyHeader(BuildContext context) {
-    final palette = HomePalette.of(context);
     final titleHeight = MediaQuery.textScalerOf(context).scale(19) * 1.25;
     final headerHeight = homeSectionGap + titleHeight + homeHeaderGap;
     final desired = homeSectionGap + titleHeight / 2 - 22;
     final top = desired.clamp(0.0, math.max(0.0, headerHeight - 44));
     return Stack(
       children: [
-        const HomeSectionHeader(title: '搜索历史'),
+        const HomeSectionHeader(title: '搜索历史', titleColor: Colors.white),
         if (history.isNotEmpty)
           Positioned(
             right: homeGutter - 4,
@@ -345,7 +339,7 @@ class SearchDiscoveryView extends StatelessWidget {
                 minimumSize: const Size(0, 44),
                 padding: const EdgeInsets.symmetric(horizontal: 4),
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                foregroundColor: palette.muted,
+                foregroundColor: moyiMutedOnDark,
               ),
               child: const Text(
                 '清空',
@@ -392,12 +386,11 @@ class SearchDiscoveryView extends StatelessWidget {
   /// 胶囊 36 高、左内边距 14、× 的点击区 32×32、图标 13——按样稿的密度
   /// 比原版更宽松，手指更容易点中删除。
   Widget _historyChip(BuildContext context, String query) {
-    final palette = HomePalette.of(context);
     return Container(
       key: ValueKey('search_history_$query'),
       height: 36,
       decoration: BoxDecoration(
-        color: palette.soft,
+        color: moyiDarkCardFill,
         borderRadius: BorderRadius.circular(999),
       ),
       child: Row(
@@ -421,7 +414,7 @@ class SearchDiscoveryView extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 12.5,
                       height: 1.2,
-                      color: palette.ink,
+                      color: Colors.white,
                     ),
                   ),
                 ),
@@ -438,7 +431,7 @@ class SearchDiscoveryView extends StatelessWidget {
                 onTap: () => onRemoveHistory(query),
                 customBorder: const CircleBorder(),
                 child: Center(
-                  child: Icon(LucideIcons.x, size: 13, color: palette.muted),
+                  child: Icon(LucideIcons.x, size: 13, color: moyiMutedOnDark),
                 ),
               ),
             ),
@@ -459,7 +452,7 @@ class SearchDiscoveryView extends StatelessWidget {
           textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: 12.5,
-            color: HomePalette.of(context).muted,
+            color: moyiMutedOnDark,
           ),
         ),
       ),

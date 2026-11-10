@@ -7,6 +7,7 @@ import 'package:lottie/lottie.dart';
 
 import '../../models/media_item.dart';
 import '../home/home_design.dart';
+import '../series_detail/moyi_detail_theme.dart';
 import 'player_toast.dart';
 
 /// 官方选集格子（`bbw.xml` + `hj3/r0.java` + colors.xml）：
@@ -85,18 +86,17 @@ enum EpisodeTileState {
 
 /// 深色主题下格子字色跟随色板；浅色保持官方浅肤取值。
 Color _episodeTextColor(EpisodeTileState state, HomePalette palette) {
-  if (!palette.dark) return state.textColor;
   return switch (state) {
     EpisodeTileState.current => _currentText,
     EpisodeTileState.disabled => const Color(0x40FFFFFF),
-    EpisodeTileState.watched => palette.muted,
-    EpisodeTileState.normal => palette.ink,
+    EpisodeTileState.watched => moyiMutedOnDark,
+    EpisodeTileState.normal => Colors.white,
   };
 }
 
 /// 普通格底色 `#08000000` 在深色面板上不可见，换成一层亮 overlay。
 Color _episodeTileBackground(bool current, HomePalette palette) =>
-    current ? _currentBg : (palette.dark ? const Color(0x14FFFFFF) : _tileBg);
+    current ? _currentBg : moyiDarkCardFill;
 
 /// 纯清晰度集名（蜘蛛把多清晰度展开成“集”时，如 mjv011 的
 /// 480P / 720P / 1080P）：格子里显示档名而不是序号。只认
@@ -152,17 +152,16 @@ class _HeaderCoverFallback extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = HomePalette.of(context);
     return Container(
       width: 64,
       height: 86,
       decoration: BoxDecoration(
-        color: palette.dark ? palette.soft : const Color(0xFFEDEDF0),
+        color: moyiDarkCardFill,
         borderRadius: BorderRadius.circular(6),
       ),
       child: Icon(
         Icons.movie_creation_outlined,
-        color: palette.dark ? palette.muted : const Color(0xFF9499A0),
+        color: moyiMutedOnDark,
       ),
     );
   }
@@ -370,7 +369,7 @@ class _StoryPlayerPanelState extends State<StoryPlayerPanel> {
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
-                          color: palette.ink,
+                          color: Colors.white,
                         ),
                       ),
                     ),
@@ -380,7 +379,7 @@ class _StoryPlayerPanelState extends State<StoryPlayerPanel> {
                         child: Icon(
                           Icons.chevron_right_rounded,
                           size: 18,
-                          color: palette.muted,
+                          color: moyiMutedOnDark,
                         ),
                       ),
                   ],
@@ -415,7 +414,7 @@ class _StoryPlayerPanelState extends State<StoryPlayerPanel> {
                       key: const ValueKey('story-panel-episode-label'),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 13, color: palette.muted),
+                      style: TextStyle(fontSize: 13, color: moyiMutedOnDark),
                     ),
                 ],
               ),
@@ -590,9 +589,7 @@ class _StoryPlayerPanelState extends State<StoryPlayerPanel> {
                           width: 36,
                           height: 4,
                           decoration: BoxDecoration(
-                            color: palette.dark
-                                ? const Color(0x33FFFFFF)
-                                : const Color(0x1A000000),
+                            color: moyiMutedOnDark,
                             borderRadius: BorderRadius.circular(2),
                           ),
                         ),
@@ -626,7 +623,7 @@ class _StoryPlayerPanelState extends State<StoryPlayerPanel> {
                                 fontSize: 14,
                                 height: 1.0,
                                 fontWeight: FontWeight.bold,
-                                color: palette.ink,
+                                color: Colors.white,
                                 leadingDistribution:
                                     TextLeadingDistribution.even,
                               ),
@@ -641,7 +638,7 @@ class _StoryPlayerPanelState extends State<StoryPlayerPanel> {
                               // 了外层 colorScheme，这个按钮会落到 Material
                               // 默认主色（紫蓝）。
                               style: TextButton.styleFrom(
-                                foregroundColor: palette.accentText,
+                                foregroundColor: moyiGold,
                               ),
                               child: const Text('同系列'),
                             ),
@@ -666,7 +663,7 @@ class _StoryPlayerPanelState extends State<StoryPlayerPanel> {
       key: const ValueKey('story-panel'),
       // 官方 `skin_bg_short_series_episode_dialog`：顶部圆角 16dp；
       // 深色 / OLED 取浮层色，和听书/评论弹层同一规则。
-      color: homeSheetColor(palette),
+      color: moyiSheetFill,
       shape: homeSheetShape(palette, top: 16),
       clipBehavior: Clip.antiAlias,
       child: body,
@@ -682,9 +679,7 @@ class _StoryPlayerPanelState extends State<StoryPlayerPanel> {
           height: 56,
           padding: const EdgeInsets.symmetric(horizontal: 8),
           decoration: BoxDecoration(
-            color: palette.dark
-                ? const Color(0x14FFFFFF)
-                : const Color(0x0A000000),
+            color: moyiDarkCardFill,
             borderRadius: BorderRadius.circular(8),
           ),
           child: Row(
@@ -699,11 +694,11 @@ class _StoryPlayerPanelState extends State<StoryPlayerPanel> {
                   book.title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 14, color: palette.ink),
+                  style: TextStyle(fontSize: 14, color: Colors.white),
                 ),
               ),
               if (widget.onOpenRelateBook != null)
-                Icon(LucideIcons.chevron_right, size: 18, color: palette.muted),
+                Icon(LucideIcons.chevron_right, size: 18, color: moyiMutedOnDark),
             ],
           ),
         ),
@@ -743,7 +738,7 @@ class _StoryPlayerPanelState extends State<StoryPlayerPanel> {
                     fontWeight: page == _page
                         ? FontWeight.bold
                         : FontWeight.normal,
-                    color: page == _page ? palette.ink : palette.muted,
+                    color: page == _page ? Colors.white : moyiMutedOnDark,
                   ),
                 ),
               ),
@@ -757,7 +752,7 @@ class _StoryPlayerPanelState extends State<StoryPlayerPanel> {
     if (widget.episodes.isEmpty) {
       return Center(
         key: const ValueKey('story-episodes'),
-        child: Text('暂无剧集', style: TextStyle(color: palette.muted)),
+        child: Text('暂无剧集', style: TextStyle(color: moyiMutedOnDark)),
       );
     }
     return CustomScrollView(
@@ -954,7 +949,7 @@ class _StoryEpisodeDrawerState extends State<StoryEpisodeDrawer> {
     final playingIndex = widget.playingIndex ?? widget.currentIndex;
     return Material(
       key: const ValueKey('story-episode-drawer'),
-      color: const Color(0xFF141414),
+      color: moyiSheetFill,
       // 抽屉贴在右缘：横向只该让开**右侧**的安全区（右挖孔机型），左边
       // 那条是另一侧屏幕边缘的挖孔，套进来会把标题和格子整体推右。
       child: SafeArea(

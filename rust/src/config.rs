@@ -43,3 +43,40 @@ impl Config {
         Ok(c)
     }
 }
+
+/// Loopback port the rest of the core should advertise.
+///
+/// The adapter may end up on an ephemeral port when the configured one is
+/// still held by a stale process of a previous install (overlay install
+/// does not always kill the old process first). The actually-bound port
+/// wins; otherwise the configured port, defaulting to 18921 when the
+/// config says 0.
+pub fn effective_port(configured: u16, bound: u16) -> u16 {
+    if bound != 0 {
+        bound
+    } else if configured != 0 {
+        configured
+    } else {
+        18921
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn effective_port_prefers_the_bound_port() {
+        assert_eq!(effective_port(18921, 54321), 54321);
+    }
+
+    #[test]
+    fn effective_port_falls_back_to_the_configured_port() {
+        assert_eq!(effective_port(18921, 0), 18921);
+    }
+
+    #[test]
+    fn effective_port_defaults_when_nothing_is_set() {
+        assert_eq!(effective_port(0, 0), 18921);
+    }
+}

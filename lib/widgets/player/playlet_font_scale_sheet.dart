@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../services/short_series_font_scale.dart';
 import '../home/home_design.dart';
+import '../series_detail/moyi_detail_theme.dart';
 import 'player_side_panel.dart';
 
 /// 横屏字号面板：与选集抽屉同宽同高的右侧面板，三档列表 + 样张。
@@ -135,11 +136,10 @@ Future<void> showPlayletFontScaleSheet(
   ),
   barrierColor: Colors.transparent,
   // 深色 / OLED 弹层取 surface + 发丝边：与听书/评论弹层同一规则。
-  backgroundColor: homeSheetColor(HomePalette.of(context)),
+  backgroundColor: moyiSheetFill,
   shape: homeSheetShape(HomePalette.of(context), top: 16),
   builder: (sheetContext) => StatefulBuilder(
     builder: (sheetContext, setSheetState) {
-      final palette = HomePalette.of(sheetContext);
       final current = ShortSeriesFontScale.instance.clamp(0, 2);
       return SafeArea(
         top: false,
@@ -155,7 +155,7 @@ Future<void> showPlayletFontScaleSheet(
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
-                  color: palette.ink,
+                  color: Colors.white,
                 ),
               ),
               const SizedBox(height: 12),
@@ -186,14 +186,12 @@ Future<void> showPlayletFontScaleSheet(
                             decoration: BoxDecoration(
                               // 选中档在深色下用 line 抬高一层，浅色仍是白药丸。
                               color: index == current
-                                  ? (palette.dark ? palette.line : Colors.white)
+                                  ? moyiSheetCardFill
                                   : Colors.transparent,
                               borderRadius: BorderRadius.circular(15),
                               border: Border.all(
                                 color: index == current
-                                    ? (palette.dark
-                                          ? palette.line
-                                          : const Color(0x1F000000))
+                                    ? moyiDarkCardBorder
                                     : Colors.transparent,
                               ),
                             ),
@@ -205,8 +203,8 @@ Future<void> showPlayletFontScaleSheet(
                                     ? FontWeight.bold
                                     : FontWeight.normal,
                                 color: index == current
-                                    ? palette.ink
-                                    : palette.muted,
+                                    ? Colors.white
+                                    : moyiMutedOnDark,
                               ),
                             ),
                           ),
@@ -221,7 +219,7 @@ Future<void> showPlayletFontScaleSheet(
                 '播放页文字大小预览',
                 key: const ValueKey('player-font-scale-preview'),
                 textScaler: TextScaler.linear(ShortSeriesFontScale.scale),
-                style: TextStyle(fontSize: 14, color: palette.ink),
+                style: TextStyle(fontSize: 14, color: Colors.white),
               ),
             ],
           ),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
 
 import 'home_design.dart';
+import '../series_detail/moyi_detail_theme.dart';
 
 /// 底部弹层的统一基座：拖拽柄 + 标题 + Lucide 关闭 + 可滚动内容。
 ///
@@ -64,7 +65,7 @@ class HomeSheetFrame extends StatelessWidget {
         maxHeight: MediaQuery.sizeOf(context).height * maxHeightFactor,
       ),
       decoration: BoxDecoration(
-        color: homeSheetColor(palette),
+        color: moyiSheetFill,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(radius)),
         // 只描上缘：弹层底边贴着屏幕，画一圈会在手势条上方多一条线。
         border: Border(top: homeSheetShape(palette, top: radius).side),
@@ -76,8 +77,8 @@ class HomeSheetFrame extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (showHandle) _handle(palette),
-              _header(context, palette),
+              if (showHandle) _handle(),
+              _header(context),
               Flexible(
                 child: SingleChildScrollView(
                   key: scrollKey,
@@ -95,17 +96,17 @@ class HomeSheetFrame extends StatelessWidget {
     );
   }
 
-  Widget _handle(HomePalette palette) => Container(
+  Widget _handle() => Container(
     margin: const EdgeInsets.only(top: 10, bottom: 4),
     width: 36,
     height: 4,
     decoration: BoxDecoration(
-      color: palette.muted.withValues(alpha: 0.25),
+      color: moyiMutedOnDark,
       borderRadius: BorderRadius.circular(2),
     ),
   );
 
-  Widget _header(BuildContext context, HomePalette palette) => Padding(
+  Widget _header(BuildContext context) => Padding(
     padding: const EdgeInsets.fromLTRB(20, 0, 8, 2),
     child: Row(
       children: [
@@ -114,8 +115,8 @@ class HomeSheetFrame extends StatelessWidget {
             title,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: palette.ink,
+            style: const TextStyle(
+              color: Colors.white,
               fontSize: titleFontSize,
               fontWeight: FontWeight.w600,
             ),
@@ -125,7 +126,7 @@ class HomeSheetFrame extends StatelessWidget {
           key: closeKey,
           tooltip: closeTooltip,
           onPressed: onClose ?? () => Navigator.maybePop(context),
-          color: palette.ink,
+          color: Colors.white,
           icon: const Icon(LucideIcons.x, size: 20),
         ),
       ],
@@ -153,7 +154,7 @@ Future<T?> showHomeSheet<T>({
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    backgroundColor: homeSheetColor(palette),
+    backgroundColor: moyiSheetFill,
     clipBehavior: Clip.antiAlias,
     shape: homeSheetShape(palette, top: HomeSheetFrame.radius),
     builder: (sheetContext) => HomeSheetFrame(

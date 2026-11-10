@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/reading_stats.dart';
 import '../home/home_design.dart';
 import '../home/home_shelf.dart';
+import '../series_detail/moyi_detail_theme.dart';
 
 /// 首屏摘要：今日时长作大字，本周 / 累计 / 连续天数作一行副信息。
 class MineSummary extends StatelessWidget {
@@ -31,7 +32,11 @@ class MineSummary extends StatelessWidget {
         children: [
           Text(
             '今日阅读',
-            style: TextStyle(fontSize: 13, height: 1.3, color: palette.muted),
+            style: TextStyle(
+              fontSize: 13,
+              height: 1.3,
+              color: palette.eink ? palette.muted : moyiMutedOnDark,
+            ),
           ),
           const SizedBox(height: 4),
           Text(
@@ -42,14 +47,18 @@ class MineSummary extends StatelessWidget {
               height: 1.2,
               fontWeight: FontWeight.w700,
               letterSpacing: -0.5,
-              color: palette.ink,
+              color: palette.eink ? palette.ink : Colors.white,
               fontFeatures: const [FontFeature.tabularFigures()],
             ),
           ),
           const SizedBox(height: 6),
           Text(
             detail,
-            style: TextStyle(fontSize: 13, height: 1.4, color: palette.muted),
+            style: TextStyle(
+              fontSize: 13,
+              height: 1.4,
+              color: palette.eink ? palette.muted : moyiMutedOnDark,
+            ),
           ),
         ],
       ),

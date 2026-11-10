@@ -11,6 +11,7 @@ import '../services/drama_downloader.dart';
 import '../services/connectivity_status.dart';
 import '../widgets/home/home_chip.dart';
 import '../widgets/home/home_design.dart';
+import '../widgets/series_detail/moyi_detail_theme.dart';
 import 'cached_dramas_page.dart';
 
 /// 选集下载弹窗（官方 `lm3.q0`/ShortSeriesDownloadDialog 形态）：30 集一组
@@ -72,7 +73,7 @@ class DramaDownloadSheet extends StatefulWidget {
     ),
     // 与听书/详情弹层同一规则：深色 / OLED 取 surface + 发丝边，
     // 否则纯黑画布上的弹层看不出上缘。
-    backgroundColor: homeSheetColor(HomePalette.of(context)),
+    backgroundColor: moyiSheetFill,
     shape: homeSheetShape(HomePalette.of(context), top: 16),
     builder: (_) => DramaDownloadSheet(
       seriesId: seriesId,
@@ -198,15 +199,21 @@ class _DramaDownloadSheetState extends State<DramaDownloadSheet> {
       final proceed = await showDialog<bool>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: const Text('流量提醒'),
-          content: const Text('当前非 WI-FI 环境，下载将消耗移动流量，是否继续？'),
+          backgroundColor: moyiSheetFill,
+          title: const Text('流量提醒', style: TextStyle(color: Colors.white)),
+          content: const Text(
+            '当前非 WI-FI 环境，下载将消耗移动流量，是否继续？',
+            style: TextStyle(color: moyiBodyOnDark),
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext, false),
+              style: TextButton.styleFrom(foregroundColor: moyiBodyOnDark),
               child: const Text('取消'),
             ),
             TextButton(
               onPressed: () => Navigator.pop(dialogContext, true),
+              style: TextButton.styleFrom(foregroundColor: moyiGold),
               child: const Text('继续'),
             ),
           ],
@@ -249,7 +256,7 @@ class _DramaDownloadSheetState extends State<DramaDownloadSheet> {
   }
 
   /// 标题 + 「管理」入口。
-  Widget _header(HomePalette palette) => Padding(
+  Widget _header() => Padding(
     padding: const EdgeInsets.fromLTRB(16, 14, 8, 0),
     child: Row(
       children: [
@@ -261,7 +268,7 @@ class _DramaDownloadSheetState extends State<DramaDownloadSheet> {
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.bold,
-              color: palette.ink,
+              color: Colors.white,
             ),
           ),
         ),
@@ -280,7 +287,6 @@ class _DramaDownloadSheetState extends State<DramaDownloadSheet> {
   @override
   Widget build(BuildContext context) {
     final groupEpisodes = _groupEpisodes;
-    final palette = HomePalette.of(context);
     final pendingCount = widget.episodes
         .where((episode) => !_downloaded.contains(episode.itemId))
         .length;
@@ -295,7 +301,7 @@ class _DramaDownloadSheetState extends State<DramaDownloadSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _header(palette),
+            _header(),
             if (_groupCount > 1)
               DramaGroupPicker(
                 groupCount: _groupCount,
@@ -305,8 +311,8 @@ class _DramaDownloadSheetState extends State<DramaDownloadSheet> {
                 onSelected: _selectGroup,
               ),
             _aheadBar(),
-            _qualityBar(palette),
-            _autoCacheBar(palette),
+            _qualityBar(),
+            _autoCacheBar(),
             Flexible(
               child: GridView.count(
                 // 换段时换 key，让网格重建：GridView 会保留滚动位置，
@@ -329,7 +335,6 @@ class _DramaDownloadSheetState extends State<DramaDownloadSheet> {
                           : null,
                       child: _episodeCell(
                         episode,
-                        palette,
                         _group * _groupSize + index + 1,
                       ),
                     ),
@@ -421,7 +426,7 @@ class _DramaDownloadSheetState extends State<DramaDownloadSheet> {
   ///
   /// 以前下载器写死取最高档，用户既看不到也选不了 —— 一集 1080P 动辄
   /// 五六十 MB，想省空间的人毫无办法。
-  Widget _qualityBar(HomePalette palette) {
+  Widget _qualityBar() {
     final prefs = DramaCachePreferences.instance;
     final current = prefs.downloadHeight.value;
     // 横向可滚：窄屏（360dp）上四个 chip 加标签放不下一行。
@@ -470,7 +475,7 @@ class _DramaDownloadSheetState extends State<DramaDownloadSheet> {
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
       child: Row(
         children: [
-          Text('画质', style: TextStyle(fontSize: 13, color: palette.muted)),
+          Text('画质', style: TextStyle(fontSize: 13, color: moyiMutedOnDark)),
           const SizedBox(width: 10),
           for (final option in options)
             Padding(
@@ -494,7 +499,7 @@ class _DramaDownloadSheetState extends State<DramaDownloadSheet> {
   ///
   /// 与上面的「往后 N 集」是两件事：上面的是一次性手动批量，这里是每次
   /// 播放都自动往后续存。自动缓存只在 Wi-Fi 下跑（短剧一集几十 MB）。
-  Widget _autoCacheBar(HomePalette palette) {
+  Widget _autoCacheBar() {
     final prefs = DramaCachePreferences.instance;
     final enabled = prefs.ahead.value > 0;
     return Padding(
@@ -507,13 +512,13 @@ class _DramaDownloadSheetState extends State<DramaDownloadSheet> {
               children: [
                 Text(
                   '边看边缓存',
-                  style: TextStyle(fontSize: 14, color: palette.ink),
+                  style: TextStyle(fontSize: 14, color: Colors.white),
                 ),
                 Text(
                   enabled
                       ? '看到哪集就自动往后续存 ${prefs.ahead.value} 集（仅 Wi-Fi）'
                       : '已关闭，手动缓存不受影响',
-                  style: TextStyle(fontSize: 11, color: palette.muted),
+                  style: TextStyle(fontSize: 11, color: moyiMutedOnDark),
                 ),
               ],
             ),
@@ -560,17 +565,15 @@ class _DramaDownloadSheetState extends State<DramaDownloadSheet> {
     return selectable.isNotEmpty && selectable.every(_selected.contains);
   }
 
-  Widget _episodeCell(Chapter episode, HomePalette palette, int number) {
+  Widget _episodeCell(Chapter episode, int number) {
     final itemId = episode.itemId;
     // 未选中的格子：浅色是 6% 黑，深色 / OLED 换成字段色。
-    final idleBackground = palette.dark
-        ? palette.soft
-        : const Color(0x0F000000);
+    final idleBackground = moyiDarkCardFill;
     if (_downloaded.contains(itemId)) {
       return _cellContainer(
         key: ValueKey('download-cell-$itemId'),
         label: '已缓存',
-        foreground: palette.muted,
+        foreground: moyiMutedOnDark,
         background: idleBackground,
         trailing: Icons.check,
         onTap: null,
@@ -615,7 +618,7 @@ class _DramaDownloadSheetState extends State<DramaDownloadSheet> {
     return _cellContainer(
       key: ValueKey('download-cell-$itemId'),
       label: '第 $number 集',
-      foreground: selected ? const Color(0xFFFA6725) : palette.ink,
+      foreground: selected ? const Color(0xFFFA6725) : Colors.white,
       background: selected ? const Color(0x14FA6725) : idleBackground,
       border: selected ? const Color(0xFFFA6725) : Colors.transparent,
       trailing: selected ? Icons.check : null,

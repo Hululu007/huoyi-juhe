@@ -21,6 +21,7 @@ import '../services/player_system_ui.dart';
 import '../services/short_series_font_scale.dart';
 import '../models/playlet_comment.dart';
 import 'home/home_design.dart';
+import 'series_detail/moyi_detail_theme.dart';
 import 'player/playlet_clear_screen_button.dart';
 import 'player/playlet_danmaku_layer.dart';
 import 'player/playlet_danmaku_settings.dart';
@@ -1438,7 +1439,7 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
     setState(() => _modalOpen = true);
     try {
       await _showSidePanel<void>(
-        background: const Color(0xFF141414),
+        background: moyiSheetFill,
         builder: (_) => PlayletSideSettingsFlow(
           clearScreen: _clearScreen,
           onToggleClearScreen: _clearScreenPanelAvailable
@@ -1488,7 +1489,7 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
     double? picked;
     try {
       picked = await _showSidePanel<double>(
-        background: const Color(0xFF141414),
+        background: moyiSheetFill,
         builder: (panelContext) => PlayerSidePanelOptionList<double>(
           key: const ValueKey('player-side-rates'),
           title: '倍速',
@@ -1521,7 +1522,7 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
     setState(() => _modalOpen = true);
     try {
       final picked = await _showSidePanel<EpisodeVariant>(
-        background: const Color(0xFF141414),
+        background: moyiSheetFill,
         builder: (panelContext) => PlayerSidePanelOptionList<EpisodeVariant>(
           key: const ValueKey('player-side-quality'),
           title: '清晰度',
@@ -1632,14 +1633,14 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
     try {
       if (landscape) {
         await _showSidePanel<void>(
-          background: const Color(0xFF1C1C1C),
+          background: moyiSheetFill,
           builder: build,
         );
       } else {
         await showModalBottomSheet<void>(
           context: context,
           useSafeArea: true,
-          backgroundColor: const Color(0xFF1C1C1C),
+          backgroundColor: moyiSheetFill,
           shape: const RoundedRectangleBorder(
             borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
           ),
@@ -1708,10 +1709,7 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
     var sheetFill = widget.fillScreen;
     // 浅色支也跟随夜间皮肤（官方 SkinDelegate 翻白），否则夜间主题下
     // FAFAFA 底配白字不可见。
-    final sheetBackground =
-        dark || Theme.of(context).brightness == Brightness.dark
-        ? const Color(0xFF1C1C1C)
-        : const Color(0xFFFAFAFA);
+    final sheetBackground = moyiSheetFill;
     Widget buildPanel(BuildContext sheetContext) {
       if (widget.shortSeries && !dark) {
         return PlayletMorePanelLight(
@@ -1798,7 +1796,7 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
                                 '倍速',
                                 style: TextStyle(
                                   fontSize: 14,
-                                  color: Color(0xFF1B1B1B),
+                                  color: Colors.white,
                                 ),
                               ),
                               const Spacer(),
@@ -1808,7 +1806,7 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
                                 key: const ValueKey('player-more-rate-value'),
                                 style: const TextStyle(
                                   fontSize: 14,
-                                  color: Color(0xFF1B1B1B),
+                                  color: Colors.white,
                                 ),
                               ),
                               const SizedBox(width: 4),
@@ -1816,7 +1814,7 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
                                 '›',
                                 style: TextStyle(
                                   fontSize: 16,
-                                  color: Color(0xFF1B1B1B),
+                                  color: Colors.white,
                                 ),
                               ),
                             ],
@@ -1838,7 +1836,7 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
                               '弹幕',
                               style: TextStyle(
                                 fontSize: 14,
-                                color: Color(0xFF1B1B1B),
+                                color: Colors.white,
                               ),
                             ),
                             const Spacer(),
@@ -1960,7 +1958,7 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
       children: [
         Text(
           label,
-          style: const TextStyle(fontSize: 14, color: Color(0xFF1B1B1B)),
+          style: const TextStyle(fontSize: 14, color: Colors.white),
         ),
         const Spacer(),
         Switch(key: ValueKey(switchKey), value: value, onChanged: onChanged),
@@ -3279,7 +3277,7 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
       palette: palette,
     );
     return ColoredBox(
-      color: palette.canvas,
+      color: Colors.transparent,
       child: AnnotatedRegion<SystemUiOverlayStyle>(
         value: SystemUiOverlayStyle(
           statusBarColor: Colors.transparent,
@@ -3291,11 +3289,9 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
           statusBarBrightness: palette.eink
               ? Brightness.light
               : Brightness.dark,
-          systemNavigationBarColor: palette.canvas,
-          systemNavigationBarIconBrightness: palette.dark
-              ? Brightness.light
-              : Brightness.dark,
-          systemNavigationBarDividerColor: palette.canvas,
+          systemNavigationBarColor: moyiSheetFill,
+          systemNavigationBarIconBrightness: Brightness.light,
+          systemNavigationBarDividerColor: moyiSheetFill,
         ),
         child: Stack(
           fit: StackFit.expand,
@@ -3473,7 +3469,7 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
       width: vertical ? 42 : 4,
       height: vertical ? 4 : 42,
       decoration: BoxDecoration(
-        color: palette.muted.withValues(alpha: .6),
+        color: moyiMutedOnDark,
         borderRadius: BorderRadius.circular(2),
       ),
     );
@@ -4237,7 +4233,7 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
             padding: EdgeInsets.symmetric(horizontal: edgeToEdge ? 16 : 12),
             decoration: BoxDecoration(
               color: edgeToEdge
-                  ? const Color(0xFF1C1C1C)
+                  ? moyiSheetFill
                   : const Color(0x14FFFFFF),
               borderRadius: edgeToEdge
                   ? const BorderRadius.vertical(bottom: Radius.circular(12))

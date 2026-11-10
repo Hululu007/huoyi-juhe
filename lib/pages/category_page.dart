@@ -18,6 +18,7 @@ import '../widgets/category/category_dim_rail.dart';
 import '../widgets/home/home_design.dart';
 import '../widgets/home/home_feed_states.dart';
 import '../widgets/home/moyi_channel_card.dart';
+import '../widgets/series_detail/moyi_detail_theme.dart';
 import 'rank_page.dart';
 import 'search_page.dart';
 import 'unified_browse_content_page.dart';
@@ -306,8 +307,8 @@ class _CategoryPageState extends State<CategoryPage> {
       _isVideoTab = true;
     });
     try {
-      final siteId =
-          _videoSiteId ??= widget.videoSiteId ?? await currentVideoZoneSiteId();
+      final siteId = _videoSiteId ??=
+          widget.videoSiteId ?? await currentVideoZoneSiteId();
       if (siteId == null || siteId.isEmpty) {
         throw StateError('请先在影视页选择站点');
       }
@@ -425,20 +426,17 @@ class _CategoryPageState extends State<CategoryPage> {
         _expanded.clear();
         return;
       }
-      bool matches(String name) => _unifiedQuery.isEmpty ||
+      bool matches(String name) =>
+          _unifiedQuery.isEmpty ||
           name.toLowerCase().contains(_unifiedQuery.toLowerCase());
-      CategoryTile catTile(String name, {required bool hot}) =>
-          CategoryTile(
-            name: name,
-            dim: 'unified_cat',
-            id: 'unified_cat',
-            hot: hot,
-          );
-      CategoryTile tagTile(String name) => CategoryTile(
+      CategoryTile catTile(String name, {required bool hot}) => CategoryTile(
         name: name,
-        dim: 'unified_tag',
-        id: 'unified_tag',
+        dim: 'unified_cat',
+        id: 'unified_cat',
+        hot: hot,
       );
+      CategoryTile tagTile(String name) =>
+          CategoryTile(name: name, dim: 'unified_tag', id: 'unified_tag');
       final sections = <_Section>[];
       final hot = [
         for (final name in data.hotNames)
@@ -604,9 +602,9 @@ class _CategoryPageState extends State<CategoryPage> {
         // 回空）；改走站源搜索，但只搜该标签名下的站。
         final tagSites = data.tagSitesFor(tile.name);
         if (tagSites.isEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('该标签下暂无可搜的站点')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('该标签下暂无可搜的站点')));
           return;
         }
         _openSiteSearch(
@@ -719,11 +717,7 @@ class _CategoryPageState extends State<CategoryPage> {
           }
         }
         if (_moyiType != 'cat') {
-          for (final name in [
-            ...data.themes,
-            ...data.roles,
-            ...data.plots,
-          ]) {
+          for (final name in [...data.themes, ...data.roles, ...data.plots]) {
             add(name, 'tag');
           }
         }
@@ -814,9 +808,7 @@ class _CategoryPageState extends State<CategoryPage> {
     if (client == null) return const [];
     late final List<DramaSiteCategory> cats;
     try {
-      cats = await client.categories().timeout(
-        const Duration(seconds: 30),
-      );
+      cats = await client.categories().timeout(const Duration(seconds: 30));
     } catch (_) {
       return const [];
     }
@@ -834,8 +826,7 @@ class _CategoryPageState extends State<CategoryPage> {
     };
     return [
       for (final cat in names)
-        if (idFor(cat) case final String id
-            when id.isNotEmpty && id != 'all')
+        if (idFor(cat) case final String id when id.isNotEmpty && id != 'all')
           _MoyiSource(siteId, id, cat, 0),
     ];
   }
@@ -880,15 +871,13 @@ class _CategoryPageState extends State<CategoryPage> {
     });
   }
 
-  Future<List<MoyiChannelWork>> _fetchMoyiSource(
-    _MoyiSource source,
-  ) async {
+  Future<List<MoyiChannelWork>> _fetchMoyiSource(_MoyiSource source) async {
     try {
       final client = await _moyiClientFor(source.siteId);
       if (client == null) return const [];
-      final page = await client.catalog(source.path, 1).timeout(
-        ApiClient.dramaCatalogTimeout + const Duration(seconds: 5),
-      );
+      final page = await client
+          .catalog(source.path, 1)
+          .timeout(ApiClient.dramaCatalogTimeout + const Duration(seconds: 5));
       return [
         for (var i = 0; i < page.items.length; i++)
           MoyiChannelWork(
@@ -956,9 +945,9 @@ class _CategoryPageState extends State<CategoryPage> {
   }
 
   void _openMoyiRank() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const RankPage()),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const RankPage()));
   }
 
   @override
@@ -966,9 +955,10 @@ class _CategoryPageState extends State<CategoryPage> {
     // 影视频道走魔蚁风：深紫蓝渐变底 + 大标题 + 筛选行 + 左栏分类 +
     // 右侧 2 列大卡；阅读模式（图书分类）仍走下面的官方风老布局。
     if (_isVideoTab) {
+      // 魔蚁风影视频道底：与首页同一套深紫蓝渐变（共享值，不另起深浅）。
       return Scaffold(
-        backgroundColor: const Color(0xFF1E1445),
-        body: _buildMoyiVideo(context),
+        backgroundColor: Colors.transparent,
+        body: MoyiPageBackground(child: _buildMoyiVideo(context)),
       );
     }
     final palette = HomePalette.of(context);
@@ -1067,11 +1057,9 @@ class _CategoryPageState extends State<CategoryPage> {
     if ((_loading && _unifiedData == null && _singleData == null) ||
         _moyiWorksLoading) {
       gridBody = const Center(
-        child: CircularProgressIndicator(color: Color(0xFF29B6F6)),
+        child: CircularProgressIndicator(color: moyiCyan),
       );
-    } else if (_error != null &&
-        _unifiedData == null &&
-        _singleData == null) {
+    } else if (_error != null && _unifiedData == null && _singleData == null) {
       gridBody = Center(
         child: HomeStateView(
           key: const Key('category_retry'),
@@ -1098,29 +1086,16 @@ class _CategoryPageState extends State<CategoryPage> {
           _moyiSort == 'finished'
               ? '该分类下暂无完结作品'
               : _moyiWorks.isEmpty
-                  ? '该分类下暂无作品'
-                  : '没有符合筛选的作品',
+              ? '该分类下暂无作品'
+              : '没有符合筛选的作品',
           style: const TextStyle(fontSize: 14, color: Color(0xFFB9B2D6)),
         ),
       );
     } else {
-      gridBody = MoyiChannelWorksGrid(
-        works: visible,
-        onTap: _onMoyiWorkTap,
-      );
+      gridBody = MoyiChannelWorksGrid(works: visible, onTap: _onMoyiWorkTap);
     }
     return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Color(0xFF3D1E7A),
-            Color(0xFF1E1445),
-            Color(0xFF120A2E),
-          ],
-        ),
-      ),
+      decoration: const BoxDecoration(gradient: moyiPageGradient),
       child: SafeArea(
         bottom: false,
         child: Column(
@@ -1217,13 +1192,7 @@ class _MoyiHeader extends StatelessWidget {
           height: 44,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            gradient: gradient
-                ? const LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [Color(0xFFF061FF), Color(0xFF7C3AED)],
-                  )
-                : null,
+            gradient: gradient ? moyiPrimaryGradient : null,
             color: gradient ? null : Colors.white.withValues(alpha: 0.08),
             border: gradient
                 ? null
@@ -1302,11 +1271,7 @@ class _MoyiFilterRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const selectedGradient = LinearGradient(
-      begin: Alignment.centerLeft,
-      end: Alignment.centerRight,
-      colors: [Color(0xFF4FC3F7), Color(0xFF1E88E5)],
-    );
+    const selectedGradient = moyiSelectedGradient;
     Widget pill({
       required String label,
       required bool selected,
@@ -1374,18 +1339,10 @@ class _MoyiFilterRow extends StatelessWidget {
                 height: 40,
                 decoration: const BoxDecoration(
                   shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [Color(0xFFF061FF), Color(0xFF7C3AED)],
-                  ),
+                  gradient: moyiPrimaryGradient,
                 ),
                 child: const Center(
-                  child: Icon(
-                    LucideIcons.house,
-                    size: 20,
-                    color: Colors.white,
-                  ),
+                  child: Icon(LucideIcons.house, size: 20, color: Colors.white),
                 ),
               ),
             ),
@@ -1393,7 +1350,7 @@ class _MoyiFilterRow extends StatelessWidget {
             PopupMenuButton<String>(
               key: const ValueKey('moyi_type_filter'),
               tooltip: '类型',
-              color: const Color(0xFF2A2150),
+              color: moyiSheetFill,
               onSelected: onType,
               itemBuilder: (_) => [
                 for (final entry in const [
@@ -1415,7 +1372,7 @@ class _MoyiFilterRow extends StatelessWidget {
                           const Icon(
                             LucideIcons.check,
                             size: 16,
-                            color: Color(0xFF4FC3F7),
+                            color: moyiCyan,
                           ),
                       ],
                     ),
@@ -1521,13 +1478,7 @@ class _MoyiLeftRail extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 10),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(16),
-                  gradient: isSelected
-                      ? const LinearGradient(
-                          begin: Alignment.centerLeft,
-                          end: Alignment.centerRight,
-                          colors: [Color(0xFF4FC3F7), Color(0xFF1E88E5)],
-                        )
-                      : null,
+                  gradient: isSelected ? moyiSelectedGradient : null,
                 ),
                 child: Row(
                   children: [
@@ -1602,13 +1553,11 @@ class _VideoModeRow extends StatelessWidget {
   Widget build(BuildContext context) {
     Widget pill(String label, bool selected, bool value) {
       return ChoiceChip(
-        key: ValueKey(
-          value ? 'unified_mode_all' : 'unified_mode_single',
-        ),
+        key: ValueKey(value ? 'unified_mode_all' : 'unified_mode_single'),
         label: Text(label),
         selected: selected,
         onSelected: loading ? null : (_) => onSelect(value),
-        selectedColor: const Color(0xFF29B6F6),
+        selectedColor: moyiCyan,
         labelStyle: TextStyle(
           fontSize: 13,
           fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
@@ -1691,7 +1640,7 @@ class _UnifiedSearchRow extends StatelessWidget {
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(20),
-                  borderSide: const BorderSide(color: Color(0xFF4FC3F7)),
+                  borderSide: const BorderSide(color: moyiCyan),
                 ),
               ),
               onChanged: onChanged,
@@ -1765,12 +1714,11 @@ class _TopBar extends StatelessWidget {
                               final tab = tabs[i];
                               final isSelected = tab.value == selected;
                               return GestureDetector(
-                                key: tab.value == _videoTab.value &&
+                                key:
+                                    tab.value == _videoTab.value &&
                                         videoTabKey != null
                                     ? videoTabKey
-                                    : ValueKey(
-                                        'category_tab_${tab.value}',
-                                      ),
+                                    : ValueKey('category_tab_${tab.value}'),
                                 behavior: HitTestBehavior.opaque,
                                 onTap: () => onSelect(tab.value),
                                 child: Center(
@@ -1978,10 +1926,7 @@ class _ChipRow extends StatelessWidget {
       cells.add(
         Expanded(
           child: i < tiles.length
-              ? _CategoryChip(
-                  tile: tiles[i],
-                  onTap: () => onTileTap(tiles[i]),
-                )
+              ? _CategoryChip(tile: tiles[i], onTap: () => onTileTap(tiles[i]))
               : const SizedBox(),
         ),
       );

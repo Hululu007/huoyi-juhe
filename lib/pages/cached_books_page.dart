@@ -8,6 +8,7 @@ import '../services/chapter_cache_store.dart';
 import '../services/library_store.dart';
 import '../widgets/cache/cache_page_widgets.dart';
 import '../widgets/home/home_design.dart';
+import '../widgets/series_detail/moyi_detail_theme.dart';
 import '../widgets/settings/settings_widgets.dart';
 import '../widgets/shelf/shelf_design.dart';
 import 'cached_book_reader.dart';
@@ -286,21 +287,29 @@ class _CachedBooksPageState extends State<CachedBooksPage> {
   @override
   Widget build(BuildContext context) {
     final palette = HomePalette.of(context);
-    return SettingsScaffold(
-      title: '小说离线缓存',
-      actions: [
-        IconButton(
-          tooltip: '清空全部缓存',
-          onPressed: _books.isEmpty ? null : () => _clear(),
-          icon: Icon(
-            LucideIcons.trash,
-            color: _books.isEmpty
-                ? palette.muted.withValues(alpha: 0.4)
-                : (palette.eink ? Colors.black : ShelfTokens.deleteRed),
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(
+        title: const Text('小说离线缓存'),
+        centerTitle: true,
+        backgroundColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
+        scrolledUnderElevation: 0,
+        foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            tooltip: '清空全部缓存',
+            onPressed: _books.isEmpty ? null : () => _clear(),
+            icon: Icon(
+              LucideIcons.trash,
+              color: _books.isEmpty
+                  ? palette.muted.withValues(alpha: 0.4)
+                  : (palette.eink ? Colors.black : ShelfTokens.deleteRed),
+            ),
           ),
-        ),
-      ],
-      body: _body(palette),
+        ],
+      ),
+      body: MoyiPageBackground(child: _body(palette)),
     );
   }
 }

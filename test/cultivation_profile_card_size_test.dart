@@ -53,7 +53,7 @@ void main() {
     expect(ratio, lessThan(2.15));
     final image = tester.widget<Image>(find.byType(Image).first);
     expect((image.image as AssetImage).assetName,
-        'assets/images/cultivation/profile_female.png');
+        'assets/images/game/hero_female_3d.jpg');
   });
 
   testWidgets('档案卡宽高比约 2:1（男）', (tester) async {
@@ -67,6 +67,6 @@ void main() {
     expect(ratio, lessThan(2.15));
     final image = tester.widget<Image>(find.byType(Image).first);
     expect((image.image as AssetImage).assetName,
-        'assets/images/cultivation/profile_male.webp');
+        'assets/images/game/hero_male_3d.jpg');
   });
 }

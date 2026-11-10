@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'series_detail/moyi_detail_theme.dart';
 
 /// 切换站点弹窗：居中弹窗（非底部弹层），站点按四列网格排列，
 /// 点一项即选中并关闭，返回该站 id；点空白或返回则返回 null。
@@ -13,9 +14,9 @@ Future<String?> showSiteGridDialog({
   return showDialog<String>(
     context: context,
     builder: (dialogContext) {
-      final theme = Theme.of(dialogContext);
-      final selectedColor = theme.colorScheme.primary;
+      const selectedColor = moyiCyan;
       return Dialog(
+        backgroundColor: moyiSheetFill,
         insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
         child: ConstrainedBox(
           constraints: BoxConstraints(maxHeight: screenHeight * 0.6),
@@ -27,7 +28,7 @@ Future<String?> showSiteGridDialog({
               children: [
                 const Text(
                   '切换站点',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white),
                 ),
                 const SizedBox(height: 12),
                 Flexible(
@@ -59,7 +60,7 @@ Future<String?> showSiteGridDialog({
                             border: Border.all(
                               color: selected
                                   ? selectedColor
-                                  : theme.dividerColor,
+                                  : moyiDarkCardBorder,
                               width: selected ? 2 : 1,
                             ),
                             color: selected
@@ -75,7 +76,7 @@ Future<String?> showSiteGridDialog({
                               fontSize: 13,
                               fontWeight:
                                   selected ? FontWeight.w600 : null,
-                              color: selected ? selectedColor : null,
+                              color: selected ? selectedColor : moyiBodyOnDark,
                             ),
                           ),
                         ),

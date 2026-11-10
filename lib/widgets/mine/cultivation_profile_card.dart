@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 
 import '../../services/cultivation.dart';
 import '../cultivation_title_label.dart';
+import '../game_hero_portrait.dart';
+import '../series_detail/moyi_detail_theme.dart';
 import 'cultivation_profile_card_data.dart';
 
 export 'cultivation_profile_card_data.dart';
@@ -40,10 +42,10 @@ class CultivationProfileCard extends StatelessWidget {
   /// 打开称号排行榜。
   final VoidCallback onOpenTitles;
 
-  static const _gold = Color(0xFFD4AF37);
+  static const _gold = moyiGold;
   static const _goldBright = Color(0xFFFFD54F);
-  static const _muted = Color(0xFF8A93AD);
-  static const _subText = Color(0xFFB9C0D6);
+  static const _muted = moyiMutedOnDark;
+  static const _subText = moyiBodyOnDark;
 
   @override
   Widget build(BuildContext context) {
@@ -61,11 +63,7 @@ class CultivationProfileCard extends StatelessWidget {
           child: Container(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(16),
-              gradient: const LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [Color(0xFF191926), Color(0xFF101018)],
-              ),
+              color: moyiDarkCardFill,
               border: Border.all(
                 color: _gold.withValues(alpha: 0.35),
                 width: 1,
@@ -578,10 +576,15 @@ class _ProfileFigureState extends State<_ProfileFigure>
           );
         },
         child: Image.asset(
-          widget.isFemale
-              ? 'assets/images/game/hero_female.jpg'
-              : 'assets/images/game/hero_male.jpg',
+          gameHeroAssetForGender(widget.isFemale),
           fit: BoxFit.cover,
+          alignment: Alignment.bottomCenter,
+          errorBuilder: (context, error, stackTrace) => Image.asset(
+            widget.isFemale
+                ? gameHeroFemaleLegacyAsset
+                : gameHeroMaleLegacyAsset,
+            fit: BoxFit.cover,
+          ),
         ),
       ),
     );

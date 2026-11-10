@@ -33,6 +33,7 @@ import '../services/user_facing_error.dart';
 import '../services/media_history_store.dart';
 import '../widgets/drama_pull_refresh_hint.dart';
 import '../widgets/home/home_design.dart';
+import '../widgets/series_detail/moyi_detail_theme.dart';
 import '../widgets/home/home_media_card.dart';
 import '../widgets/player/playlet_comment_panel.dart';
 import '../widgets/player/playlet_danmaku_layer.dart';
@@ -1436,16 +1437,12 @@ class _DramaPageState extends ConsumerState<DramaPage>
     }
   }
 
-  /// 顶栏后面的装饰背板：浅色沿用官方奶白，深色 / OLED 取画布色，
-  /// 墨水屏纯白（与画布同色，不引入灰阶）。
+  /// 顶栏后面的装饰背板：短剧区已统一深紫蓝渐变底，背板用同一套渐变
+  /// 向透明淡出，把海报挡在顶栏后。
   static List<Color> _topBackingColors(HomePalette palette) => [
-    palette.dark
-        ? palette.canvas
-        : (palette.eink ? Colors.white : const Color(0xFFFFF3E6)),
-    palette.dark ? palette.canvas : const Color(0xFFFFFFFF),
-    palette.dark
-        ? palette.canvas.withValues(alpha: 0)
-        : const Color(0x00FFFFFF),
+    moyiPageGradient.colors[0],
+    moyiPageGradient.colors[1],
+    const Color(0x00FFFFFF),
   ];
 
   @override
@@ -1468,125 +1465,128 @@ class _DramaPageState extends ConsumerState<DramaPage>
     final isVideoFlow = channel.playsInline;
     final lightPage = !isVideoFlow;
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      // 深色外观下浅色页也是深色画布，状态栏图标要跟着换成浅色。
-      value:
-          (lightPage && !palette.dark
-                  ? SystemUiOverlayStyle.dark
-                  : SystemUiOverlayStyle.light)
-              .copyWith(
-                // 预设样式把导航栏写成纯黑：浅色页底部要跟画布同色，
-                // 否则壳层 dock 换成浅色了，最底下还压着一条黑带。
-                systemNavigationBarColor: lightPage
-                    ? palette.canvas
-                    : Colors.black,
-                systemNavigationBarDividerColor: lightPage
-                    ? palette.canvas
-                    : Colors.black,
-                systemNavigationBarIconBrightness: lightPage && !palette.dark
-                    ? Brightness.dark
-                    : Brightness.light,
-              ),
+      // 短剧区已统一深紫蓝渐变底（视频流仍是黑底），状态栏与导航栏图标
+      // 一律浅色；导航栏底色跟页面底走。
+      value: SystemUiOverlayStyle.light.copyWith(
+        systemNavigationBarColor: lightPage ? moyiSheetFill : Colors.black,
+        systemNavigationBarDividerColor: lightPage
+            ? moyiSheetFill
+            : Colors.black,
+        systemNavigationBarIconBrightness: Brightness.light,
+      ),
       child: Scaffold(
-        backgroundColor: lightPage ? palette.canvas : Colors.black,
-        body: Stack(
-          children: [
-            Positioned.fill(
-              // 最近 and 收藏 are lists in the official client too: the recent
-              // list comes from the device's own history and the follow list
-              // from the account, so neither is a video feed here either.
-              // 看剧/漫剧是浅色海报瀑布格（官方 StaggeredFeedTab，
-              // `client_template` 12/13），只有推荐走全屏竖滑播放流。
-              child: TabSwipeArea(
-                index: _channel,
-                count: _channels.length,
-                onSelect: _selectChannel,
-                // 拖动时把邻页真的画出来。短剧的顶栏本来就在滑动区外面（不会被
-                // 遮），但内容移开后那一侧原本只剩页面底色——深色视频频道下就是一
-                // 块黑面板，和首页修掉的是同一个观感问题。
-                previewBuilder: _buildChannelPreview,
-                // 播放器打开、弹窗、最近频道编辑时都不该被横滑打断。
-                enabled: !_modalOpen && _openingId == null && !_recentEditing,
-                // 整片横滑都切频道，播放流也一样。唯一的例外是底部进度条：
-                // 它自己带横向拖动、又比这里内层，所以只有那 24dp 归调进度，
-                // 其余区域一律切频道（见 TabSwipeArea 的类文档）。
-                // 只让内容跟手横移：频道条固定在顶部，切换后立刻显示新的
-                // 选中项，不被动画拖着走。
-                child: _channelBody(channel, state, items),
-              ),
+        backgroundColor: Colors.transparent,
+        // 全页强制深紫蓝渐变底（魔蚁主题）：浅色页的卡片/文字靠深色主题
+        // 取深底样式（与影视详情魔蚁区同款做法），墨水屏不强制。
+        body: MoyiPageBackground(
+          child: Theme(
+            data: Theme.of(context).copyWith(
+              brightness: !palette.eink ? Brightness.dark : Brightness.light,
             ),
-            Positioned(
-              top: MediaQuery.paddingOf(context).top + _topChromeHeight + 8,
-              left: 0,
-              right: 0,
-              child: DramaPullRefreshHint(
-                distance: _pullDistance,
-                color: lightPage ? palette.ink : Colors.white,
-              ),
-            ),
-            // 浅色页的顶栏背板：官方上滑时卡片从一条奶白渐变后面穿过，
-            // 搜索框/频道条不会和海报叠在一起（黑页保持透明压在视频上）。
-            // 最近频道进编辑后与官方一致：顶栏整个隐藏（`af()` gone）。
-            // 纯装饰背板必须放行点击——chips 行官方就落在它的淡出带里。
-            if (lightPage && !_recentEditing)
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: IgnorePointer(
-                  child: SizedBox(
-                    height:
-                        MediaQuery.paddingOf(context).top +
-                        _topChromeHeight +
-                        56,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          // 浅色支沿用官方奶白渐变；深色 / OLED 取当前画布色
-                          // 淡出，只负责把海报挡在顶栏后。
-                          colors: _topBackingColors(palette),
-                          stops: const [0.0, 0.5, 1.0],
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  // 最近 and 收藏 are lists in the official client too: the recent
+                  // list comes from the device's own history and the follow list
+                  // from the account, so neither is a video feed here either.
+                  // 看剧/漫剧是浅色海报瀑布格（官方 StaggeredFeedTab，
+                  // `client_template` 12/13），只有推荐走全屏竖滑播放流。
+                  child: TabSwipeArea(
+                    index: _channel,
+                    count: _channels.length,
+                    onSelect: _selectChannel,
+                    // 拖动时把邻页真的画出来。短剧的顶栏本来就在滑动区外面（不会被
+                    // 遮），但内容移开后那一侧原本只剩页面底色——深色视频频道下就是一
+                    // 块黑面板，和首页修掉的是同一个观感问题。
+                    previewBuilder: _buildChannelPreview,
+                    // 播放器打开、弹窗、最近频道编辑时都不该被横滑打断。
+                    enabled:
+                        !_modalOpen && _openingId == null && !_recentEditing,
+                    // 整片横滑都切频道，播放流也一样。唯一的例外是底部进度条：
+                    // 它自己带横向拖动、又比这里内层，所以只有那 24dp 归调进度，
+                    // 其余区域一律切频道（见 TabSwipeArea 的类文档）。
+                    // 只让内容跟手横移：频道条固定在顶部，切换后立刻显示新的
+                    // 选中项，不被动画拖着走。
+                    child: _channelBody(channel, state, items),
+                  ),
+                ),
+                Positioned(
+                  top: MediaQuery.paddingOf(context).top + _topChromeHeight + 8,
+                  left: 0,
+                  right: 0,
+                  child: DramaPullRefreshHint(
+                    distance: _pullDistance,
+                    color: Colors.white,
+                  ),
+                ),
+                // 浅色页的顶栏背板：官方上滑时卡片从一条奶白渐变后面穿过，
+                // 搜索框/频道条不会和海报叠在一起（黑页保持透明压在视频上）。
+                // 最近频道进编辑后与官方一致：顶栏整个隐藏（`af()` gone）。
+                // 纯装饰背板必须放行点击——chips 行官方就落在它的淡出带里。
+                if (lightPage && !_recentEditing)
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: IgnorePointer(
+                      child: SizedBox(
+                        height:
+                            MediaQuery.paddingOf(context).top +
+                            _topChromeHeight +
+                            56,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              // 浅色支沿用官方奶白渐变；深色 / OLED 取当前画布色
+                              // 淡出，只负责把海报挡在顶栏后。
+                              colors: _topBackingColors(palette),
+                              stops: const [0.0, 0.5, 1.0],
+                            ),
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-              ),
-            if (!_recentEditing &&
-                !(isWindowsDesktop && DesktopPlatform.fullscreen.value))
-              Positioned(
-                // 推荐（视频流）与看剧/漫剧（浅色页）切换时，下面的浅色
-                // 渐变背板会整体插入或移除，Stack 的子项下标随之错位。
-                // 不挂 key 的话顶栏会被整棵重建，标签放大动画一帧就走完。
-                key: const ValueKey('drama_top_bar'),
-                top: 0,
-                left: 0,
-                right: 0,
-                child: _TopBar(
-                  channels: _channels,
-                  selected: _channel,
-                  onSelect: _selectChannel,
-                  onSearch: _openSearch,
-                  // 占位文案跟着频道语境走：漫剧频道搜漫剧，其余搜短剧。
-                  hint: _current.kind == 'manju' ? '请输入漫剧名或主演名' : '请输入短剧名或主演名',
-                  // 官方浅色页（看剧/漫剧）的顶栏换浅肤：深色字 + 浅灰搜索框。
-                  light: lightPage,
-                ),
-              ),
-            // 「上滑查看更多视频」：官方挂在全屏容器上、`gravity=bottom|center`
-            // + bottomMargin 94dp（`pp3.f.n()`）。注意官方主界面（`d5.xml`）的
-            // 底部 tab（50dp）是**悬浮压在 feed 上的**，所以 94dp 从 tab 底边算，
-            // 提示悬在 tab 栏上方约 44dp。本页 feed 止步于 NavigationBar 顶边，
-            // 同一视觉位置 = 94 - 官方 tab 高 50 = **44dp**。
-            if (_guideMounted && !isWindowsDesktop)
-              Positioned(
-                left: 16,
-                right: 16,
-                bottom: _effectiveBottomInset(context) + 16,
-                child: _SwipeUpHint(visible: _guideVisible),
-              ),
-          ],
+                if (!_recentEditing &&
+                    !(isWindowsDesktop && DesktopPlatform.fullscreen.value))
+                  Positioned(
+                    // 推荐（视频流）与看剧/漫剧（浅色页）切换时，下面的浅色
+                    // 渐变背板会整体插入或移除，Stack 的子项下标随之错位。
+                    // 不挂 key 的话顶栏会被整棵重建，标签放大动画一帧就走完。
+                    key: const ValueKey('drama_top_bar'),
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: _TopBar(
+                      channels: _channels,
+                      selected: _channel,
+                      onSelect: _selectChannel,
+                      onSearch: _openSearch,
+                      // 占位文案跟着频道语境走：漫剧频道搜漫剧，其余搜短剧。
+                      hint: _current.kind == 'manju'
+                          ? '请输入漫剧名或主演名'
+                          : '请输入短剧名或主演名',
+                      // 官方浅色页（看剧/漫剧）的顶栏换浅肤：深色字 + 浅灰搜索框。
+                      light: lightPage,
+                    ),
+                  ),
+                // 「上滑查看更多视频」：官方挂在全屏容器上、`gravity=bottom|center`
+                // + bottomMargin 94dp（`pp3.f.n()`）。注意官方主界面（`d5.xml`）的
+                // 底部 tab（50dp）是**悬浮压在 feed 上的**，所以 94dp 从 tab 底边算，
+                // 提示悬在 tab 栏上方约 44dp。本页 feed 止步于 NavigationBar 顶边，
+                // 同一视觉位置 = 94 - 官方 tab 高 50 = **44dp**。
+                if (_guideMounted && !isWindowsDesktop)
+                  Positioned(
+                    left: 16,
+                    right: 16,
+                    bottom: _effectiveBottomInset(context) + 16,
+                    child: _SwipeUpHint(visible: _guideVisible),
+                  ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -1677,11 +1677,9 @@ class _DramaPageState extends ConsumerState<DramaPage>
       return const SizedBox.shrink();
     }
     final channel = _channels[target];
-    // 底色跟着目标频道走：视频流是黑底，海报格/本机列表是画布色。用错就会在
-    // 切过去之前先看到一块错色的板。
-    final background = channel.playsInline
-        ? Colors.black
-        : HomePalette.of(context).canvas;
+    // 底色跟着目标频道走：视频流是黑底，海报格/本机列表是深紫蓝渐变底。
+    // 用错就会在切过去之前先看到一块错色的板。
+    final background = channel.playsInline ? Colors.black : null;
     final snapshot = _channelSnapshots[target];
     final grid = _gridShape(channel);
     final seen = snapshot != null && snapshot.items.isNotEmpty;
@@ -1697,7 +1695,12 @@ class _DramaPageState extends ConsumerState<DramaPage>
     }
     // 预览只是「下一页长这样」的预告，不接任何手势：它在当前内容下面，
     // 真接了点击会在拖动过程中误进播放页。
-    return IgnorePointer(child: ColoredBox(color: background, child: body));
+    if (background != null) {
+      return IgnorePointer(
+        child: ColoredBox(color: background, child: body),
+      );
+    }
+    return IgnorePointer(child: MoyiPageBackground(child: body));
   }
 
   /// 瀑布格的惰性副本：同样的列数、间距与卡片，但不滚动、不通知、不点击。
@@ -1798,7 +1801,11 @@ class _DramaPageState extends ConsumerState<DramaPage>
           crossAxisSpacing: 8,
           mainAxisSpacing: 16,
           // 海报约 5:7 + 片名 + 「分类·集数」；两列格片名可占两行。
-          childAspectRatio: wide ? .58 : columns == 2 ? 0.56 : (titleMaxLines >= 2 ? 0.47 : 0.52),
+          childAspectRatio: wide
+              ? .58
+              : columns == 2
+              ? 0.56
+              : (titleMaxLines >= 2 ? 0.47 : 0.52),
         ),
         itemCount: items.length,
         itemBuilder: (context, index) => _BrowseCard(
@@ -4132,21 +4139,20 @@ class _GridMessage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = HomePalette.of(context);
     return ColoredBox(
-      color: palette.canvas,
+      color: Colors.transparent,
       child: SafeArea(
         child: Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               if (showSpinner) ...[
-                SizedBox(
+                const SizedBox(
                   width: 26,
                   height: 26,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
-                    color: palette.ink,
+                    color: Colors.white,
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -4154,7 +4160,7 @@ class _GridMessage extends StatelessWidget {
               Text(
                 message,
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 15, color: palette.muted),
+                style: const TextStyle(fontSize: 15, color: moyiMutedOnDark),
               ),
             ],
           ),
@@ -4673,7 +4679,8 @@ class _LocalListState extends State<_LocalList> {
           // 桌面端跟看剧/漫剧同口径铺列（[dramaDesktopColumns]，行距也放到
           // 16）；手机保持官方的双列 8dp。原先这里恒写 2 列，桌面上两列会被
           // 拉到近 700dp 宽，和隔壁频道完全两种排版。
-          final desktopGrid = isWindowsDesktop || MediaQuery.sizeOf(context).width >= 840;
+          final desktopGrid =
+              isWindowsDesktop || MediaQuery.sizeOf(context).width >= 840;
           final columns = desktopGrid ? dramaDesktopColumns(context) : 3;
           final body = filtered.isEmpty
               ? empty

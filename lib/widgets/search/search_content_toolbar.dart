@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
 
-import '../home/home_design.dart';
 import '../home/home_shelf.dart';
+import '../series_detail/moyi_detail_theme.dart';
 
 /// 搜索内容区的第一行工具条：评分筛选 + 视图切换。
 ///
@@ -34,7 +34,6 @@ class SearchContentToolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = HomePalette.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -53,11 +52,11 @@ class SearchContentToolbar extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 12,
                       height: 1.2,
-                      color: palette.muted,
+                      color: moyiMutedOnDark,
                     ),
                   )
                 else
-                  _scoreDropdown(palette),
+                  _scoreDropdown(),
                 const Spacer(),
                 IconButton(
                   key: const Key('search-layout-toggle'),
@@ -65,7 +64,7 @@ class SearchContentToolbar extends StatelessWidget {
                   onPressed: onToggleLayout,
                   padding: EdgeInsets.zero,
                   iconSize: 19,
-                  color: palette.ink,
+                  color: Colors.white,
                   style: IconButton.styleFrom(
                     minimumSize: const Size(height, height),
                     padding: EdgeInsets.zero,
@@ -84,14 +83,14 @@ class SearchContentToolbar extends StatelessWidget {
             padding: const EdgeInsets.only(left: homeGutter, bottom: 8),
             child: Text(
               '筛选已加载结果，未评分作品不计入；可继续加载更多。',
-              style: TextStyle(fontSize: 11.5, color: palette.muted),
+              style: TextStyle(fontSize: 11.5, color: moyiMutedOnDark),
             ),
           ),
       ],
     );
   }
 
-  Widget _scoreDropdown(HomePalette palette) {
+  Widget _scoreDropdown() {
     final active = scoreEnabled && minimumScore > 0;
     return DropdownButtonHideUnderline(
       child: DropdownButton<double>(
@@ -99,20 +98,20 @@ class SearchContentToolbar extends StatelessWidget {
         value: scoreEnabled ? minimumScore : 0,
         isDense: true,
         borderRadius: BorderRadius.circular(14),
-        dropdownColor: palette.surface,
+        dropdownColor: moyiSheetFill,
         icon: Padding(
           padding: const EdgeInsets.only(left: 2),
           child: Icon(
             LucideIcons.chevron_down,
             size: 14,
-            color: active ? palette.accentText : palette.muted,
+            color: active ? moyiGold : moyiMutedOnDark,
           ),
         ),
         style: TextStyle(
           fontSize: 13,
           height: 1.2,
           fontWeight: FontWeight.w600,
-          color: active ? palette.accentText : palette.muted,
+          color: active ? moyiGold : moyiMutedOnDark,
         ),
         items: const [
           DropdownMenuItem(value: 0, child: Text('评分不限')),
@@ -138,7 +137,6 @@ class SearchIdLookupHint extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = HomePalette.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(homeGutter, 2, homeGutter, 4),
       child: Row(
@@ -146,13 +144,13 @@ class SearchIdLookupHint extends StatelessWidget {
           Expanded(
             child: Text(
               '按作品 ID 查找',
-              style: TextStyle(fontSize: 12, height: 1.2, color: palette.muted),
+              style: TextStyle(fontSize: 12, height: 1.2, color: moyiMutedOnDark),
             ),
           ),
           TextButton(
             onPressed: onKeywordSearch,
             style: TextButton.styleFrom(
-              foregroundColor: palette.accentText,
+              foregroundColor: moyiGold,
               minimumSize: Size.zero,
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,

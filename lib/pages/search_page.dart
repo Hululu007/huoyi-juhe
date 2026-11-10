@@ -16,7 +16,7 @@ import '../services/drama_sites.dart';
 import '../services/desktop_platform.dart';
 import '../services/search_history_store.dart';
 import '../services/user_facing_error.dart';
-import '../widgets/home/home_design.dart';
+import '../widgets/series_detail/moyi_detail_theme.dart';
 import '../widgets/home/home_media_card.dart';
 import '../widgets/home/home_shelf.dart';
 import '../widgets/media_card.dart';
@@ -465,15 +465,18 @@ class _SearchPageState extends State<SearchPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('清空搜索历史'),
-        content: const Text('确定清空全部搜索记录吗？'),
+        backgroundColor: moyiSheetFill,
+        title: const Text('清空搜索历史', style: TextStyle(color: Colors.white)),
+        content: const Text('确定清空全部搜索记录吗？', style: TextStyle(color: moyiBodyOnDark)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
+            style: TextButton.styleFrom(foregroundColor: moyiBodyOnDark),
             child: const Text('取消'),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: moyiPink),
             child: const Text('清空'),
           ),
         ],
@@ -680,31 +683,32 @@ class _SearchPageState extends State<SearchPage> {
   Widget build(BuildContext context) {
     final feed = _feeds[_tabIndex];
 
-    final palette = HomePalette.of(context);
 
-    return Scaffold(
-      backgroundColor: palette.canvas,
+    return MoyiPageBackground(
+      child: Scaffold(
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         titleSpacing: 0,
-        backgroundColor: palette.canvas,
+        backgroundColor: Colors.transparent,
         elevation: 0,
         scrolledUnderElevation: 0,
         title: Container(
           constraints: const BoxConstraints(minHeight: 40),
           margin: const EdgeInsets.only(right: homeGutter),
           decoration: BoxDecoration(
-            color: palette.searchBar,
+            color: moyiDarkCardFill,
+            border: Border.all(color: moyiDarkCardBorder),
             borderRadius: BorderRadius.circular(20),
           ),
           child: TextField(
             controller: _ctrl,
             autofocus: false,
             textInputAction: TextInputAction.search,
-            style: TextStyle(fontSize: 14, color: palette.ink),
+            style: const TextStyle(fontSize: 14, color: Colors.white),
             decoration: InputDecoration(
               isDense: true,
               hintText: '搜索名称或作品 ID',
-              hintStyle: TextStyle(fontSize: 13.5, color: palette.muted),
+              hintStyle: const TextStyle(fontSize: 13.5, color: moyiMutedOnDark),
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 16,
                 vertical: 10,
@@ -724,7 +728,7 @@ class _SearchPageState extends State<SearchPage> {
                         icon: Icon(
                           LucideIcons.x,
                           size: 16,
-                          color: palette.muted,
+                          color: moyiMutedOnDark,
                         ),
                         onPressed: _clearSearchInput,
                       ),
@@ -733,7 +737,7 @@ class _SearchPageState extends State<SearchPage> {
                       icon: Icon(
                         LucideIcons.search,
                         size: 17,
-                        color: HomePalette.accent,
+                        color: moyiGold,
                       ),
                       onPressed: () => _search(_ctrl.text),
                     ),
@@ -768,6 +772,7 @@ class _SearchPageState extends State<SearchPage> {
             ),
           ),
         ],
+      ),
       ),
     );
   }
@@ -829,10 +834,12 @@ class _SearchPageState extends State<SearchPage> {
                     : (!_shuqiSource && _minimumScore > 0
                           ? '已加载结果中暂无达到评分的作品'
                           : (feed.hasMore ? '当前页暂无匹配结果' : '无结果')),
+                style: const TextStyle(color: moyiBodyOnDark),
               ),
               if (_idQuery == null && !_shuqiSource && _minimumScore > 0)
                 TextButton(
                   onPressed: () => setState(() => _minimumScore = 0),
+                  style: TextButton.styleFrom(foregroundColor: moyiGold),
                   child: const Text('清除评分筛选'),
                 ),
               if (feed.hasMore || feed.loading || feed.error != null)
@@ -891,7 +898,12 @@ class _SearchPageState extends State<SearchPage> {
     if (_siteResults.isEmpty) {
       return _resultsShell(
         context,
-        const Center(child: Text('站源里没有搜到相关内容')),
+        const Center(
+          child: Text(
+            '站源里没有搜到相关内容',
+            style: TextStyle(color: moyiBodyOnDark),
+          ),
+        ),
       );
     }
     return _resultsShell(
@@ -912,6 +924,7 @@ class _SearchPageState extends State<SearchPage> {
                           style: const TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w600,
+                            color: Colors.white,
                           ),
                         ),
                       ),
@@ -1012,7 +1025,6 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   Widget _resultRow(BuildContext context, MediaItem item) {
-    final palette = HomePalette.of(context);
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -1020,7 +1032,7 @@ class _SearchPageState extends State<SearchPage> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 13),
           decoration: BoxDecoration(
-            border: Border(bottom: BorderSide(color: palette.line, width: 0.5)),
+            border: Border(bottom: BorderSide(color: moyiDarkCardBorder, width: 0.5)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1030,7 +1042,7 @@ class _SearchPageState extends State<SearchPage> {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  color: palette.ink,
+                  color: Colors.white,
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
                 ),
@@ -1051,7 +1063,7 @@ class _SearchPageState extends State<SearchPage> {
                   else if (!isShuqiItem(item))
                     '暂无评分',
                 ].join(' · '),
-                style: TextStyle(color: palette.muted, fontSize: 11.5),
+                style: TextStyle(color: moyiMutedOnDark, fontSize: 11.5),
               ),
             ],
           ),
@@ -1063,8 +1075,7 @@ class _SearchPageState extends State<SearchPage> {
   /// 流尾三态：加载中 / 失败可重试 / 没有更多了。文案与首页流尾一致，字号
   /// 按搜索页的次级信息降到 12sp；文字用次级色，底部让出系统导航栏。
   Widget _paginationFooter(BuildContext context, _SearchFeed feed) {
-    final palette = HomePalette.of(context);
-    final style = TextStyle(fontSize: 12, height: 1.2, color: palette.muted);
+    final style = TextStyle(fontSize: 12, height: 1.2, color: moyiMutedOnDark);
     final safeBottom = MediaQuery.paddingOf(context).bottom;
     if (feed.loading) {
       return Padding(
@@ -1074,7 +1085,7 @@ class _SearchPageState extends State<SearchPage> {
             dimension: 20,
             child: CircularProgressIndicator(
               strokeWidth: 2,
-              color: palette.muted,
+              color: moyiMutedOnDark,
             ),
           ),
         ),
@@ -1101,12 +1112,12 @@ class _SearchPageState extends State<SearchPage> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Container(width: 12, height: 1, color: palette.muted),
+              Container(width: 12, height: 1, color: moyiMutedOnDark),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 8),
                 child: Text('没有更多了', style: style),
               ),
-              Container(width: 12, height: 1, color: palette.muted),
+              Container(width: 12, height: 1, color: moyiMutedOnDark),
             ],
           ),
         ),
@@ -1118,7 +1129,7 @@ class _SearchPageState extends State<SearchPage> {
         child: TextButton(
           onPressed: _loadMore,
           style: TextButton.styleFrom(
-            foregroundColor: palette.muted,
+            foregroundColor: moyiMutedOnDark,
             minimumSize: const Size(0, 44),
             padding: const EdgeInsets.symmetric(horizontal: 12),
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,

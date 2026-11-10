@@ -9,6 +9,7 @@ import '../services/live_sources.dart';
 import '../services/live_speed_tracker.dart';
 import '../services/native_player.dart';
 import '../services/player_system_ui.dart';
+import '../widgets/series_detail/moyi_detail_theme.dart';
 import 'live_status_panel.dart';
 
 /// 直播全屏播放页：对齐火蚁TV live_player_screen.dart 的手机端控件层。
@@ -286,10 +287,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
   void _showSpeedToast() {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('直播不支持变速'),
-        duration: Duration(seconds: 2),
-      ),
+      const SnackBar(content: Text('直播不支持变速'), duration: Duration(seconds: 2)),
     );
   }
 
@@ -312,7 +310,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
     final picked = await showModalBottomSheet<int>(
       context: context,
       showDragHandle: true,
-      backgroundColor: const Color(0xFF1B1B1F),
+      backgroundColor: moyiSheetFill,
       builder: (context) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -320,7 +318,10 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
             for (var index = 0; index < channel.urls.length; index++)
               ListTile(
                 dense: true,
-                leading: const Icon(Icons.route_rounded),
+                leading: const Icon(
+                  Icons.route_rounded,
+                  color: moyiMutedOnDark,
+                ),
                 title: Text(
                   '线路 ${index + 1}',
                   style: const TextStyle(color: Colors.white),
@@ -346,7 +347,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
     final picked = await showModalBottomSheet<int>(
       context: context,
       showDragHandle: true,
-      backgroundColor: const Color(0xFF1B1B1F),
+      backgroundColor: moyiSheetFill,
       builder: (context) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -377,11 +378,15 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
                   return ListTile(
                     dense: true,
                     selected: selected,
+                    selectedTileColor: moyiDarkCardFill,
+                    selectedColor: Colors.white,
                     title: Text(
                       channel.label,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white),
+                      style: TextStyle(
+                        color: selected ? Colors.white : moyiBodyOnDark,
+                      ),
                     ),
                     onTap: () => Navigator.pop(context, index),
                   );
@@ -472,6 +477,9 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
                       onRetry: () =>
                           unawaited(_loadChannel(_index, keepRoute: true)),
                       secondaryAction: TextButton(
+                        style: TextButton.styleFrom(
+                          foregroundColor: moyiCyan,
+                        ),
                         onPressed: _openChannelSheet,
                         child: const Text('换个频道'),
                       ),
@@ -564,7 +572,10 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               IconButton(
-                icon: const Icon(Icons.skip_previous_rounded, color: Colors.white),
+                icon: const Icon(
+                  Icons.skip_previous_rounded,
+                  color: Colors.white,
+                ),
                 onPressed: _channels.length > 1 ? _prevChannel : null,
                 tooltip: '上一集',
               ),
@@ -599,10 +610,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
               ),
               TextButton(
                 onPressed: _showSpeedToast,
-                child: const Text(
-                  '1x',
-                  style: TextStyle(color: Colors.white),
-                ),
+                child: const Text('1x', style: TextStyle(color: Colors.white)),
               ),
               TextButton(
                 onPressed: _selectRoute,

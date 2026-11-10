@@ -2,8 +2,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../home/home_design.dart';
 import '../home/home_shelf.dart';
+import '../series_detail/moyi_detail_theme.dart';
 import 'search_source_switch.dart';
 
 /// 搜索页的范围条：分类页签 + 右缘渐隐 + 来源切换。
@@ -39,14 +39,13 @@ class SearchScopeBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = HomePalette.of(context);
     final height = heightFor(context);
     return SizedBox(
       height: height,
       child: Row(
         children: [
-          Expanded(child: _categories(palette)),
-          Container(width: 1, height: 20, color: palette.line),
+          Expanded(child: _categories()),
+          Container(width: 1, height: 20, color: moyiDarkCardBorder),
           Padding(
             padding: const EdgeInsets.only(left: 12, right: homeGutter),
             child: SearchSourceSwitch(
@@ -60,7 +59,7 @@ class SearchScopeBar extends StatelessWidget {
     );
   }
 
-  Widget _categories(HomePalette palette) {
+  Widget _categories() {
     final list = ListView(
       key: const Key('search-category-tabs'),
       scrollDirection: Axis.horizontal,
@@ -72,7 +71,7 @@ class SearchScopeBar extends StatelessWidget {
         for (var i = 0; i < categories.length; i++)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: Center(child: _chip(palette, i)),
+            child: Center(child: _chip(i)),
           ),
       ],
     );
@@ -100,7 +99,7 @@ class SearchScopeBar extends StatelessWidget {
     );
   }
 
-  Widget _chip(HomePalette palette, int index) {
+  Widget _chip(int index) {
     final category = categories[index];
     final isSelected = !shuqi && index == selectedIndex;
     return ChoiceChip(
@@ -112,13 +111,13 @@ class SearchScopeBar extends StatelessWidget {
       visualDensity: VisualDensity.compact,
       shape: const StadiumBorder(),
       side: BorderSide.none,
-      backgroundColor: palette.soft,
-      selectedColor: palette.ink,
+      backgroundColor: moyiDarkCardFill,
+      selectedColor: moyiPurple,
       labelPadding: const EdgeInsets.symmetric(horizontal: 8),
       labelStyle: TextStyle(
         fontSize: 13,
         fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-        color: isSelected ? palette.canvas : palette.ink,
+        color: isSelected ? Colors.white : moyiBodyOnDark,
       ),
     );
   }

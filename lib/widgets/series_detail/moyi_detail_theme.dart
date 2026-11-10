@@ -9,8 +9,48 @@ import 'package:flutter/material.dart';
 /// - 标题白字金字：标题纯白粗体，集数行用金 `#F2C14E`。
 /// - 圆角卡片 + 紫色描边：卡片圆角 16、描边紫 55% 透明度。
 ///
-/// 适用范围只限详情页（影视区剧照背景 + 短剧详情 + 普通详情主按钮），
-/// 不动首页 / 频道页 / 游戏 / 修仙境界逻辑。
+/// 适用范围：全 App 所有区域的背景（首页 / 频道 / 详情 / 短剧 / 影视 /
+/// 直播 / 午夜 / 书架 / 我的 / 搜索 / 设置 / 播放页 / 弹窗 / 游戏面板），
+/// 统一用同一套深紫蓝渐变底。不动首页 / 频道页 / 游戏 / 修仙境界逻辑
+/// 以外的数据源、分类、导航、游戏数值、扣元宝规则。
+/// 游戏战场本身（浮空仙山打斗场面）不动，只换游戏里的菜单、面板、弹窗背景。
+
+/// 全区通用页面背景：深紫蓝渐变底 + 子内容。
+///
+/// 用法：把原来 `Scaffold(backgroundColor: ...)` 改成
+/// `Scaffold(backgroundColor: Colors.transparent, body: MoyiPageBackground(child: ...))`，
+/// 或在已有 body 外包一层。渐变值与 [moyiPageGradient] 同一套，禁止各页自定深浅。
+class MoyiPageBackground extends StatelessWidget {
+  const MoyiPageBackground({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(gradient: moyiPageGradient),
+      child: child,
+    );
+  }
+}
+
+/// 深底上的卡片 / 面板填充：深紫半透明（替代原来的浅色底、白色卡片底）。
+const Color moyiDarkCardFill = Color(0x2EFFFFFF);
+
+/// 深底上的卡片描边：紫 35% 透明度（比海报卡片的 55% 淡一档，适合大面积面板）。
+const Color moyiDarkCardBorder = Color(0x59FFFFFF);
+
+/// 深底上的正文：白 70%。
+const Color moyiBodyOnDark = Color(0xB3FFFFFF);
+
+/// 深底上的次要文字：白 55%。
+const Color moyiMutedOnDark = Color(0x8CFFFFFF);
+
+/// 弹窗 / 底部表的深底：实色深紫（渐变在小面积弹窗上看不出，用实色）。
+const Color moyiSheetFill = Color(0xFF1A0F3C);
+
+/// 底部表 / 弹窗里卡片的填充。
+const Color moyiSheetCardFill = Color(0x2EFFFFFF);
 
 /// 深紫蓝渐变底（对照魔蚁 box 首页与频道分类页的底色）。
 const LinearGradient moyiPageGradient = LinearGradient(

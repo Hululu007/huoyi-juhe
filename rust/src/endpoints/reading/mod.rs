@@ -280,14 +280,11 @@ fn handle_play<'a>(ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResult<
     } else {
         episode_id
     };
-    let port = {
-        let p = ctx.cfg.port;
-        if p == 0 {
-            18921
-        } else {
-            p
-        }
-    };
+    // The relay URL must name the port this core actually bound: after an
+    // ephemeral fallback (`bound_port != 0`) the configured port belongs to
+    // a stale process (or nothing at all), so `cfg.port` would misdirect
+    // playback. `loopback_port` resolves bound > configured > 18921.
+    let port = ctx.loopback_port();
     Box::pin(async move {
         if video_id.is_empty() {
             return Err(ApiError::BadRequest("missing episode_id parameter".into()));

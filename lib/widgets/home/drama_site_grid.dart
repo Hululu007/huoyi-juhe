@@ -12,6 +12,7 @@ import '../../services/m3u_export_db.dart';
 import '../../services/midnight_gate.dart';
 import '../../services/xbpq_content.dart';
 import '../../services/source_registry.dart';
+import '../series_detail/moyi_detail_theme.dart';
 import 'home_feed_states.dart';
 import 'home_media_card.dart';
 import 'home_shelf.dart';
@@ -85,8 +86,8 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
     final id = widget.siteId;
     final name =
         SourceRegistry.instance.customById(id)?.name ??
-            dramaSiteNameOrNull(id) ??
-            '';
+        dramaSiteNameOrNull(id) ??
+        '';
     return videoCardKindForSite(id, name);
   }
 
@@ -100,11 +101,12 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
   void _autoSave(List<DramaSiteItem> items) {
     final dbSink = widget.dbSink;
     if (!widget.autoSaveToDb || dbSink == null || items.isEmpty) return;
-    final category = widget.browseCategory ??
+    final category =
+        widget.browseCategory ??
         DramaSiteCategory(widget.categoryId, widget.categoryId);
     final siteName =
         SourceRegistry.instance.customById(widget.siteId)?.name ??
-            dramaSiteById(widget.siteId).name;
+        dramaSiteById(widget.siteId).name;
     unawaited(
       saveBrowsedCatalogToDb(
         siteId: widget.siteId,
@@ -146,10 +148,7 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
                         selected: (_filters[group.key] ?? '') == option.value,
                         onSelected: (_) {
                           setState(() {
-                            _filters = {
-                              ..._filters,
-                              group.key: option.value,
-                            };
+                            _filters = {..._filters, group.key: option.value};
                           });
                           _loadFirst(keepItems: true);
                         },
@@ -235,9 +234,8 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
     if (!mounted) return;
     final siteName =
         SourceRegistry.instance.customById(widget.siteId)?.name ??
-            dramaSiteById(widget.siteId).name;
-    if (!MidnightGate.activated.value &&
-        MidnightGate.isAdultName(siteName)) {
+        dramaSiteById(widget.siteId).name;
+    if (!MidnightGate.activated.value && MidnightGate.isAdultName(siteName)) {
       setState(() {
         _loading = false;
         _error = null;
@@ -246,8 +244,8 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
       });
       return;
     }
-    final client = widget.client ??
-        await SourceRegistry.instance.clientFor(widget.siteId);
+    final client =
+        widget.client ?? await SourceRegistry.instance.clientFor(widget.siteId);
     if (!mounted) return;
     _client = client;
     if (client == null) {
@@ -330,12 +328,15 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
       return const SliverToBoxAdapter(child: HomeFeedLoading());
     }
     if (_gateBlocked) {
-      return SliverToBoxAdapter(
+      return const SliverToBoxAdapter(
         child: Padding(
-          padding: const EdgeInsets.all(24),
+          padding: EdgeInsets.all(24),
           child: Column(
             children: [
-              const Text('该站属于午夜区，午夜区未开启时不显示'),
+              Text(
+                '该站属于午夜区，午夜区未开启时不显示',
+                style: TextStyle(color: moyiBodyOnDark),
+              ),
             ],
           ),
         ),
@@ -347,9 +348,7 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
           headline: '故事还在路上',
           // 超时单独说「加载超时，请重试」：超时是兜底健壮性问题，
           // 不是站解析失效，别跟回空/解析失败混成一句。
-          message: _errorIsTimeout
-              ? '加载超时，请重试。'
-              : '暂时无法加载该站点，稍后再试一次。',
+          message: _errorIsTimeout ? '加载超时，请重试。' : '暂时无法加载该站点，稍后再试一次。',
           detail: _error!,
           onRetry: _loadFirst,
         ),

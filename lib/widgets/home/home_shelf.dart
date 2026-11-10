@@ -106,6 +106,9 @@ class HomeSectionHeader extends StatelessWidget {
   final String title;
   final Widget? action;
 
+  /// Title color override for dark gradient pages; null keeps palette ink.
+  final Color? titleColor;
+
   /// 左右栏距。设置类页面已在外层给卡片留了 16dp，分区头放进卡片时可传
   /// 0 避免与卡片边距叠加。
   final double gutter;
@@ -115,6 +118,7 @@ class HomeSectionHeader extends StatelessWidget {
     required this.title,
     this.action,
     this.gutter = homeGutter,
+    this.titleColor,
   });
 
   @override
@@ -139,7 +143,7 @@ class HomeSectionHeader extends StatelessWidget {
                 height: 1.25,
                 fontWeight: FontWeight.w700,
                 letterSpacing: -0.3,
-                color: palette.ink,
+                color: titleColor ?? palette.ink,
               ),
             ),
           ),

@@ -2,14 +2,13 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../home/home_design.dart';
+import '../series_detail/moyi_detail_theme.dart';
 
 /// 搜索来源的「番茄 | 书旗」两段切换。
 ///
-/// 外框 32 高、内边距 2、圆角 16、[HomePalette.soft] 底；每段 28 高、
-/// 水平内边距 11、13sp。选中段浅色用 [HomePalette.surface]，深色用
-/// [HomePalette.line]，文字 ink、w700，并带一层轻阴影；未选中段 muted、
-/// w500。点击区纵向撑满整条范围条，不只限于 28 高的胶囊。
+/// 外框 32 高、内边距 2、圆角 16、[moyiDarkCardFill] 底；每段 28 高、
+/// 水平内边距 11、13sp。选中段用 [moyiPurple] 底白字，未选中段
+/// [moyiMutedOnDark]、w500。点击区纵向撑满整条范围条，不只限于 28 高的胶囊。
 class SearchSourceSwitch extends StatelessWidget {
   static const double defaultTapHeight = 48;
   static const double trackHeight = 32;
@@ -31,7 +30,6 @@ class SearchSourceSwitch extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = HomePalette.of(context);
     // 默认字号下就是样稿的 28 / 32；大字体时随文字长高，避免 13sp 被裁掉。
     final segmentHeight = math.max(
       SearchSourceSwitch.segmentHeight,
@@ -50,7 +48,7 @@ class SearchSourceSwitch extends StatelessWidget {
             height: trackHeight,
             child: DecoratedBox(
               decoration: BoxDecoration(
-                color: palette.soft,
+                color: moyiDarkCardFill,
                 borderRadius: BorderRadius.circular(16),
               ),
             ),
@@ -62,7 +60,6 @@ class SearchSourceSwitch extends StatelessWidget {
               children: [
                 _segment(
                   context,
-                  palette,
                   key: const Key('search-source-fanqie'),
                   label: '番茄',
                   selected: !shuqi,
@@ -71,7 +68,6 @@ class SearchSourceSwitch extends StatelessWidget {
                 ),
                 _segment(
                   context,
-                  palette,
                   key: const Key('search-shuqi-source'),
                   label: '书旗',
                   selected: shuqi,
@@ -87,8 +83,7 @@ class SearchSourceSwitch extends StatelessWidget {
   }
 
   Widget _segment(
-    BuildContext context,
-    HomePalette palette, {
+    BuildContext context, {
     required Key key,
     required String label,
     required bool selected,
@@ -112,9 +107,7 @@ class SearchSourceSwitch extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 11),
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: selected
-                    ? (palette.dark ? palette.line : palette.surface)
-                    : Colors.transparent,
+                color: selected ? moyiPurple : Colors.transparent,
                 borderRadius: BorderRadius.circular(14),
                 boxShadow: selected
                     ? [
@@ -132,7 +125,7 @@ class SearchSourceSwitch extends StatelessWidget {
                   fontSize: 13,
                   height: 1.2,
                   fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                  color: selected ? palette.ink : palette.muted,
+                  color: selected ? Colors.white : moyiMutedOnDark,
                 ),
               ),
             ),

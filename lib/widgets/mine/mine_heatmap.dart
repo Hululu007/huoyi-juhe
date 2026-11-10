@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/reading_stats.dart';
 import '../home/home_design.dart';
 import '../home/home_shelf.dart';
+import '../series_detail/moyi_detail_theme.dart';
 
 /// 阅读热力图：16 周 × 7 天，周一在每列第一行。点一格在图下方显示那天的
 /// 时长，默认显示今天；今天之后的格子不可点。
@@ -34,12 +35,12 @@ class _MineHeatmapState extends State<MineHeatmap> {
     final labelStyle = TextStyle(
       fontSize: 10,
       height: 1.2,
-      color: palette.muted,
+      color: palette.eink ? palette.muted : moyiMutedOnDark,
     );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const HomeSectionHeader(title: '阅读热力图'),
+        const _MineSectionHeader(title: '阅读热力图'),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: homeGutter),
           child: Column(
@@ -67,7 +68,7 @@ class _MineHeatmapState extends State<MineHeatmap> {
                 style: TextStyle(
                   fontSize: 12,
                   height: 1.3,
-                  color: palette.muted,
+                  color: palette.eink ? palette.muted : moyiMutedOnDark,
                 ),
               ),
             ],
@@ -146,13 +147,16 @@ class _MineHeatmapState extends State<MineHeatmap> {
     final level = future ? 0 : readingHeatLevel(widget.stats.minutesOn(date));
     // 墨水屏的 line 是纯黑，空格子若照用会比读过的格子还深：改成白底黑边，
     // 读过的格子用黑色深浅分级。
-    final heat = palette.eink ? Colors.black : HomePalette.accent;
+    final heat = palette.eink ? Colors.black : moyiGold;
     final color = switch (level) {
       1 => heat.withValues(alpha: 0.18),
       2 => heat.withValues(alpha: 0.4),
       3 => heat.withValues(alpha: 0.65),
       4 => heat,
-      _ => future || palette.eink ? Colors.transparent : palette.line,
+      _ =>
+        future || palette.eink
+            ? Colors.transparent
+            : Colors.white.withValues(alpha: 0.08),
     };
     final selected = !future && date == shown;
     final outline = palette.eink && level == 0 && !future;
@@ -169,13 +173,55 @@ class _MineHeatmapState extends State<MineHeatmap> {
               color: color,
               borderRadius: BorderRadius.circular(3),
               border: selected
-                  ? Border.all(color: palette.ink, width: 1.2)
+                  ? Border.all(
+                      color: palette.eink ? palette.ink : Colors.white,
+                      width: 1.2,
+                    )
                   : outline
                   ? Border.all(color: Colors.black, width: 0.6)
                   : null,
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// 我的页分区头：与首页 HomeSectionHeader 同版式（19sp w700），
+/// 只把标题色换成深底白字——共享头走 palette.ink，浅色下在深紫渐变
+/// 底上读不清，这里不改共享组件，本地画一个。
+class _MineSectionHeader extends StatelessWidget {
+  final String title;
+
+  const _MineSectionHeader({required this.title});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        homeGutter,
+        homeSectionGap,
+        homeGutter,
+        homeHeaderGap,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 19,
+                height: 1.25,
+                fontWeight: FontWeight.w700,
+                letterSpacing: -0.3,
+                color: Colors.white,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -1,18 +1,33 @@
 import 'package:flutter/material.dart';
 
-/// 用户发来的两张豆包 AI 生成图（战场人物 / 档案卡同源）：
-/// 男——白发 Q 版小男孩，持剑，浅蓝道袍；
-/// 女——白发 Q 版小女孩，浅蓝道袍，站云上。
-/// 选男用男图、选女用女图。图是白底方图（2048x2048），
-/// 战场上缩成金环圆形徽章用，创建页 / 人物页用整幅圆角卡片。
-const String gameHeroMaleAsset = 'assets/images/game/hero_male.jpg';
-const String gameHeroFemaleAsset = 'assets/images/game/hero_female.jpg';
+/// 3D 写实主角图（网页版预览同款，见
+/// ~/workspace/game_ref/renjiepian/art/）：
+/// 男——白发剑修背影，米白长袍金纹、青竹蜂云剑；
+/// 女——白发女修背影，同款白袍金纹、青剑。
+/// 选男用男图、选女用女图。
+/// 全身图 768x1152（原图 1280x1920 压成 JPG，约 170KB）；
+/// 半身图是按头顶位置裁的上半身 512 方图，战场圆形徽章
+/// 与顶栏头像用它，不会只裁到天空。
+const String gameHeroMaleAsset = 'assets/images/game/hero_male_3d.jpg';
+const String gameHeroFemaleAsset = 'assets/images/game/hero_female_3d.jpg';
+const String gameHeroMaleBustAsset =
+    'assets/images/game/hero_male_3d_bust.jpg';
+const String gameHeroFemaleBustAsset =
+    'assets/images/game/hero_female_3d_bust.jpg';
+
+/// 旧 Q 版豆包图（保留在资源里不删，当回退）。
+const String gameHeroMaleLegacyAsset = 'assets/images/game/hero_male.jpg';
+const String gameHeroFemaleLegacyAsset =
+    'assets/images/game/hero_female.jpg';
 
 String gameHeroAssetForGender(bool isFemale) =>
     isFemale ? gameHeroFemaleAsset : gameHeroMaleAsset;
 
-/// 战场小头像：金环圆形徽章，图按头顶对齐裁，只占画面高度
-/// 十分之一左右，白底边角被圆裁掉。
+String gameHeroBustAssetForGender(bool isFemale) =>
+    isFemale ? gameHeroFemaleBustAsset : gameHeroMaleBustAsset;
+
+/// 战场小头像：金环圆形徽章，用半身裁切图，头顶在圆心偏上，
+/// 只占画面高度十分之一左右。
 class GameHeroPortrait extends StatelessWidget {
   const GameHeroPortrait({
     super.key,
@@ -44,16 +59,23 @@ class GameHeroPortrait extends StatelessWidget {
       ),
       child: ClipOval(
         child: Image.asset(
-          gameHeroAssetForGender(isFemale),
+          gameHeroBustAssetForGender(isFemale),
           fit: BoxFit.cover,
           alignment: Alignment.topCenter,
+          errorBuilder: (context, error, stackTrace) => Image.asset(
+            isFemale ? gameHeroFemaleLegacyAsset : gameHeroMaleLegacyAsset,
+            fit: BoxFit.cover,
+            alignment: Alignment.topCenter,
+          ),
         ),
       ),
     );
   }
 }
 
-/// 整幅立绘卡片：创建页 / 人物页用，金边圆角，头顶对齐。
+/// 整幅立绘卡片：创建页 / 人物页用，金边圆角。
+/// 3D 图人物占画面下三分之二，底部对齐才能看到整个人，
+/// 顶部对齐只会看到天空和牌坊。
 class GameHeroFullPortrait extends StatelessWidget {
   const GameHeroFullPortrait({
     super.key,
@@ -83,7 +105,12 @@ class GameHeroFullPortrait extends StatelessWidget {
         child: Image.asset(
           gameHeroAssetForGender(isFemale),
           fit: BoxFit.cover,
-          alignment: Alignment.topCenter,
+          alignment: Alignment.bottomCenter,
+          errorBuilder: (context, error, stackTrace) => Image.asset(
+            isFemale ? gameHeroFemaleLegacyAsset : gameHeroMaleLegacyAsset,
+            fit: BoxFit.cover,
+            alignment: Alignment.topCenter,
+          ),
         ),
       ),
     );

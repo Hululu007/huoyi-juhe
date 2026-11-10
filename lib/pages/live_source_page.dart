@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/live_platform.dart';
 import '../services/live_sources.dart';
+import '../widgets/series_detail/moyi_detail_theme.dart';
 import 'live_player_page.dart';
 
 /// 打开直播专用播放器：带上整个频道表与当前下标，播放页内可上下切频道、
@@ -56,15 +57,21 @@ class _ChannelTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final channel = channels[index];
     return ListTile(
-      title: Text(channel.title),
+      title: Text(channel.title, style: const TextStyle(color: moyiBodyOnDark)),
       subtitle: channel.subtitle.isEmpty
-          ? (channel.group.isEmpty ? null : Text(channel.group))
+          ? (channel.group.isEmpty
+                ? null
+                : Text(
+                    channel.group,
+                    style: const TextStyle(color: moyiMutedOnDark),
+                  ))
           : Text(
               channel.group.isEmpty
                   ? channel.subtitle
                   : '${channel.group} · ${channel.subtitle}',
+              style: const TextStyle(color: moyiMutedOnDark),
             ),
-      trailing: const Icon(Icons.play_arrow),
+      trailing: const Icon(Icons.play_arrow, color: moyiMutedOnDark),
       onTap: () => openLiveChannel(
         context,
         channels: channels,
@@ -83,29 +90,45 @@ class _ListChannelsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(source.name)),
-      body: FutureBuilder<List<LiveChannel>>(
-        future: LiveSources.loadBuiltinListChannels(source),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return Center(child: Text('频道表加载失败：${snapshot.error}'));
-          }
-          final channels = snapshot.data ?? const [];
-          if (channels.isEmpty) {
-            return const Center(child: Text('暂无频道'));
-          }
-          return ListView.builder(
-            itemCount: channels.length,
-            itemBuilder: (context, index) => _ChannelTile(
-              channels: channels,
-              index: index,
-              source: source,
-            ),
-          );
-        },
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(
+        title: Text(source.name),
+        backgroundColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
+        scrolledUnderElevation: 0,
+        foregroundColor: Colors.white,
+      ),
+      body: MoyiPageBackground(
+        child: FutureBuilder<List<LiveChannel>>(
+          future: LiveSources.loadBuiltinListChannels(source),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasError) {
+              return Center(
+                child: Text(
+                  '频道表加载失败：${snapshot.error}',
+                  style: const TextStyle(color: moyiBodyOnDark),
+                ),
+              );
+            }
+            final channels = snapshot.data ?? const [];
+            if (channels.isEmpty) {
+              return const Center(
+                child: Text('暂无频道', style: TextStyle(color: moyiBodyOnDark)),
+              );
+            }
+            return ListView.builder(
+              itemCount: channels.length,
+              itemBuilder: (context, index) => _ChannelTile(
+                channels: channels,
+                index: index,
+                source: source,
+              ),
+            );
+          },
+        ),
       ),
     );
   }
@@ -119,42 +142,67 @@ class _PingtaiPlatformsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(source.name)),
-      body: FutureBuilder<List<LivePlatform>>(
-        future: fetchPingtaiPlatforms(source),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return Center(child: Text('分类加载失败：${snapshot.error}'));
-          }
-          final platforms = snapshot.data ?? const [];
-          if (platforms.isEmpty) {
-            return const Center(child: Text('暂无分类'));
-          }
-          return ListView(
-            children: [
-              for (final platform in platforms)
-                ListTile(
-                  title: Text(platform.name),
-                  subtitle: platform.count > 0
-                      ? Text('${platform.count} 个频道')
-                      : null,
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute<void>(
-                      builder: (_) => _PingtaiChannelsPage(
-                        source: source,
-                        platform: platform,
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(
+        title: Text(source.name),
+        backgroundColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
+        scrolledUnderElevation: 0,
+        foregroundColor: Colors.white,
+      ),
+      body: MoyiPageBackground(
+        child: FutureBuilder<List<LivePlatform>>(
+          future: fetchPingtaiPlatforms(source),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasError) {
+              return Center(
+                child: Text(
+                  '分类加载失败：${snapshot.error}',
+                  style: const TextStyle(color: moyiBodyOnDark),
+                ),
+              );
+            }
+            final platforms = snapshot.data ?? const [];
+            if (platforms.isEmpty) {
+              return const Center(
+                child: Text('暂无分类', style: TextStyle(color: moyiBodyOnDark)),
+              );
+            }
+            return ListView(
+              children: [
+                for (final platform in platforms)
+                  ListTile(
+                    title: Text(
+                      platform.name,
+                      style: const TextStyle(color: moyiBodyOnDark),
+                    ),
+                    subtitle: platform.count > 0
+                        ? Text(
+                            '${platform.count} 个频道',
+                            style: const TextStyle(color: moyiMutedOnDark),
+                          )
+                        : null,
+                    trailing: const Icon(
+                      Icons.chevron_right,
+                      color: moyiMutedOnDark,
+                    ),
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (_) => _PingtaiChannelsPage(
+                          source: source,
+                          platform: platform,
+                        ),
                       ),
                     ),
                   ),
-                ),
-            ],
-          );
-        },
+              ],
+            );
+          },
+        ),
       ),
     );
   }
@@ -169,29 +217,48 @@ class _PingtaiChannelsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(platform.name)),
-      body: FutureBuilder<List<LiveChannel>>(
-        future: fetchPingtaiChannels(source, platform),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return Center(child: Text('频道加载失败：${snapshot.error}'));
-          }
-          final channels = snapshot.data ?? const [];
-          if (channels.isEmpty) {
-            return const Center(child: Text('该分类暂时没有频道'));
-          }
-          return ListView.builder(
-            itemCount: channels.length,
-            itemBuilder: (context, index) => _ChannelTile(
-              channels: channels,
-              index: index,
-              source: source,
-            ),
-          );
-        },
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(
+        title: Text(platform.name),
+        backgroundColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
+        scrolledUnderElevation: 0,
+        foregroundColor: Colors.white,
+      ),
+      body: MoyiPageBackground(
+        child: FutureBuilder<List<LiveChannel>>(
+          future: fetchPingtaiChannels(source, platform),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasError) {
+              return Center(
+                child: Text(
+                  '频道加载失败：${snapshot.error}',
+                  style: const TextStyle(color: moyiBodyOnDark),
+                ),
+              );
+            }
+            final channels = snapshot.data ?? const [];
+            if (channels.isEmpty) {
+              return const Center(
+                child: Text(
+                  '该分类暂时没有频道',
+                  style: TextStyle(color: moyiBodyOnDark),
+                ),
+              );
+            }
+            return ListView.builder(
+              itemCount: channels.length,
+              itemBuilder: (context, index) => _ChannelTile(
+                channels: channels,
+                index: index,
+                source: source,
+              ),
+            );
+          },
+        ),
       ),
     );
   }

@@ -12,6 +12,7 @@ import '../../services/player_history.dart';
 import '../../services/library_store.dart';
 import '../../services/user_facing_error.dart';
 import 'related_series_sheet.dart';
+import '../series_detail/moyi_detail_theme.dart';
 
 /// 快速选集半屏抽屉：在 Feed 流中无需跳页，快速预览剧集目录并就地选择集数或全屏观看。
 class PlayletQuickCatalogSheet extends StatefulWidget {
@@ -173,7 +174,7 @@ class _PlayletQuickCatalogSheetState extends State<PlayletQuickCatalogSheet> {
     return Container(
       constraints: BoxConstraints(maxHeight: maxHeight),
       decoration: const BoxDecoration(
-        color: Color(0xFF1E1E22),
+        color: moyiSheetFill,
         borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
         boxShadow: [
           BoxShadow(

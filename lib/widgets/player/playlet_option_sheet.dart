@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../series_detail/moyi_detail_theme.dart';
 
 import '../../services/episode_source_cache.dart';
 import '../../services/playback_format.dart';
@@ -62,7 +63,7 @@ Future<T?> _showOptionSheet<T>(
 }) => showModalBottomSheet<T>(
   context: context,
   useSafeArea: true,
-  backgroundColor: dark ? const Color(0xFF1C1C1C) : const Color(0xFFFAFAFA),
+  backgroundColor: moyiSheetFill,
   shape: RoundedRectangleBorder(
     borderRadius: BorderRadius.vertical(top: Radius.circular(dark ? 12 : 16)),
   ),
@@ -96,7 +97,7 @@ class PlayletOptionSheet<T> extends StatelessWidget {
 
   static const _accent = Color(0xFFFA6725);
 
-  Color get _foreground => dark ? Colors.white : const Color(0xFF000000);
+  Color get _foreground => Colors.white;
 
   @override
   Widget build(BuildContext context) => SafeArea(
@@ -114,7 +115,7 @@ class PlayletOptionSheet<T> extends StatelessWidget {
               width: 36,
               height: 4,
               decoration: BoxDecoration(
-                color: dark ? const Color(0x33FFFFFF) : const Color(0x1F000000),
+                color: moyiMutedOnDark,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),

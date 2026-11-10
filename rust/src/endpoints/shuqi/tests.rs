@@ -58,6 +58,7 @@ async fn mock_ctx(delay_for: fn(&str) -> Duration) -> (Arc<Ctx>, Arc<Mutex<Vec<S
         cfg: Arc::new(Config::default()),
         src_dir: dir.to_string_lossy().into_owned(),
         filters: Arc::new(FilterManager::default()),
+        bound_port: std::sync::atomic::AtomicU16::new(0),
     };
     (Arc::new(ctx), seen)
 }

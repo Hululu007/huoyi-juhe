@@ -34,17 +34,20 @@ mixin _LibraryShelfChrome on _LibraryPageActions {
             key: const Key('library-search-button'),
             tooltip: '搜索',
             icon: LucideIcons.search,
-            color: palette.ink,
+            color: palette.eink ? palette.ink : Colors.white,
             onTap: _openSearch,
           ),
           const SizedBox(width: 6),
           PopupMenuButton<_MenuAction>(
             key: const Key('library-more-button'),
             tooltip: '更多',
-            color: palette.surface,
+            color: palette.eink ? palette.surface : moyiSheetFill,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(16),
-              side: BorderSide(color: palette.line, width: 0.6),
+              side: BorderSide(
+                color: palette.eink ? palette.line : moyiDarkCardBorder,
+                width: 0.6,
+              ),
             ),
             elevation: 4,
             onSelected: _handleMenu,
@@ -63,8 +66,8 @@ mixin _LibraryShelfChrome on _LibraryPageActions {
                         action.icon,
                         size: 16,
                         color: action.layout == _layout
-                            ? palette.muted
-                            : palette.ink,
+                            ? (palette.eink ? palette.muted : moyiMutedOnDark)
+                            : (palette.eink ? palette.ink : Colors.white),
                       ),
                       const SizedBox(width: 10),
                       Text(
@@ -75,8 +78,8 @@ mixin _LibraryShelfChrome on _LibraryPageActions {
                               ? FontWeight.w400
                               : FontWeight.w500,
                           color: action.layout == _layout
-                              ? palette.muted
-                              : palette.ink,
+                              ? (palette.eink ? palette.muted : moyiMutedOnDark)
+                              : (palette.eink ? palette.ink : Colors.white),
                         ),
                       ),
                     ],
@@ -89,7 +92,11 @@ mixin _LibraryShelfChrome on _LibraryPageActions {
                 left: 6,
                 bottom: 2,
               ),
-              child: Icon(LucideIcons.ellipsis, size: 22, color: palette.ink),
+              child: Icon(
+                LucideIcons.ellipsis,
+                size: 22,
+                color: palette.eink ? palette.ink : Colors.white,
+              ),
             ),
           ),
         ],
@@ -115,7 +122,7 @@ mixin _LibraryShelfChrome on _LibraryPageActions {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(
-              color: palette.soft,
+              color: palette.eink ? palette.soft : moyiDarkCardFill,
               borderRadius: BorderRadius.circular(ShelfTokens.radiusChip),
               // 与未选中的 HomeChip 同款：常规外观无描边，墨水屏下用一圈
               // 黑线把白底胶囊从白画布上分出来。
@@ -127,7 +134,7 @@ mixin _LibraryShelfChrome on _LibraryPageActions {
                 Icon(
                   LucideIcons.clock,
                   size: ShelfTokens.iconInline,
-                  color: palette.muted,
+                  color: palette.eink ? palette.muted : moyiMutedOnDark,
                 ),
                 const SizedBox(width: 5),
                 Text(
@@ -135,7 +142,7 @@ mixin _LibraryShelfChrome on _LibraryPageActions {
                   style: TextStyle(
                     fontSize: ShelfTokens.subtitle,
                     fontWeight: FontWeight.w500,
-                    color: palette.ink,
+                    color: palette.eink ? palette.ink : moyiBodyOnDark,
                   ),
                 ),
               ],
@@ -158,8 +165,13 @@ mixin _LibraryShelfChrome on _LibraryPageActions {
       height: ShelfTokens.editBarHeight,
       padding: const EdgeInsets.symmetric(horizontal: ShelfTokens.spaceS),
       decoration: BoxDecoration(
-        color: palette.canvas,
-        border: Border(bottom: BorderSide(color: palette.line, width: 0.5)),
+        color: palette.eink ? palette.canvas : Colors.transparent,
+        border: Border(
+          bottom: BorderSide(
+            color: palette.eink ? palette.line : moyiDarkCardBorder,
+            width: 0.5,
+          ),
+        ),
       ),
       child: Row(
         children: [
@@ -167,7 +179,7 @@ mixin _LibraryShelfChrome on _LibraryPageActions {
             key: const Key('shelf-select-all'),
             onPressed: _toggleSelectAll,
             style: TextButton.styleFrom(
-              foregroundColor: palette.ink,
+              foregroundColor: palette.eink ? palette.ink : Colors.white,
               padding: const EdgeInsets.symmetric(
                 horizontal: ShelfTokens.spaceM,
               ),
@@ -184,7 +196,7 @@ mixin _LibraryShelfChrome on _LibraryPageActions {
                 style: TextStyle(
                   fontSize: 17,
                   fontWeight: FontWeight.w700,
-                  color: palette.ink,
+                  color: palette.eink ? palette.ink : Colors.white,
                 ),
               ),
             ),
@@ -193,7 +205,7 @@ mixin _LibraryShelfChrome on _LibraryPageActions {
             key: const Key('shelf-edit-done'),
             onPressed: _exitEdit,
             style: TextButton.styleFrom(
-              foregroundColor: HomePalette.accent,
+              foregroundColor: palette.eink ? HomePalette.accent : moyiGold,
               padding: const EdgeInsets.symmetric(
                 horizontal: ShelfTokens.spaceL,
               ),
@@ -218,8 +230,13 @@ mixin _LibraryShelfChrome on _LibraryPageActions {
       child: RepaintBoundary(
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: palette.surface,
-            border: Border(top: BorderSide(color: palette.line, width: 0.6)),
+            color: palette.eink ? palette.surface : moyiSheetFill,
+            border: Border(
+              top: BorderSide(
+                color: palette.eink ? palette.line : moyiDarkCardBorder,
+                width: 0.6,
+              ),
+            ),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(
@@ -243,7 +260,7 @@ mixin _LibraryShelfChrome on _LibraryPageActions {
                     key: const Key('shelf-remove-action'),
                     icon: LucideIcons.bookmark_x,
                     label: '移出书架',
-                    color: palette.ink,
+                    color: palette.eink ? palette.ink : Colors.white,
                     onTap: _selected.isEmpty ? null : _removeFromShelf,
                   ),
                   const Spacer(),

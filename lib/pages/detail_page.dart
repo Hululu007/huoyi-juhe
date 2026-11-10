@@ -172,8 +172,7 @@ class _DetailPageState extends State<DetailPage> {
       ? '话'
       : '章';
   String get _readLabel => switch (widget.item.kind) {
-    'video' || 'manju' || 'film' =>
-      _resumeIndex == null ? '开始观看' : '继续观看',
+    'video' || 'manju' || 'film' => _resumeIndex == null ? '开始观看' : '继续观看',
     'audio' => _resumeIndex == null ? '开始收听' : '继续收听',
     _ => _resumeIndex == null ? '开始阅读' : '继续阅读',
   };
@@ -513,89 +512,93 @@ class _DetailPageState extends State<DetailPage> {
   Widget build(BuildContext context) {
     final palette = HomePalette.of(context);
     final desktop = isWindowsDesktop && MediaQuery.sizeOf(context).width >= 700;
+    // 全页深紫蓝渐变底：状态栏与导航栏图标一律浅色（墨水屏除外，见 darkPage）。
+    final darkPage = !palette.eink;
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      value:
-          (palette.dark
-                  ? SystemUiOverlayStyle.light
-                  : SystemUiOverlayStyle.dark)
-              .copyWith(
-                statusBarColor: Colors.transparent,
-                systemNavigationBarColor: palette.canvas,
-              ),
-      child: Scaffold(
-        backgroundColor: palette.canvas,
-        appBar: desktop
-            ? null
-            : AppBar(
-                backgroundColor: palette.canvas,
-                surfaceTintColor: Colors.transparent,
-                scrolledUnderElevation: 0,
-                elevation: 0,
-                toolbarHeight: 52,
-                leadingWidth: 56,
-                leading: Padding(
-                  padding: const EdgeInsets.only(left: 10),
-                  child: Center(
-                    child: IconButton(
-                      tooltip: '返回',
-                      onPressed: () => Navigator.maybePop(context),
-                      style: IconButton.styleFrom(
-                        foregroundColor: palette.ink,
-                        fixedSize: const Size(36, 36),
-                        minimumSize: const Size(36, 36),
-                        padding: EdgeInsets.zero,
+      value: (darkPage ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark)
+          .copyWith(
+            statusBarColor: Colors.transparent,
+            systemNavigationBarColor: moyiSheetFill,
+          ),
+      child: Theme(
+        data: Theme.of(
+          context,
+        ).copyWith(brightness: darkPage ? Brightness.dark : Brightness.light),
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          appBar: desktop
+              ? null
+              : AppBar(
+                  backgroundColor: Colors.transparent,
+                  surfaceTintColor: Colors.transparent,
+                  scrolledUnderElevation: 0,
+                  elevation: 0,
+                  toolbarHeight: 52,
+                  leadingWidth: 56,
+                  leading: Padding(
+                    padding: const EdgeInsets.only(left: 10),
+                    child: Center(
+                      child: IconButton(
+                        tooltip: '返回',
+                        onPressed: () => Navigator.maybePop(context),
+                        style: IconButton.styleFrom(
+                          foregroundColor: Colors.white,
+                          fixedSize: const Size(36, 36),
+                          minimumSize: const Size(36, 36),
+                          padding: EdgeInsets.zero,
+                        ),
+                        icon: const Icon(LucideIcons.chevron_left, size: 20),
                       ),
-                      icon: const Icon(LucideIcons.chevron_left, size: 20),
                     ),
                   ),
+                  titleSpacing: 0,
+                  actions: [
+                    Padding(
+                      padding: const EdgeInsets.only(right: 10),
+                      child: ValueListenableBuilder<int>(
+                        valueListenable: ShelfStore.instance.listenable,
+                        builder: (context, _, _) => DetailShelfPill(
+                          inShelf: _inShelf,
+                          enabled: !_loading && _supported,
+                          onTap: _toggleShelf,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-                titleSpacing: 0,
-                actions: [
-                  Padding(
-                    padding: const EdgeInsets.only(right: 10),
-                    child: ValueListenableBuilder<int>(
-                      valueListenable: ShelfStore.instance.listenable,
-                      builder: (context, _, _) => DetailShelfPill(
-                        inShelf: _inShelf,
-                        enabled: !_loading && _supported,
-                        onTap: _toggleShelf,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-        body: desktop ? _desktopBody(palette) : _phoneBody(palette),
-        bottomNavigationBar: desktop
-            ? null
-            : DetailReadBar(
-                label: _readBarLabel,
-                opening: _opening,
-                enabled: _supported && !_loading && _allChapters.isNotEmpty,
-                actionsEnabled: _supported && _isBook,
-                onRead: _openLastPosition,
-                onListen: _isBook ? _openListening : null,
-                onDownload: _isBook ? _showDownloadSheet : null,
-                download: _isBook ? _downloadProgress : null,
-                onSwitchSource:
-                    (_isBook || _isManga || _isAudio)
-                        ? _openSourceSwitch
-                        : null,
-              ),
+          body: MoyiPageBackground(
+            child: desktop ? _desktopBody(palette) : _phoneBody(palette),
+          ),
+          bottomNavigationBar: desktop
+              ? null
+              : DetailReadBar(
+                  label: _readBarLabel,
+                  opening: _opening,
+                  enabled: _supported && !_loading && _allChapters.isNotEmpty,
+                  actionsEnabled: _supported && _isBook,
+                  onRead: _openLastPosition,
+                  onListen: _isBook ? _openListening : null,
+                  onDownload: _isBook ? _showDownloadSheet : null,
+                  download: _isBook ? _downloadProgress : null,
+                  onSwitchSource: (_isBook || _isManga || _isAudio)
+                      ? _openSourceSwitch
+                      : null,
+                ),
+        ),
       ),
     );
   }
 
-  /// 魔蚁主题头项色带：深色主题下头项背后铺一层深紫蓝渐变（顶部魔蚁紫 →
-  /// 画布），与短剧详情的顶部色带同款；浅色 / 墨水屏不铺，深字在紫底上
-  /// 读不清、黑白屏也不该染色。
+  /// 魔蚁主题头项色带：头项背后铺一层深紫蓝渐变（顶部魔蚁紫 → 透明，
+  /// 透出页面渐变底），与短剧详情的顶部色带同款；墨水屏不铺。
   Widget _moyiHeroBand(HomePalette palette, Widget child) {
-    if (!palette.dark || palette.eink) return child;
+    if (palette.eink) return child;
     return Container(
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [moyiBandTop, palette.canvas],
+          colors: [moyiBandTop, Colors.transparent],
         ),
       ),
       child: child,
@@ -615,7 +618,7 @@ class _DetailPageState extends State<DetailPage> {
         child: RefreshIndicator(
           onRefresh: _load,
           color: palette.eink ? palette.ink : HomePalette.accent,
-          backgroundColor: palette.surface,
+          backgroundColor: moyiSheetFill,
           child: CustomScrollView(
             key: const Key('detail_scroll'),
             controller: _scroll,
@@ -802,7 +805,7 @@ class _DetailPageState extends State<DetailPage> {
     Widget mainScroll() => RefreshIndicator(
       onRefresh: _load,
       color: palette.eink ? palette.ink : HomePalette.accent,
-      backgroundColor: palette.surface,
+      backgroundColor: moyiSheetFill,
       child: SingleChildScrollView(
         controller: _scroll,
         physics: const AlwaysScrollableScrollPhysics(),
@@ -814,7 +817,7 @@ class _DetailPageState extends State<DetailPage> {
       return RefreshIndicator(
         onRefresh: _load,
         color: palette.eink ? palette.ink : HomePalette.accent,
-        backgroundColor: palette.surface,
+        backgroundColor: moyiSheetFill,
         child: SingleChildScrollView(
           key: const Key('desktop-detail-compact'),
           controller: _scroll,
@@ -1031,7 +1034,7 @@ class _DetailPageState extends State<DetailPage> {
   List<Widget> _desktopDirectoryTab(HomePalette palette) => [
     Text(
       _directoryTrailing,
-      style: TextStyle(color: palette.muted, fontSize: 13),
+      style: const TextStyle(color: moyiMutedOnDark, fontSize: 13),
     ),
     const SizedBox(height: 16),
     SizedBox(
@@ -1076,16 +1079,19 @@ class _DetailPageState extends State<DetailPage> {
                   vertical: 8,
                 ),
                 decoration: BoxDecoration(
-                  color: _desktopSection == i ? palette.ink : palette.surface,
+                  gradient: _desktopSection == i ? moyiSelectedGradient : null,
+                  color: _desktopSection == i ? null : moyiDarkCardFill,
                   borderRadius: BorderRadius.circular(18),
                   border: Border.all(
-                    color: _desktopSection == i ? palette.ink : palette.line,
+                    color: _desktopSection == i
+                        ? Colors.transparent
+                        : moyiDarkCardBorder,
                   ),
                 ),
                 child: Text(
                   labels[i],
                   style: TextStyle(
-                    color: _desktopSection == i ? palette.canvas : palette.ink,
+                    color: _desktopSection == i ? Colors.white : moyiBodyOnDark,
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
                   ),
@@ -1101,7 +1107,7 @@ class _DetailPageState extends State<DetailPage> {
     padding: const EdgeInsets.symmetric(vertical: 24),
     child: Text(
       '还没有读者评论',
-      style: TextStyle(color: palette.muted, fontSize: 13),
+      style: const TextStyle(color: moyiMutedOnDark, fontSize: 13),
     ),
   );
 
@@ -1113,7 +1119,7 @@ class _DetailPageState extends State<DetailPage> {
         padding: const EdgeInsets.fromLTRB(homeGutter, 18, homeGutter, 24),
         child: Text(
           '正在加载书籍与目录',
-          style: TextStyle(color: palette.muted, fontSize: 13),
+          style: const TextStyle(color: moyiMutedOnDark, fontSize: 13),
         ),
       ),
     ],
@@ -1299,7 +1305,7 @@ class _DetailPageState extends State<DetailPage> {
     final cached = _cachedBook != null;
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: homeSheetColor(palette),
+      backgroundColor: moyiSheetFill,
       shape: homeSheetShape(palette),
       builder: (sheetContext) => SafeArea(
         top: false,
@@ -1383,7 +1389,9 @@ class _DetailPageState extends State<DetailPage> {
     final store = widget.readerStore ?? LibraryStore.instance;
     try {
       final saved = switch (widget.item.kind) {
-        'video' || 'manju' || 'film' => await PlayerHistory(store).load(_contentId),
+        'video' ||
+        'manju' ||
+        'film' => await PlayerHistory(store).load(_contentId),
         'audio' => await AudioHistory(store).load(_contentId),
         'manga' => await ReaderHistory(
           scopedHistoryStore(store, 'manga'),

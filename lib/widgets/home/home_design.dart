@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 
 import '../../services/app_theme.dart';
+import '../series_detail/moyi_detail_theme.dart';
 
 /// 凡人修仙传主题：仙侠配色，三张参考图全融进来——①游戏主界面（深蓝底+
 /// 金字金光）；②韩立官方图（蓝天+绿色灵气+金字）；③剑修职业页（浅蓝白
@@ -106,13 +107,11 @@ class HomePalette {
 /// 深色 / OLED 下换成比画布高一档的 surface：barrier 的黑色叠在纯黑画布
 /// 上不会让页面变暗，弹层若仍取 canvas 就和页面连成一片，看不出上缘；
 /// 浅色仍用原来的画布色，弹层靠 barrier 变暗区分。
-Color homeSheetColor(HomePalette palette) =>
-    palette.dark ? palette.surface : palette.canvas;
+Color homeSheetColor(HomePalette palette) => moyiSheetFill;
 
 /// 弹层里成组的卡片：深色下比 [homeSheetColor] 再错一档（字段色），
 /// 浅色仍是白卡。
-Color homeSheetCardColor(HomePalette palette) =>
-    palette.dark ? palette.soft : palette.surface;
+Color homeSheetCardColor(HomePalette palette) => moyiSheetCardFill;
 
 /// 弹层上缘的一圈发丝线：OLED 下画布与浮层都是近黑，没有它边界仍不明显。
 ///
@@ -121,9 +120,7 @@ Color homeSheetCardColor(HomePalette palette) =>
 RoundedRectangleBorder homeSheetShape(HomePalette palette, {double top = 24}) =>
     RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(top)),
-      side: palette.dark
-          ? BorderSide(color: palette.line.withValues(alpha: 0.8), width: 0.8)
-          : BorderSide.none,
+      side: const BorderSide(color: moyiDarkCardBorder, width: 0.8),
     );
 
 /// Pointer, keyboard and accessibility activation share the same action.

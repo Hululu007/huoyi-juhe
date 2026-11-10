@@ -32,6 +32,7 @@ import '../widgets/site_grid_dialog.dart';
 import '../widgets/home/home_cell_blocks.dart';
 import '../widgets/home/home_cell_renderers.dart';
 import '../widgets/home/home_design.dart';
+import '../widgets/series_detail/moyi_detail_theme.dart';
 import '../widgets/home/home_feed_states.dart';
 import '../widgets/home/home_hero.dart';
 import '../widgets/home/home_media_card.dart';
@@ -114,7 +115,9 @@ class _HomePageState extends ConsumerState<HomePage> {
   String _dramaSiteId = DramaSitePreferences.selectedId;
 
   /// 当前短剧站点的分类：随站点变化，换站时回到该站第一个分类。
-  String _dramaCategoryId = dramaSiteById(DramaSitePreferences.selectedId).categories.first.id;
+  String _dramaCategoryId = dramaSiteById(
+    DramaSitePreferences.selectedId,
+  ).categories.first.id;
 
   /// 当前影视站点：只在影视分类下显示为搜索行左侧的药丸。
   /// 与底部导航影视区共用同一把选择（`video_zone_site_id`），
@@ -198,10 +201,7 @@ class _HomePageState extends ConsumerState<HomePage> {
       await SourceRegistry.instance.load();
       final saved = await currentVideoZoneSiteId();
       final xp = CultivationService.instance.snapshot.totalXp;
-      final sites = visibleVideoZoneSites(
-        SourceRegistry.instance.custom,
-        xp,
-      );
+      final sites = visibleVideoZoneSites(SourceRegistry.instance.custom, xp);
       picked = sites.any((site) => site.id == saved)
           ? saved
           : (sites.isEmpty ? null : sites.first.id);
@@ -264,7 +264,8 @@ class _HomePageState extends ConsumerState<HomePage> {
       categories = dramaSiteById(siteId).categories;
     }
     try {
-      final client = dramaSiteContentClient(siteId) ??
+      final client =
+          dramaSiteContentClient(siteId) ??
           await SourceRegistry.instance.clientFor(siteId);
       if (client != null) {
         final fetched = await client.categories();
@@ -275,14 +276,10 @@ class _HomePageState extends ConsumerState<HomePage> {
     final usable = (categories ?? const <DramaSiteCategory>[])
         .where((c) => c.id.isNotEmpty)
         .toList();
-    final firstReal = usable
-        .where((c) => c.id != 'all')
-        .firstOrNull;
+    final firstReal = usable.where((c) => c.id != 'all').firstOrNull;
     setState(() {
       _filmCategories = usable.isEmpty ? null : usable;
-      _filmCategoryId = usable.isEmpty
-          ? 'all'
-          : (firstReal ?? usable.first).id;
+      _filmCategoryId = usable.isEmpty ? 'all' : (firstReal ?? usable.first).id;
     });
   }
 
@@ -378,8 +375,7 @@ class _HomePageState extends ConsumerState<HomePage> {
         if (!mounted) return;
         setState(() {
           _dramaSiteId = fallback;
-          _dramaCategoryId =
-              dramaSiteById(fallback).categories.first.id;
+          _dramaCategoryId = dramaSiteById(fallback).categories.first.id;
           _engineCategories = null;
           _engineCategoriesSiteId = '';
         });
@@ -495,141 +491,148 @@ class _HomePageState extends ConsumerState<HomePage> {
     final palette = HomePalette.of(context);
     final categories = _categoriesOf(state);
     final textScale = MediaQuery.textScalerOf(context).scale(16) / 16;
+    // 全页强制深紫蓝渐变底（魔蚁主题）：内层组件靠深色主题取浅色字（与
+    // 影视详情魔蚁区同款做法），墨水屏不强制、保持黑白。
+    final darkPage = !palette.eink;
     return Scaffold(
-      backgroundColor: palette.canvas,
-      body: Align(
-        alignment: Alignment.topCenter,
-        // 阅读宽度：手机/平板压 840（一屏三到五列，再宽眼睛就散）。
-        //
-        // 桌面不吃固定 1440：2560 的窗口里只占一半多，两侧各空 560dp。
-        // 宽度交给窗口后，列数由 homeShelfColumns 按「一格 190dp，钳 6–9 列」
-        // 反推（见 `widgets/home/home_shelf.dart`）：默认六列、全屏九列，
-        // 窗口再宽只把卡片放大，不会往格子里塞更多小封面。
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth:
-                isWindowsDesktop || MediaQuery.sizeOf(context).width >= 840
-                ? double.infinity
-                : 840,
-          ),
-          child: SafeArea(
-            bottom: false,
-            // 冷启动失败不再整页替换：搜索行与分类条留在原位，错误信息进
-            // feed 里滚动，用户换个分类或下拉都能继续用。
-            child: RefreshIndicator(
-              color: HomePalette.accent,
-              backgroundColor: palette.surface,
-              onRefresh: _refresh,
-              // The grid is measured once here, outside the sliver: a sliver's
-              // constraints carry the scroll offset, so measuring inside one
-              // re-ran the builder and rebuilt every visible card per frame.
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final gridWidth = constraints.maxWidth - homeGutter * 2;
-                  final content = _contentSlivers(state, gridWidth);
-                  // 魔蚁式大轮播的片源：推荐页取推荐流前 6 张有封面的，
-                  // 其它分类不出现（那几页画自己的站目录/书架）。
-                  final carouselItems = state.tabIndex == 0
-                      ? moyiCarouselItems(_visibleItems(state))
-                      : const <MediaItem>[];
-                  _rememberPreviewBody(
-                    state.tabIndex,
-                    content,
-                    gridWidth,
-                    textScale,
-                  );
-                  return TabSwipeArea(
-                    index: state.tabIndex,
-                    count: categories.length,
-                    onSelect: _homeTabs.select,
-                    // 拖动时把邻页真正画出来：缓存过的分类直接复用上次的
-                    // sliver 树，没进过的铺骨架。没有它，移开的那一侧只能
-                    // 露页面底色——深色主题下就是一块黑面板。
-                    previewBuilder: (target) => _buildTabPreview(
-                      target,
-                      textScale: textScale,
-                      canvas: palette.canvas,
-                    ),
-                    // 顶栏靠反向位移钉住，重绘边界会把它的右半截裁掉。
-                    isolateChild: false,
-                    child: CustomScrollView(
-                      key: const Key('home_feed'),
-                      controller: _scroll,
-                      // 顶栏用反向位移钉在屏幕上（SwipeStationary），会被画到
-                      // 视口之外。视口默认 Clip.hardEdge 只认自己的 bounds，会把
-                      // 搜索行右半截和末位标签裁掉；裁剪统一交给 TabSwipeArea
-                      // 外层的 ClipRect。
-                      clipBehavior: Clip.none,
-                      physics: const BouncingScrollPhysics(
-                        parent: AlwaysScrollableScrollPhysics(),
-                      ),
-                      slivers: [
-                        _heroSliver(state.tabIndex),
-                        SliverPersistentHeader(
-                          pinned: true,
-                          delegate: HomeTabBarDelegate(
-                            selectedIndex: state.tabIndex,
-                            onSelect: _homeTabs.select,
-                            categories: categories,
-                            extent: HomeTabBarDelegate.extentFor(textScale),
-                            dark: palette.dark,
-                            eink: palette.eink,
-                            oled: palette.oled,
+      backgroundColor: Colors.transparent,
+      body: MoyiPageBackground(
+        child: Theme(
+          data: Theme.of(
+            context,
+          ).copyWith(brightness: darkPage ? Brightness.dark : Brightness.light),
+          child: Align(
+            alignment: Alignment.topCenter,
+            // 阅读宽度：手机/平板压 840（一屏三到五列，再宽眼睛就散）。
+            //
+            // 桌面不吃固定 1440：2560 的窗口里只占一半多，两侧各空 560dp。
+            // 宽度交给窗口后，列数由 homeShelfColumns 按「一格 190dp，钳 6–9 列」
+            // 反推（见 `widgets/home/home_shelf.dart`）：默认六列、全屏九列，
+            // 窗口再宽只把卡片放大，不会往格子里塞更多小封面。
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth:
+                    isWindowsDesktop || MediaQuery.sizeOf(context).width >= 840
+                    ? double.infinity
+                    : 840,
+              ),
+              child: SafeArea(
+                bottom: false,
+                // 冷启动失败不再整页替换：搜索行与分类条留在原位，错误信息进
+                // feed 里滚动，用户换个分类或下拉都能继续用。
+                child: RefreshIndicator(
+                  color: HomePalette.accent,
+                  backgroundColor: moyiSheetFill,
+                  onRefresh: _refresh,
+                  // The grid is measured once here, outside the sliver: a sliver's
+                  // constraints carry the scroll offset, so measuring inside one
+                  // re-ran the builder and rebuilt every visible card per frame.
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final gridWidth = constraints.maxWidth - homeGutter * 2;
+                      final content = _contentSlivers(state, gridWidth);
+                      // 魔蚁式大轮播的片源：推荐页取推荐流前 6 张有封面的，
+                      // 其它分类不出现（那几页画自己的站目录/书架）。
+                      final carouselItems = state.tabIndex == 0
+                          ? moyiCarouselItems(_visibleItems(state))
+                          : const <MediaItem>[];
+                      _rememberPreviewBody(
+                        state.tabIndex,
+                        content,
+                        gridWidth,
+                        textScale,
+                      );
+                      return TabSwipeArea(
+                        index: state.tabIndex,
+                        count: categories.length,
+                        onSelect: _homeTabs.select,
+                        // 拖动时把邻页真正画出来：缓存过的分类直接复用上次的
+                        // sliver 树，没进过的铺骨架。没有它，移开的那一侧只能
+                        // 露页面底色——深色主题下就是一块黑面板。
+                        previewBuilder: (target) =>
+                            _buildTabPreview(target, textScale: textScale),
+                        // 顶栏靠反向位移钉住，重绘边界会把它的右半截裁掉。
+                        isolateChild: false,
+                        child: CustomScrollView(
+                          key: const Key('home_feed'),
+                          controller: _scroll,
+                          // 顶栏用反向位移钉在屏幕上（SwipeStationary），会被画到
+                          // 视口之外。视口默认 Clip.hardEdge 只认自己的 bounds，会把
+                          // 搜索行右半截和末位标签裁掉；裁剪统一交给 TabSwipeArea
+                          // 外层的 ClipRect。
+                          clipBehavior: Clip.none,
+                          physics: const BouncingScrollPhysics(
+                            parent: AlwaysScrollableScrollPhysics(),
                           ),
-                        ),
-                        if (state.tabIndex >= 0 &&
-                            state.tabIndex < homeCategories.length &&
-                            homeCategories[state.tabIndex].label == '短剧')
-                          _dramaCategoryStrip(),
-                        if (state.tabIndex >= 0 &&
-                            state.tabIndex < homeCategories.length &&
-                            homeCategories[state.tabIndex].label == '影视')
-                          _filmCategoryStrip(),
-                        if (state.tabIndex >= 0 &&
-                            state.tabIndex < homeCategories.length &&
-                            homeCategories[state.tabIndex].label == '小说')
-                          _novelCategoryStrip(),
-                        // 第 20 轮改版：原来三 tab 顶部那张「成人小说 / 漫画 /
-                        // 听书」大卡片已删，改成排行榜式卡片轨道（封面 +
-                        // TOP 角标 + 标题 + 热度行，点卡直达、右端「更多」
-                        // 进聚合页）。聚合页本身保留。
-                        if (state.tabIndex >= 0 &&
-                            state.tabIndex < homeCategories.length &&
-                            homeCategories[state.tabIndex].label == '小说')
-                          const AdultCardRailSliver(),
-                        if (state.tabIndex >= 0 &&
-                            state.tabIndex < homeCategories.length &&
-                            homeCategories[state.tabIndex].label == '漫画')
-                          const AdultCardRailSliver(
-                            type: ContentType.comic,
-                          ),
-                        if (state.tabIndex >= 0 &&
-                            state.tabIndex < homeCategories.length &&
-                            homeCategories[state.tabIndex].label == '听书')
-                          const AdultCardRailSliver(
-                            type: ContentType.audio,
-                          ),
-                        // 魔蚁式大轮播：推荐页分类条下方、内容区上方，
-                        // 点卡片或「马上看」都进当前 hero 的详情/播放。
-                        if (state.tabIndex == 0 && carouselItems.isNotEmpty)
-                          SliverToBoxAdapter(
-                            child: MoyiHeroCarousel(
-                              items: carouselItems,
-                              onOpen: _openItem,
+                          slivers: [
+                            _heroSliver(state.tabIndex),
+                            SliverPersistentHeader(
+                              pinned: true,
+                              delegate: HomeTabBarDelegate(
+                                selectedIndex: state.tabIndex,
+                                onSelect: _homeTabs.select,
+                                categories: categories,
+                                extent: HomeTabBarDelegate.extentFor(textScale),
+                                dark: true,
+                                eink: palette.eink,
+                                oled: palette.oled,
+                              ),
                             ),
-                          ),
-                        // 全局「影视」区（用户 2026-11-05 令）：只在推荐页
-                        // 顶部出现，核心里所有站点的视频、小说、漫画、听书
-                        // 都在这里；成人站按修仙境界解锁，未解锁的不显示。
-                        // 放在内容区之外（不进 _contentSlivers 的缓存），
-                        // 跟搜索行、分类条一样属于页面级区块。
-                        if (state.tabIndex == 0)
-                          HomeFilmZone(gridWidth: gridWidth),
-                        ...content,
-                      ],
-                    ),
-                  );
-                },
+                            if (state.tabIndex >= 0 &&
+                                state.tabIndex < homeCategories.length &&
+                                homeCategories[state.tabIndex].label == '短剧')
+                              _dramaCategoryStrip(),
+                            if (state.tabIndex >= 0 &&
+                                state.tabIndex < homeCategories.length &&
+                                homeCategories[state.tabIndex].label == '影视')
+                              _filmCategoryStrip(),
+                            if (state.tabIndex >= 0 &&
+                                state.tabIndex < homeCategories.length &&
+                                homeCategories[state.tabIndex].label == '小说')
+                              _novelCategoryStrip(),
+                            // 第 20 轮改版：原来三 tab 顶部那张「成人小说 / 漫画 /
+                            // 听书」大卡片已删，改成排行榜式卡片轨道（封面 +
+                            // TOP 角标 + 标题 + 热度行，点卡直达、右端「更多」
+                            // 进聚合页）。聚合页本身保留。
+                            if (state.tabIndex >= 0 &&
+                                state.tabIndex < homeCategories.length &&
+                                homeCategories[state.tabIndex].label == '小说')
+                              const AdultCardRailSliver(),
+                            if (state.tabIndex >= 0 &&
+                                state.tabIndex < homeCategories.length &&
+                                homeCategories[state.tabIndex].label == '漫画')
+                              const AdultCardRailSliver(
+                                type: ContentType.comic,
+                              ),
+                            if (state.tabIndex >= 0 &&
+                                state.tabIndex < homeCategories.length &&
+                                homeCategories[state.tabIndex].label == '听书')
+                              const AdultCardRailSliver(
+                                type: ContentType.audio,
+                              ),
+                            // 魔蚁式大轮播：推荐页分类条下方、内容区上方，
+                            // 点卡片或「马上看」都进当前 hero 的详情/播放。
+                            if (state.tabIndex == 0 && carouselItems.isNotEmpty)
+                              SliverToBoxAdapter(
+                                child: MoyiHeroCarousel(
+                                  items: carouselItems,
+                                  onOpen: _openItem,
+                                ),
+                              ),
+                            // 全局「影视」区（用户 2026-11-05 令）：只在推荐页
+                            // 顶部出现，核心里所有站点的视频、小说、漫画、听书
+                            // 都在这里；成人站按修仙境界解锁，未解锁的不显示。
+                            // 放在内容区之外（不进 _contentSlivers 的缓存），
+                            // 跟搜索行、分类条一样属于页面级区块。
+                            if (state.tabIndex == 0)
+                              HomeFilmZone(gridWidth: gridWidth),
+                            ...content,
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
               ),
             ),
           ),
@@ -642,8 +645,7 @@ class _HomePageState extends ConsumerState<HomePage> {
   /// 短剧分类下搜索行左侧是短剧站点药丸，影视分类下是影视站点药丸
   /// （走影视区站表，点它切影视站）；其余分类保持原版式。
   SliverToBoxAdapter _heroSliver(int tabIndex) {
-    final label =
-        tabIndex >= 0 && tabIndex < homeCategories.length
+    final label = tabIndex >= 0 && tabIndex < homeCategories.length
         ? homeCategories[tabIndex].label
         : null;
     return SliverToBoxAdapter(
@@ -676,9 +678,7 @@ class _HomePageState extends ConsumerState<HomePage> {
     await SourceRegistry.instance.load();
     if (!mounted) return;
     final sites = SourceRegistry.instance
-        .visibleShortDramaSites(
-          types: {ContentType.video, ContentType.mixed},
-        )
+        .visibleShortDramaSites(types: {ContentType.video, ContentType.mixed})
         .where((site) {
           final entry = SourceRegistry.instance.customById(site.id);
           if (entry?.kind != SourceKind.legadoImport) return true;
@@ -708,13 +708,11 @@ class _HomePageState extends ConsumerState<HomePage> {
   /// 引擎导入站的分类从蜘蛛 class 列表动态取，取到后替换全部。
   Widget _dramaCategoryStrip() {
     final site = dramaSiteById(_dramaSiteId);
-    final palette = HomePalette.of(context);
     if (_engineCategoriesSiteId != _dramaSiteId) {
       _refreshEngineCategories(_dramaSiteId);
     }
     final categories =
-        (_engineCategories != null &&
-            _engineCategoriesSiteId == _dramaSiteId)
+        (_engineCategories != null && _engineCategoriesSiteId == _dramaSiteId)
         ? _engineCategories!
         : site.categories;
     return SliverToBoxAdapter(
@@ -733,9 +731,12 @@ class _HomePageState extends ConsumerState<HomePage> {
                     alignment: Alignment.center,
                     padding: const EdgeInsets.symmetric(horizontal: 14),
                     decoration: BoxDecoration(
+                      gradient: category.id == _dramaCategoryId
+                          ? moyiSelectedGradient
+                          : null,
                       color: category.id == _dramaCategoryId
-                          ? palette.ink
-                          : palette.searchBar,
+                          ? null
+                          : moyiDarkCardFill,
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
@@ -743,8 +744,8 @@ class _HomePageState extends ConsumerState<HomePage> {
                       style: TextStyle(
                         fontSize: 13,
                         color: category.id == _dramaCategoryId
-                            ? palette.canvas
-                            : palette.ink,
+                            ? Colors.white
+                            : moyiBodyOnDark,
                       ),
                     ),
                   ),
@@ -761,7 +762,6 @@ class _HomePageState extends ConsumerState<HomePage> {
   /// 点一项切分类，网格即换内容。分类还在取时先占 40 高防版式跳动。
   Widget _filmCategoryStrip() {
     final siteId = _filmSiteId;
-    final palette = HomePalette.of(context);
     if (siteId == null) return const SliverToBoxAdapter();
     if (_filmCategoriesSiteId != siteId) {
       _refreshFilmCategories(siteId);
@@ -787,9 +787,12 @@ class _HomePageState extends ConsumerState<HomePage> {
                     alignment: Alignment.center,
                     padding: const EdgeInsets.symmetric(horizontal: 14),
                     decoration: BoxDecoration(
+                      gradient: category.id == _filmCategoryId
+                          ? moyiSelectedGradient
+                          : null,
                       color: category.id == _filmCategoryId
-                          ? palette.ink
-                          : palette.searchBar,
+                          ? null
+                          : moyiDarkCardFill,
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
@@ -797,8 +800,8 @@ class _HomePageState extends ConsumerState<HomePage> {
                       style: TextStyle(
                         fontSize: 13,
                         color: category.id == _filmCategoryId
-                            ? palette.canvas
-                            : palette.ink,
+                            ? Colors.white
+                            : moyiBodyOnDark,
                       ),
                     ),
                   ),
@@ -814,12 +817,9 @@ class _HomePageState extends ConsumerState<HomePage> {
   /// 分类是一般小说核心站按名合并的（与短剧条同款式，点一项进混排目录页，
   /// 不在原地过滤）；取不到时不出现，加载中先占 40 高防版式跳动。
   Widget _novelCategoryStrip() {
-    final palette = HomePalette.of(context);
     if (_novelCategories == null) {
       unawaited(_refreshNovelCategories());
-      return const SliverToBoxAdapter(
-        child: SizedBox(height: 40),
-      );
+      return const SliverToBoxAdapter(child: SizedBox(height: 40));
     }
     final categories = _novelCategories!;
     if (categories.isEmpty) return const SliverToBoxAdapter();
@@ -836,22 +836,21 @@ class _HomePageState extends ConsumerState<HomePage> {
                 child: GestureDetector(
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute(
-                      builder: (_) =>
-                          CoreNovelCategoryPage(category: category),
+                      builder: (_) => CoreNovelCategoryPage(category: category),
                     ),
                   ),
                   child: Container(
                     alignment: Alignment.center,
                     padding: const EdgeInsets.symmetric(horizontal: 14),
                     decoration: BoxDecoration(
-                      color: palette.searchBar,
+                      color: moyiDarkCardFill,
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
                       category.name,
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontSize: 13,
-                        color: palette.ink,
+                        color: moyiBodyOnDark,
                       ),
                     ),
                   ),
@@ -884,17 +883,12 @@ class _HomePageState extends ConsumerState<HomePage> {
   /// [_previewContentTop] 对齐到切换后内容所在的第一行——新分类从自己的
   /// 第一行开始显示，与 [HomeTabSwitch] 的落点一致。没进过的分类铺骨架，
   /// 至少不是一块底色。
-  Widget _buildTabPreview(
-    int target, {
-    required double textScale,
-    required Color canvas,
-  }) {
+  Widget _buildTabPreview(int target, {required double textScale}) {
     if (target < 0 || target >= homeCategories.length) {
       return const SizedBox.shrink();
     }
     final body = _previewBodies[target];
-    return ColoredBox(
-      color: canvas,
+    return MoyiPageBackground(
       child: CustomScrollView(
         physics: const NeverScrollableScrollPhysics(),
         slivers: [
@@ -955,7 +949,8 @@ class _HomePageState extends ConsumerState<HomePage> {
             hasScrollBody: false,
             child: HomeFeedEmpty(
               title: '暂无影视站源',
-              message: '核心影视站见影视区；要加站去站源管理添加 MacCMS 站点，'
+              message:
+                  '核心影视站见影视区；要加站去站源管理添加 MacCMS 站点，'
                   '或导入 Python / Jar / JS 蜘蛛。',
               actionLabel: '重新加载',
               onRefresh: () => _loadFilmSite(),
@@ -1275,9 +1270,7 @@ class _HomePageState extends ConsumerState<HomePage> {
       ),
       _moyiGrid(hot, gridWidth),
       if (rest.isNotEmpty) ...[
-        const SliverToBoxAdapter(
-          child: MoyiSectionHeader(title: '猜你想看'),
-        ),
+        const SliverToBoxAdapter(child: MoyiSectionHeader(title: '猜你想看')),
         _moyiGrid(rest, gridWidth),
       ],
     ];
@@ -1353,7 +1346,6 @@ class _HomePageState extends ConsumerState<HomePage> {
       MaterialPageRoute(builder: (_) => const SearchPage()),
     );
   }
-
 
   /// The rank board. Its catalogue (and the rank id the entries endpoint needs)
   /// only exist inside the novel homepage response the app already fetches.

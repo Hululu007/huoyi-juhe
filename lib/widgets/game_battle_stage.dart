@@ -8,6 +8,12 @@ import '../services/cultivation.dart';
 import '../services/game_data.dart';
 import '../services/game_sound.dart';
 import 'game_hero_portrait.dart';
+import 'game_monster_art.dart';
+
+/// 浮空仙山战场背景（竖版 1152x2048 压成 864x1536 JPG）：
+/// 圆形石台约在图高 52% 处，主角（49%）与队友（44%）
+/// 脚下正好落在石台上，怪物站石台远端。
+const String _battlefieldBgAsset = 'assets/images/game/battlefield_bg.jpg';
 
 /// 一次出招的结算（页面用来记修为/元宝时可忽略，真正结算
 /// 走 [GameBattleStage.onMonsterKilled] 后的服务层）。
@@ -32,20 +38,22 @@ class BattleStrike {
   });
 }
 
-/// 全屏 2.5D 俯视厮杀战场：照 4399 打 BOSS 视频那个界面做——
-/// 竖屏斜俯视约 45 度，地面青灰石板有纵深、脚下有影子，
-/// 人物很小（约占画面十分之一），3-4 人紧贴 BOSS 围成半弧
-/// 贴身打，BOSS 居中偏上；全程自动战斗自动寻路，不用手操作。
+/// 全屏 2.5D 俯视厮杀战场：竖屏斜俯视约 45 度，背景是
+/// 浮空仙山圆形石台图（仙门牌坊 + 云海），人物和怪物
+/// 站在石台上打，脚下有影子；人物很小（约占画面十分之一），
+/// 3-4 人紧贴 BOSS 围成半弧贴身打，BOSS 居中偏上；全程自动
+/// 战斗自动寻路，不用手操作。
 /// 人物改小（用户看截图说原来太大互相重叠）：主角 46×58、
 /// 队友 38×48、BOSS 120×140，名牌栏 96 宽、9px 小字不截断
 /// 不压叠；50 个托机器人只在地图五条边缘带活动，不进中央。
 ///
-/// 人物图：用户发来的豆包 AI 生成图——男白发 Q 版小男孩持剑
-/// 浅蓝道袍、女白发 Q 版小女孩浅蓝道袍站云上，选男用男图、
-/// 选女用女图；战场上缩成金环圆形徽章（只占画面高度十分之一
-/// 左右），创建页 / 人物页 / 档案卡同源整幅图。
-/// 怪物：不再用原来那个造型，每只怪按 id 随机一种动漫野兽
-/// （狼兽 / 狐兽 / 虎兽 / 蛟龙 / 蛛兽 / 雷鸟），BOSS 大一圈。
+/// 人物图：3D 写实白发剑修背影（男 / 女两张，见
+/// [gameHeroAssetForGender]），战场上用半身裁切图缩成
+/// 金环圆形徽章（只占画面高度十分之一左右），创建页 /
+/// 人物页 / 档案卡用整幅图；旧 Q 版豆包图保留在资源里当回退。
+/// 怪物：3D 写实野兽五格图按格切分（见 [gameMonsterArtFor]），
+/// 普通怪随机金光蟒 / 紫电妖狼 / 赤焰火虎 / 金刚巨猿，
+/// 首领固定墨蛟放大一圈。
 ///
 /// 技能特效要酷：剑气又长又亮带拖尾，万剑归宗满屏飞剑，
 /// 大庚剑阵金色剑阵铺开，乾蓝冰焰蓝白火焰加冰晶，辟邪神雷
@@ -54,7 +62,8 @@ class BattleStrike {
 /// 界面布局照视频里来：
 /// - 中央金字“自动战斗中…/自动寻路中…”；
 /// - 右上半透明黑面板：副本名、击败 BOSS 0/1、用时；
-/// - 右下横排金棕菱形技能按钮 6-7 个（只做冷却展示，自动放）；
+/// - 右下横排圆形蓝光符文技能钮 6-7 个（只做冷却展示，自动放）；
+/// - 左下金色竖排书法章节标题 + 红色小印章（地图 + 境界自动换）；
 /// - 底部红命条蓝灵条，最右下角修为进度；
 /// - 右侧中部黑色箭头标签列（和平/状态/药品/目标），下面
 ///   黑色“功能”按钮；左下黑菱形喇叭、绝招、自动；
@@ -951,12 +960,18 @@ class _GameBattleStageState extends State<GameBattleStage>
     return 1 - math.pow(1 - t, 3).toDouble();
   }
 
-  /// BOSS 中心点（居中偏上）。
+  /// BOSS 中心点（居中偏上，站在圆形石台远端；
+  /// 首领图放大一圈，中心再往上挪一点，脚不压主角名牌）。
   Offset get _monsterCenter {
     final size = _arenaSize;
     final walk = math.sin(_walk.value * math.pi * 2 + math.pi) * 4;
     final lunge = -_monsterLunge.value * 12;
-    return Offset(size.width * 0.5 + walk + lunge, size.height * 0.27);
+    final heightRatio =
+        gameMonsterArtIsBoss(widget.monster) ? 0.33 : 0.35;
+    return Offset(
+      size.width * 0.5 + walk + lunge,
+      size.height * heightRatio,
+    );
   }
 
   /// 道友中心点（半弧正下方；寻路时从出生点走上来）。
@@ -1011,24 +1026,36 @@ class _GameBattleStageState extends State<GameBattleStage>
           onTap: _heroStrike,
           behavior: HitTestBehavior.opaque,
           child: Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Color(0xFF3A2E6E),
-                  Color(0xFF171238),
-                  Color(0xFF0D0A24),
-                ],
-                stops: [0.0, 0.55, 1.0],
-              ),
-            ),
+            color: const Color(0xFF0D0A24),
             child: Stack(
               clipBehavior: Clip.none,
               children: [
-                // 斜俯视 45 度场景：远山、青灰石板地面、纵深、法阵光。
-                const Positioned.fill(
-                  child: CustomPaint(painter: _ArenaPainter()),
+                // 浮空仙山战场背景：仙门牌坊 + 云海 + 圆形石台，
+                // 人物和怪物站在石台上打（石台约在图高 52% 处）。
+                Positioned.fill(
+                  child: Image.asset(
+                    _battlefieldBgAsset,
+                    fit: BoxFit.cover,
+                    alignment: Alignment.topCenter,
+                  ),
+                ),
+                // 底部渐隐到深色：技能钮与命条 / 灵条压在上面才看得清。
+                Positioned.fill(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.transparent,
+                          Colors.transparent,
+                          const Color(0xFF0D0A24).withValues(alpha: 0.55),
+                          const Color(0xFF0D0A24).withValues(alpha: 0.85),
+                        ],
+                        stops: const [0.0, 0.55, 0.8, 1.0],
+                      ),
+                    ),
+                  ),
                 ),
                 // 50 个托机器人（背景里随机走动打怪）。
                 AnimatedBuilder(
@@ -1198,9 +1225,11 @@ class _GameBattleStageState extends State<GameBattleStage>
                   ),
                 // 右侧中部黑色箭头标签列：和平 / 状态 / 药品 / 目标。
                 _buildSideTags(),
+                // 左下金色竖排书法章节标题 + 红色小印章。
+                _buildChapterTitle(),
                 // 左下黑菱形：喇叭、绝招、自动。
                 _buildBottomLeftDiamonds(),
-                // 右下横排金棕菱形技能栏（只做冷却展示，自动放）。
+                // 右下横排圆形蓝光符文技能钮（只做冷却展示，自动放）。
                 _buildSkillDiamonds(),
                 // 底部红命条蓝灵条 + 右下角修为进度。
                 _buildBottomBars(),
@@ -1213,10 +1242,12 @@ class _GameBattleStageState extends State<GameBattleStage>
   }
 
   /// 右上副本面板（半透明黑）：副本名、击败 BOSS 0/1、用时。
+  /// 顶栏现在是两排（头像行 + 菱形功能图标行），面板顶到
+  /// _topPad + 118 才不撞第二排图标。
   Widget _buildDungeonPanel(GameMonster monster) {
     final killed = _monsterDying || _monsterHp <= 0;
     return Positioned(
-      top: _topPad + 64,
+      top: _topPad + 118,
       right: 12,
       width: 172,
       child: Container(
@@ -1344,10 +1375,15 @@ class _GameBattleStageState extends State<GameBattleStage>
   /// BOSS：居中偏上，头顶只有小血条（名字在右上副本面板里）。
   Widget _buildBoss(GameMonster monster) {
     final center = _monsterCenter;
+    // 首领（蛟 / 蛟王）用墨蛟图，放大一圈；普通怪原尺寸。
+    final isBoss = gameMonsterArtIsBoss(monster);
+    final width = isBoss ? _bossW * 1.25 : _bossW;
+    final height = isBoss ? _bossH * 1.25 : _bossH;
+    final boxWidth = isBoss ? width : _nameTagW;
     return Positioned(
-      left: center.dx - _nameTagW / 2,
-      top: center.dy - _bossH / 2 - 12,
-      width: _nameTagW,
+      left: center.dx - boxWidth / 2,
+      top: center.dy - height / 2 - 12,
+      width: boxWidth,
       child: Opacity(
         opacity: _monsterDying ? 0.25 : (_monsterFlash ? 0.6 : 1.0),
         child: Transform.translate(
@@ -1362,11 +1398,12 @@ class _GameBattleStageState extends State<GameBattleStage>
               ),
               const SizedBox(height: 2),
               _FighterFigure(
-                width: _bossW,
-                height: _bossH,
-                child: CustomPaint(
-                  size: const Size(_bossW, _bossH),
-                  painter: _BattleMonsterPainter(monster),
+                width: width,
+                height: height,
+                child: GameMonsterArt(
+                  monster: monster,
+                  width: width,
+                  height: height,
                 ),
               ),
             ],
@@ -1592,6 +1629,67 @@ class _GameBattleStageState extends State<GameBattleStage>
     );
   }
 
+  /// 左下金色竖排书法章节标题 + 红色小印章（人界篇式）：
+  /// 地图（副本名）+ 境界前两字竖排，如“天南大陆·炼气”，
+  /// 印章一个字取境界首字（炼 / 筑 / 丹 / 婴…）；
+  /// 地图推进或境界突破，标题与印章都自动换。
+  Widget _buildChapterTitle() {
+    final realm = widget.heroRealm;
+    final realmShort2 = realm.length >= 2 ? realm.substring(0, 2) : realm;
+    final title = '${widget.dungeonName}·$realmShort2';
+    final seal = realm.isNotEmpty ? realm[0] : '道';
+    return Positioned(
+      left: 10,
+      bottom: _bottomPad + 118,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final ch in title.split(''))
+                Text(
+                  ch,
+                  style: const TextStyle(
+                    color: Color(0xFFFFD54F),
+                    fontSize: 19,
+                    fontWeight: FontWeight.w900,
+                    height: 1.15,
+                    shadows: [
+                      Shadow(color: Colors.black87, blurRadius: 4),
+                      Shadow(color: Colors.black, offset: Offset(1, 1)),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(width: 4),
+          Container(
+            width: 22,
+            height: 22,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: const Color(0xFFC62828),
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(
+                color: const Color(0xFFFFD54F),
+                width: 1,
+              ),
+            ),
+            child: Text(
+              seal,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// 左下黑菱形：喇叭、绝招、自动。
   Widget _buildBottomLeftDiamonds() {
     final ult = gameSkillsById('jingzhe');
@@ -1634,7 +1732,7 @@ class _GameBattleStageState extends State<GameBattleStage>
     );
   }
 
-  /// 右下横排金棕菱形技能栏：6-7 个，只做冷却展示，
+  /// 右下横排圆形蓝光符文技能钮：6-7 个，只做冷却展示，
   /// 冷却好了自动放，不用手点。
   Widget _buildSkillDiamonds() {
     final now = DateTime.now();
@@ -2162,8 +2260,8 @@ class _DiamondButton extends StatelessWidget {
   }
 }
 
-/// 技能菱形（只做冷却展示）：金棕菱形，冷却时蒙黑 + 秒数，
-/// 冷却好了亮金边。
+/// 技能钮（只做冷却展示）：圆形蓝光符文钮，冷却时蒙黑 + 秒数，
+/// 冷却好了亮蓝光。
 class _SkillDiamond extends StatelessWidget {
   const _SkillDiamond({required this.label, required this.progress});
 
@@ -2176,53 +2274,59 @@ class _SkillDiamond extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Transform.rotate(
-          angle: math.pi / 4,
-          child: Container(
-            width: 30,
-            height: 30,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFFB8860B), Color(0xFF6B4E00)],
-              ),
-              border: Border.all(
-                color: ready
-                    ? const Color(0xFFFFD54F)
-                    : Colors.white.withValues(alpha: 0.35),
-                width: 1.2,
-              ),
-              boxShadow: ready
-                  ? [
-                      BoxShadow(
-                        color: Colors.amber.withValues(alpha: 0.5),
-                        blurRadius: 8,
-                      ),
-                    ]
-                  : null,
+        Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: const RadialGradient(
+              colors: [
+                Color(0xFF64B5F6),
+                Color(0xFF1565C0),
+                Color(0xFF0D47A1),
+              ],
+              stops: [0.0, 0.6, 1.0],
             ),
-            child: Stack(
-              children: [
-                if (!ready)
-                  Container(
+            border: Border.all(
+              color: ready
+                  ? const Color(0xFFBBDEFB)
+                  : Colors.white.withValues(alpha: 0.35),
+              width: 1.5,
+            ),
+            boxShadow: ready
+                ? [
+                    BoxShadow(
+                      color: Colors.lightBlueAccent.withValues(alpha: 0.7),
+                      blurRadius: 10,
+                      spreadRadius: 1,
+                    ),
+                  ]
+                : null,
+          ),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              if (!ready)
+                Container(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
                     color: Colors.black.withValues(
                       alpha: 0.65 * (1 - progress),
                     ),
                   ),
-                Transform.rotate(
-                  angle: -math.pi / 4,
-                  child: Center(
-                    child: Text(
-                      ready ? '●' : '${((1 - progress) * 10).ceil()}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ),
                 ),
-              ],
-            ),
+              Text(
+                ready ? '●' : '${((1 - progress) * 10).ceil()}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900,
+                  shadows: [
+                    Shadow(color: Colors.black54, blurRadius: 3),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 3),
@@ -2357,622 +2461,6 @@ class _FlameMissile extends StatelessWidget {
       ],
     );
   }
-}
-
-/// 斜俯视 45 度场景：远山、青灰石板地面、纵深、法阵光。
-class _ArenaPainter extends CustomPainter {
-  const _ArenaPainter();
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    // 远山三层剪影。
-    final mountainPaint = Paint()..style = PaintingStyle.fill;
-    final ridges = [
-      (0.72, const Color(0xFF241B4D)),
-      (0.6, const Color(0xFF2E2358)),
-      (0.5, const Color(0xFF3A2E6E)),
-    ];
-    for (final (top, color) in ridges) {
-      mountainPaint.color = color;
-      final path = Path()..moveTo(0, size.height * top);
-      const peaks = [
-        (0.0, 0.0),
-        (0.12, -0.06),
-        (0.25, 0.01),
-        (0.38, -0.08),
-        (0.52, 0.0),
-        (0.66, -0.05),
-        (0.8, 0.01),
-        (0.92, -0.04),
-        (1.0, 0.0),
-      ];
-      for (final (fx, dy) in peaks) {
-        path.lineTo(size.width * fx, size.height * top + dy * size.height);
-      }
-      path
-        ..lineTo(size.width, size.height * 0.62)
-        ..lineTo(0, size.height * 0.62)
-        ..close();
-      canvas.drawPath(path, mountainPaint);
-    }
-    // 云雾。
-    final cloudPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.07)
-      ..style = PaintingStyle.fill;
-    for (final (fx, fy, r) in [
-      (0.2, 0.16, 46.0),
-      (0.55, 0.10, 60.0),
-      (0.85, 0.2, 40.0),
-    ]) {
-      canvas.drawOval(
-        Rect.fromCenter(
-          center: Offset(size.width * fx, size.height * fy),
-          width: r * 2.4,
-          height: r,
-        ),
-        cloudPaint,
-      );
-    }
-    // 地面：从 50% 高度起的青灰石板地（带纵深透视）。
-    final groundTop = size.height * 0.5;
-    final groundPaint = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: const [Color(0xFF3A4157), Color(0xFF232839)],
-      ).createShader(
-        Rect.fromLTWH(0, groundTop, size.width, size.height - groundTop),
-      );
-    canvas.drawRect(
-      Rect.fromLTWH(0, groundTop, size.width, size.height - groundTop),
-      groundPaint,
-    );
-    // 石板缝：横线越往下越疏（透视），竖线向灭点收。
-    final linePaint = Paint()
-      ..color = Colors.black.withValues(alpha: 0.28)
-      ..strokeWidth = 1.2;
-    for (var i = 1; i <= 5; i++) {
-      final y =
-          groundTop + (size.height - groundTop) * (i * i) / 25;
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), linePaint);
-    }
-    final vanishing = Offset(size.width / 2, groundTop - 30);
-    for (final fx in [0.05, 0.2, 0.35, 0.65, 0.8, 0.95]) {
-      canvas.drawLine(
-        Offset(size.width * fx, size.height),
-        vanishing,
-        linePaint,
-      );
-    }
-    // 石板色差：几块略深的板。
-    final slabPaint = Paint()
-      ..color = Colors.black.withValues(alpha: 0.12)
-      ..style = PaintingStyle.fill;
-    canvas.drawRect(
-      Rect.fromLTWH(size.width * 0.08, groundTop + 40, size.width * 0.3, 60),
-      slabPaint,
-    );
-    canvas.drawRect(
-      Rect.fromLTWH(size.width * 0.6, groundTop + 130, size.width * 0.32, 70),
-      slabPaint,
-    );
-    // 法阵光：小队脚下金阵、BOSS 脚下红阵（对到新站位）。
-    _drawMagicCircle(
-      canvas,
-      Offset(size.width * 0.5, size.height * 0.47),
-      100,
-      const Color(0xFFD4A017),
-    );
-    _drawMagicCircle(
-      canvas,
-      Offset(size.width * 0.5, size.height * 0.27),
-      76,
-      const Color(0xFFE53935),
-    );
-    // 两边火把光晕。
-    final torchPaint = Paint()
-      ..color = Colors.orange.withValues(alpha: 0.14)
-      ..style = PaintingStyle.fill;
-    for (final fx in [0.04, 0.96]) {
-      canvas.drawCircle(
-        Offset(size.width * fx, size.height * 0.62),
-        32,
-        torchPaint,
-      );
-    }
-    // 漂浮灵光（固定点位的小金点）。
-    final motePaint = Paint()
-      ..color = Colors.amber.withValues(alpha: 0.5)
-      ..style = PaintingStyle.fill;
-    const motes = [
-      (0.1, 0.3),
-      (0.3, 0.42),
-      (0.62, 0.24),
-      (0.9, 0.44),
-      (0.45, 0.52),
-      (0.75, 0.58),
-      (0.18, 0.66),
-    ];
-    for (final (fx, fy) in motes) {
-      canvas.drawCircle(
-        Offset(size.width * fx, size.height * fy),
-        2.5,
-        motePaint,
-      );
-    }
-  }
-
-  void _drawMagicCircle(
-    Canvas canvas,
-    Offset center,
-    double radius,
-    Color color,
-  ) {
-    final ring = Paint()
-      ..color = color.withValues(alpha: 0.35)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
-    canvas.drawCircle(center, radius, ring);
-    final inner = Paint()
-      ..color = color.withValues(alpha: 0.14)
-      ..style = PaintingStyle.fill;
-    canvas.drawCircle(center, radius * 0.7, inner);
-    final glow = Paint()
-      ..color = color.withValues(alpha: 0.1)
-      ..style = PaintingStyle.fill;
-    canvas.drawCircle(center, radius * 1.25, glow);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
-/// 50 个托机器人：随机走动、随机放技能的小人 + 名字境界。
-/// 名字只排版一次缓存起来，每帧只重绘位置。
-class _AmbientBotsPainter extends CustomPainter {
-  _AmbientBotsPainter({
-    required this.bots,
-    required this.time,
-    required this.labelCache,
-  });
-
-  final List<_AmbientBot> bots;
-
-  /// 0..1 循环时间。
-  final double time;
-
-  /// 名字排版缓存（State 里持有，不随每帧重建）。
-  final Map<int, TextPainter> labelCache;
-
-  static const _robeColors = <Color>[
-    Color(0xFF5B8C7B),
-    Color(0xFF7B5BA6),
-    Color(0xFFB03A2E),
-    Color(0xFF5B7A9E),
-    Color(0xFF8D6E00),
-    Color(0xFF2B2B33),
-  ];
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    for (var i = 0; i < bots.length; i++) {
-      final bot = bots[i];
-      final t = time * math.pi * 2 * bot.speed + bot.phase;
-      // 摆动幅度小（x 1.2% 屏宽、y 0.8% 屏高），托机器人只在
-      // 各自的边缘带里晃，不会晃进主战场中央。
-      final x = bot.baseX * size.width +
-          math.sin(t) * size.width * 0.012;
-      final y = bot.baseY * size.height +
-          math.cos(t * 0.7) * size.height * 0.008;
-      // 脚下影子。
-      final shadow = Paint()
-        ..color = Colors.black.withValues(alpha: 0.3)
-        ..style = PaintingStyle.fill;
-      canvas.drawOval(
-        Rect.fromCenter(center: Offset(x, y + 11), width: 12, height: 3),
-        shadow,
-      );
-      // 袍子（小三角）。
-      final robe = Paint()
-        ..color = _robeColors[bot.colorIndex]
-        ..style = PaintingStyle.fill;
-      final robePath = Path()
-        ..moveTo(x, y - 10)
-        ..lineTo(x - 5.5, y + 10)
-        ..lineTo(x + 5.5, y + 10)
-        ..close();
-      canvas.drawPath(robePath, robe);
-      // 头。
-      final head = Paint()
-        ..color = const Color(0xFFE8C39E)
-        ..style = PaintingStyle.fill;
-      canvas.drawCircle(Offset(x, y - 12), 3.5, head);
-      // 随机放技能：小金星一闪。
-      if ((t % (math.pi * 2)) < 0.5) {
-        final star = Paint()
-          ..color = Colors.amber.withValues(alpha: 0.85)
-          ..style = PaintingStyle.fill;
-        canvas.drawCircle(Offset(x + 8, y - 15), 2, star);
-      }
-      // 名字 + 境界（6px 小白字）。
-      var label = labelCache[i];
-      if (label == null) {
-        label = TextPainter(
-          text: TextSpan(
-            text: '${bot.realm} ${bot.name}',
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 6,
-              shadows: [Shadow(color: Colors.black, offset: Offset(1, 1))],
-            ),
-          ),
-          textDirection: TextDirection.ltr,
-        )..layout();
-        labelCache[i] = label;
-      }
-      label.paint(canvas, Offset(x - label.width / 2, y - 22));
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _AmbientBotsPainter oldDelegate) =>
-      oldDelegate.time != time;
-}
-
-/// 大招金色螺旋光环：三圈金色虚线环 + 螺旋弧，罩全队。
-class _GoldHaloPainter extends CustomPainter {
-  const _GoldHaloPainter({required this.rotation});
-
-  final double rotation;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final gold = Paint()
-      ..color = const Color(0xFFFFD54F)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3;
-    final faint = Paint()
-      ..color = const Color(0xFFFFD54F).withValues(alpha: 0.4)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
-    for (var ring = 0; ring < 3; ring++) {
-      final radius = size.width * (0.2 + ring * 0.11);
-      final paint = ring == 1 ? gold : faint;
-      for (var seg = 0; seg < 8; seg++) {
-        final start = rotation + seg * math.pi / 4;
-        canvas.drawArc(
-          Rect.fromCircle(center: center, radius: radius),
-          start,
-          math.pi / 5,
-          false,
-          paint,
-        );
-      }
-    }
-    // 螺旋弧：从内向外旋出去。
-    final spiral = Paint()
-      ..color = const Color(0xFFFFE082)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.5;
-    for (var k = 0; k < 5; k++) {
-      final path = Path();
-      for (var a = 0.0; a <= math.pi * 1.5; a += 0.15) {
-        final r = 20 + a * 14 + k * 6;
-        final x = center.dx + r * math.cos(a + rotation + k);
-        final y = center.dy + r * math.sin(a + rotation + k);
-        if (a == 0) {
-          path.moveTo(x, y);
-        } else {
-          path.lineTo(x, y);
-        }
-      }
-      canvas.drawPath(path, spiral);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _GoldHaloPainter oldDelegate) =>
-      oldDelegate.rotation != rotation;
-}
-
-/// 紫漩涡：旋转的紫色弧光。
-class _VortexPainter extends CustomPainter {
-  const _VortexPainter({required this.rotation});
-
-  final double rotation;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final paint = Paint()
-      ..color = const Color(0xFFAB47BC)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3;
-    for (var ring = 0; ring < 3; ring++) {
-      final radius = size.width * (0.16 + ring * 0.1);
-      for (var seg = 0; seg < 6; seg++) {
-        final start = rotation + seg * math.pi / 3;
-        canvas.drawArc(
-          Rect.fromCircle(center: center, radius: radius),
-          start,
-          math.pi / 4,
-          false,
-          paint,
-        );
-      }
-    }
-    final core = Paint()
-      ..color = const Color(0xFF4A148C).withValues(alpha: 0.6)
-      ..style = PaintingStyle.fill;
-    canvas.drawCircle(center, size.width * 0.12, core);
-  }
-
-  @override
-  bool shouldRepaint(covariant _VortexPainter oldDelegate) =>
-      oldDelegate.rotation != rotation;
-}
-
-/// 动漫野兽：每只怪按 id 随机一种动漫野兽造型（狼兽 / 狐兽 /
-/// 虎兽 / 蛟龙 / 蛛兽 / 雷鸟），同一只怪固定同一种，不同怪不
-/// 一样；画法是动漫风——圆身、大眼睛带高光、尖耳 / 角 / 翅膀 /
-/// 尾巴，BOSS 大一圈（120x140）。
-class _BattleMonsterPainter extends CustomPainter {
-  _BattleMonsterPainter(this.monster);
-
-  final GameMonster monster;
-
-  /// 按 id 稳定随机 0..5（codeUnits 求和取模，跨启动不变）。
-  int get variant =>
-      monster.id.codeUnits.fold(0, (a, c) => a * 31 + c).abs() % 6;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final cx = size.width / 2;
-    final cy = size.height * 0.55;
-    final (bodyColor, bellyColor, eyeColor) = switch (variant) {
-      // 狼兽：灰棕。
-      0 => (
-          const Color(0xFF8D6E63),
-          const Color(0xFFD7CCC8),
-          const Color(0xFFFFB300),
-        ),
-      // 狐兽：橙红。
-      1 => (
-          const Color(0xFFE65100),
-          const Color(0xFFFFF3E0),
-          const Color(0xFFFF8F00),
-        ),
-      // 虎兽：金橙。
-      2 => (
-          const Color(0xFFF57F17),
-          const Color(0xFFFFECB3),
-          const Color(0xFF2E7D32),
-        ),
-      // 蛟龙：青绿。
-      3 => (
-          const Color(0xFF00897B),
-          const Color(0xFFB2DFDB),
-          const Color(0xFFFF1744),
-        ),
-      // 蛛兽：紫。
-      4 => (
-          const Color(0xFF7B1FA2),
-          const Color(0xFFE1BEE7),
-          const Color(0xFFFF1744),
-        ),
-      // 雷鸟：蓝紫。
-      _ => (
-          const Color(0xFF5C6BC0),
-          const Color(0xFFC5CAE9),
-          const Color(0xFF00E5FF),
-        ),
-    };
-    // 尾巴（狼 / 狐蓬松大尾、蛟龙长尾）。
-    if (variant == 0 || variant == 1 || variant == 3) {
-      final tailPaint = Paint()
-        ..color = bodyColor
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = variant == 1 ? 20 : 14
-        ..strokeCap = StrokeCap.round;
-      final tail = Path()
-        ..moveTo(cx - 26, cy + 30)
-        ..quadraticBezierTo(cx - 62, cy + 56, cx - 42, cy + 84);
-      canvas.drawPath(tail, tailPaint);
-      if (variant == 1) {
-        final tip = Paint()
-          ..color = Colors.white
-          ..style = PaintingStyle.fill;
-        canvas.drawCircle(Offset(cx - 42, cy + 84), 9, tip);
-      }
-    }
-    // 翅膀（蛟龙小翼、雷鸟大翼）。
-    if (variant == 3 || variant == 5) {
-      final wingPaint = Paint()
-        ..color = bodyColor.withValues(alpha: 0.85)
-        ..style = PaintingStyle.fill;
-      for (final side in [-1, 1]) {
-        final wing = Path()
-          ..moveTo(cx + side * 20, cy - 6)
-          ..quadraticBezierTo(
-            cx + side * 58,
-            cy - 52,
-            cx + side * 52,
-            cy + 6,
-          )
-          ..quadraticBezierTo(cx + side * 34, cy - 2, cx + side * 20, cy - 6)
-          ..close();
-        canvas.drawPath(wing, wingPaint);
-      }
-    }
-    // 腿 / 爪（蛛兽 8 条、其余 4 条）。
-    final legPaint = Paint()
-      ..color = const Color(0xFF1A1A1A)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 4
-      ..strokeCap = StrokeCap.round;
-    final legCount = variant == 4 ? 8 : 4;
-    for (var i = 0; i < legCount; i++) {
-      final side = i.isEven ? -1 : 1;
-      final spread = (i ~/ 2 + 1) * 12.0;
-      final start = Offset(cx + side * 30, cy + 8 + spread * 0.4);
-      final mid = Offset(cx + side * 50, cy + 28 + spread * 0.5);
-      final end = Offset(cx + side * 45, cy + 52 + spread * 0.5);
-      canvas.drawLine(start, mid, legPaint);
-      canvas.drawLine(mid, end, legPaint);
-    }
-    // 身体：圆身 + 腹部。
-    final bodyPaint = Paint()
-      ..color = bodyColor
-      ..style = PaintingStyle.fill;
-    canvas.drawOval(
-      Rect.fromCenter(
-        center: Offset(cx, cy),
-        width: size.width * 0.72,
-        height: size.height * 0.52,
-      ),
-      bodyPaint,
-    );
-    final bellyPaint = Paint()
-      ..color = bellyColor.withValues(alpha: 0.9)
-      ..style = PaintingStyle.fill;
-    canvas.drawOval(
-      Rect.fromCenter(
-        center: Offset(cx, cy + 19),
-        width: size.width * 0.4,
-        height: size.height * 0.24,
-      ),
-      bellyPaint,
-    );
-    // 虎纹。
-    if (variant == 2) {
-      final stripePaint = Paint()
-        ..color = Colors.black.withValues(alpha: 0.55)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 3
-        ..strokeCap = StrokeCap.round;
-      for (final dy in [-18.0, -2.0, 14.0]) {
-        canvas.drawLine(
-          Offset(cx - 22, cy + dy),
-          Offset(cx - 6, cy + dy + 6),
-          stripePaint,
-        );
-        canvas.drawLine(
-          Offset(cx + 6, cy + dy + 6),
-          Offset(cx + 22, cy + dy),
-          stripePaint,
-        );
-      }
-    }
-    // 尖耳（狼 / 狐 / 虎圆耳）与角（蛟龙）。
-    if (variant == 0 || variant == 1) {
-      final earPaint = Paint()
-        ..color = bodyColor
-        ..style = PaintingStyle.fill;
-      for (final side in [-1, 1]) {
-        final ear = Path()
-          ..moveTo(cx + side * 22, cy - 34)
-          ..lineTo(cx + side * 34, cy - 62)
-          ..lineTo(cx + side * 10, cy - 44)
-          ..close();
-        canvas.drawPath(ear, earPaint);
-      }
-    } else if (variant == 2) {
-      final earPaint = Paint()
-        ..color = bodyColor
-        ..style = PaintingStyle.fill;
-      for (final side in [-1, 1]) {
-        canvas.drawCircle(Offset(cx + side * 22, cy - 38), 9, earPaint);
-      }
-    } else if (variant == 3) {
-      final hornPaint = Paint()
-        ..color = const Color(0xFFFFD54F)
-        ..style = PaintingStyle.fill;
-      for (final side in [-1, 1]) {
-        final horn = Path()
-          ..moveTo(cx + side * 16, cy - 38)
-          ..lineTo(cx + side * 30, cy - 72)
-          ..lineTo(cx + side * 9, cy - 50)
-          ..close();
-        canvas.drawPath(horn, hornPaint);
-      }
-      // 龙须。
-      final whisker = Paint()
-        ..color = const Color(0xFFFFD54F)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2;
-      for (final side in [-1, 1]) {
-        canvas.drawLine(
-          Offset(cx + side * 18, cy + 2),
-          Offset(cx + side * 34, cy + 10),
-          whisker,
-        );
-      }
-    } else if (variant == 5) {
-      // 雷鸟羽冠。
-      final crest = Paint()
-        ..color = const Color(0xFF00E5FF)
-        ..style = PaintingStyle.fill;
-      for (final dx in [-8.0, 0.0, 8.0]) {
-        canvas.drawCircle(Offset(cx + dx, cy - 52), 5, crest);
-      }
-    }
-    // 动漫大眼睛：白眼底 + 彩色虹膜 + 黑瞳 + 白高光（蛛兽 6 只）。
-    final eyeY = cy - 15;
-    final eyeXs = variant == 4
-        ? [-21.0, 0.0, 21.0]
-        : [-15.0, 15.0];
-    for (final dx in eyeXs) {
-      final ex = cx + dx;
-      final white = Paint()
-        ..color = Colors.white
-        ..style = PaintingStyle.fill;
-      canvas.drawOval(
-        Rect.fromCenter(center: Offset(ex, eyeY), width: 15, height: 18),
-        white,
-      );
-      final iris = Paint()
-        ..color = eyeColor
-        ..style = PaintingStyle.fill;
-      canvas.drawCircle(Offset(ex, eyeY + 1), 6, iris);
-      final pupil = Paint()
-        ..color = Colors.black
-        ..style = PaintingStyle.fill;
-      canvas.drawCircle(Offset(ex, eyeY + 1), 3, pupil);
-      final shine = Paint()
-        ..color = Colors.white
-        ..style = PaintingStyle.fill;
-      canvas.drawCircle(Offset(ex - 2, eyeY - 3), 2, shine);
-    }
-    // 獠牙。
-    final fangPaint = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.fill;
-    for (final side in [-1, 1]) {
-      final fang = Path()
-        ..moveTo(cx + side * 12 - 4, cy + 5)
-        ..lineTo(cx + side * 12 + 4, cy + 5)
-        ..lineTo(cx + side * 12, cy + 17)
-        ..close();
-      canvas.drawPath(fang, fangPaint);
-    }
-    // 雷鸟尖喙。
-    if (variant == 5) {
-      final beak = Paint()
-        ..color = const Color(0xFFFF8F00)
-        ..style = PaintingStyle.fill;
-      final beakPath = Path()
-        ..moveTo(cx - 7, cy + 4)
-        ..lineTo(cx + 7, cy + 4)
-        ..lineTo(cx, cy + 16)
-        ..close();
-      canvas.drawPath(beakPath, beak);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _BattleMonsterPainter oldDelegate) =>
-      oldDelegate.monster.id != monster.id;
 }
 
 class _SlashPainter extends CustomPainter {
@@ -3210,4 +2698,172 @@ class _SparkPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _SparkPainter oldDelegate) =>
       oldDelegate.progress != progress;
+}
+
+/// 50 个托机器人：地图边缘带里随机走动的小人（圆点身体 +
+/// 头顶“境界+名字”小字），位置由时间函数算，不进中央主战场。
+/// 名字排版用 State 里传进来的缓存，不随每帧重建。
+class _AmbientBotsPainter extends CustomPainter {
+  _AmbientBotsPainter({
+    required this.bots,
+    required this.time,
+    required this.labelCache,
+  });
+
+  final List<_AmbientBot> bots;
+  final double time;
+  final Map<int, TextPainter> labelCache;
+
+  static const _robeColors = <Color>[
+    Color(0xFF69F0AE),
+    Color(0xFF64B5F6),
+    Color(0xFFCE93D8),
+    Color(0xFFFFD54F),
+    Color(0xFFEF9A9A),
+    Color(0xFF80CBC4),
+  ];
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    for (var i = 0; i < bots.length; i++) {
+      final bot = bots[i];
+      final wander = time * math.pi * 2 * bot.speed + bot.phase;
+      final x = (bot.baseX + math.sin(wander) * 0.012) * size.width;
+      final y = (bot.baseY + math.cos(wander * 0.9) * 0.01) * size.height;
+      final color = _robeColors[bot.colorIndex % _robeColors.length];
+      final shadowPaint = Paint()
+        ..color = Colors.black.withValues(alpha: 0.3)
+        ..style = PaintingStyle.fill;
+      canvas.drawOval(
+        Rect.fromCenter(
+          center: Offset(x, y + 9),
+          width: 12,
+          height: 4,
+        ),
+        shadowPaint,
+      );
+      final bodyPaint = Paint()
+        ..color = color
+        ..style = PaintingStyle.fill;
+      canvas.drawCircle(Offset(x, y + 2), 6.5, bodyPaint);
+      final headPaint = Paint()
+        ..color = const Color(0xFFFFE0B2)
+        ..style = PaintingStyle.fill;
+      canvas.drawCircle(Offset(x, y - 7), 3.5, headPaint);
+      final label = labelCache.putIfAbsent(i, () {
+        final painter = TextPainter(
+          text: TextSpan(
+            text: '${bot.realm} ${bot.name}',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 8,
+              fontWeight: FontWeight.w600,
+              shadows: [
+                Shadow(color: Colors.black, offset: Offset(1, 1)),
+              ],
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        return painter;
+      });
+      label.paint(canvas, Offset(x - label.width / 2, y - 22));
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _AmbientBotsPainter oldDelegate) =>
+      oldDelegate.time != time;
+}
+
+/// 大招金色螺旋光环：三圈金环 + 十二道旋转金芒 + 一道弧光，罩全队。
+class _GoldHaloPainter extends CustomPainter {
+  _GoldHaloPainter({required this.rotation});
+
+  final double rotation;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final maxR = size.width / 2;
+    for (var i = 0; i < 3; i++) {
+      final ringPaint = Paint()
+        ..color = const Color(0xFFFFD54F).withValues(alpha: 0.75 - i * 0.2)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 5 - i * 1.5;
+      canvas.drawCircle(center, maxR * (0.55 + i * 0.18), ringPaint);
+    }
+    final rayPaint = Paint()
+      ..color = const Color(0xFFFFE082).withValues(alpha: 0.8)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3
+      ..strokeCap = StrokeCap.round;
+    for (var i = 0; i < 12; i++) {
+      final angle = rotation + i * math.pi / 6;
+      final inner = maxR * 0.62;
+      final outer = maxR * 0.92;
+      canvas.drawLine(
+        center + Offset(math.cos(angle) * inner, math.sin(angle) * inner),
+        center + Offset(math.cos(angle) * outer, math.sin(angle) * outer),
+        rayPaint,
+      );
+    }
+    final arcPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.85)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 4
+      ..strokeCap = StrokeCap.round;
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: maxR * 0.73),
+      rotation,
+      2.2,
+      false,
+      arcPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _GoldHaloPainter oldDelegate) =>
+      oldDelegate.rotation != rotation;
+}
+
+/// 真魔功紫漩涡：三层紫色螺旋弧跟着转，中心一个紫光点。
+class _VortexPainter extends CustomPainter {
+  _VortexPainter({required this.rotation});
+
+  final double rotation;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final maxR = size.width / 2;
+    const colors = <Color>[
+      Color(0xFFCE93D8),
+      Color(0xFFAB47BC),
+      Color(0xFF7B1FA2),
+    ];
+    for (var i = 0; i < 3; i++) {
+      final arcPaint = Paint()
+        ..color = colors[i].withValues(alpha: 0.85 - i * 0.2)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 7 - i * 2
+        ..strokeCap = StrokeCap.round;
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: maxR * (0.9 - i * 0.22)),
+        rotation + i * 0.7,
+        3.6,
+        false,
+        arcPaint,
+      );
+    }
+    canvas.drawCircle(
+      center,
+      maxR * 0.12,
+      Paint()..color = const Color(0xFFE1BEE7).withValues(alpha: 0.9),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _VortexPainter oldDelegate) =>
+      oldDelegate.rotation != rotation;
 }

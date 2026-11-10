@@ -8,6 +8,7 @@ import '../services/live_sleep_timer.dart';
 import '../services/live_sources.dart';
 import '../services/live_store.dart';
 import '../services/native_player.dart';
+import '../widgets/series_detail/moyi_detail_theme.dart';
 import 'live_player_page.dart';
 import 'live_status_panel.dart';
 import 'mine_page.dart';
@@ -107,8 +108,7 @@ class _LivePageState extends State<LivePage> {
           .firstOrNull ??
       '直播';
 
-  String _numberFor(int index, LiveChannel channel) =>
-      channel.number.isEmpty
+  String _numberFor(int index, LiveChannel channel) => channel.number.isEmpty
       ? (index + 1).toString().padLeft(3, '0')
       : channel.number;
 
@@ -217,20 +217,38 @@ class _LivePageState extends State<LivePage> {
     final url = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
+        backgroundColor: moyiSheetFill,
+        titleTextStyle: const TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.w600,
+          color: Colors.white,
+        ),
+        contentTextStyle: const TextStyle(color: moyiBodyOnDark),
         title: const Text('导入 m3u 直播源'),
         content: TextField(
           controller: controller,
+          style: const TextStyle(color: moyiBodyOnDark),
           decoration: const InputDecoration(
             labelText: 'm3u 地址',
+            labelStyle: TextStyle(color: moyiMutedOnDark),
             hintText: 'https://…/playlist.m3u',
+            hintStyle: TextStyle(color: moyiMutedOnDark),
+            enabledBorder: UnderlineInputBorder(
+              borderSide: BorderSide(color: moyiDarkCardBorder),
+            ),
+            focusedBorder: UnderlineInputBorder(
+              borderSide: BorderSide(color: moyiPurple),
+            ),
           ),
         ),
         actions: [
           TextButton(
+            style: TextButton.styleFrom(foregroundColor: moyiCyan),
             onPressed: () => Navigator.pop(dialogContext),
             child: const Text('取消'),
           ),
           TextButton(
+            style: TextButton.styleFrom(foregroundColor: moyiCyan),
             onPressed: () => Navigator.pop(dialogContext, controller.text),
             child: const Text('导入'),
           ),
@@ -339,8 +357,7 @@ class _LivePageState extends State<LivePage> {
   void _applyPage() {
     setState(() {
       _channels = _allChannels.take(_page * _pageSize).toList();
-      _hasMore =
-          _source.paginated && _allChannels.length > _page * _pageSize;
+      _hasMore = _source.paginated && _allChannels.length > _page * _pageSize;
     });
   }
 
@@ -443,6 +460,13 @@ class _LivePageState extends State<LivePage> {
     final picked = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
+        backgroundColor: moyiSheetFill,
+        titleTextStyle: const TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.w600,
+          color: Colors.white,
+        ),
+        contentTextStyle: const TextStyle(color: moyiBodyOnDark),
         title: const Text('切换直播源'),
         content: SingleChildScrollView(
           child: Column(
@@ -454,18 +478,18 @@ class _LivePageState extends State<LivePage> {
                   padding: EdgeInsets.fromLTRB(16, 4, 16, 4),
                   child: Text(
                     '平台源',
-                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                    style: TextStyle(fontSize: 12, color: moyiMutedOnDark),
                   ),
                 ),
               ],
               for (final source in builtin)
                 ListTile(
-                  title: Text(source.name),
+                  title: Text(
+                    source.name,
+                    style: const TextStyle(color: moyiBodyOnDark),
+                  ),
                   trailing: source.id == _source.id
-                      ? Icon(
-                          Icons.check,
-                          color: Theme.of(context).colorScheme.primary,
-                        )
+                      ? const Icon(Icons.check, color: moyiCyan)
                       : null,
                   onTap: () => Navigator.pop(dialogContext, source.id),
                 ),
@@ -475,24 +499,28 @@ class _LivePageState extends State<LivePage> {
                     padding: EdgeInsets.fromLTRB(16, 4, 16, 4),
                     child: Text(
                       '导入源',
-                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                      style: TextStyle(fontSize: 12, color: moyiMutedOnDark),
                     ),
                   ),
                 for (final source in imported)
                   ListTile(
-                    title: Text(source.name),
+                    title: Text(
+                      source.name,
+                      style: const TextStyle(color: moyiBodyOnDark),
+                    ),
                     subtitle: _importedM3uUrl.isEmpty
-                        ? Text('已存 ${_importedChannels.length} 个频道')
+                        ? Text(
+                            '已存 ${_importedChannels.length} 个频道',
+                            style: const TextStyle(color: moyiMutedOnDark),
+                          )
                         : Text(
                             _importedM3uUrl,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(color: moyiMutedOnDark),
                           ),
                     trailing: source.id == _source.id
-                        ? Icon(
-                            Icons.check,
-                            color: Theme.of(context).colorScheme.primary,
-                          )
+                        ? const Icon(Icons.check, color: moyiCyan)
                         : null,
                     onTap: () => Navigator.pop(dialogContext, source.id),
                   ),
@@ -502,6 +530,7 @@ class _LivePageState extends State<LivePage> {
         ),
         actions: [
           TextButton(
+            style: TextButton.styleFrom(foregroundColor: moyiCyan),
             onPressed: () => Navigator.pop(dialogContext),
             child: const Text('取消'),
           ),
@@ -636,24 +665,29 @@ class _LivePageState extends State<LivePage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.lock_outline, size: 48),
+            const Icon(Icons.lock_outline, size: 48, color: moyiMutedOnDark),
             const SizedBox(height: 16),
             const Text(
               '直播源需要元婴期',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+              ),
             ),
             const SizedBox(height: 8),
             Text(
               '还差 ${snapshot.xpToVideoZone} 修为（约 ${snapshot.episodesToVideoZone} 集短剧）解锁，修为到了自动显示直播源。',
               textAlign: TextAlign.center,
+              style: const TextStyle(color: moyiBodyOnDark),
             ),
             const SizedBox(height: 16),
-            FilledButton(
+            MoyiGradientButton(
+              label: '去我的页看进度',
               onPressed: () => Navigator.push(
                 context,
                 MaterialPageRoute<void>(builder: (_) => const MinePage()),
               ),
-              child: const Text('去我的页看进度'),
             ),
           ],
         ),
@@ -667,21 +701,24 @@ class _LivePageState extends State<LivePage> {
     // 修为到了才列出来。
     final unlocked = CultivationService.instance.snapshot.unlockedVideo;
     return Scaffold(
+      backgroundColor: Colors.transparent,
       // 目标版式没有顶栏：播放器直接贴顶（16:9），导入 m3u 与切换源
       // 挪到搜索行的小按钮里。
-      body: SafeArea(
-        top: true,
-        bottom: false,
-        child: !unlocked
-            ? _lockedBody(context)
-            : _importLoading
-            ? const Center(child: CircularProgressIndicator())
-            : Column(
-                children: [
-                  AspectRatio(aspectRatio: 16 / 9, child: _videoArea()),
-                  Expanded(child: _panel()),
-                ],
-              ),
+      body: MoyiPageBackground(
+        child: SafeArea(
+          top: true,
+          bottom: false,
+          child: !unlocked
+              ? _lockedBody(context)
+              : _importLoading
+              ? const Center(child: CircularProgressIndicator())
+              : Column(
+                  children: [
+                    AspectRatio(aspectRatio: 16 / 9, child: _videoArea()),
+                    Expanded(child: _panel()),
+                  ],
+                ),
+        ),
       ),
     );
   }
@@ -870,9 +907,7 @@ class _LivePageState extends State<LivePage> {
               icon: Icon(
                 favourite ? Icons.star_rounded : Icons.star_border_rounded,
                 size: 20,
-                color: favourite
-                    ? Theme.of(context).colorScheme.primary
-                    : Colors.white,
+                color: favourite ? moyiGold : Colors.white,
               ),
             ),
           ],
@@ -937,6 +972,7 @@ class _LivePageState extends State<LivePage> {
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.w700,
+                    color: Colors.white,
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -945,7 +981,7 @@ class _LivePageState extends State<LivePage> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
+                    color: moyiMutedOnDark,
                   ),
                 ),
               ],
@@ -957,7 +993,7 @@ class _LivePageState extends State<LivePage> {
               _numberFor(_index, channel),
               style: theme.textTheme.titleLarge?.copyWith(
                 fontFeatures: const [FontFeature.tabularFigures()],
-                color: theme.colorScheme.onSurfaceVariant,
+                color: moyiMutedOnDark,
               ),
             ),
           ],
@@ -975,8 +1011,9 @@ class _LivePageState extends State<LivePage> {
 
   Widget _logoFallback(ThemeData theme) => Container(
     decoration: BoxDecoration(
-      color: theme.colorScheme.surface,
+      color: moyiDarkCardFill,
       borderRadius: BorderRadius.circular(10),
+      border: Border.all(color: moyiDarkCardBorder),
     ),
     alignment: Alignment.center,
     child: Text(
@@ -984,6 +1021,7 @@ class _LivePageState extends State<LivePage> {
       style: theme.textTheme.titleLarge?.copyWith(
         fontSize: 12,
         fontWeight: FontWeight.bold,
+        color: Colors.white,
       ),
     ),
   );
@@ -1019,22 +1057,43 @@ class _LivePageState extends State<LivePage> {
             child: TextField(
               controller: _searchController,
               onChanged: (value) => setState(() => _query = value),
+              style: const TextStyle(color: moyiBodyOnDark),
               decoration: InputDecoration(
                 hintText: '搜索频道',
-                prefixIcon: const Icon(Icons.search_rounded, size: 18),
+                hintStyle: const TextStyle(color: moyiMutedOnDark),
+                prefixIcon: const Icon(
+                  Icons.search_rounded,
+                  size: 18,
+                  color: moyiMutedOnDark,
+                ),
                 suffixIcon: _query.isEmpty
                     ? null
                     : IconButton(
                         tooltip: '清除搜索',
-                        icon: const Icon(Icons.clear_rounded, size: 18),
+                        icon: const Icon(
+                          Icons.clear_rounded,
+                          size: 18,
+                          color: moyiMutedOnDark,
+                        ),
                         onPressed: () {
                           _searchController.clear();
                           setState(() => _query = '');
                         },
                       ),
                 isDense: true,
+                filled: true,
+                fillColor: moyiDarkCardFill,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(color: moyiDarkCardBorder),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(color: moyiDarkCardBorder),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(color: moyiPurple),
                 ),
                 contentPadding: const EdgeInsets.symmetric(
                   horizontal: 10,
@@ -1048,20 +1107,20 @@ class _LivePageState extends State<LivePage> {
             tooltip: '切换直播源',
             visualDensity: VisualDensity.compact,
             onPressed: _pickSource,
-            icon: const Icon(Icons.tv_rounded),
+            icon: const Icon(Icons.tv_rounded, color: Colors.white),
           ),
           IconButton(
             key: const ValueKey('live-refresh-button'),
             tooltip: '刷新直播',
             visualDensity: VisualDensity.compact,
             onPressed: _loading ? null : _refreshLive,
-            icon: const Icon(Icons.refresh_rounded),
+            icon: const Icon(Icons.refresh_rounded, color: Colors.white),
           ),
           IconButton(
             tooltip: '导入 m3u',
             visualDensity: VisualDensity.compact,
             onPressed: _importDialog,
-            icon: const Icon(Icons.add),
+            icon: const Icon(Icons.add, color: Colors.white),
           ),
         ],
       ),
@@ -1081,9 +1140,8 @@ class _LivePageState extends State<LivePage> {
         title: sourceFailed ? '${_source.name} 直播源暂时不可用' : '这个分类暂时不可用',
         message: error,
         icon: Icons.wifi_off_rounded,
-        onRetry: () => sourceFailed
-            ? unawaited(_loadPlatforms())
-            : _loadChannels(_group),
+        onRetry: () =>
+            sourceFailed ? unawaited(_loadPlatforms()) : _loadChannels(_group),
       );
     }
     return _channelList();
@@ -1108,9 +1166,8 @@ class _LivePageState extends State<LivePage> {
             margin: const EdgeInsets.fromLTRB(12, 2, 6, 2),
             padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
             decoration: BoxDecoration(
-              color: selected
-                  ? theme.colorScheme.primaryContainer
-                  : Colors.transparent,
+              gradient: selected ? moyiSelectedGradient : null,
+              color: selected ? null : Colors.transparent,
               borderRadius: BorderRadius.circular(10),
             ),
             child: Text(
@@ -1120,9 +1177,7 @@ class _LivePageState extends State<LivePage> {
               overflow: TextOverflow.ellipsis,
               style: theme.textTheme.bodySmall?.copyWith(
                 fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                color: selected
-                    ? theme.colorScheme.onPrimaryContainer
-                    : theme.colorScheme.onSurfaceVariant,
+                color: selected ? Colors.white : moyiMutedOnDark,
               ),
             ),
           ),
@@ -1136,9 +1191,7 @@ class _LivePageState extends State<LivePage> {
     if (_channels.isEmpty) {
       return LiveStatusPanel(
         title: _group == _favouritesId ? '还没有收藏频道' : '没有可用频道',
-        message: _group == _favouritesId
-            ? '播放时点星标即可加入收藏。'
-            : '可以切换其他分类或直播源。',
+        message: _group == _favouritesId ? '播放时点星标即可加入收藏。' : '可以切换其他分类或直播源。',
         icon: Icons.live_tv_rounded,
       );
     }
@@ -1176,14 +1229,10 @@ class _LivePageState extends State<LivePage> {
             },
             child: Container(
               margin: const EdgeInsets.fromLTRB(6, 2, 12, 2),
-              padding: const EdgeInsets.symmetric(
-                vertical: 10,
-                horizontal: 10,
-              ),
+              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 10),
               decoration: BoxDecoration(
-                color: selected
-                    ? theme.colorScheme.secondaryContainer
-                    : Colors.transparent,
+                gradient: selected ? moyiSelectedGradient : null,
+                color: selected ? null : Colors.transparent,
                 borderRadius: BorderRadius.circular(10),
               ),
               // 用户定的三段式：左边站点名，中间频道名，右边入口。
@@ -1196,9 +1245,7 @@ class _LivePageState extends State<LivePage> {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: selected
-                            ? theme.colorScheme.onSecondaryContainer
-                            : theme.colorScheme.onSurfaceVariant,
+                        color: selected ? Colors.white : moyiMutedOnDark,
                       ),
                     ),
                   ),
@@ -1212,9 +1259,7 @@ class _LivePageState extends State<LivePage> {
                         fontWeight: selected
                             ? FontWeight.w600
                             : FontWeight.w400,
-                        color: selected
-                            ? theme.colorScheme.onSecondaryContainer
-                            : null,
+                        color: selected ? Colors.white : moyiBodyOnDark,
                       ),
                     ),
                   ),
@@ -1224,9 +1269,7 @@ class _LivePageState extends State<LivePage> {
                         ? Icons.play_circle_filled_rounded
                         : Icons.play_arrow_rounded,
                     size: 22,
-                    color: selected
-                        ? theme.colorScheme.primary
-                        : theme.colorScheme.onSurfaceVariant,
+                    color: selected ? Colors.white : moyiMutedOnDark,
                   ),
                 ],
               ),

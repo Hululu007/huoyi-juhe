@@ -28,6 +28,7 @@ class BackendService {
         'http://127.0.0.1:${RustBackendTransport.defaultPort}',
     this.startupTimeout = const Duration(seconds: 15),
     this.shutdownTimeout = const Duration(seconds: 3),
+    this.portFreeWait = const Duration(seconds: 5),
   }) : _assets = assets ?? rootBundle,
        _supportDirectory = supportDirectory ?? getApplicationSupportDirectory,
        _transport = transport ?? RustBackendTransport();
@@ -43,6 +44,12 @@ class BackendService {
 
   final Duration startupTimeout;
   final Duration shutdownTimeout;
+
+  /// How long to wait for a stale holder of the configured loopback port
+  /// to release it before falling back to an ephemeral port (see
+  /// [_startCoreWithPortFallback]). Tests override it to keep the
+  /// still-held case fast.
+  final Duration portFreeWait;
 
   Future<void>? _startFuture;
   Future<void>? _stopFuture;
@@ -272,13 +279,12 @@ class BackendService {
       final rustTransport = _transport;
       if (rustTransport is RustBackendTransport) {
         _log('initializing Rust core...');
-        final result = await rustTransport.start(
-          configPath: '${dir.path}/config/config.json',
-          poolPath: '${dir.path}/config/device_pool.json',
-          filterPath: '${dir.path}/config/filter.json',
-          runtimeDir: dir.path,
+        final result = await _startCoreWithPortFallback(
+          rustTransport,
+          dir: dir,
           listenPort: listenPort,
-          lanShare: LanSharePreferences.instance.enabled.value,
+          generation: generation,
+          clock: clock,
         );
         if (result == 'running') {
           _coreStarted = true;
@@ -320,6 +326,157 @@ class BackendService {
       }
       rethrow;
     }
+  }
+
+  /// Starts the Rust core, surviving a loopback port that is still held
+  /// by a stale process of the previous install.
+  ///
+  /// Root cause of the 1.0.1104+20261104 launch failure: the core binds the
+  /// configured port (18921) exactly once per process
+  /// (`rust/src/server.rs` `serve`, error `listen 127.0.0.1:18921: Address
+  /// already in use (os error 98)`), and an in-process double bind is
+  /// impossible — Rust `init_core` serializes on `INIT_LOCK` and returns
+  /// `"running"` when a core already exists, and Dart converges duplicate
+  /// starts on one future. So the holder is always another live process:
+  /// the old version's process, still alive after the overlay install
+  /// (the installer does not reliably kill it first, and the app's
+  /// foreground services keep it around). That process cannot be killed
+  /// from here — Android offers no API for one process to kill another
+  /// process of the same package, and the tree holds no such mechanism —
+  /// so the fix is: probe, wait briefly for it to exit, then fall back.
+  ///
+  /// Order of attempts:
+  /// 1. Probe the configured port. Free → bind it, as before.
+  /// 2. Held → wait up to [portFreeWait] (capped by the remaining startup
+  ///    budget) for the holder to exit, then bind the configured port.
+  ///    Reusing the still-running old core is not possible: its
+  ///    per-launch capability token is random and never persisted, so this
+  ///    process could only read through it, never write as the device.
+  /// 3. Still held → bind an ephemeral port (`listenPort: 0`). The core
+  ///    is fully functional; `baseUrl` reports the real port, and the
+  ///    Rust side advertises it for loopback URLs (`Ctx::loopback_port`),
+  ///    so nothing keeps pointing at the stale holder.
+  /// A bind that still races into `EADDRINUSE` between probe and bind
+  /// retries once on an ephemeral port instead of failing startup.
+  Future<String> _startCoreWithPortFallback(
+    RustBackendTransport rustTransport, {
+    required Directory dir,
+    required int? listenPort,
+    required int generation,
+    required Stopwatch clock,
+  }) async {
+    Future<String> startOn(int? port) {
+      _checkGeneration(generation, clock);
+      return rustTransport.start(
+        configPath: '${dir.path}/config/config.json',
+        poolPath: '${dir.path}/config/device_pool.json',
+        filterPath: '${dir.path}/config/filter.json',
+        runtimeDir: dir.path,
+        listenPort: port,
+        lanShare: LanSharePreferences.instance.enabled.value,
+      );
+    }
+
+    final probePort = listenPort ?? RustBackendTransport.defaultPort;
+    var port = listenPort;
+    if (await _isPortInUse(probePort)) {
+      _log(
+        'loopback port $probePort is still held by a previous process; '
+        'waiting for it to release',
+      );
+      // Keep a reserve inside the startup deadline for the bind itself
+      // plus the health gate; without a reserve the wait would eat the
+      // whole budget and the fallback bind could never be attempted.
+      final remaining = _startupRemaining(clock) - const Duration(seconds: 2);
+      final budget = remaining < Duration.zero
+          ? Duration.zero
+          : (remaining < portFreeWait ? remaining : portFreeWait);
+      final freed = await _waitForPortFree(
+        probePort,
+        budget,
+        generation,
+        clock,
+      );
+      if (!freed) {
+        _log(
+          'loopback port $probePort still held after ${budget.inMilliseconds}ms; '
+          'starting the core on an ephemeral port instead',
+        );
+        port = 0;
+      } else {
+        _log('loopback port $probePort released; binding the configured port');
+      }
+    }
+    try {
+      return await startOn(port);
+    } catch (error) {
+      if (port != null && port != 0 && _isAddressInUse(error)) {
+        _log(
+          'bind on port $port raced into address-in-use; '
+          'retrying on an ephemeral port',
+        );
+        return await startOn(0);
+      }
+      rethrow;
+    }
+  }
+
+  /// True when something is already listening on loopback [port].
+  ///
+  /// A refused connection means free; a successful connect means held. Any
+  /// other outcome (timeout, unreachable loopback) is treated as held so the
+  /// caller waits and falls back instead of crashing into the bind.
+  static Future<bool> _isPortInUse(int port) async {
+    Socket? socket;
+    try {
+      socket = await Socket.connect(
+        InternetAddress.loopbackIPv4,
+        port,
+        timeout: const Duration(milliseconds: 300),
+      );
+      return true;
+    } on SocketException {
+      return false;
+    } catch (_) {
+      return true;
+    } finally {
+      try {
+        await socket?.close();
+      } catch (_) {}
+    }
+  }
+
+  /// Polls until nothing listens on loopback [port] anymore, or [budget]
+  /// elapses. Returns true when the port came free. A retired start aborts
+  /// the wait through the generation check instead of binding late.
+  Future<bool> _waitForPortFree(
+    int port,
+    Duration budget,
+    int generation,
+    Stopwatch clock,
+  ) async {
+    final stopwatch = Stopwatch()..start();
+    while (stopwatch.elapsed < budget) {
+      _checkGeneration(generation, clock);
+      if (!await _isPortInUse(port)) return true;
+      final left = budget - stopwatch.elapsed;
+      if (left <= Duration.zero) break;
+      await Future<void>.delayed(
+        left < const Duration(milliseconds: 200)
+            ? left
+            : const Duration(milliseconds: 200),
+      );
+    }
+    _checkGeneration(generation, clock);
+    return !await _isPortInUse(port);
+  }
+
+  /// Whether [error] is the loopback bind collision the core reports
+  /// (`listen 127.0.0.1:<port>: Address already in use (os error 98)`).
+  static bool _isAddressInUse(Object error) {
+    final message = error.toString();
+    return message.contains('Address already in use') ||
+        message.contains('os error 98');
   }
 
   /// Listener port declared by the deployed `config.json`.

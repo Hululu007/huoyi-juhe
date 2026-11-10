@@ -138,11 +138,14 @@ mixin _LibraryShelfViews on _LibraryPageActions {
         bottom: ShelfTokens.contentBottomInset,
       ),
       itemCount: entries.length,
-      separatorBuilder: (context, index) => Divider(
-        height: 0.5,
-        thickness: 0.5,
-        color: HomePalette.of(context).line,
-      ),
+      separatorBuilder: (context, index) {
+        final palette = HomePalette.of(context);
+        return Divider(
+          height: 0.5,
+          thickness: 0.5,
+          color: palette.eink ? palette.line : moyiDarkCardBorder,
+        );
+      },
       itemBuilder: (context, index) {
         final entry = entries[index];
         return HomeEntrance(

@@ -7,6 +7,7 @@ import '../../pages/library_backup_page.dart';
 import '../home/home_design.dart';
 import '../home/home_shelf.dart';
 import '../home/home_sheet.dart';
+import '../series_detail/moyi_detail_theme.dart';
 
 /// 我的 页底部的入口列表：离线缓存 / 备份与导入。应用设置在标题栏齿轮。
 class MineEntries extends StatelessWidget {
@@ -19,7 +20,11 @@ class MineEntries extends StatelessWidget {
       padding: const EdgeInsets.only(top: homeSectionGap),
       child: Column(
         children: [
-          Divider(height: 1, thickness: 0.6, color: palette.line),
+          Divider(
+            height: 1,
+            thickness: 0.6,
+            color: palette.eink ? palette.line : moyiDarkCardBorder,
+          ),
           MineEntryRow(
             icon: LucideIcons.hard_drive_download,
             label: '离线缓存',
@@ -96,7 +101,11 @@ class MineEntryRow extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: homeGutter),
           child: Row(
             children: [
-              Icon(icon, size: 19, color: palette.ink),
+              Icon(
+                icon,
+                size: 19,
+                color: palette.eink ? palette.ink : Colors.white,
+              ),
               const SizedBox(width: 14),
               Expanded(
                 child: Text(
@@ -104,7 +113,7 @@ class MineEntryRow extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 15,
                     height: 1.3,
-                    color: palette.ink,
+                    color: palette.eink ? palette.ink : Colors.white,
                   ),
                 ),
               ),
@@ -115,7 +124,7 @@ class MineEntryRow extends StatelessWidget {
                     trailing!,
                     style: TextStyle(
                       fontSize: 13,
-                      color: palette.muted,
+                      color: palette.eink ? palette.muted : moyiMutedOnDark,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -124,7 +133,11 @@ class MineEntryRow extends StatelessWidget {
                 ),
               ],
               const SizedBox(width: 4),
-              Icon(LucideIcons.chevron_right, size: 16, color: palette.muted),
+              Icon(
+                LucideIcons.chevron_right,
+                size: 16,
+                color: palette.eink ? palette.muted : moyiMutedOnDark,
+              ),
             ],
           ),
         ),

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
@@ -8,10 +9,12 @@ import '../services/game_data.dart';
 import '../services/game_service.dart';
 import '../services/game_sound.dart';
 import '../widgets/game_battle_stage.dart';
+import '../widgets/series_detail/moyi_detail_theme.dart';
 import '../widgets/game_hero_portrait.dart';
 
 /// 凡人修仙挂机游戏页：全屏 2.5D 俯视战场（见 [GameBattleStage]），
-/// 顶部是元宝 / 境界 + 静音 / 离开 / 金色“观影”切换钮，
+/// 顶部是人界篇式两排：头像 + 名字 + 境界进度条，右边元宝 /
+/// 静音 / 离开 / 金色“观影”切换钮，第二排是菱形金色功能图标，
 /// 其余功能（商城、背包、任务、爬塔、人物、装备、领取、
 /// 影视、设置、公告）全是浮在画面上的按钮，点开弹出来用，
 /// 不单独占一页、不切走主画面；游戏切走后挂机照常跑
@@ -186,49 +189,157 @@ class _GamePageState extends State<GamePage> {
               onOpenAnnounce: () =>
                   _openSheet(context, _AnnounceSheet()),
             ),
-            // 顶部栏：元宝 / 境界 + 静音 / 离开 / 金色“观影”。
+            // 顶部栏（人界篇式，两排）：
+            // 第一排：左上圆形头像 + 名字 + 境界进度条，
+            // 右边静音 / 离开 / 金色“观影”；
+            // 第二排：左边元宝，右边一排菱形金色功能图标
+            // （人物 / 装备 / 任务 / 爬塔 / 修炼 / 设置，
+            // 点开都是原有弹窗）。
             Positioned(
               top: MediaQuery.paddingOf(context).top + 6,
               left: 12,
               right: 12,
-              child: Row(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _TopPill(
-                    icon: LucideIcons.coins,
-                    text: '${_game.yuanbao}',
-                    color: const Color(0xFFFFD54F),
+                  Row(
+                    children: [
+                      GameHeroPortrait(
+                        isFemale:
+                            snapshot.gender == CultivationGender.female,
+                        size: 44,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Row(
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    snapshot.username,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w800,
+                                      shadows: [
+                                        Shadow(
+                                          color: Colors.black87,
+                                          blurRadius: 4,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  realmShort,
+                                  style: const TextStyle(
+                                    color: Color(0xFFFFD54F),
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Container(
+                              width: 100,
+                              height: 4,
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.6),
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                              child: FractionallySizedBox(
+                                alignment: Alignment.centerLeft,
+                                widthFactor: xpRatio.clamp(0.0, 1.0),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFD4A017),
+                                    borderRadius: BorderRadius.circular(2),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      _TopIconButton(
+                        icon: GameSoundService.instance.allMuted
+                            ? LucideIcons.volume_x
+                            : LucideIcons.volume_2,
+                        onTap: () async {
+                          final target =
+                              !GameSoundService.instance.allMuted;
+                          await GameSoundService.instance.setAllMuted(target);
+                        },
+                      ),
+                      const SizedBox(width: 8),
+                      _TopTextButton(
+                        label: '离开',
+                        onTap: widget.onExit,
+                      ),
+                      const SizedBox(width: 8),
+                      _SwitchVideoButton(onTap: widget.onSwitchToVideo),
+                    ],
                   ),
-                  const SizedBox(width: 8),
-                  _TopPill(
-                    icon: LucideIcons.sparkles,
-                    text: realmShort,
-                    color: const Color(0xFF69F0AE),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      _TopPill(
+                        icon: LucideIcons.coins,
+                        text: '${_game.yuanbao}',
+                        color: moyiGold,
+                      ),
+                      const Spacer(),
+                      _TopDiamond(
+                        label: '人物',
+                        icon: LucideIcons.user,
+                        onTap: () => _openSheet(context, _ProfileSheet()),
+                      ),
+                      _TopDiamond(
+                        label: '装备',
+                        icon: LucideIcons.shield,
+                        onTap: () => _openSheet(context, _EquipmentSheet()),
+                      ),
+                      _TopDiamond(
+                        label: '任务',
+                        icon: LucideIcons.scroll_text,
+                        onTap: () => _openSheet(context, _TasksSheet()),
+                      ),
+                      _TopDiamond(
+                        label: '爬塔',
+                        icon: LucideIcons.layers,
+                        onTap: () => _openSheet(context, _TowerSheet()),
+                      ),
+                      _TopDiamond(
+                        label: '修炼',
+                        icon: LucideIcons.gift,
+                        onTap: () => _openSheet(context, _RewardsSheet()),
+                      ),
+                      _TopDiamond(
+                        label: '设置',
+                        icon: LucideIcons.settings,
+                        onTap: () => _openSheet(
+                          context,
+                          _SettingsSheet(onExit: widget.onExit),
+                        ),
+                      ),
+                    ],
                   ),
-                  const Spacer(),
-                  _TopIconButton(
-                    icon: GameSoundService.instance.allMuted
-                        ? LucideIcons.volume_x
-                        : LucideIcons.volume_2,
-                    onTap: () async {
-                      final target =
-                          !GameSoundService.instance.allMuted;
-                      await GameSoundService.instance.setAllMuted(target);
-                    },
-                  ),
-                  const SizedBox(width: 8),
-                  _TopTextButton(
-                    label: '离开',
-                    onTap: widget.onExit,
-                  ),
-                  const SizedBox(width: 8),
-                  _SwitchVideoButton(onTap: widget.onSwitchToVideo),
                 ],
               ),
             ),
             // 离线收益横幅（进游戏时弹一次）。
             if (offline != null && !_offlineBannerDismissed)
               Positioned(
-                top: MediaQuery.paddingOf(context).top + 58,
+                top: MediaQuery.paddingOf(context).top + 118,
                 left: 24,
                 right: 24,
                 child: GestureDetector(
@@ -289,7 +400,7 @@ class _GamePageState extends State<GamePage> {
             // 击杀结算提示。
             if (_killToast != null)
               Positioned(
-                top: MediaQuery.paddingOf(context).top + 108,
+                top: MediaQuery.paddingOf(context).top + 168,
                 left: 0,
                 right: 0,
                 child: Center(
@@ -305,7 +416,7 @@ class _GamePageState extends State<GamePage> {
                     child: Text(
                       _killToast!,
                       style: const TextStyle(
-                        color: Color(0xFFFFD54F),
+                        color: moyiGold,
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
                       ),
@@ -353,7 +464,7 @@ class _GamePageState extends State<GamePage> {
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      backgroundColor: const Color(0xFF1B1535),
+      backgroundColor: moyiSheetFill,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
       ),
@@ -420,6 +531,69 @@ class _TopPill extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 顶部菱形金色功能图标（人界篇式）：金色菱形 + 白色图标，
+/// 下面 9px 白字标签；点开对应原有弹窗。
+class _TopDiamond extends StatelessWidget {
+  const _TopDiamond({
+    required this.label,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.only(left: 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Transform.rotate(
+              angle: math.pi / 4,
+              child: Container(
+                width: 26,
+                height: 26,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFFFD54F), Color(0xFF8D6E00)],
+                  ),
+                  border: Border.all(
+                    color: const Color(0xFFFFD54F),
+                    width: 1.2,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.amber.withValues(alpha: 0.45),
+                      blurRadius: 6,
+                    ),
+                  ],
+                ),
+                child: Transform.rotate(
+                  angle: -math.pi / 4,
+                  child: Icon(icon, size: 13, color: Colors.white),
+                ),
+              ),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 9,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -552,7 +726,7 @@ class _SheetTitle extends StatelessWidget {
             width: 4,
             height: 20,
             decoration: BoxDecoration(
-              color: const Color(0xFFD4A017),
+              color: moyiGold,
               borderRadius: BorderRadius.circular(2),
             ),
           ),
@@ -596,13 +770,13 @@ class _SheetButton extends StatelessWidget {
         decoration: BoxDecoration(
           color: enabled
               ? (gold
-                  ? const Color(0xFF8D6E00)
+                  ? moyiGold.withValues(alpha: 0.25)
                   : Colors.white.withValues(alpha: 0.12))
-              : Colors.white.withValues(alpha: 0.06),
-          borderRadius: BorderRadius.circular(10),
+              : moyiDarkCardFill,
+          borderRadius: BorderRadius.circular(20),
           border: Border.all(
             color: enabled
-                ? const Color(0xFFD4A017)
+                ? moyiGold
                 : Colors.white.withValues(alpha: 0.1),
           ),
         ),
@@ -619,17 +793,82 @@ class _SheetButton extends StatelessWidget {
   }
 }
 
+/// 装备 / 背包物品金框格子：金边小方格 + 装备名首字，
+/// 右下角数量角标（多件时显示 ×N）。
+class _GoldItemTile extends StatelessWidget {
+  const _GoldItemTile({required this.label, this.count});
+
+  final String label;
+  final int? count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Container(
+          width: 46,
+          height: 46,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.45),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: const Color(0xFFD4A017),
+              width: 1.5,
+            ),
+          ),
+          child: Text(
+            label.isNotEmpty ? label[0] : '装',
+            style: const TextStyle(
+              color: Color(0xFFFFD54F),
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+        if (count != null && count! > 1)
+          Positioned(
+            right: -4,
+            bottom: -4,
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+              decoration: BoxDecoration(
+                color: const Color(0xFFC62828),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFFFD54F)),
+              ),
+              child: Text(
+                '×$count',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
 /// 弹窗里的一行（名 + 说明 + 右侧按钮）。
 class _SheetRow extends StatelessWidget {
   const _SheetRow({
     required this.title,
     required this.subtitle,
     required this.action,
+    this.leading,
   });
 
   final String title;
   final String subtitle;
   final Widget action;
+
+  /// 行首小格（如装备金框格子），没有就不占位。
+  final Widget? leading;
 
   @override
   Widget build(BuildContext context) {
@@ -637,11 +876,15 @@ class _SheetRow extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.06),
+        color: moyiDarkCardFill,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
         children: [
+          if (leading != null) ...[
+            leading!,
+            const SizedBox(width: 10),
+          ],
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -719,7 +962,7 @@ class _FunctionsSheet extends StatelessWidget {
                 onTap: () => onOpen(kind),
                 child: Container(
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.06),
+                    color: moyiDarkCardFill,
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
                       color: Colors.white.withValues(alpha: 0.1),
@@ -728,7 +971,7 @@ class _FunctionsSheet extends StatelessWidget {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(icon, color: const Color(0xFFD4A017), size: 24),
+                      Icon(icon, color: moyiGold, size: 24),
                       const SizedBox(height: 6),
                       Text(
                         label,
@@ -766,7 +1009,7 @@ class _ShopSheet extends StatelessWidget {
               trailing: Text(
                 '元宝 ${game.yuanbao}',
                 style: const TextStyle(
-                  color: Color(0xFFFFD54F),
+                  color: moyiGold,
                   fontSize: 13,
                   fontWeight: FontWeight.w800,
                 ),
@@ -815,7 +1058,7 @@ class _InventorySheet extends StatelessWidget {
               trailing: Text(
                 '元宝 ${game.yuanbao}',
                 style: const TextStyle(
-                  color: Color(0xFFFFD54F),
+                  color: moyiGold,
                   fontSize: 13,
                   fontWeight: FontWeight.w800,
                 ),
@@ -827,7 +1070,7 @@ class _InventorySheet extends StatelessWidget {
                 margin: const EdgeInsets.only(bottom: 8),
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFD4A017).withValues(alpha: 0.2),
+                  color: moyiGold.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Column(
@@ -904,6 +1147,10 @@ class _InventorySheet extends StatelessWidget {
               ),
             for (final row in owned)
               _SheetRow(
+                leading: _GoldItemTile(
+                  label: row.equip!.name,
+                  count: row.count,
+                ),
                 title:
                     '${row.equip!.name} · ${gameEquipQualityName(row.equip!.quality)}'
                     '${row.count > 1 ? ' ×${row.count}' : ''}',
@@ -1111,7 +1358,7 @@ class _TowerSheet extends StatelessWidget {
                 child: Text(
                   entry.key,
                   style: const TextStyle(
-                    color: Color(0xFFD4A017),
+                    color: moyiGold,
                     fontSize: 14,
                     fontWeight: FontWeight.w800,
                   ),
@@ -1155,6 +1402,46 @@ class _TowerSheet extends StatelessWidget {
 
 /// 人物：全身立在发光台上（不是卡片头像），名字原样显示，
 /// ID 另起一行，可改名、可换职业。
+/// 人物页属性格：半透明深色面板 + 金边，上面小字名、下面大字值。
+class _ProfileStatCell extends StatelessWidget {
+  const _ProfileStatCell({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: const Color(0xFFD4A017).withValues(alpha: 0.5),
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(color: Colors.white60, fontSize: 11),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: const TextStyle(
+              color: Color(0xFFFFD54F),
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ProfileSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -1174,30 +1461,13 @@ class _ProfileSheet extends StatelessWidget {
           children: [
             const _SheetTitle(title: '人物'),
             Center(
-              child: Container(
-                width: 180,
-                height: 230,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      Colors.amber.withValues(alpha: 0.35),
-                      Colors.transparent,
-                    ],
-                  ),
-                ),
-                child: Center(
-                  child: ClipOval(
-                    child: GameHeroFullPortrait(
-                      isFemale:
-                          snapshot.gender == CultivationGender.female,
-                      width: 170,
-                      height: 220,
-                    ),
-                  ),
-                ),
+              child: GameHeroFullPortrait(
+                isFemale: snapshot.gender == CultivationGender.female,
+                width: 300,
+                height: 380,
               ),
             ),
+            const SizedBox(height: 10),
             Center(
               child: Text(
                 snapshot.username,
@@ -1222,52 +1492,89 @@ class _ProfileSheet extends StatelessWidget {
               child: Text(
                 '${realm.displayName} · ${realm.levelLabel} · ${snapshot.profession}',
                 style: const TextStyle(
-                  color: Color(0xFFD4A017),
+                  color: moyiGold,
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
                 ),
               ),
             ),
             const SizedBox(height: 12),
-            _SheetRow(
-              title: '战力 ${game.power} · 血量 $maxHp',
-              subtitle:
-                  '攻击 ${game.power}（境界 +${game.basePower} / 装备 +${game.equipPower}）'
-                  ' · 防御 ${game.level * 5} · '
-                  '修为 ${snapshot.totalXp} · 元宝 ${game.yuanbao}',
-              action: _SheetButton(
-                label: '改名',
-                gold: false,
-                onTap: () => _showRenameDialog(context, snapshot.username),
-              ),
+            GridView.count(
+              crossAxisCount: 3,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              mainAxisSpacing: 8,
+              crossAxisSpacing: 8,
+              childAspectRatio: 2.2,
+              children: [
+                _ProfileStatCell(label: '战力', value: '${game.power}'),
+                _ProfileStatCell(label: '血量', value: '$maxHp'),
+                _ProfileStatCell(label: '攻击', value: '${game.power}'),
+                _ProfileStatCell(label: '防御', value: '${game.level * 5}'),
+                _ProfileStatCell(
+                  label: '修为',
+                  value: '${snapshot.totalXp}',
+                ),
+                _ProfileStatCell(label: '元宝', value: '${game.yuanbao}'),
+              ],
             ),
-            _SheetRow(
-              title: '职业：${snapshot.profession}',
-              subtitle: '换职业后打坐小人与游戏大招跟着换',
-              action: Row(
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.35),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.08),
+                ),
+              ),
+              child: Column(
                 mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  for (final profession in cultivationProfessions)
-                    Padding(
-                      padding: const EdgeInsets.only(left: 6),
-                      child: _SheetButton(
-                        label: profession,
-                        gold: snapshot.profession == profession,
-                        enabled: snapshot.profession != profession,
-                        onTap: () async {
-                          await CultivationService.instance
-                              .setProfession(profession);
-                        },
-                      ),
-                    ),
+                _SheetRow(
+                  title: '战力 ${game.power} · 血量 $maxHp',
+                  subtitle:
+                      '攻击 ${game.power}（境界 +${game.basePower} / 装备 +${game.equipPower}）'
+                      ' · 防御 ${game.level * 5} · '
+                      '修为 ${snapshot.totalXp} · 元宝 ${game.yuanbao}',
+                  action: _SheetButton(
+                    label: '改名',
+                    gold: false,
+                    onTap: () => _showRenameDialog(context, snapshot.username),
+                  ),
+                ),
+                _SheetRow(
+                  title: '职业：${snapshot.profession}',
+                  subtitle: '换职业后打坐小人与游戏大招跟着换',
+                  action: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (final profession in cultivationProfessions)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 6),
+                          child: _SheetButton(
+                            label: profession,
+                            gold: snapshot.profession == profession,
+                            enabled: snapshot.profession != profession,
+                            onTap: () async {
+                              await CultivationService.instance
+                                  .setProfession(profession);
+                            },
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                _SheetRow(
+                  title: '击杀 ${game.totalKills} · 爬塔 ${game.towerFloor}/30 层',
+                  subtitle:
+                      '推图第 ${game.mapChapterIndex + 1}/12 章',
+                  action: const SizedBox.shrink(),
+                ),
                 ],
               ),
-            ),
-            _SheetRow(
-              title: '击杀 ${game.totalKills} · 爬塔 ${game.towerFloor}/30 层',
-              subtitle:
-                  '推图第 ${game.mapChapterIndex + 1}/12 章',
-              action: const SizedBox.shrink(),
             ),
           ],
         );
@@ -1283,7 +1590,7 @@ class _ProfileSheet extends StatelessWidget {
     final name = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF241D47),
+        backgroundColor: moyiSheetFill,
         title: const Text(
           '改名',
           style: TextStyle(color: Colors.white),
@@ -1297,14 +1604,15 @@ class _ProfileSheet extends StatelessWidget {
           ),
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('取消'),
+          _SheetButton(
+            label: '取消',
+            gold: false,
+            onTap: () => Navigator.of(context).pop(),
           ),
-          TextButton(
-            onPressed: () =>
+          _SheetButton(
+            label: '确定',
+            onTap: () =>
                 Navigator.of(context).pop(controller.text.trim()),
-            child: const Text('确定'),
           ),
         ],
       ),
@@ -1345,6 +1653,9 @@ class _EquipmentSheet extends StatelessWidget {
                   final refineLevel =
                       equip == null ? 0 : (game.refine[equip.id] ?? 0);
                   return _SheetRow(
+                    leading: equip == null
+                        ? null
+                        : _GoldItemTile(label: equip.name),
                     title: equip == null
                         ? '${gameEquipSlotName(slot)}：空'
                         : '${gameEquipSlotName(slot)}：${equip.name} '
@@ -1538,7 +1849,7 @@ class _FilmSheet extends StatelessWidget {
               trailing: Text(
                 '元宝 ${game.yuanbao}',
                 style: const TextStyle(
-                  color: Color(0xFFFFD54F),
+                  color: moyiGold,
                   fontSize: 13,
                   fontWeight: FontWeight.w800,
                 ),
@@ -1596,13 +1907,12 @@ class _FilmSheet extends StatelessWidget {
                         child: Container(
                           decoration: BoxDecoration(
                             color: unlocked
-                                ? const Color(0xFF8D6E00)
-                                    .withValues(alpha: 0.5)
+                                ? moyiGold.withValues(alpha: 0.5)
                                 : Colors.white.withValues(alpha: 0.05),
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
                               color: unlocked
-                                  ? const Color(0xFFD4A017)
+                                  ? moyiGold
                                   : Colors.white.withValues(alpha: 0.1),
                             ),
                           ),
@@ -1614,7 +1924,7 @@ class _FilmSheet extends StatelessWidget {
                                     ? LucideIcons.play
                                     : LucideIcons.lock,
                                 color: unlocked
-                                    ? const Color(0xFFFFD54F)
+                                    ? moyiGold
                                     : Colors.white38,
                                 size: 20,
                               ),
@@ -1727,7 +2037,7 @@ class _SettingsSheet extends StatelessWidget {
               style: TextStyle(color: Colors.white60),
             ),
             value: !muted,
-            activeThumbColor: const Color(0xFFD4A017),
+            activeThumbColor: moyiGold,
             onChanged: (value) => sound.setMusicMuted(!value),
           ),
         ),
@@ -1742,7 +2052,7 @@ class _SettingsSheet extends StatelessWidget {
               width: 180,
               child: Slider(
                 value: volume,
-                activeColor: const Color(0xFFD4A017),
+                activeColor: moyiGold,
                 onChanged: (value) => sound.setMusicVolume(value),
               ),
             ),
@@ -1760,7 +2070,7 @@ class _SettingsSheet extends StatelessWidget {
               style: TextStyle(color: Colors.white60),
             ),
             value: !muted,
-            activeThumbColor: const Color(0xFFD4A017),
+            activeThumbColor: moyiGold,
             onChanged: (value) => sound.setSfxMuted(!value),
           ),
         ),
@@ -1775,7 +2085,7 @@ class _SettingsSheet extends StatelessWidget {
               width: 180,
               child: Slider(
                 value: volume,
-                activeColor: const Color(0xFFD4A017),
+                activeColor: moyiGold,
                 onChanged: (value) => sound.setSfxVolume(value),
               ),
             ),

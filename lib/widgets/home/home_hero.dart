@@ -5,6 +5,7 @@ import 'package:flutter_lucide/flutter_lucide.dart';
 
 import '../../models/search_discovery.dart';
 import 'home_design.dart';
+import '../series_detail/moyi_detail_theme.dart';
 
 /// 官方书城顶栏（`res/layout/alx.xml` 的 `fua` 搜索行）。
 ///
@@ -130,10 +131,7 @@ class _HomeHeroState extends State<HomeHero> {
     // （画布 #1E1D38 之上由 #2E1B5E 向透明过渡），浅色不罩。
     final body = Column(
       mainAxisSize: MainAxisSize.min,
-      children: [
-        _brandRow(palette),
-        _searchRow(palette, animate),
-      ],
+      children: [_brandRow(palette), _searchRow(palette, animate)],
     );
     if (!palette.dark) return body;
     return Container(
@@ -164,9 +162,7 @@ class _HomeHeroState extends State<HomeHero> {
       child: Align(
         alignment: Alignment.centerLeft,
         child: ConstrainedBox(
-          constraints: const BoxConstraints(
-            maxWidth: HomeHero.maxToolbarWidth,
-          ),
+          constraints: const BoxConstraints(maxWidth: HomeHero.maxToolbarWidth),
           child: Row(
             children: [
               Container(
@@ -193,7 +189,7 @@ class _HomeHeroState extends State<HomeHero> {
                   children: [
                     ShaderMask(
                       shaderCallback: (rect) => const LinearGradient(
-                        colors: [Colors.white, Color(0xFFD8B6FF)],
+                        colors: [moyiGold, Colors.white],
                       ).createShader(rect),
                       child: const Text(
                         HomeHero.brandName,
@@ -262,9 +258,7 @@ class _HomeHeroState extends State<HomeHero> {
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: palette.searchBar.withValues(alpha: 0.7),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.12),
-            ),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
           ),
           child: Icon(icon, size: 18, color: palette.ink),
         ),
@@ -288,9 +282,7 @@ class _HomeHeroState extends State<HomeHero> {
       child: Align(
         alignment: Alignment.centerLeft,
         child: ConstrainedBox(
-          constraints: const BoxConstraints(
-            maxWidth: HomeHero.maxToolbarWidth,
-          ),
+          constraints: const BoxConstraints(maxWidth: HomeHero.maxToolbarWidth),
           child: Row(
             children: [
               if (widget.siteName != null) ...[
@@ -314,7 +306,11 @@ class _HomeHeroState extends State<HomeHero> {
                     ),
                     child: Row(
                       children: [
-                        Icon(LucideIcons.search, size: 15, color: palette.muted),
+                        Icon(
+                          LucideIcons.search,
+                          size: 15,
+                          color: palette.muted,
+                        ),
                         const SizedBox(width: 10),
                         Expanded(child: _cueText(palette, animate)),
                       ],
@@ -415,5 +411,4 @@ class _HomeHeroState extends State<HomeHero> {
       ),
     );
   }
-
 }

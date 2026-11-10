@@ -201,6 +201,7 @@ pub(crate) async fn init_core(
         cfg: cfg.clone(),
         src_dir: src_dir.to_string_lossy().into_owned(),
         filters,
+        bound_port: std::sync::atomic::AtomicU16::new(0),
     });
     let server = Arc::new(Server::new(ctx));
 
@@ -214,6 +215,14 @@ pub(crate) async fn init_core(
         Ok(handle) => (handle.port, handle.token, Some(handle.task)),
         Err(e) => return Err(e),
     };
+    // Record the port that was actually bound before the core becomes
+    // visible: endpoints building loopback URLs (hongguo audio relay) must
+    // point at this port, not the configured one, when the core fell back
+    // to an ephemeral port because the configured one was still held.
+    server
+        .ctx
+        .bound_port
+        .store(actual_port, std::sync::atomic::Ordering::Relaxed);
 
     // The generation is read after the resource is fully built, so a stale
     // shutdown (which takes the same lock and bumps the counter) can never

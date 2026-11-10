@@ -9,6 +9,7 @@ import '../../services/api_client.dart';
 import '../../services/backend_transport.dart';
 import '../../services/user_facing_error.dart';
 import '../home/home_design.dart';
+import '../series_detail/moyi_detail_theme.dart';
 import '../home/home_sheet.dart';
 import 'player_side_panel.dart';
 
@@ -97,9 +98,8 @@ class _RelatedSeriesBlockState extends State<RelatedSeriesBlock> {
     }
   }
 
-  /// 深色皮肤（播放页右侧面板）下的次级文字色；其余宿主走 palette.muted。
-  Color _mutedColor(HomePalette palette) =>
-      widget.dark ? const Color(0xB3FFFFFF) : palette.muted;
+  /// 深色皮肤（播放页右侧面板）下的次级文字色；其余宿主走 moyiMutedOnDark。
+  Color _mutedColor(HomePalette palette) => moyiBodyOnDark;
 
   @override
   Widget build(BuildContext context) {
@@ -110,7 +110,7 @@ class _RelatedSeriesBlockState extends State<RelatedSeriesBlock> {
         padding: const EdgeInsets.symmetric(vertical: 24),
         child: Center(
           child: CircularProgressIndicator(
-            color: dark ? Colors.white70 : palette.accentText,
+            color: dark ? Colors.white70 : moyiGold,
           ),
         ),
       );
@@ -130,7 +130,7 @@ class _RelatedSeriesBlockState extends State<RelatedSeriesBlock> {
             OutlinedButton(
               onPressed: _load,
               style: OutlinedButton.styleFrom(
-                foregroundColor: dark ? Colors.white : palette.accentText,
+                foregroundColor: dark ? Colors.white : moyiGold,
               ),
               child: const Text('重试'),
             ),
@@ -160,7 +160,7 @@ class _RelatedSeriesBlockState extends State<RelatedSeriesBlock> {
             child: Text(
               widget.title,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: dark ? Colors.white : palette.ink,
+                color: dark ? Colors.white : Colors.white,
               ),
             ),
           ),
@@ -186,11 +186,11 @@ class _RelatedSeriesBlockState extends State<RelatedSeriesBlock> {
     final dark = widget.dark;
     final palette = HomePalette.of(context);
     final placeholder = ColoredBox(
-      color: dark ? const Color(0xFF2A2A2A) : palette.soft,
+      color: dark ? const Color(0xFF2A2A2A) : moyiDarkCardFill,
       child: Center(
         child: Icon(
           LucideIcons.clapperboard,
-          color: dark ? const Color(0x8CFFFFFF) : palette.muted,
+          color: dark ? const Color(0x8CFFFFFF) : moyiMutedOnDark,
         ),
       ),
     );
@@ -234,7 +234,7 @@ class _RelatedSeriesBlockState extends State<RelatedSeriesBlock> {
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: dark ? Colors.white : palette.ink,
+                color: dark ? Colors.white : Colors.white,
               ),
             ),
             Text(
@@ -283,7 +283,7 @@ class RelatedSeriesSheet extends StatelessWidget {
     Future<List<RelatedSeries>> Function(String)? loader,
   }) => PlayerSidePanel.show<RelatedSeries>(
     context: context,
-    background: const Color(0xFF1C1C1C),
+    background: moyiSheetFill,
     builder: (_) => _RelatedSeriesPanel(seriesId: seriesId, loader: loader),
   );
 

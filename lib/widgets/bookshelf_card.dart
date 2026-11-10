@@ -8,6 +8,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../models/media_item.dart';
 import '../services/poster_cache.dart';
 import 'home/home_design.dart';
+import 'series_detail/moyi_detail_theme.dart';
 import 'shelf/shelf_design.dart';
 
 // ---------------------------------------------------------------------------
@@ -46,7 +47,7 @@ class _ShelfCover extends StatelessWidget {
           ClipRRect(
             borderRadius: BorderRadius.circular(radius),
             child: ColoredBox(
-              color: palette.soft,
+              color: palette.eink ? palette.soft : moyiDarkCardFill,
               child: _ShelfCoverImage(
                 item: item,
                 fallback: fallback,
@@ -55,13 +56,17 @@ class _ShelfCover extends StatelessWidget {
               ),
             ),
           ),
-          // 选中态：accent 18% 蒙层 + 2dp accent 描边（沿用既有视觉）。
+          // 选中态：青 18% 蒙层 + 2dp 青描边（沿用既有视觉）。
           if (selected)
             DecoratedBox(
               decoration: BoxDecoration(
-                color: HomePalette.accent.withValues(alpha: 0.18),
+                color: (palette.eink ? HomePalette.accent : moyiCyan)
+                    .withValues(alpha: 0.18),
                 borderRadius: BorderRadius.circular(radius),
-                border: Border.all(color: HomePalette.accent, width: 2),
+                border: Border.all(
+                  color: palette.eink ? HomePalette.accent : moyiCyan,
+                  width: 2,
+                ),
               ),
             ),
           if (badgeText != null && !selected)
@@ -125,18 +130,15 @@ class _SelectionBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final eink = HomePalette.of(context).eink;
+    final active = eink ? HomePalette.accent : moyiCyan;
     return SizedBox.square(
       dimension: 22,
       child: DecoratedBox(
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: selected
-              ? HomePalette.accent
-              : Colors.black.withValues(alpha: 0.18),
-          border: Border.all(
-            color: selected ? HomePalette.accent : border,
-            width: 1.5,
-          ),
+          color: selected ? active : Colors.black.withValues(alpha: 0.18),
+          border: Border.all(color: selected ? active : border, width: 1.5),
         ),
         child: selected
             ? const Icon(Icons.check, size: 14, color: Colors.white)
@@ -227,8 +229,8 @@ class _DefaultCover extends StatelessWidget {
         painter: _DefaultCoverPainter(
           background: background,
           accentColor: accent,
-          titleColor: palette.ink,
-          authorColor: palette.muted,
+          titleColor: palette.eink ? palette.ink : Colors.white,
+          authorColor: palette.eink ? palette.muted : moyiMutedOnDark,
           title: cleaned.title,
           author: cleaned.author,
         ),
@@ -667,7 +669,7 @@ class BookshelfGridCard extends StatelessWidget {
                         fontSize: ShelfTokens.titleGrid,
                         fontWeight: FontWeight.w500,
                         height: ShelfTokens.titleLineHeight,
-                        color: palette.ink,
+                        color: palette.eink ? palette.ink : Colors.white,
                       ),
                     ),
                   ),
@@ -682,7 +684,7 @@ class BookshelfGridCard extends StatelessWidget {
                         style: TextStyle(
                           fontSize: ShelfTokens.subtitle,
                           height: ShelfTokens.subtitleLineHeight,
-                          color: palette.muted,
+                          color: palette.eink ? palette.muted : moyiMutedOnDark,
                         ),
                       ),
                     ),
@@ -756,9 +758,12 @@ class BookshelfDoubleCard extends StatelessWidget {
               return DecoratedBox(
                 key: const Key('shelf-double-card'),
                 decoration: BoxDecoration(
-                  color: palette.surface,
+                  color: palette.eink ? palette.surface : moyiDarkCardFill,
                   borderRadius: BorderRadius.circular(ShelfTokens.radiusCard),
-                  border: Border.all(color: palette.line, width: 0.5),
+                  border: Border.all(
+                    color: palette.eink ? palette.line : moyiDarkCardBorder,
+                    width: 0.5,
+                  ),
                 ),
                 child: Padding(
                   padding: const EdgeInsets.all(ShelfTokens.doubleCardPadding),
@@ -799,7 +804,7 @@ class BookshelfDoubleCard extends StatelessWidget {
                             fontSize: ShelfTokens.titleDouble,
                             fontWeight: FontWeight.w600,
                             height: ShelfTokens.titleLineHeight,
-                            color: palette.ink,
+                            color: palette.eink ? palette.ink : Colors.white,
                           ),
                         ),
                       ),
@@ -815,7 +820,9 @@ class BookshelfDoubleCard extends StatelessWidget {
                             style: TextStyle(
                               fontSize: ShelfTokens.subtitle,
                               height: ShelfTokens.subtitleLineHeight,
-                              color: palette.muted,
+                              color: palette.eink
+                                  ? palette.muted
+                                  : moyiMutedOnDark,
                             ),
                           ),
                         ),
@@ -825,9 +832,12 @@ class BookshelfDoubleCard extends StatelessWidget {
                         height: tagHeight,
                         child: DecoratedBox(
                           decoration: BoxDecoration(
-                            color: (kindColor ?? palette.muted).withValues(
-                              alpha: 0.12,
-                            ),
+                            color:
+                                (kindColor ??
+                                        (palette.eink
+                                            ? palette.muted
+                                            : moyiMutedOnDark))
+                                    .withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(
                               ShelfTokens.kindTagSize,
                             ),
@@ -843,7 +853,11 @@ class BookshelfDoubleCard extends StatelessWidget {
                                 fontSize: ShelfTokens.kindTagSize,
                                 height: 1.2,
                                 fontWeight: FontWeight.w500,
-                                color: kindColor ?? palette.muted,
+                                color:
+                                    kindColor ??
+                                    (palette.eink
+                                        ? palette.muted
+                                        : moyiMutedOnDark),
                               ),
                             ),
                           ),
@@ -917,7 +931,10 @@ class BookshelfListCard extends StatelessWidget {
                 children: [
                   const SizedBox(width: ShelfTokens.screenPadding),
                   if (editing) ...[
-                    _SelectionBox(selected: selected, border: palette.line),
+                    _SelectionBox(
+                      selected: selected,
+                      border: palette.eink ? palette.line : moyiDarkCardBorder,
+                    ),
                     const SizedBox(width: ShelfTokens.spaceM),
                   ],
                   _ShelfCover(
@@ -941,7 +958,7 @@ class BookshelfListCard extends StatelessWidget {
                             fontSize: ShelfTokens.titleList,
                             fontWeight: FontWeight.w600,
                             height: 1.35,
-                            color: palette.ink,
+                            color: palette.eink ? palette.ink : Colors.white,
                           ),
                         ),
                         if (progressText != null)
@@ -954,7 +971,9 @@ class BookshelfListCard extends StatelessWidget {
                               style: TextStyle(
                                 fontSize: ShelfTokens.subtitle,
                                 height: ShelfTokens.subtitleLineHeight,
-                                color: palette.muted,
+                                color: palette.eink
+                                    ? palette.muted
+                                    : moyiMutedOnDark,
                               ),
                             ),
                           ),
@@ -968,7 +987,9 @@ class BookshelfListCard extends StatelessWidget {
                               style: TextStyle(
                                 fontSize: ShelfTokens.subtitle,
                                 height: ShelfTokens.subtitleLineHeight,
-                                color: palette.muted,
+                                color: palette.eink
+                                    ? palette.muted
+                                    : moyiMutedOnDark,
                               ),
                             ),
                           ),
@@ -986,11 +1007,17 @@ class BookshelfListCard extends StatelessWidget {
                 width: double.infinity,
                 child: Stack(
                   children: [
-                    ColoredBox(color: palette.line),
+                    ColoredBox(
+                      color: palette.eink
+                          ? palette.line
+                          : Colors.white.withValues(alpha: 0.12),
+                    ),
                     FractionallySizedBox(
                       widthFactor: progress!.clamp(0, 1),
                       alignment: Alignment.centerLeft,
-                      child: const ColoredBox(color: HomePalette.accent),
+                      child: ColoredBox(
+                        color: palette.eink ? HomePalette.accent : moyiGold,
+                      ),
                     ),
                   ],
                 ),

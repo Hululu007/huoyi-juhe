@@ -31,6 +31,7 @@ import '../services/shelf_store.dart';
 import '../services/update_check_gate.dart';
 import '../widgets/bookshelf_card.dart';
 import '../widgets/home/home_design.dart';
+import '../widgets/series_detail/moyi_detail_theme.dart';
 import '../widgets/shelf/shelf_design.dart';
 import '../widgets/shelf/shelf_empty.dart';
 import '../widgets/tab_swipe_area.dart';
@@ -375,41 +376,43 @@ class _LibraryPageState extends State<LibraryPage>
         if (!didPop && _editing) _exitEdit();
       },
       child: Scaffold(
-        backgroundColor: palette.canvas,
-        body: SafeArea(
-          bottom: false,
-          child: Column(
-            children: [
-              // L1 标题栏：编辑态与浏览态淡切。
-              AnimatedSwitcher(
-                duration: _motionDuration(context, 200),
-                child: _editing
-                    ? KeyedSubtree(
-                        key: const ValueKey('library-edit-bar'),
-                        child: _editBar(palette),
-                      )
-                    : KeyedSubtree(
-                        key: const ValueKey('library-tab-row'),
-                        child: _tabRow(palette),
-                      ),
-              ),
-              if (!_editing) _toolbar(palette),
-              Expanded(
-                child: TabSwipeArea(
-                  index: _tab,
-                  count: _tabTitles.length,
-                  onSelect: _selectTab,
-                  // 编辑态里横向拖动留给列表自身（多选/滑动删除的起手）。
-                  enabled: !_editing,
-                  // 只让内容跟手横移：标题栏与工具条固定在顶上，切换后立刻
-                  // 显示新的选中项。
-                  child: RefreshIndicator(
-                    onRefresh: () => _refreshUpdates(force: true),
-                    child: _content(palette),
+        backgroundColor: Colors.transparent,
+        body: MoyiPageBackground(
+          child: SafeArea(
+            bottom: false,
+            child: Column(
+              children: [
+                // L1 标题栏：编辑态与浏览态淡切。
+                AnimatedSwitcher(
+                  duration: _motionDuration(context, 200),
+                  child: _editing
+                      ? KeyedSubtree(
+                          key: const ValueKey('library-edit-bar'),
+                          child: _editBar(palette),
+                        )
+                      : KeyedSubtree(
+                          key: const ValueKey('library-tab-row'),
+                          child: _tabRow(palette),
+                        ),
+                ),
+                if (!_editing) _toolbar(palette),
+                Expanded(
+                  child: TabSwipeArea(
+                    index: _tab,
+                    count: _tabTitles.length,
+                    onSelect: _selectTab,
+                    // 编辑态里横向拖动留给列表自身（多选/滑动删除的起手）。
+                    enabled: !_editing,
+                    // 只让内容跟手横移：标题栏与工具条固定在顶上，切换后立刻
+                    // 显示新的选中项。
+                    child: RefreshIndicator(
+                      onRefresh: () => _refreshUpdates(force: true),
+                      child: _content(palette),
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
         bottomNavigationBar: _editing ? _editBottomBar(palette) : null,

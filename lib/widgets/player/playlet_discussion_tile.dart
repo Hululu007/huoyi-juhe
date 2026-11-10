@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../comment_images.dart';
-import '../home/home_design.dart';
+import '../series_detail/moyi_detail_theme.dart';
 
 /// 剧评与回复共用官方的头像、昵称、正文和计数布局；账号写操作不在本页提供。
 class PlayletDiscussionTile extends StatelessWidget {
@@ -30,7 +30,6 @@ class PlayletDiscussionTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = HomePalette.of(context);
     return Container(
       color: highlighted ? const Color(0x14FA6725) : null,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -39,9 +38,7 @@ class PlayletDiscussionTile extends StatelessWidget {
         children: [
           CircleAvatar(
             radius: 16,
-            backgroundColor: palette.dark
-                ? palette.soft
-                : const Color(0xFFEDEDF0),
+            backgroundColor: moyiDarkCardFill,
             foregroundImage: userAvatar.isEmpty
                 ? null
                 : NetworkImage(userAvatar),
@@ -59,13 +56,13 @@ class PlayletDiscussionTile extends StatelessWidget {
               children: [
                 Text(
                   userName.isEmpty ? '匿名用户' : userName,
-                  style: TextStyle(fontSize: 13, color: palette.muted),
+                  style: TextStyle(fontSize: 13, color: moyiMutedOnDark),
                 ),
                 const SizedBox(height: 4),
                 if (text.isNotEmpty)
                   Text(
                     text,
-                    style: TextStyle(fontSize: 15, color: palette.ink),
+                    style: TextStyle(fontSize: 15, color: Colors.white),
                   ),
                 if (imageUrls.isNotEmpty) ...[
                   if (text.isNotEmpty) const SizedBox(height: 8),
@@ -79,7 +76,7 @@ class PlayletDiscussionTile extends StatelessWidget {
                     if (published.isNotEmpty)
                       Text(
                         published,
-                        style: TextStyle(fontSize: 12, color: palette.muted),
+                        style: TextStyle(fontSize: 12, color: moyiMutedOnDark),
                       ),
                     Semantics(
                       label: '$diggCount 个赞',
@@ -89,12 +86,12 @@ class PlayletDiscussionTile extends StatelessWidget {
                           Icon(
                             Icons.thumb_up_alt_outlined,
                             size: 14,
-                            color: palette.muted,
+                            color: moyiMutedOnDark,
                           ),
                           const SizedBox(width: 4),
                           Text(
                             '$diggCount',
-                            style: TextStyle(fontSize: 12, color: palette.muted),
+                            style: TextStyle(fontSize: 12, color: moyiMutedOnDark),
                           ),
                         ],
                       ),
@@ -103,7 +100,7 @@ class PlayletDiscussionTile extends StatelessWidget {
                       TextButton(
                         onPressed: onReplies,
                         style: TextButton.styleFrom(
-                          foregroundColor: palette.muted,
+                          foregroundColor: moyiMutedOnDark,
                           minimumSize: const Size(48, 48),
                           padding: const EdgeInsets.symmetric(horizontal: 4),
                         ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../series_detail/moyi_detail_theme.dart';
 
 import 'player_toast.dart';
 import 'quality_icon.dart';
@@ -11,15 +12,14 @@ import 'quality_icon.dart';
 /// 放开关、下钻入口，以及**可选的**倍速/清晰度入口行（`rateLabel` /
 /// `onOpenRate` 等）：底栏已有当前档时宿主不传，面板里就不出现这两项；
 /// `catalog` 形态竖屏、feed 卡片、通用播放器才由宿主传入、点开档位弹层。
-/// 白卡 1 = 清屏播放、离线缓存；白卡 2 = 听视频、弹幕、字体大小。
+/// 深卡 1 = 清屏播放、离线缓存；深卡 2 = 听视频、弹幕、字体大小。
 /// 举报/投屏/不感兴趣三行明确不做。
 ///
-/// 色值（日间皮肤）：面板底 `#FAFAFA`，卡片白底 12dp 圆角；行文字与图标
-/// `skin_color_black_light`=#000000；开关开启
-/// `skin_color_orange_brand_light`=#FA6725。
+/// 色值（换肤后统一深底）：面板底共享 [moyiSheetFill]，卡片 [moyiSheetCardFill]
+/// 12dp 圆角；行文字白字、次要文字 [moyiMutedOnDark]；开关开启品牌橙 #FA6725。
 ///
-/// 浅色支图标是官方 APK 的本地 drawable（jm3 行类 + 弹层级各自绑定），
-/// 夜间皮肤官方走 SkinDelegate 翻白，这里按 MaterialApp 亮度做等价切换。
+/// 图标是官方 APK 的本地 drawable（jm3 行类 + 弹层级各自绑定）；换肤后统一深底，
+/// 不再按 MaterialApp 亮度切换。
 class PlayletMorePanelLight extends StatelessWidget {
   const PlayletMorePanelLight({
     super.key,
@@ -72,26 +72,14 @@ class PlayletMorePanelLight extends StatelessWidget {
   final String? qualityLabel;
   final VoidCallback? onOpenQuality;
 
-  static Color _foreground(BuildContext context) =>
-      Theme.of(context).brightness == Brightness.dark
-      ? const Color(0xCCFFFFFF)
-      : const Color(0xFF000000);
+  static Color _foreground(BuildContext context) => Colors.white;
 
-  static Color _muted(BuildContext context) =>
-      Theme.of(context).brightness == Brightness.dark
-      ? const Color(0x66FFFFFF)
-      : const Color(0x66000000);
+  static Color _muted(BuildContext context) => moyiMutedOnDark;
 
-  static Color _handleColor(BuildContext context) =>
-      Theme.of(context).brightness == Brightness.dark
-      ? const Color(0x33FFFFFF)
-      : const Color(0x1F000000);
+  static Color _handleColor(BuildContext context) => moyiMutedOnDark;
 
   /// 白卡片：官方浅色截图的两块圆角白底（夜间等价翻为亮 overlay）。
-  static Color _cardColor(BuildContext context) =>
-      Theme.of(context).brightness == Brightness.dark
-      ? const Color(0x14FFFFFF)
-      : Colors.white;
+  static Color _cardColor(BuildContext context) => moyiSheetCardFill;
 
   TextStyle _labelStyle(BuildContext context) => TextStyle(
     fontSize: 16,
@@ -428,7 +416,6 @@ class _LightSwitch extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
       width: 31,
@@ -437,7 +424,7 @@ class _LightSwitch extends StatelessWidget {
       decoration: BoxDecoration(
         color: value
             ? const Color(0xFFFA6725)
-            : (dark ? const Color(0x33FFFFFF) : const Color(0x1F000000)),
+            : moyiMutedOnDark,
         borderRadius: BorderRadius.circular(9),
       ),
       child: AnimatedAlign(

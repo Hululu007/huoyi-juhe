@@ -22,6 +22,7 @@ void main() {
     AssetBundle? assets,
     Duration timeout = const Duration(seconds: 2),
     Duration shutdownTimeout = const Duration(seconds: 3),
+    Duration portFreeWait = const Duration(seconds: 5),
     BackendTransport? transport,
   }) {
     final backend = BackendService(
@@ -30,6 +31,7 @@ void main() {
       transport: transport ?? _FakeRustTransport(),
       startupTimeout: timeout,
       shutdownTimeout: shutdownTimeout,
+      portFreeWait: portFreeWait,
     );
     created = backend;
     return backend;
@@ -228,6 +230,113 @@ void main() {
     expect(transport.listenPort, isNull);
     await backend.stop();
   });
+
+  test(
+    'an address-in-use bind on the configured port retries on port 0',
+    () async {
+      // The old process still holds 18921 after an overlay install: the
+      // first bind fails exactly like the Rust core reports, and startup
+      // must survive by binding an ephemeral port instead of dying.
+      final transport = _FakeRustTransport(failWithAddressInUseOnPort: 18921);
+      final backend = createBackend(transport: transport);
+      await backend.start();
+
+      expect(backend.isRunning, isTrue);
+      expect(transport.listenPorts.last, 0);
+      await backend.stop();
+    },
+  );
+
+  test(
+    'an address-in-use bind on every port still fails and stays retryable',
+    () async {
+      // Scratch port as the configured port so the probe outcome does not
+      // depend on whether anything in the test environment holds 18921.
+      final probe = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final port = probe.port;
+      await probe.close();
+      final transport = _FakeRustTransport(failAllWithAddressInUse: true);
+      final assets = _BackendAssets(configPort: port);
+      final backend = createBackend(assets: assets, transport: transport);
+
+      await expectLater(
+        backend.start(),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message.toString(),
+            'message',
+            contains('Address already in use'),
+          ),
+        ),
+      );
+      expect(backend.isRunning, isFalse);
+      // First start tried the configured port, then the ephemeral fallback.
+      expect(transport.listenPorts, [port, 0]);
+
+      transport.failAllWithAddressInUse = false;
+      await backend.start();
+      expect(backend.isRunning, isTrue);
+      expect(transport.listenPorts, [port, 0, port]);
+      await backend.stop();
+    },
+  );
+
+  test('a port freed while waiting binds the configured port', () async {
+    // A real listener stands in for the stale old process on a scratch
+    // port; it exits mid-startup, so the core must take the configured
+    // port instead of falling back.
+    final holder = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final port = holder.port;
+    addTearDown(() async {
+      try {
+        await holder.close();
+      } catch (_) {}
+    });
+    final transport = _FakeRustTransport();
+    final assets = _BackendAssets(configPort: port);
+    final backend = createBackend(
+      assets: assets,
+      transport: transport,
+      timeout: const Duration(seconds: 10),
+      portFreeWait: const Duration(seconds: 5),
+    );
+
+    final starting = backend.start();
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    await holder.close();
+    await starting;
+
+    expect(backend.isRunning, isTrue);
+    expect(transport.listenPorts, [port]);
+    await backend.stop();
+  });
+
+  test(
+    'a port still held after the wait falls back to an ephemeral port',
+    () async {
+      final holder = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final port = holder.port;
+      addTearDown(() async {
+        try {
+          await holder.close();
+        } catch (_) {}
+      });
+      final transport = _FakeRustTransport();
+      final assets = _BackendAssets(configPort: port);
+      final backend = createBackend(
+        assets: assets,
+        transport: transport,
+        timeout: const Duration(seconds: 10),
+        portFreeWait: const Duration(milliseconds: 300),
+      );
+
+      await backend.start();
+
+      expect(backend.isRunning, isTrue);
+      expect(transport.listenPorts, [0]);
+      await backend.stop();
+    },
+  );
 }
 
 /// A [RustBackendTransport] with the FFI calls replaced by counters, so the
@@ -238,6 +347,8 @@ class _FakeRustTransport extends RustBackendTransport {
     this.healthy = true,
     this.blockStop = false,
     this.blockInit = false,
+    this.failWithAddressInUseOnPort,
+    this.failAllWithAddressInUse = false,
   });
 
   String initResult;
@@ -247,6 +358,13 @@ class _FakeRustTransport extends RustBackendTransport {
   /// native init that hangs.
   final bool blockInit;
 
+  /// When set, [start] throws the Rust core's address-in-use error for a
+  /// bind on this port (a stale process still holding it).
+  final int? failWithAddressInUseOnPort;
+
+  /// When true, [start] throws the address-in-use error for any port.
+  bool failAllWithAddressInUse;
+
   int initCalls = 0;
   int stopCalls = 0;
   int healthChecks = 0;
@@ -255,6 +373,7 @@ class _FakeRustTransport extends RustBackendTransport {
   String? filterPath;
   String? runtimeDir;
   int? listenPort;
+  final List<int?> listenPorts = [];
   bool lanShare = false;
 
   final stopEntered = Completer<void>();
@@ -279,7 +398,16 @@ class _FakeRustTransport extends RustBackendTransport {
     this.filterPath = filterPath;
     this.runtimeDir = runtimeDir;
     this.listenPort = listenPort;
+    listenPorts.add(listenPort);
     this.lanShare = lanShare;
+    if (failAllWithAddressInUse ||
+        (failWithAddressInUseOnPort != null &&
+            listenPort == failWithAddressInUseOnPort)) {
+      throw StateError(
+        'Rust core failed: listen 127.0.0.1:18921: '
+        'Address already in use (os error 98)',
+      );
+    }
     if (blockInit) await allowInit.future;
     return initResult;
   }

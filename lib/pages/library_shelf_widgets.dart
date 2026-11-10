@@ -75,7 +75,9 @@ class _TabButton extends StatelessWidget {
                   fontSize: selected ? 18 : 15,
                   fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
                   letterSpacing: -0.3,
-                  color: selected ? palette.ink : palette.muted,
+                  color: selected
+                      ? (palette.eink ? palette.ink : Colors.white)
+                      : (palette.eink ? palette.muted : moyiMutedOnDark),
                 ),
               ),
               const SizedBox(height: 5),
@@ -86,7 +88,9 @@ class _TabButton extends StatelessWidget {
                 width: selected ? 26 : 0,
                 height: 3,
                 decoration: BoxDecoration(
-                  color: selected ? HomePalette.accent : Colors.transparent,
+                  color: selected
+                      ? (palette.eink ? HomePalette.accent : moyiGold)
+                      : Colors.transparent,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -146,9 +150,12 @@ class _LayoutSegments extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
-        color: palette.soft,
+        color: palette.eink ? palette.soft : moyiDarkCardFill,
         borderRadius: BorderRadius.circular(ShelfTokens.radiusButton),
-        border: Border.all(color: palette.line, width: 0.5),
+        border: Border.all(
+          color: palette.eink ? palette.line : moyiDarkCardBorder,
+          width: 0.5,
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -165,17 +172,20 @@ class _LayoutSegments extends StatelessWidget {
                   height: 30,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
-                    color: layout == current
+                    gradient: layout == current && !palette.eink
+                        ? moyiSelectedGradient
+                        : null,
+                    color: layout == current && palette.eink
                         ? HomePalette.accent.withValues(alpha: 0.15)
-                        : Colors.transparent,
+                        : (layout == current ? null : Colors.transparent),
                     borderRadius: BorderRadius.circular(9),
                   ),
                   child: Icon(
                     layout.menuIcon,
                     size: 17,
                     color: layout == current
-                        ? HomePalette.accent
-                        : palette.muted,
+                        ? (palette.eink ? HomePalette.accent : Colors.white)
+                        : (palette.eink ? palette.muted : moyiMutedOnDark),
                   ),
                 ),
               ),

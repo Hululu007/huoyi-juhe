@@ -361,12 +361,7 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
   /// 选集本就按线路名前缀拼在集名里（`线路-集名`），不另做线路筛选，
   /// 选集仍走现有选集区。
   List<String> _filmLines() {
-    for (final key in const [
-      'vod_play_from',
-      'play_from',
-      'from',
-      'source',
-    ]) {
+    for (final key in const ['vod_play_from', 'play_from', 'from', 'source']) {
       final raw = _filmExtra(key);
       if (raw.isEmpty) continue;
       final lines = raw
@@ -395,10 +390,7 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
   List<String> _filmCategories() {
     final seen = <String>{};
     final result = <String>[];
-    for (final value in [
-      _filmExtra('category'),
-      _filmExtra('tags'),
-    ]) {
+    for (final value in [_filmExtra('category'), _filmExtra('tags')]) {
       for (final part in _splitFilmField(value)) {
         if (seen.add(part)) result.add(part);
       }
@@ -520,7 +512,9 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
   /// 剧集主色混合到画布后的实色带顶，null 表示不出色带（灰色系 / 墨水屏）。
   Color? _bandTop(HomePalette palette) {
     final tint = seriesBandTint(_detail.seriesColorHex, palette);
-    return tint == null ? null : Color.alphaBlend(tint, palette.canvas);
+    return tint == null
+        ? null
+        : Color.alphaBlend(tint, moyiPageGradient.colors[1]);
   }
 
   /// 实机状态行 = `episodeLabel · 播放量`，没有追更段（官方 `bp` 布局
@@ -670,60 +664,68 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
   @override
   Widget build(BuildContext context) {
     final palette = HomePalette.of(context);
-    return Scaffold(
-      key: const ValueKey('series-detail-page'),
-      backgroundColor: palette.canvas,
-      // 影视区改内联播放器后不再要底部大播放钮（播放器就在顶部）；
-      // 短剧保留。
-      bottomNavigationBar: _isFilmSite ? null : _bottomPlayBar(palette),
-      body: Stack(
-        children: [
-          Positioned.fill(child: _backdrop(palette)),
-          SafeArea(
-            child: Column(
-              children: [
-                // 影视区：返回箭头在播放器顶栏里，这里不再另画顶栏；
-                // 短剧保留原顶栏。
-                if (!_isFilmSite)
-                  SeriesDetailTopBar(
-                    onBack: () => Navigator.of(context).maybePop(),
-                  ),
-                Expanded(
-                  child: CustomScrollView(
-                    key: const ValueKey('series-detail-content'),
-                    controller: _scroll,
-                    slivers: [
-                      if (_isFilmSite) ...[
-                        // 影视区新顺序（照火蚁TV播放详情页）：内联播放器 →
-                        // 魔蚁详情（海报 / 标题 / 集数 / 站源 / 加入追剧 /
-                        // 选集 / 简介）→ 本片剧照。播放线路折进「站源」行，不再单
-                        // 独成区；剧评 / 原著是短剧专属，影视区没有。
-                        SliverToBoxAdapter(child: _filmPlayer()),
-                        SliverToBoxAdapter(child: _filmMoyiDetail()),
-                        SliverToBoxAdapter(child: _filmStillsSection()),
-                        SliverToBoxAdapter(child: _filmRelatedSection()),
-                      ] else ...[
-                        SliverToBoxAdapter(child: _hero()),
-                        SliverToBoxAdapter(child: _episodeSection()),
-                        SliverToBoxAdapter(child: _introSection()),
-                        SliverToBoxAdapter(child: _reviewsSection()),
-                        if (_detail.originalBook != null)
-                          SliverToBoxAdapter(
-                            child: SeriesDetailBookSection(
-                              book: _detail.originalBook!,
-                              onOpen: () =>
-                                  _openOriginalBook(_detail.originalBook!),
+    // 全页深紫蓝渐变底：内层组件靠深色主题取浅色字（影视区魔蚁详情同款
+    // 做法），墨水屏不强制、保持黑白；剧照背景那套不动。
+    final darkPage = !palette.eink;
+    return Theme(
+      data: Theme.of(
+        context,
+      ).copyWith(brightness: darkPage ? Brightness.dark : Brightness.light),
+      child: Scaffold(
+        key: const ValueKey('series-detail-page'),
+        backgroundColor: Colors.transparent,
+        // 影视区改内联播放器后不再要底部大播放钮（播放器就在顶部）；
+        // 短剧保留。
+        bottomNavigationBar: _isFilmSite ? null : _bottomPlayBar(palette),
+        body: Stack(
+          children: [
+            Positioned.fill(child: _backdrop(palette)),
+            SafeArea(
+              child: Column(
+                children: [
+                  // 影视区：返回箭头在播放器顶栏里，这里不再另画顶栏；
+                  // 短剧保留原顶栏。
+                  if (!_isFilmSite)
+                    SeriesDetailTopBar(
+                      onBack: () => Navigator.of(context).maybePop(),
+                    ),
+                  Expanded(
+                    child: CustomScrollView(
+                      key: const ValueKey('series-detail-content'),
+                      controller: _scroll,
+                      slivers: [
+                        if (_isFilmSite) ...[
+                          // 影视区新顺序（照火蚁TV播放详情页）：内联播放器 →
+                          // 魔蚁详情（海报 / 标题 / 集数 / 站源 / 加入追剧 /
+                          // 选集 / 简介）→ 本片剧照。播放线路折进「站源」行，不再单
+                          // 独成区；剧评 / 原著是短剧专属，影视区没有。
+                          SliverToBoxAdapter(child: _filmPlayer()),
+                          SliverToBoxAdapter(child: _filmMoyiDetail()),
+                          SliverToBoxAdapter(child: _filmStillsSection()),
+                          SliverToBoxAdapter(child: _filmRelatedSection()),
+                        ] else ...[
+                          SliverToBoxAdapter(child: _hero()),
+                          SliverToBoxAdapter(child: _episodeSection()),
+                          SliverToBoxAdapter(child: _introSection()),
+                          SliverToBoxAdapter(child: _reviewsSection()),
+                          if (_detail.originalBook != null)
+                            SliverToBoxAdapter(
+                              child: SeriesDetailBookSection(
+                                book: _detail.originalBook!,
+                                onOpen: () =>
+                                    _openOriginalBook(_detail.originalBook!),
+                              ),
                             ),
-                          ),
+                        ],
+                        const SliverToBoxAdapter(child: SizedBox(height: 24)),
                       ],
-                      const SliverToBoxAdapter(child: SizedBox(height: 24)),
-                    ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -733,7 +735,7 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
   Widget _bottomPlayBar(HomePalette palette) => SafeArea(
     top: false,
     child: ColoredBox(
-      color: palette.canvas,
+      color: moyiSheetFill,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
         child: FilledButton(
@@ -742,8 +744,8 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
           style: FilledButton.styleFrom(
             backgroundColor: seriesAccent(palette),
             foregroundColor: seriesOnAccent(palette),
-            disabledBackgroundColor: palette.soft,
-            disabledForegroundColor: palette.muted,
+            disabledBackgroundColor: moyiDarkCardFill,
+            disabledForegroundColor: moyiMutedOnDark,
             elevation: 0,
             minimumSize: const Size.fromHeight(52),
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -766,7 +768,11 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
     final height = MediaQuery.paddingOf(context).top + seriesDetailTopBarHeight;
     return Stack(
       children: [
-        Positioned.fill(child: ColoredBox(color: palette.canvas)),
+        Positioned.fill(
+          child: const DecoratedBox(
+            decoration: BoxDecoration(gradient: moyiPageGradient),
+          ),
+        ),
         if (top != null)
           Positioned(
             top: 0,
@@ -778,7 +784,7 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [top, palette.canvas],
+                  colors: [top, Colors.transparent],
                 ),
               ),
             ),
@@ -973,10 +979,7 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: moyiPurple.withValues(alpha: 0.55),
-          width: 1,
-        ),
+        border: Border.all(color: moyiPurple.withValues(alpha: 0.55), width: 1),
       ),
       child: cover.isEmpty
           ? const ColoredBox(
@@ -998,8 +1001,7 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
                   size: 32,
                 ),
               ),
-              placeholder: (_, _) =>
-                  const ColoredBox(color: Color(0xFF262543)),
+              placeholder: (_, _) => const ColoredBox(color: Color(0xFF262543)),
             ),
     );
   }
@@ -1031,18 +1033,11 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
       decoration: BoxDecoration(
         color: moyiPurple.withValues(alpha: 0.35),
         borderRadius: BorderRadius.circular(99),
-        border: Border.all(
-          color: moyiPurple.withValues(alpha: 0.6),
-          width: 1,
-        ),
+        border: Border.all(color: moyiPurple.withValues(alpha: 0.6), width: 1),
       ),
       child: Text(
         name,
-        style: const TextStyle(
-          fontSize: 12,
-          height: 1.5,
-          color: Colors.white,
-        ),
+        style: const TextStyle(fontSize: 12, height: 1.5, color: Colors.white),
       ),
     );
     if (onTap == null) return chip;
@@ -1093,9 +1088,7 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
         return MoyiGradientButton(
           key: const ValueKey('film-detail-follow'),
           label: saved ? '已追剧' : '加入追剧',
-          icon: saved
-              ? Icons.bookmark_rounded
-              : Icons.bookmark_add_outlined,
+          icon: saved ? Icons.bookmark_rounded : Icons.bookmark_add_outlined,
           trailing: const Icon(
             Icons.keyboard_arrow_down_rounded,
             size: 18,
@@ -1234,10 +1227,7 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
                 fit: BoxFit.contain,
                 errorWidget: (_, _, _) => const Padding(
                   padding: EdgeInsets.all(32),
-                  child: Text(
-                    '剧照加载失败',
-                    style: TextStyle(color: Colors.white),
-                  ),
+                  child: Text('剧照加载失败', style: TextStyle(color: Colors.white)),
                 ),
               ),
             ),

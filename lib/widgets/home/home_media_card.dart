@@ -11,6 +11,7 @@ import '../../services/shell_proxy_url.dart';
 import '../cover_tag_chip.dart';
 import '../media_card.dart' show mediaLengthLabel;
 import 'home_design.dart';
+import '../series_detail/moyi_detail_theme.dart';
 
 String homeKindLabel(String kind) => switch (kind) {
   'video' => '短剧',
@@ -74,7 +75,7 @@ class StoryCover extends StatelessWidget {
     // 蜘蛛给的封面形态不止一种：旧壳代理地址（127.0.0.1/proxy?p=）、
     // proxy://do=py 形态（danai 加密图）、http 明文图（系统禁明文直取）、
     // 回环 proxy 不透明形态（蜘蛛写死 9978 端口）。只解 p= 包的
-    // 老路会让后三种在手机上永远失败（棕色占位图），统一走
+    // 老路会让后三种在手机上永远失败（深紫占位图），统一走
     // resolveCoverUrl 换成图片组件能直接取的地址；本地代理没起
     // 来时退化为老行为。
     final resolved = resolveCoverUrl(
@@ -106,7 +107,9 @@ class _CoverArtwork extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final colors = switch (kind) {
-      'video' || 'film' => [const Color(0xFF734740), const Color(0xFF242428)],
+      // 影视/短剧占位走魔蚁深紫蓝渐变（与全页底同套），不再用棕色。
+      'video' ||
+      'film' => [moyiPageGradient.colors[0], moyiPageGradient.colors[2]],
       'manju' => [const Color(0xFF8B557E), const Color(0xFF35283D)],
       'manga' => [const Color(0xFF6F6887), const Color(0xFF343349)],
       'audio' => [const Color(0xFF426C78), const Color(0xFF233B42)],
@@ -124,7 +127,7 @@ class _CoverArtwork extends CustomPainter {
     final line = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 0.8
-      ..color = const Color(0xFFF2DFC3).withValues(alpha: 0.22);
+      ..color = Colors.white.withValues(alpha: 0.22);
     final center = Offset(size.width * 0.92, size.height * 0.30);
     for (var i = 0; i < 6; i++) {
       canvas.drawCircle(center, size.width * (0.27 + i * 0.14), line);
@@ -137,7 +140,7 @@ class _CoverArtwork extends CustomPainter {
         Rect.fromLTWH(0, 0, size.width * 1.1, size.height * 0.13),
         const Radius.circular(4),
       ),
-      Paint()..color = const Color(0xFFE2C99A).withValues(alpha: 0.13),
+      Paint()..color = moyiPurple.withValues(alpha: 0.25),
     );
     canvas.restore();
   }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
 
 import '../home/home_design.dart';
+import '../series_detail/moyi_detail_theme.dart';
 import 'shelf_design.dart';
 
 // 三种空态共用同一套尺度：图标砖 20dp 内边距 + 48dp 图标、标题 16sp w600、
@@ -19,20 +20,25 @@ const _emptyTitleStyle = TextStyle(
   fontWeight: FontWeight.w600,
 );
 
-TextStyle _mutedMessage(HomePalette palette) =>
-    TextStyle(fontSize: _emptyMessageSize, color: palette.muted);
+TextStyle _mutedMessage(HomePalette palette) => TextStyle(
+  fontSize: _emptyMessageSize,
+  color: palette.eink ? palette.muted : moyiMutedOnDark,
+);
 
 Widget _iconBrick(HomePalette palette, IconData icon) => Container(
   padding: const EdgeInsets.all(_emptyIconPadding),
   decoration: BoxDecoration(
-    color: palette.soft,
+    color: palette.eink ? palette.soft : moyiDarkCardFill,
     borderRadius: BorderRadius.circular(ShelfTokens.radiusCard),
+    border: palette.eink ? null : Border.all(color: moyiDarkCardBorder),
   ),
   child: Icon(
     icon,
     size: _emptyIconSize,
     // 墨水屏退化为纯黑：图标是这屏唯一的视觉锚点，灰阶容易糊成一片。
-    color: palette.eink ? Colors.black : palette.muted.withValues(alpha: 0.65),
+    color: palette.eink
+        ? Colors.black
+        : moyiMutedOnDark.withValues(alpha: 0.65),
   ),
 );
 
@@ -65,24 +71,38 @@ class ShelfEmptyState extends StatelessWidget {
             const SizedBox(height: _emptyIconGap),
             Text(
               '书架暂无书籍',
-              style: _emptyTitleStyle.copyWith(color: palette.ink),
+              style: _emptyTitleStyle.copyWith(
+                color: palette.eink ? palette.ink : Colors.white,
+              ),
             ),
             const SizedBox(height: _emptyMessageGap),
             Text('去书城发现海量故事，随时随地畅读', style: _mutedMessage(palette)),
             const SizedBox(height: 20),
-            FilledButton.icon(
-              key: const Key('shelf-browse-button'),
-              onPressed: onBrowse,
-              icon: const Icon(LucideIcons.compass, size: 16),
-              label: const Text('去书城找书'),
-              style: _filledActionStyle(palette),
-            ),
+            if (palette.eink)
+              FilledButton.icon(
+                key: const Key('shelf-browse-button'),
+                onPressed: onBrowse,
+                icon: const Icon(LucideIcons.compass, size: 16),
+                label: const Text('去书城找书'),
+                style: _filledActionStyle(palette),
+              )
+            else
+              MoyiGradientButton(
+                key: const Key('shelf-browse-button'),
+                onPressed: onBrowse,
+                icon: LucideIcons.compass,
+                label: '去书城找书',
+              ),
             if (onCachedBooks != null) ...[
               const SizedBox(height: 10),
               TextButton.icon(
                 key: const Key('shelf-cached-books-button'),
                 onPressed: onCachedBooks,
-                style: TextButton.styleFrom(foregroundColor: palette.muted),
+                style: TextButton.styleFrom(
+                  foregroundColor: palette.eink
+                      ? palette.muted
+                      : moyiMutedOnDark,
+                ),
                 icon: const Icon(LucideIcons.download, size: 16),
                 label: const Text('查看离线缓存'),
               ),
@@ -116,14 +136,26 @@ class ShelfCollectionEmptyState extends StatelessWidget {
           children: [
             _iconBrick(palette, LucideIcons.clapperboard),
             const SizedBox(height: _emptyIconGap),
-            Text(text, style: _emptyTitleStyle.copyWith(color: palette.ink)),
-            const SizedBox(height: 20),
-            FilledButton(
-              key: const Key('collection-find-drama-button'),
-              onPressed: onFindDrama,
-              style: _filledActionStyle(palette),
-              child: const Text('找短剧'),
+            Text(
+              text,
+              style: _emptyTitleStyle.copyWith(
+                color: palette.eink ? palette.ink : Colors.white,
+              ),
             ),
+            const SizedBox(height: 20),
+            if (palette.eink)
+              FilledButton(
+                key: const Key('collection-find-drama-button'),
+                onPressed: onFindDrama,
+                style: _filledActionStyle(palette),
+                child: const Text('找短剧'),
+              )
+            else
+              MoyiGradientButton(
+                key: const Key('collection-find-drama-button'),
+                onPressed: onFindDrama,
+                label: '找短剧',
+              ),
           ],
         ),
       ),
@@ -147,7 +179,12 @@ class ShelfEmptyHint extends StatelessWidget {
           children: [
             _iconBrick(palette, LucideIcons.search_x),
             const SizedBox(height: _emptyIconGap),
-            Text(text, style: _emptyTitleStyle.copyWith(color: palette.ink)),
+            Text(
+              text,
+              style: _emptyTitleStyle.copyWith(
+                color: palette.eink ? palette.ink : Colors.white,
+              ),
+            ),
           ],
         ),
       ),

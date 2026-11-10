@@ -3,6 +3,7 @@ import 'package:flutter_lucide/flutter_lucide.dart';
 
 import '../../models/media_item.dart';
 import '../home/home_design.dart';
+import '../series_detail/moyi_detail_theme.dart';
 import 'detail_chapter_row.dart';
 
 Future<Chapter?> showDetailDirectory(
@@ -16,7 +17,7 @@ Future<Chapter?> showDetailDirectory(
   useSafeArea: true,
   // 与听书页同一规则：深色 / OLED 弹层取 surface + 发丝边，否则 barrier
   // 在纯黑画布上叠不出变暗，弹层和详情页连成一片。
-  backgroundColor: homeSheetColor(HomePalette.of(context)),
+  backgroundColor: moyiSheetFill,
   barrierColor: Colors.black.withValues(alpha: 0.42),
   clipBehavior: Clip.antiAlias,
   shape: homeSheetShape(HomePalette.of(context), top: 28),
@@ -94,7 +95,6 @@ class _DetailDirectorySheetState extends State<DetailDirectorySheet> {
 
   @override
   Widget build(BuildContext context) {
-    final palette = HomePalette.of(context);
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
       child: DraggableScrollableSheet(
@@ -120,7 +120,7 @@ class _DetailDirectorySheetState extends State<DetailDirectorySheet> {
                         width: 32,
                         height: 4,
                         decoration: BoxDecoration(
-                          color: palette.line,
+                          color: moyiDarkCardBorder,
                           borderRadius: BorderRadius.circular(4),
                         ),
                       ),
@@ -132,7 +132,7 @@ class _DetailDirectorySheetState extends State<DetailDirectorySheet> {
                           child: Text(
                             '目录',
                             style: TextStyle(
-                              color: palette.ink,
+                              color: Colors.white,
                               fontSize: 25,
                               fontWeight: FontWeight.w800,
                             ),
@@ -143,8 +143,8 @@ class _DetailDirectorySheetState extends State<DetailDirectorySheet> {
                           tooltip: '关闭目录',
                           onPressed: () => Navigator.pop(context),
                           style: IconButton.styleFrom(
-                            backgroundColor: palette.soft,
-                            foregroundColor: palette.ink,
+                            backgroundColor: moyiSheetCardFill,
+                            foregroundColor: Colors.white,
                           ),
                           icon: const Icon(LucideIcons.x, size: 20),
                         ),
@@ -153,7 +153,7 @@ class _DetailDirectorySheetState extends State<DetailDirectorySheet> {
                     const SizedBox(height: 3),
                     Text(
                       '共 ${widget.chapters.length} ${widget.chapterUnit}',
-                      style: TextStyle(color: palette.muted, fontSize: 12),
+                      style: TextStyle(color: moyiMutedOnDark, fontSize: 12),
                     ),
                     const SizedBox(height: 20),
                     TextField(
@@ -162,12 +162,12 @@ class _DetailDirectorySheetState extends State<DetailDirectorySheet> {
                       onChanged: (_) => setState(_filter),
                       onSubmitted: (_) => FocusScope.of(context).unfocus(),
                       textInputAction: TextInputAction.search,
-                      style: TextStyle(color: palette.ink, fontSize: 14),
+                      style: TextStyle(color: Colors.white, fontSize: 14),
                       decoration: InputDecoration(
                         hintText: '搜索章节名称或序号',
-                        hintStyle: TextStyle(color: palette.muted),
+                        hintStyle: TextStyle(color: moyiMutedOnDark),
                         filled: true,
-                        fillColor: palette.soft,
+                        fillColor: moyiSheetCardFill,
                         contentPadding: const EdgeInsets.symmetric(
                           horizontal: 14,
                           vertical: 16,
@@ -175,7 +175,7 @@ class _DetailDirectorySheetState extends State<DetailDirectorySheet> {
                         prefixIcon: Icon(
                           LucideIcons.search,
                           size: 19,
-                          color: palette.muted,
+                          color: moyiMutedOnDark,
                         ),
                         suffixIcon: _search.text.isEmpty
                             ? null
@@ -185,7 +185,7 @@ class _DetailDirectorySheetState extends State<DetailDirectorySheet> {
                                 icon: Icon(
                                   LucideIcons.x,
                                   size: 18,
-                                  color: palette.muted,
+                                  color: moyiMutedOnDark,
                                 ),
                               ),
                         border: OutlineInputBorder(
@@ -194,7 +194,7 @@ class _DetailDirectorySheetState extends State<DetailDirectorySheet> {
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(15),
-                          borderSide: BorderSide(color: palette.accentText),
+                          borderSide: BorderSide(color: moyiGold),
                         ),
                       ),
                     ),
@@ -207,7 +207,7 @@ class _DetailDirectorySheetState extends State<DetailDirectorySheet> {
                                 ? '全部章节'
                                 : '找到 ${_visible.length} ${widget.chapterUnit}',
                             style: TextStyle(
-                              color: palette.muted,
+                              color: moyiMutedOnDark,
                               fontSize: 12,
                             ),
                           ),
@@ -219,7 +219,7 @@ class _DetailDirectorySheetState extends State<DetailDirectorySheet> {
                             _filter();
                           }),
                           style: TextButton.styleFrom(
-                            foregroundColor: palette.ink,
+                            foregroundColor: Colors.white,
                             minimumSize: const Size(48, 48),
                           ),
                           icon: Icon(
@@ -248,23 +248,23 @@ class _DetailDirectorySheetState extends State<DetailDirectorySheet> {
                   ),
                   child: Column(
                     children: [
-                      Icon(LucideIcons.search, color: palette.muted, size: 30),
+                      Icon(LucideIcons.search, color: moyiMutedOnDark, size: 30),
                       const SizedBox(height: 14),
                       Text(
                         '没有找到匹配章节',
                         textAlign: TextAlign.center,
-                        style: TextStyle(color: palette.ink, fontSize: 16),
+                        style: TextStyle(color: Colors.white, fontSize: 16),
                       ),
                       const SizedBox(height: 8),
                       Text(
                         '换个名称，或输入章节序号',
                         textAlign: TextAlign.center,
-                        style: TextStyle(color: palette.muted, fontSize: 12),
+                        style: TextStyle(color: moyiMutedOnDark, fontSize: 12),
                       ),
                       TextButton(
                         onPressed: _clearSearch,
                         style: TextButton.styleFrom(
-                          foregroundColor: palette.accentText,
+                          foregroundColor: moyiGold,
                         ),
                         child: const Text('清空搜索'),
                       ),
@@ -296,7 +296,7 @@ class _DetailDirectorySheetState extends State<DetailDirectorySheet> {
                             child: Text(
                               chapter.volumeName,
                               style: TextStyle(
-                                color: palette.accentText,
+                                color: moyiGold,
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600,
                                 height: 1.5,

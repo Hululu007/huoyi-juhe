@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/media_item.dart';
 import '../home/home_design.dart';
+import '../series_detail/moyi_detail_theme.dart';
 
 /// One row of the 目录 preview.
 ///
@@ -27,7 +28,6 @@ class DetailChapterRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = HomePalette.of(context);
     final label = current ? '读到这里' : (read ? '已读' : null);
     return Semantics(
       selected: current,
@@ -40,7 +40,7 @@ class DetailChapterRow extends StatelessWidget {
             padding: const EdgeInsets.symmetric(vertical: 9),
             decoration: BoxDecoration(
               border: divider
-                  ? Border(bottom: BorderSide(color: palette.line))
+                  ? Border(bottom: BorderSide(color: moyiDarkCardBorder))
                   : null,
             ),
             child: Row(
@@ -51,7 +51,7 @@ class DetailChapterRow extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: current ? palette.accentText : palette.ink,
+                      color: current ? moyiGold : Colors.white,
                       fontSize: 13,
                       fontWeight: current ? FontWeight.w500 : FontWeight.w400,
                       height: 1.5,
@@ -63,7 +63,7 @@ class DetailChapterRow extends StatelessWidget {
                   Text(
                     label,
                     style: TextStyle(
-                      color: current ? palette.accentText : palette.muted,
+                      color: current ? moyiGold : moyiMutedOnDark,
                       fontSize: 13,
                       fontWeight: current ? FontWeight.w500 : FontWeight.w400,
                       height: 1.5,

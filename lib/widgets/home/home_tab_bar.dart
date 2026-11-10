@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../tab_swipe_area.dart';
 import 'home_design.dart';
+import '../series_detail/moyi_detail_theme.dart';
 
 class HomeCategory {
   final String label;
@@ -120,7 +121,10 @@ class HomeTabBarDelegate extends SliverPersistentHeaderDelegate {
       // 分类条也钉在屏幕上：横滑时应该只有内容在走（短剧页的顶栏就在滑动区
       // 外面）。否则它会连内容一起移出 68% 屏宽再滑回，看起来像整页换掉。
       child: DecoratedBox(
-        decoration: BoxDecoration(color: palette.canvas),
+        decoration: BoxDecoration(
+          gradient: dark ? moyiPageGradient : null,
+          color: dark ? null : palette.canvas,
+        ),
         child: Padding(
           padding: const EdgeInsets.only(bottom: bottomPadding),
           child: SizedBox(
@@ -196,7 +200,9 @@ class HomeTabBarDelegate extends SliverPersistentHeaderDelegate {
   TextStyle _labelStyle(bool selected, HomePalette palette) => TextStyle(
     fontSize: selected ? selectedSize : unselectedSize,
     fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-    color: selected ? palette.ink : palette.muted,
+    color: selected
+        ? (dark ? Colors.white : palette.ink)
+        : (dark ? moyiMutedOnDark : palette.muted),
     height: 1,
   );
 
@@ -242,7 +248,9 @@ class HomeTabBarDelegate extends SliverPersistentHeaderDelegate {
                 width: 16,
                 height: 2.5,
                 decoration: BoxDecoration(
-                  color: selected ? palette.ink : Colors.transparent,
+                  color: selected
+                      ? (dark ? moyiGold : palette.ink)
+                      : Colors.transparent,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),

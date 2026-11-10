@@ -7,6 +7,7 @@ import 'package:flutter_lucide/flutter_lucide.dart';
 import '../../models/book_comment.dart' show formatCount;
 import '../../models/media_item.dart';
 import '../home/home_design.dart';
+import '../series_detail/moyi_detail_theme.dart';
 import 'playlet_comment_panel.dart';
 import 'playlet_reply_panel.dart' show PlayletReplyPageLoader;
 import 'story_player_panel.dart';
@@ -188,28 +189,28 @@ class _PlayerSplitPanelState extends State<PlayerSplitPanel> {
         : const BorderRadius.vertical(top: Radius.circular(14));
     return Theme(
       data: ThemeData(
-        brightness: palette.dark ? Brightness.dark : Brightness.light,
+        brightness: Brightness.dark,
         useMaterial3: true,
       ),
       child: Material(
         key: const ValueKey('player-split-panel'),
-        color: palette.canvas,
+        color: Colors.transparent,
         shape: RoundedRectangleBorder(
           borderRadius: radius,
-          side: palette.dark
-              ? BorderSide(color: palette.line.withValues(alpha: .8), width: .8)
-              : BorderSide.none,
+          side: const BorderSide(color: moyiDarkCardBorder, width: .8),
         ),
         clipBehavior: Clip.antiAlias,
-        child: Column(
+        child: MoyiPageBackground(
+          child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // Tab 行是面板唯一的固定层；剧信息与选集都跟着「简介」页
             // 滚动，评论页只剩 Tab 行，垂直空间比原来多出一整个头部。
             _tabs(palette),
-            Divider(height: 1, color: palette.line.withValues(alpha: .7)),
+            Divider(height: 1, color: moyiDarkCardBorder),
             Expanded(child: _body(palette, sideBySide, largeText)),
           ],
+          ),
         ),
       ),
     );
@@ -264,7 +265,7 @@ class _PlayerSplitPanelState extends State<PlayerSplitPanel> {
                               style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
-                                color: palette.ink,
+                                color: Colors.white,
                                 height: 1.25,
                               ),
                             ),
@@ -275,7 +276,7 @@ class _PlayerSplitPanelState extends State<PlayerSplitPanel> {
                               child: Icon(
                                 LucideIcons.chevron_right,
                                 size: 18,
-                                color: palette.muted,
+                                color: moyiMutedOnDark,
                               ),
                             ),
                         ],
@@ -287,7 +288,7 @@ class _PlayerSplitPanelState extends State<PlayerSplitPanel> {
                         meta,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: 12.5, color: palette.muted),
+                        style: TextStyle(fontSize: 12.5, color: moyiMutedOnDark),
                       ),
                     ],
                     if (widget.synopsis.isNotEmpty) ...[
@@ -305,7 +306,7 @@ class _PlayerSplitPanelState extends State<PlayerSplitPanel> {
                           style: TextStyle(
                             fontSize: 12.5,
                             height: 1.35,
-                            color: palette.body,
+                            color: moyiBodyOnDark,
                           ),
                         ),
                       ),
@@ -370,13 +371,13 @@ class _PlayerSplitPanelState extends State<PlayerSplitPanel> {
         width: width,
         height: height,
         decoration: BoxDecoration(
-          color: palette.dark ? palette.soft : const Color(0xFFEDEDF0),
+          color: moyiDarkCardFill,
           borderRadius: BorderRadius.circular(6),
         ),
         child: Icon(
           LucideIcons.clapperboard,
           size: 22,
-          color: palette.dark ? palette.muted : const Color(0xFF9499A0),
+          color: moyiMutedOnDark,
         ),
       );
 
@@ -385,7 +386,7 @@ class _PlayerSplitPanelState extends State<PlayerSplitPanel> {
         key: ValueKey('player-split-action-$label'),
         onPressed: onPressed,
         style: TextButton.styleFrom(
-          foregroundColor: palette.accentText,
+          foregroundColor: moyiGold,
           padding: const EdgeInsets.symmetric(horizontal: 8),
           minimumSize: const Size(0, 34),
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -441,7 +442,7 @@ class _PlayerSplitPanelState extends State<PlayerSplitPanel> {
           decoration: BoxDecoration(
             border: Border(
               bottom: BorderSide(
-                color: selected ? palette.accentText : Colors.transparent,
+                color: selected ? moyiGold : Colors.transparent,
                 width: 2,
               ),
             ),
@@ -451,7 +452,7 @@ class _PlayerSplitPanelState extends State<PlayerSplitPanel> {
             style: TextStyle(
               fontSize: 14,
               fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-              color: selected ? palette.ink : palette.muted,
+              color: selected ? Colors.white : moyiMutedOnDark,
             ),
           ),
         ),
@@ -562,7 +563,7 @@ class _PlayerSplitPanelState extends State<PlayerSplitPanel> {
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.bold,
-              color: palette.ink,
+              color: Colors.white,
             ),
           ),
           const SizedBox(width: 8),
@@ -575,7 +576,7 @@ class _PlayerSplitPanelState extends State<PlayerSplitPanel> {
               textAlign: TextAlign.right,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 12, color: palette.muted),
+              style: TextStyle(fontSize: 12, color: moyiMutedOnDark),
             ),
           ),
         ],

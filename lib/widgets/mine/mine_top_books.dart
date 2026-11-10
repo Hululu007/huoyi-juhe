@@ -5,11 +5,11 @@ import 'package:flutter_lucide/flutter_lucide.dart';
 import '../../models/media_item.dart';
 import '../../models/reading_stats.dart';
 import '../../services/poster_cache.dart';
-import '../home/home_cell_blocks.dart';
 import '../home/home_design.dart';
 import '../home/home_media_card.dart';
 import '../home/home_shelf.dart';
 import '../home/home_sheet.dart';
+import '../series_detail/moyi_detail_theme.dart';
 
 typedef MineOpenEntry = void Function(Map<String, dynamic> entry);
 
@@ -29,12 +29,31 @@ class MineTopBooks extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        HomeSectionHeader(
+        _MineSectionHeader(
           title: '读得最多',
           action: rank.length > previewCount
-              ? HomeBlockMore(
-                  label: '全部',
+              ? GestureDetector(
                   onTap: () => showMineRankSheet(context, rank, onOpen),
+                  behavior: HitTestBehavior.opaque,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '全部',
+                        style: TextStyle(
+                          fontSize: 12,
+                          height: 1.2,
+                          color: palette.eink ? palette.muted : moyiMutedOnDark,
+                        ),
+                      ),
+                      const SizedBox(width: 2),
+                      Icon(
+                        LucideIcons.chevron_right,
+                        size: 13,
+                        color: palette.eink ? palette.muted : moyiMutedOnDark,
+                      ),
+                    ],
+                  ),
                 )
               : null,
         ),
@@ -43,7 +62,11 @@ class MineTopBooks extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: homeGutter),
             child: Text(
               '读过的书会按时长排在这里',
-              style: TextStyle(fontSize: 13, height: 1.4, color: palette.muted),
+              style: TextStyle(
+                fontSize: 13,
+                height: 1.4,
+                color: palette.eink ? palette.muted : moyiMutedOnDark,
+              ),
             ),
           )
         else
@@ -54,6 +77,47 @@ class MineTopBooks extends StatelessWidget {
               onTap: () => onOpen(rank[i].entry),
             ),
       ],
+    );
+  }
+}
+
+/// 我的页分区头：与首页 HomeSectionHeader 同版式（19sp w700），
+/// 只把标题色换成深底白字——共享头走 palette.ink，浅色下在深紫渐变
+/// 底上读不清，这里不改共享组件，本地画一个。
+class _MineSectionHeader extends StatelessWidget {
+  final String title;
+  final Widget? action;
+
+  const _MineSectionHeader({required this.title, this.action});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        homeGutter,
+        homeSectionGap,
+        homeGutter,
+        homeHeaderGap,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 19,
+                height: 1.25,
+                fontWeight: FontWeight.w700,
+                letterSpacing: -0.3,
+                color: Colors.white,
+              ),
+            ),
+          ),
+          action ?? const SizedBox.shrink(),
+        ],
+      ),
     );
   }
 }
@@ -115,7 +179,9 @@ class MineRankRow extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w700,
-                  color: rank <= 3 ? palette.accentText : palette.muted,
+                  color: rank <= 3
+                      ? (palette.eink ? palette.accentText : moyiGold)
+                      : (palette.eink ? palette.muted : moyiMutedOnDark),
                   fontFeatures: const [FontFeature.tabularFigures()],
                 ),
               ),
@@ -134,7 +200,7 @@ class MineRankRow extends StatelessWidget {
                       fontSize: 14,
                       height: 1.3,
                       fontWeight: FontWeight.w600,
-                      color: palette.ink,
+                      color: palette.eink ? palette.ink : Colors.white,
                     ),
                   ),
                   const SizedBox(height: 3),
@@ -145,7 +211,7 @@ class MineRankRow extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 12,
                       height: 1.3,
-                      color: palette.muted,
+                      color: palette.eink ? palette.muted : moyiMutedOnDark,
                     ),
                   ),
                 ],
@@ -157,7 +223,7 @@ class MineRankRow extends StatelessWidget {
               style: TextStyle(
                 fontSize: 12,
                 height: 1.3,
-                color: palette.muted,
+                color: palette.eink ? palette.muted : moyiMutedOnDark,
                 fontFeatures: const [FontFeature.tabularFigures()],
               ),
             ),
@@ -196,8 +262,12 @@ class _Cover extends StatelessWidget {
     final placeholder = Container(
       width: _width,
       height: _height,
-      color: palette.soft,
-      child: Icon(LucideIcons.book_open, size: 16, color: palette.muted),
+      color: palette.eink ? palette.soft : moyiDarkCardFill,
+      child: Icon(
+        LucideIcons.book_open,
+        size: 16,
+        color: palette.eink ? palette.muted : moyiMutedOnDark,
+      ),
     );
     return ClipRRect(
       borderRadius: BorderRadius.circular(4),

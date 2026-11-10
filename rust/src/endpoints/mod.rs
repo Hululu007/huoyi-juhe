@@ -123,6 +123,24 @@ pub struct Ctx {
     pub cfg: Arc<Config>,
     pub src_dir: String,
     pub filters: Arc<FilterManager>,
+    /// Port the loopback adapter actually bound (0 = not bound yet).
+    ///
+    /// Set by `init_core` right after `serve` succeeds. Endpoints that
+    /// build loopback URLs (e.g. the hongguo audio relay) must use
+    /// [Ctx::loopback_port] instead of `cfg.port`, or they keep pointing
+    /// at the configured port when the core fell back to an ephemeral one.
+    pub bound_port: std::sync::atomic::AtomicU16,
+}
+
+impl Ctx {
+    /// Port to advertise in loopback URLs: the actually-bound port when
+    /// known, else the configured port (see `config::effective_port`).
+    pub fn loopback_port(&self) -> u16 {
+        crate::config::effective_port(
+            self.cfg.port,
+            self.bound_port.load(std::sync::atomic::Ordering::Relaxed),
+        )
+    }
 }
 
 pub type Handler = for<'a> fn(&'a Ctx, &'a Params) -> BoxFuture<'a, ApiResult<Value>>;

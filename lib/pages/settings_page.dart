@@ -19,8 +19,8 @@ import '../services/file_text_picker.dart';
 import '../services/book_open_preferences.dart';
 import '../services/drama_mute_preferences.dart';
 import '../services/library_store.dart';
-import '../widgets/home/home_design.dart';
 import '../widgets/settings/settings_widgets.dart';
+import '../widgets/series_detail/moyi_detail_theme.dart';
 import 'api_service_page.dart';
 import 'cached_books_page.dart';
 import 'cached_dramas_page.dart';
@@ -273,7 +273,11 @@ class SettingsPage extends StatelessWidget {
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) => AlertDialog(
-          title: Text(jsonOnly ? 'JSON 书源导入' : '书源导入'),
+          backgroundColor: moyiSheetFill,
+          title: Text(
+            jsonOnly ? 'JSON 书源导入' : '书源导入',
+            style: const TextStyle(color: Colors.white),
+          ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -296,16 +300,19 @@ class SettingsPage extends StatelessWidget {
               const SizedBox(height: 8),
               Text(
                 pickedName.isEmpty ? '未选择文件' : '已选：$pickedName',
-                style: const TextStyle(fontSize: 12, color: Colors.grey),
+                style: const TextStyle(fontSize: 12, color: moyiMutedOnDark),
               ),
               if (!jsonOnly) ...[
                 const SizedBox(height: 12),
                 TextField(
                   controller: urlController,
                   keyboardType: TextInputType.url,
+                  style: const TextStyle(color: Colors.white),
                   decoration: const InputDecoration(
                     labelText: '远程书源地址',
                     hintText: '粘贴远程书源地址 http(s)://…',
+                    labelStyle: TextStyle(color: moyiMutedOnDark),
+                    hintStyle: TextStyle(color: moyiMutedOnDark),
                     border: OutlineInputBorder(),
                   ),
                   onChanged: (_) => setDialogState(() {}),
@@ -316,6 +323,7 @@ class SettingsPage extends StatelessWidget {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
+              style: TextButton.styleFrom(foregroundColor: moyiBodyOnDark),
               child: const Text('取消'),
             ),
             FilledButton(
@@ -387,16 +395,15 @@ class SettingsPage extends StatelessWidget {
     trailingBuilder: (context) => ListenableBuilder(
       listenable: Listenable.merge([themeModeNotifier, einkModeNotifier]),
       builder: (context, _) {
-        final palette = HomePalette.of(context);
         return Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
               _appearance.label,
-              style: TextStyle(fontSize: 13, color: palette.muted),
+              style: TextStyle(fontSize: 13, color: moyiMutedOnDark),
             ),
             const SizedBox(width: 4),
-            Icon(LucideIcons.chevron_right, size: 18, color: palette.muted),
+            Icon(LucideIcons.chevron_right, size: 18, color: moyiMutedOnDark),
           ],
         );
       },
@@ -422,7 +429,8 @@ class SettingsPage extends StatelessWidget {
     final selected = await showDialog<_AppearanceChoice>(
       context: context,
       builder: (c) => SimpleDialog(
-        title: const Text('主题模式'),
+        backgroundColor: moyiSheetFill,
+        title: const Text('主题模式', style: TextStyle(color: Colors.white)),
         children: [
           RadioGroup<_AppearanceChoice>(
             groupValue: _appearance,
@@ -435,9 +443,15 @@ class SettingsPage extends StatelessWidget {
                 for (final choice in _AppearanceChoice.values)
                   RadioListTile<_AppearanceChoice>(
                     value: choice,
-                    title: Text(choice.label),
+                    title: Text(
+                      choice.label,
+                      style: const TextStyle(color: Colors.white),
+                    ),
                     subtitle: choice == _AppearanceChoice.eink
-                        ? const Text('纯黑白、无毛玻璃、无过渡动画，适合墨水屏设备')
+                        ? const Text(
+                            '纯黑白、无毛玻璃、无过渡动画，适合墨水屏设备',
+                            style: TextStyle(color: moyiMutedOnDark),
+                          )
                         : null,
                   ),
               ],
@@ -538,7 +552,7 @@ class SettingsPage extends StatelessWidget {
             decoration: BoxDecoration(
               color: color,
               shape: BoxShape.circle,
-              border: Border.all(color: Theme.of(context).dividerColor),
+              border: Border.all(color: moyiDarkCardBorder),
             ),
           );
         }
@@ -561,15 +575,19 @@ class SettingsPage extends StatelessWidget {
     final pick = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('背景主题'),
+        backgroundColor: moyiSheetFill,
+        title: const Text('背景主题', style: TextStyle(color: Colors.white)),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               ListTile(
-                leading: const Icon(LucideIcons.ban),
-                title: const Text('默认'),
-                subtitle: const Text('跟随主题画布'),
+                leading: const Icon(LucideIcons.ban, color: moyiBodyOnDark),
+                title: const Text('默认', style: TextStyle(color: Colors.white)),
+                subtitle: const Text(
+                  '跟随主题画布',
+                  style: TextStyle(color: moyiMutedOnDark),
+                ),
                 onTap: () => Navigator.pop(context, 'default'),
               ),
               for (final preset in presets)
@@ -582,12 +600,15 @@ class SettingsPage extends StatelessWidget {
                       shape: BoxShape.circle,
                     ),
                   ),
-                  title: Text(preset.name),
+                  title: Text(
+                    preset.name,
+                    style: const TextStyle(color: Colors.white),
+                  ),
                   onTap: () => Navigator.pop(context, preset.id),
                 ),
               ListTile(
-                leading: const Icon(LucideIcons.image),
-                title: const Text('从相册选图'),
+                leading: const Icon(LucideIcons.image, color: moyiBodyOnDark),
+                title: const Text('从相册选图', style: TextStyle(color: Colors.white)),
                 onTap: () => Navigator.pop(context, 'custom'),
               ),
             ],
@@ -655,16 +676,15 @@ class SettingsPage extends StatelessWidget {
     trailingBuilder: (context) => ValueListenableBuilder<PlayerLayoutMode>(
       valueListenable: PlayerLayoutPreferences.mode,
       builder: (context, value, _) {
-        final palette = HomePalette.of(context);
         return Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
               value.shortLabel,
-              style: TextStyle(fontSize: 13, color: palette.muted),
+              style: TextStyle(fontSize: 13, color: moyiMutedOnDark),
             ),
             const SizedBox(width: 4),
-            Icon(LucideIcons.chevron_right, size: 18, color: palette.muted),
+            Icon(LucideIcons.chevron_right, size: 18, color: moyiMutedOnDark),
           ],
         );
       },
@@ -677,7 +697,8 @@ class SettingsPage extends StatelessWidget {
     final selected = await showDialog<PlayerLayoutMode>(
       context: context,
       builder: (dialogContext) => SimpleDialog(
-        title: const Text('播放页布局'),
+        backgroundColor: moyiSheetFill,
+        title: const Text('播放页布局', style: TextStyle(color: Colors.white)),
         children: [
           RadioGroup<PlayerLayoutMode>(
             groupValue: current,
@@ -690,8 +711,14 @@ class SettingsPage extends StatelessWidget {
                 for (final mode in PlayerLayoutMode.values)
                   RadioListTile<PlayerLayoutMode>(
                     value: mode,
-                    title: Text(mode.label),
-                    subtitle: Text(mode.description),
+                    title: Text(
+                      mode.label,
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                    subtitle: Text(
+                      mode.description,
+                      style: const TextStyle(color: moyiMutedOnDark),
+                    ),
                   ),
               ],
             ),
@@ -839,16 +866,15 @@ class SettingsPage extends StatelessWidget {
     trailingBuilder: (context) => ValueListenableBuilder<AudioRateEngine>(
       valueListenable: AudioPreferences.instance.rateEngine,
       builder: (context, value, _) {
-        final palette = HomePalette.of(context);
         return Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
               value.label,
-              style: TextStyle(fontSize: 13, color: palette.muted),
+              style: TextStyle(fontSize: 13, color: moyiMutedOnDark),
             ),
             const SizedBox(width: 4),
-            Icon(LucideIcons.chevron_right, size: 18, color: palette.muted),
+            Icon(LucideIcons.chevron_right, size: 18, color: moyiMutedOnDark),
           ],
         );
       },
@@ -864,7 +890,8 @@ class SettingsPage extends StatelessWidget {
     final selected = await showDialog<AudioRateEngine>(
       context: context,
       builder: (c) => SimpleDialog(
-        title: const Text('听书变速引擎'),
+        backgroundColor: moyiSheetFill,
+        title: const Text('听书变速引擎', style: TextStyle(color: Colors.white)),
         children: [
           RadioGroup<AudioRateEngine>(
             groupValue: current,
@@ -877,14 +904,17 @@ class SettingsPage extends StatelessWidget {
                 for (final value in AudioRateEngine.values)
                   RadioListTile<AudioRateEngine>(
                     value: value,
-                    title: Text(value.label),
+                    title: Text(
+                      value.label,
+                      style: const TextStyle(color: Colors.white),
+                    ),
                     subtitle: Text(switch (value) {
                       AudioRateEngine.wsola =>
                         '与番茄官方同一套算法（FFmpeg atempo），高倍速听感最接近原声',
                       AudioRateEngine.platform => '系统混音器变速，不依赖本应用的 native 库',
                       AudioRateEngine.builtIn =>
                         'Media3 内建 Sonic，最稳（默认，1.0.121 的行为）',
-                    }),
+                    }, style: const TextStyle(color: moyiMutedOnDark)),
                   ),
               ],
             ),
@@ -931,16 +961,15 @@ class SettingsPage extends StatelessWidget {
     trailingBuilder: (context) => FutureBuilder<VideoDecoderPreference>(
       future: PlayerPreferences.loadVideoDecoder(),
       builder: (context, snapshot) {
-        final palette = HomePalette.of(context);
         return Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
               (snapshot.data ?? VideoDecoderPreference.automatic).label,
-              style: TextStyle(fontSize: 13, color: palette.muted),
+              style: TextStyle(fontSize: 13, color: moyiMutedOnDark),
             ),
             const SizedBox(width: 4),
-            Icon(LucideIcons.chevron_right, size: 18, color: palette.muted),
+            Icon(LucideIcons.chevron_right, size: 18, color: moyiMutedOnDark),
           ],
         );
       },
@@ -957,7 +986,8 @@ class SettingsPage extends StatelessWidget {
     final selected = await showDialog<VideoDecoderPreference>(
       context: context,
       builder: (c) => SimpleDialog(
-        title: const Text('视频解码器'),
+        backgroundColor: moyiSheetFill,
+        title: const Text('视频解码器', style: TextStyle(color: Colors.white)),
         children: [
           RadioGroup<VideoDecoderPreference>(
             groupValue: current,
@@ -970,9 +1000,15 @@ class SettingsPage extends StatelessWidget {
                 for (final value in VideoDecoderPreference.values)
                   RadioListTile<VideoDecoderPreference>(
                     value: value,
-                    title: Text(value.label),
+                    title: Text(
+                      value.label,
+                      style: const TextStyle(color: Colors.white),
+                    ),
                     subtitle: value == VideoDecoderPreference.software
-                        ? const Text('更耗电，但能绕开部分芯片的硬解缺陷')
+                        ? const Text(
+                            '更耗电，但能绕开部分芯片的硬解缺陷',
+                            style: TextStyle(color: moyiMutedOnDark),
+                          )
                         : null,
                   ),
               ],

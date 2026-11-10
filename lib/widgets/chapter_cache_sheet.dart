@@ -8,6 +8,7 @@ import '../services/chapter_cache_store.dart';
 import '../services/chapter_download.dart';
 import '../services/reader_preferences.dart';
 import 'home/home_sheet.dart';
+import 'series_detail/moyi_detail_theme.dart';
 import 'reader/settings/reader_settings_widgets.dart';
 
 /// 章节缓存面板的外壳：听书页用通用 HomeSheetFrame，阅读器用阅读设置面板
@@ -160,18 +161,25 @@ class _ChapterCacheSheetState extends State<ChapterCacheSheet> {
         if (remaining > 0) remaining < count ? remaining : count,
     };
     return [
-      Text(widget.book.title),
+      Text(
+        widget.book.title,
+        style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
+      ),
       const SizedBox(height: 6),
-      Text('已缓存 $cachedCount / ${widget.book.chapters.length} 章'),
+      Text(
+        '已缓存 $cachedCount / ${widget.book.chapters.length} 章',
+        style: const TextStyle(color: moyiBodyOnDark),
+      ),
       const SizedBox(height: 16),
       Text(
         widget.includeCurrentChapter
             ? '从当前章节开始缓存，已有缓存会自动复用。插图首次查看需要联网，显示后会自动缓存。'
             : '阅读过的章节会自动保存，也可提前缓存后续章节。插图首次查看需要联网，显示后会自动缓存。',
+        style: const TextStyle(color: moyiBodyOnDark),
       ),
       const SizedBox(height: 16),
       if (remaining == 0)
-        const Text('当前已是最后一章')
+        const Text('当前已是最后一章', style: TextStyle(color: moyiBodyOnDark))
       else ...[
         Wrap(
           spacing: 8,
@@ -211,19 +219,25 @@ class _ChapterCacheSheetState extends State<ChapterCacheSheet> {
         const SizedBox(height: 16),
         LinearProgressIndicator(value: state.fraction),
         const SizedBox(height: 8),
-        Text('正在缓存 ${state.completed} / ${state.total} 章'),
+        Text(
+          '正在缓存 ${state.completed} / ${state.total} 章',
+          style: const TextStyle(color: moyiBodyOnDark),
+        ),
         TextButton.icon(
           onPressed: _cancel,
           icon: const Icon(LucideIcons.circle_stop),
           label: const Text('停止缓存'),
         ),
       ],
-      if (message != null) ...[const SizedBox(height: 12), Text(message)],
+      if (message != null) ...[
+        const SizedBox(height: 12),
+        Text(message, style: const TextStyle(color: moyiBodyOnDark)),
+      ],
       const SizedBox(height: 12),
       Text(
         '关闭此面板会停止下载。「全部下载」的章节会一直保留；自动缓存的章节最多保留 '
         '$capacity 章或 80 MB，超出后清理较久未读的。',
-        style: Theme.of(context).textTheme.bodySmall,
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(color: moyiMutedOnDark),
       ),
       if (widget.extraSection != null) widget.extraSection!,
     ];

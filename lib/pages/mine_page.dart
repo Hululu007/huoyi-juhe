@@ -8,13 +8,13 @@ import '../models/reading_stats.dart';
 import '../services/book_open_preferences.dart';
 import '../services/library_store.dart';
 import '../services/media_history_store.dart';
-import '../widgets/home/home_design.dart';
 import '../widgets/home/home_shelf.dart';
 import '../widgets/mine/cultivation_profile_card.dart';
 import '../widgets/mine/mine_entries.dart';
 import '../widgets/mine/mine_heatmap.dart';
 import '../widgets/mine/mine_summary.dart';
 import '../widgets/mine/mine_top_books.dart';
+import '../widgets/series_detail/moyi_detail_theme.dart';
 import 'cultivation_titles_page.dart';
 import 'detail_page.dart';
 import 'settings_page.dart';
@@ -118,16 +118,16 @@ class _MinePageState extends State<MinePage> {
 
   @override
   Widget build(BuildContext context) {
-    final palette = HomePalette.of(context);
     final today = DateUtils.dateOnly(DateTime.now());
     return Scaffold(
-      backgroundColor: palette.canvas,
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: const Text('我的'),
         centerTitle: false,
-        backgroundColor: palette.canvas,
+        backgroundColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
         scrolledUnderElevation: 0,
+        foregroundColor: Colors.white,
         actions: [
           IconButton(
             tooltip: '应用设置',
@@ -141,24 +141,28 @@ class _MinePageState extends State<MinePage> {
         ],
       ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : ListView(
-              padding: EdgeInsets.only(bottom: homeBottomClearance(context)),
-              children: [
-                CultivationProfileCard(
-                  totalTitles: _totalTitles,
-                  onOpenTitles: () => Navigator.push(
-                    context,
-                    MaterialPageRoute<void>(
-                      builder: (_) => const CultivationTitlesPage(),
+          ? const MoyiPageBackground(
+              child: Center(child: CircularProgressIndicator()),
+            )
+          : MoyiPageBackground(
+              child: ListView(
+                padding: EdgeInsets.only(bottom: homeBottomClearance(context)),
+                children: [
+                  CultivationProfileCard(
+                    totalTitles: _totalTitles,
+                    onOpenTitles: () => Navigator.push(
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (_) => const CultivationTitlesPage(),
+                      ),
                     ),
                   ),
-                ),
-                MineSummary(stats: _stats, today: today),
-                MineHeatmap(stats: _stats, today: today),
-                MineTopBooks(rank: _stats.rank, onOpen: _openEntry),
-                const MineEntries(),
-              ],
+                  MineSummary(stats: _stats, today: today),
+                  MineHeatmap(stats: _stats, today: today),
+                  MineTopBooks(rank: _stats.rank, onOpen: _openEntry),
+                  const MineEntries(),
+                ],
+              ),
             ),
     );
   }

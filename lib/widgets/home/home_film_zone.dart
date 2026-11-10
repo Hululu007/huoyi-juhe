@@ -9,7 +9,7 @@ import '../../services/cultivation.dart';
 import '../../services/drama_site_content.dart';
 import '../../services/drama_site_play.dart';
 import '../../services/source_registry.dart';
-import 'home_design.dart';
+import '../series_detail/moyi_detail_theme.dart';
 import 'home_feed_states.dart';
 import 'home_media_card.dart';
 import 'home_shelf.dart';
@@ -83,10 +83,11 @@ class _HomeFilmZoneState extends State<HomeFilmZone> {
   List<({String id, String name, String kind})> get _pool {
     final sites =
         widget.sites ??
-        visibleFilmZoneSites(
-          CultivationService.instance.snapshot.totalXp,
-        );
-    return [for (final site in sites) if (site.kind == 'video') site];
+        visibleFilmZoneSites(CultivationService.instance.snapshot.totalXp);
+    return [
+      for (final site in sites)
+        if (site.kind == 'video') site,
+    ];
   }
 
   List<({String id, String name, String kind})> get _window {
@@ -95,8 +96,7 @@ class _HomeFilmZoneState extends State<HomeFilmZone> {
     if (pool.length <= _filmWindowSize) return pool;
     final start = _windowStart % pool.length;
     return [
-      for (var i = 0; i < _filmWindowSize; i++)
-        pool[(start + i) % pool.length],
+      for (var i = 0; i < _filmWindowSize; i++) pool[(start + i) % pool.length],
     ];
   }
 
@@ -174,9 +174,9 @@ class _HomeFilmZoneState extends State<HomeFilmZone> {
           categoryId = categories.first.id;
         }
       } catch (_) {}
-      final page = await client.catalog(categoryId, 1).timeout(
-        ApiClient.dramaCatalogTimeout + _clientTimeoutMargin,
-      );
+      final page = await client
+          .catalog(categoryId, 1)
+          .timeout(ApiClient.dramaCatalogTimeout + _clientTimeoutMargin);
       return _FilmSiteItems(
         siteId: site.id,
         items: page.items.take(_filmItemsPerSite).toList(),
@@ -229,7 +229,6 @@ class _HomeFilmZoneState extends State<HomeFilmZone> {
   @override
   Widget build(BuildContext context) {
     final pool = _pool;
-    final palette = HomePalette.of(context);
     const columns = 3;
     final cardWidth =
         (widget.gridWidth - (columns - 1) * homeGridGap) / columns;
@@ -247,7 +246,10 @@ class _HomeFilmZoneState extends State<HomeFilmZone> {
           const SliverToBoxAdapter(
             child: Padding(
               padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: Text('暂无可显示的影视站'),
+              child: Text(
+                '暂无可显示的影视站',
+                style: TextStyle(color: moyiMutedOnDark),
+              ),
             ),
           )
         else if (_loading && !_loaded)
@@ -262,9 +264,8 @@ class _HomeFilmZoneState extends State<HomeFilmZone> {
                   // 全失败（超时/报错）与全回空是两回事：前者说取不到、
                   // 后者如实说暂无内容，不把空列表说成取不到。
                   Text(
-                    _failed > 0
-                        ? '推荐影视暂时取不到，稍后再试一次。'
-                        : '推荐影视暂无内容。',
+                    _failed > 0 ? '推荐影视暂时取不到，稍后再试一次。' : '推荐影视暂无内容。',
+                    style: TextStyle(color: moyiMutedOnDark),
                   ),
                   const SizedBox(height: 8),
                   OutlinedButton(
@@ -284,11 +285,7 @@ class _HomeFilmZoneState extends State<HomeFilmZone> {
                   crossAxisCount: columns,
                   crossAxisSpacing: homeGridGap,
                   mainAxisSpacing: 20,
-                  mainAxisExtent: homeCardExtent(
-                    context,
-                    cardWidth,
-                    scaler,
-                  ),
+                  mainAxisExtent: homeCardExtent(context, cardWidth, scaler),
                 ),
                 delegate: SliverChildBuilderDelegate((context, index) {
                   final item = section.items[index];
@@ -303,11 +300,8 @@ class _HomeFilmZoneState extends State<HomeFilmZone> {
                       kind: 'film',
                     ),
                     coverWidth: cardWidth,
-                    onTap: () => openDramaSiteItem(
-                      context,
-                      section.siteId,
-                      item,
-                    ),
+                    onTap: () =>
+                        openDramaSiteItem(context, section.siteId, item),
                   );
                 }, childCount: section.items.length),
               ),
@@ -321,10 +315,7 @@ class _HomeFilmZoneState extends State<HomeFilmZone> {
                     Expanded(
                       child: Text(
                         '$_failed 个站取不到，已跳过',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: palette.muted,
-                        ),
+                        style: TextStyle(fontSize: 12, color: moyiMutedOnDark),
                       ),
                     )
                   else
