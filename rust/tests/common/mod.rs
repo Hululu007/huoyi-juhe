@@ -136,6 +136,7 @@ pub async fn build_server_with_config(
         cfg: Arc::new(cfg),
         src_dir: root.join("src").to_string_lossy().into_owned(),
         filters,
+        bound_port: std::sync::atomic::AtomicU16::new(0),
     })))
 }
 
