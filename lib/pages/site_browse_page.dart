@@ -5,6 +5,7 @@ import '../services/drama_sites.dart';
 import '../services/m3u_export_db.dart';
 import '../services/source_registry.dart';
 import '../widgets/home/drama_site_grid.dart';
+import '../widgets/series_detail/moyi_detail_theme.dart';
 
 /// 分类回退：没分类就只留“全部”。
 List<DramaSiteCategory> browseCategories(List<DramaSiteCategory> raw) {
@@ -35,7 +36,10 @@ List<DramaSiteCategory> browseChildren(
   List<DramaSiteCategory> categories,
   String parentId,
 ) {
-  return [for (final c in categories) if (c.parentId == parentId) c];
+  return [
+    for (final c in categories)
+      if (c.parentId == parentId) c,
+  ];
 }
 
 /// 从顶级到选中分类的路径（含选中本身）；选中不在表里时为空。
@@ -148,59 +152,63 @@ class _SiteBrowsePageState extends State<SiteBrowsePage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.siteName),
-        actions: [
-        ],
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _client == null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text(_error ?? '该站源当前不可用'),
+    return MoyiPageBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          foregroundColor: Colors.white,
+          title: Text(widget.siteName),
+          actions: [],
+        ),
+        body: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _client == null
+            ? Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text(
+                    _error ?? '该站源当前不可用',
+                    style: const TextStyle(color: Colors.white),
                   ),
-                )
-              : LayoutBuilder(
-                  builder: (context, constraints) {
-                    return CustomScrollView(
-                      slivers: [
-                        SliverToBoxAdapter(child: _categoryChips()),
-                        if (_error != null)
-                          SliverToBoxAdapter(
-                            child: Padding(
-                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                              child: Text(
-                                _error!,
-                                style: TextStyle(
-                                  color: Theme.of(context).colorScheme.error,
-                                ),
+                ),
+              )
+            : LayoutBuilder(
+                builder: (context, constraints) {
+                  return CustomScrollView(
+                    slivers: [
+                      SliverToBoxAdapter(child: _categoryChips()),
+                      if (_error != null)
+                        SliverToBoxAdapter(
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                            child: Text(
+                              _error!,
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.error,
                               ),
                             ),
                           ),
-                        DramaSiteGrid(
-                          key: ValueKey(
-                            'browse-${widget.siteId}-$_selectedId',
-                          ),
-                          siteId: widget.siteId,
-                          categoryId: _selectedId,
-                          gridWidth: constraints.maxWidth,
-                          client: _client,
-                          autoSaveToDb: true,
-                          browseCategory: _categories.firstWhere(
-                            (c) => c.id == _selectedId,
-                            orElse: () =>
-                                DramaSiteCategory(_selectedId, _selectedId),
-                          ),
-                          dbSink:
-                              widget.dbSink ?? HiveM3uExportDb.instance,
                         ),
-                      ],
-                    );
-                  },
-                ),
+                      DramaSiteGrid(
+                        key: ValueKey('browse-${widget.siteId}-$_selectedId'),
+                        siteId: widget.siteId,
+                        categoryId: _selectedId,
+                        gridWidth: constraints.maxWidth,
+                        client: _client,
+                        autoSaveToDb: true,
+                        browseCategory: _categories.firstWhere(
+                          (c) => c.id == _selectedId,
+                          orElse: () =>
+                              DramaSiteCategory(_selectedId, _selectedId),
+                        ),
+                        dbSink: widget.dbSink ?? HiveM3uExportDb.instance,
+                      ),
+                    ],
+                  );
+                },
+              ),
+      ),
     );
   }
 
@@ -220,6 +228,13 @@ class _SiteBrowsePageState extends State<SiteBrowsePage> {
               child: ChoiceChip(
                 label: Text(shortLabel ? cat.name : cat.displayName),
                 selected: selectedId == cat.id,
+                selectedColor: moyiPurple,
+                backgroundColor: moyiDarkCardFill,
+                checkmarkColor: Colors.white,
+                labelStyle: TextStyle(
+                  color: selectedId == cat.id ? Colors.white : moyiBodyOnDark,
+                ),
+                side: const BorderSide(color: moyiDarkCardBorder),
                 onSelected: (_) {
                   setState(() => _selectedId = cat.id);
                 },

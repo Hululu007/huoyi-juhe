@@ -11,6 +11,7 @@ import '../services/poster_cache.dart';
 import '../services/user_facing_error.dart';
 import '../widgets/home/home_back_button.dart';
 import '../widgets/home/home_design.dart';
+import '../widgets/series_detail/moyi_detail_theme.dart';
 import '../widgets/home/home_feed_states.dart';
 import '../widgets/home/home_media_card.dart';
 import '../widgets/home/home_shelf.dart';
@@ -81,34 +82,37 @@ class _AuthorPageState extends State<AuthorPage> {
   @override
   Widget build(BuildContext context) {
     final palette = HomePalette.of(context);
-    return Scaffold(
-      backgroundColor: palette.canvas,
-      appBar: AppBar(
-        backgroundColor: palette.canvas,
-        surfaceTintColor: Colors.transparent,
-        scrolledUnderElevation: 0,
-        leading: const HomeBackButton(),
-        // 作者名只在头部出现一次（原先 AppBar 与头部重复）。
-        title: Text(
-          '作者',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: palette.ink,
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
+    return MoyiPageBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          foregroundColor: Colors.white,
+          surfaceTintColor: Colors.transparent,
+          scrolledUnderElevation: 0,
+          leading: const HomeBackButton(),
+          // 作者名只在头部出现一次（原先 AppBar 与头部重复）。
+          title: Text(
+            '作者',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
-      ),
-      body: Align(
-        alignment: Alignment.topCenter,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 840),
-          child: RefreshIndicator(
-            onRefresh: _load,
-            color: HomePalette.accent,
-            backgroundColor: palette.surface,
-            child: _body(palette),
+        body: Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 840),
+            child: RefreshIndicator(
+              onRefresh: _load,
+              color: HomePalette.accent,
+              backgroundColor: moyiDarkCardFill,
+              child: _body(palette),
+            ),
           ),
         ),
       ),
@@ -130,12 +134,12 @@ class _AuthorPageState extends State<AuthorPage> {
       return ListView(
         children: [
           const SizedBox(height: 60),
-          Icon(LucideIcons.user_x, size: 32, color: palette.muted),
+          Icon(LucideIcons.user_x, size: 32, color: moyiMutedOnDark),
           const SizedBox(height: 14),
           Text(
             _error!,
             textAlign: TextAlign.center,
-            style: TextStyle(color: palette.muted, fontSize: 13),
+            style: TextStyle(color: moyiMutedOnDark, fontSize: 13),
           ),
           const SizedBox(height: 16),
           Center(
@@ -143,8 +147,8 @@ class _AuthorPageState extends State<AuthorPage> {
               key: const Key('author_retry'),
               onPressed: _load,
               style: OutlinedButton.styleFrom(
-                foregroundColor: palette.accentText,
-                side: BorderSide(color: palette.line),
+                foregroundColor: moyiGold,
+                side: BorderSide(color: moyiDarkCardBorder),
                 minimumSize: const Size(110, 48),
               ),
               icon: const Icon(LucideIcons.refresh_cw, size: 16),
@@ -178,7 +182,7 @@ class _AuthorPageState extends State<AuthorPage> {
                   title: '全部作品',
                   action: Text(
                     '${_profile.works.length}',
-                    style: TextStyle(color: palette.muted, fontSize: 12),
+                    style: TextStyle(color: moyiMutedOnDark, fontSize: 12),
                   ),
                 ),
               ),
@@ -231,11 +235,11 @@ class _AuthorPageState extends State<AuthorPage> {
                   dimension: 58,
                   child: profile.avatar.isEmpty
                       ? ColoredBox(
-                          color: palette.soft,
+                          color: moyiDarkCardFill,
                           child: Icon(
                             LucideIcons.user,
                             size: 26,
-                            color: palette.muted,
+                            color: moyiMutedOnDark,
                           ),
                         )
                       : CachedNetworkImage(
@@ -245,11 +249,11 @@ class _AuthorPageState extends State<AuthorPage> {
                           // 58dp avatar; decode at 2×.
                           memCacheWidth: 128,
                           errorWidget: (context, url, error) => ColoredBox(
-                            color: palette.soft,
+                            color: moyiDarkCardFill,
                             child: Icon(
                               LucideIcons.user,
                               size: 26,
-                              color: palette.muted,
+                              color: moyiMutedOnDark,
                             ),
                           ),
                         ),
@@ -271,7 +275,7 @@ class _AuthorPageState extends State<AuthorPage> {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              color: palette.ink,
+                              color: Colors.white,
                               fontSize: 18,
                               fontWeight: FontWeight.w700,
                               letterSpacing: -0.3,
@@ -288,7 +292,10 @@ class _AuthorPageState extends State<AuthorPage> {
                       const SizedBox(height: 6),
                       Text(
                         facts.join(' · '),
-                        style: TextStyle(color: palette.muted, fontSize: 12.5),
+                        style: TextStyle(
+                          color: moyiMutedOnDark,
+                          fontSize: 12.5,
+                        ),
                       ),
                     ],
                   ],
@@ -301,7 +308,11 @@ class _AuthorPageState extends State<AuthorPage> {
             Text(
               profile.description,
               key: const Key('author_description'),
-              style: TextStyle(color: palette.ink, fontSize: 13.5, height: 1.7),
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 13.5,
+                height: 1.7,
+              ),
             ),
           ],
         ],
@@ -340,7 +351,7 @@ class _LevelChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = HomePalette.of(context);
-    final color = palette.eink ? palette.ink : palette.accentText;
+    final color = palette.eink ? palette.ink : moyiGold;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(

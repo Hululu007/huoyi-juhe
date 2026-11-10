@@ -634,9 +634,8 @@ class _StoryPlayerPanelState extends State<StoryPlayerPanel> {
                             TextButton(
                               key: const ValueKey('story-panel-related-series'),
                               onPressed: widget.onOpenRelatedSeries,
-                              // 按钮色走 palette：原来面板自建 ThemeData 丢掉
-                              // 了外层 colorScheme，这个按钮会落到 Material
-                              // 默认主色（紫蓝）。
+                              // 按钮色用魔蚁金：面板底恒为深紫 moyiSheetFill
+                              //（无墨水屏分支），金字在深底上才读得清。
                               style: TextButton.styleFrom(
                                 foregroundColor: moyiGold,
                               ),

@@ -765,16 +765,6 @@ String monsterRealmForPower(int power) => switch (power) {
   _ => '元婴中期',
 };
 
-/// 队友在旁边喊的话（BOSS 战助威）。
-const gameCheerLines = <String>[
-  '老大！你一定能赢！',
-  '老大加油！',
-  '这老妖快不行了！',
-  '老大威武！',
-  '跟它拼了！老大！',
-  '老大，小心它的爪子！',
-];
-
 /// 按 id 取妖兽。
 GameMonster gameMonsterById(String id) {
   for (final monster in gameMonsters) {
@@ -1086,13 +1076,7 @@ class GameTowerFloor {
 /// 每层加成只比原来（+60/层）略高一点，但战力公式改了，
 /// 境界白板再也碾压不了塔，必须靠装备。通关 30 层得一件七彩装备。
 List<GameTowerFloor> get gameTowerFloors {
-  const dungeons = <String>[
-    '血色禁地',
-    '虚天殿',
-    '坠魔谷',
-    '昆吾山',
-    '广寒界',
-  ];
+  const dungeons = <String>['血色禁地', '虚天殿', '坠魔谷', '昆吾山', '广寒界'];
   const monsters = <String>[
     'ye_lang',
     'mo_jiao',
@@ -1145,72 +1129,17 @@ class GameSkill {
 /// 大招表：万剑归宗、青元剑诀、大庚剑阵、真魔功、泰阳诀、
 /// 辟邪神雷、乾蓝冰焰与共用渡劫大招惊蛰十二变。
 const gameSkills = <GameSkill>[
-  GameSkill(
-    id: 'qingyuan',
-    name: '青元剑诀',
-    profession: '天道',
-    desc: '青剑齐出，剑气纵横',
-  ),
-  GameSkill(
-    id: 'dageng',
-    name: '大庚剑阵',
-    profession: '天道',
-    desc: '剑阵布开，万剑归一',
-  ),
-  GameSkill(
-    id: 'wanjian',
-    name: '万剑归宗',
-    profession: '天道',
-    desc: '万剑齐发，横扫全场',
-  ),
-  GameSkill(
-    id: 'zhenmo',
-    name: '真魔功',
-    profession: '逍遥',
-    desc: '魔影重重，飞轮斩妖',
-  ),
-  GameSkill(
-    id: 'moying',
-    name: '魔影遁',
-    profession: '逍遥',
-    desc: '残影瞬移，出其不意',
-  ),
-  GameSkill(
-    id: 'feilun',
-    name: '飞轮斩',
-    profession: '逍遥',
-    desc: '双轮飞旋，割裂妖躯',
-  ),
-  GameSkill(
-    id: 'taiyang',
-    name: '泰阳诀',
-    profession: '金刚',
-    desc: '金罩护体，反伤震敌',
-  ),
-  GameSkill(
-    id: 'jinzhong',
-    name: '金钟罩',
-    profession: '金刚',
-    desc: '金钟长鸣，刀枪不入',
-  ),
-  GameSkill(
-    id: 'jingzhe',
-    name: '惊蛰十二变',
-    profession: '共用',
-    desc: '渡劫大招，惊蛰化龙',
-  ),
-  GameSkill(
-    id: 'bixie',
-    name: '辟邪神雷',
-    profession: '共用',
-    desc: '神雷辟邪，专克妖魔',
-  ),
-  GameSkill(
-    id: 'qianlan',
-    name: '乾蓝冰焰',
-    profession: '共用',
-    desc: '蓝焰极寒，焚尽妖躯',
-  ),
+  GameSkill(id: 'qingyuan', name: '青元剑诀', profession: '天道', desc: '青剑齐出，剑气纵横'),
+  GameSkill(id: 'dageng', name: '大庚剑阵', profession: '天道', desc: '剑阵布开，万剑归一'),
+  GameSkill(id: 'wanjian', name: '万剑归宗', profession: '天道', desc: '万剑齐发，横扫全场'),
+  GameSkill(id: 'zhenmo', name: '真魔功', profession: '逍遥', desc: '魔影重重，飞轮斩妖'),
+  GameSkill(id: 'moying', name: '魔影遁', profession: '逍遥', desc: '残影瞬移，出其不意'),
+  GameSkill(id: 'feilun', name: '飞轮斩', profession: '逍遥', desc: '双轮飞旋，割裂妖躯'),
+  GameSkill(id: 'taiyang', name: '泰阳诀', profession: '金刚', desc: '金罩护体，反伤震敌'),
+  GameSkill(id: 'jinzhong', name: '金钟罩', profession: '金刚', desc: '金钟长鸣，刀枪不入'),
+  GameSkill(id: 'jingzhe', name: '惊蛰十二变', profession: '共用', desc: '渡劫大招，惊蛰化龙'),
+  GameSkill(id: 'bixie', name: '辟邪神雷', profession: '共用', desc: '天雷劈下，专克妖魔'),
+  GameSkill(id: 'qianlan', name: '乾蓝冰焰', profession: '共用', desc: '冰焰飞出，冻彻妖躯'),
 ];
 
 /// 某职业的大招（天道/逍遥/金刚各 3 个 + 共用法术 3 个：
@@ -1226,8 +1155,7 @@ List<GameSkill> gameSkillsForProfession(String? profession) {
     // 未知职业退化为天道大招 + 共用大招。
     return [
       for (final skill in gameSkills)
-        if (skill.profession == '天道' || skill.profession == '共用')
-          skill,
+        if (skill.profession == '天道' || skill.profession == '共用') skill,
     ];
   }
   return out;
@@ -1288,75 +1216,6 @@ const gameTeamBots = <GameTeamBot>[
   ),
 ];
 
-/// 每张地图里的 50 个托机器人：随机走动、随机找怪打、
-/// 随机放技能、随机跑图，名字境界各不一样，像真人一样
-/// 在地图里活动，让人一看地图里全是人在玩，其实都是托，
-/// 单机游戏不联网。
-const gameAmbientBotNames = <String>[
-  '紫灵',
-  '厉飞雨',
-  '南宫婉',
-  '韩跑跑',
-  '剑啸江湖',
-  '青元散人',
-  '玄骨上人',
-  '风希',
-  '云露老魔',
-  '血灵子',
-  '大衍神君',
-  '白瑶怡',
-  '田琴儿',
-  '菡云芝',
-  '慕沛灵',
-  '宋蒙',
-  '杜东',
-  '孙火',
-  '王蝉',
-  '万天明',
-  '雷万鹤',
-  '钟卫娘',
-  '陈巧倩',
-  '董萱儿',
-  '严如嫣',
-  '元瑶',
-  '妍丽',
-  '六道极圣',
-  '天恨老怪',
-  '乾老魔',
-  '燕歌',
-  '墨居仁',
-  '墨姣',
-  '金光上人',
-  '红拂',
-  '黄枫老祖',
-  '令狐老祖',
-  '李化元',
-  '吴风',
-  '刘靖',
-  '于坤',
-  '张铁',
-  '雷云子',
-  '白衣剑客',
-  '醉道人',
-  '枯竹老人',
-  '七妙真人',
-  '妙音门主',
-  '范静梅',
-  '卓如婷',
-];
-
-/// 托机器人的境界池（按下标轮着取，各不一样）。
-const gameAmbientBotRealms = <String>[
-  '炼气后期',
-  '筑基初期',
-  '筑基中期',
-  '筑基后期',
-  '结丹初期',
-  '结丹中期',
-  '结丹后期',
-  '元婴初期',
-];
-
 /// 站点通关节点：站点不靠钥匙、不靠买，绑境界与塔层，
 /// 通过了就点亮能看，没通过显示锁定和差多少。
 class GameSiteNode {
@@ -1395,13 +1254,11 @@ class GameSiteNode {
   };
 
   /// 还差多少修为；已够为 0。
-  int xpShort(int xp) =>
-      xp >= requiredRealmXp ? 0 : requiredRealmXp - xp;
+  int xpShort(int xp) => xp >= requiredRealmXp ? 0 : requiredRealmXp - xp;
 
   /// 还差几层塔；已够为 0。
-  int floorShort(int towerFloor) => towerFloor >= requiredTowerFloor
-      ? 0
-      : requiredTowerFloor - towerFloor;
+  int floorShort(int towerFloor) =>
+      towerFloor >= requiredTowerFloor ? 0 : requiredTowerFloor - towerFloor;
 }
 
 /// 站点通关节点 13 个：按 4 档门槛与塔层排开。
@@ -1516,24 +1373,9 @@ class GameShopItem {
 /// 元宝商城：聚气丹（+300 修为）、双倍修为符（双倍 1 小时）、
 /// 法宝盲盒（随机一件装备）。
 const gameShopItems = <GameShopItem>[
-  GameShopItem(
-    id: 'juqi_dan',
-    name: '聚气丹',
-    price: 50,
-    desc: '服下 +300 修为',
-  ),
-  GameShopItem(
-    id: 'double_fu',
-    name: '双倍修为符',
-    price: 100,
-    desc: '1 小时内修为双倍',
-  ),
-  GameShopItem(
-    id: 'fabao_box',
-    name: '法宝盲盒',
-    price: 200,
-    desc: '随机开出一件装备',
-  ),
+  GameShopItem(id: 'juqi_dan', name: '聚气丹', price: 50, desc: '服下 +300 修为'),
+  GameShopItem(id: 'double_fu', name: '双倍修为符', price: 100, desc: '1 小时内修为双倍'),
+  GameShopItem(id: 'fabao_box', name: '法宝盲盒', price: 200, desc: '随机开出一件装备'),
 ];
 
 /// 挂机收益：每秒修为（与打坐同一速率，见 [cultivationXpPerSecond]，

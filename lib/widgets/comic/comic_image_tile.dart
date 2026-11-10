@@ -4,6 +4,7 @@ import 'package:flutter_lucide/flutter_lucide.dart';
 import '../../models/chapter_media.dart';
 import '../../services/app_theme.dart';
 import '../home/home_design.dart';
+import '../series_detail/moyi_detail_theme.dart';
 import '../reader/eink_image_provider.dart';
 
 /// Default provider for one comic page: memory-only.
@@ -186,7 +187,7 @@ class _ComicImageTileState extends State<ComicImageTile> {
 
   Widget _loadingPlaceholder(HomePalette palette) => ColoredBox(
     key: ValueKey('comic-image-placeholder-${widget.pageNumber}'),
-    color: palette.soft,
+    color: palette.eink ? Colors.white : moyiDarkCardFill,
     child: Center(
       child: SingleChildScrollView(
         primary: false,
@@ -195,20 +196,23 @@ class _ComicImageTileState extends State<ComicImageTile> {
           children: [
             // 墨水屏：转圈动画会留残影，换成一个静态占位图标。
             if (palette.eink)
-              Icon(LucideIcons.image, size: 24, color: palette.muted)
+              const Icon(LucideIcons.image, size: 24, color: Colors.black)
             else
               SizedBox(
                 width: 24,
                 height: 24,
                 child: CircularProgressIndicator(
                   strokeWidth: 2,
-                  color: palette.ink,
+                  color: Colors.white,
                 ),
               ),
             const SizedBox(height: 8),
             Text(
               '正在加载第 ${widget.pageNumber} 页',
-              style: TextStyle(fontSize: 13, color: palette.muted),
+              style: TextStyle(
+                fontSize: 13,
+                color: palette.eink ? Colors.black : moyiMutedOnDark,
+              ),
             ),
           ],
         ),
@@ -218,7 +222,7 @@ class _ComicImageTileState extends State<ComicImageTile> {
 
   Widget _errorPlaceholder(HomePalette palette) => ColoredBox(
     key: ValueKey('comic-image-error-${widget.pageNumber}'),
-    color: palette.soft,
+    color: palette.eink ? Colors.white : moyiDarkCardFill,
     child: Center(
       child: SingleChildScrollView(
         primary: false,
@@ -227,18 +231,24 @@ class _ComicImageTileState extends State<ComicImageTile> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(LucideIcons.image_off, size: 24, color: palette.muted),
+              Icon(
+                LucideIcons.image_off,
+                size: 24,
+                color: palette.eink ? Colors.black : moyiMutedOnDark,
+              ),
               const SizedBox(height: 8),
               Text(
                 '第 ${widget.pageNumber} 页加载失败',
                 textAlign: TextAlign.center,
-                style: TextStyle(color: palette.ink),
+                style: TextStyle(
+                  color: palette.eink ? Colors.black : Colors.white,
+                ),
               ),
               const SizedBox(height: 8),
               TextButton.icon(
                 onPressed: _retrying ? null : _retry,
                 style: TextButton.styleFrom(
-                  foregroundColor: palette.accentText,
+                  foregroundColor: palette.eink ? Colors.black : moyiGold,
                 ),
                 icon: const Icon(LucideIcons.refresh_cw, size: 16),
                 label: Text(_retrying ? '正在重试' : '重试图片'),

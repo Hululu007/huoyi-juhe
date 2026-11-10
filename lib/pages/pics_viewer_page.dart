@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../models/media_item.dart';
+import '../widgets/series_detail/moyi_detail_theme.dart';
 
 class PicsViewerPage extends StatefulWidget {
   const PicsViewerPage({
@@ -93,99 +94,126 @@ class _PicsViewerPageState extends State<PicsViewerPage> {
   @override
   Widget build(BuildContext context) {
     final episode = widget.episodes.isEmpty ? null : widget.episodes[_index];
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(episode?.title ?? widget.seriesTitle),
-        actions: [
-          if (widget.onAddToShelf != null)
-            IconButton(
-              icon: const Icon(Icons.bookmark_add_outlined),
-              tooltip: '加入书架',
-              onPressed: widget.onAddToShelf,
-            ),
-          if (widget.onSwitchSource != null)
-            IconButton(
-              icon: const Icon(Icons.swap_horiz),
-              tooltip: '换源',
-              onPressed: () => widget.onSwitchSource!(_index),
-            ),
-          if (_urls.isNotEmpty)
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.only(right: 16),
-                child: Text('${_page + 1} / ${_urls.length}'),
+    return MoyiPageBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          foregroundColor: Colors.white,
+          title: Text(episode?.title ?? widget.seriesTitle),
+          actions: [
+            if (widget.onAddToShelf != null)
+              IconButton(
+                icon: const Icon(Icons.bookmark_add_outlined),
+                tooltip: '加入书架',
+                onPressed: widget.onAddToShelf,
               ),
-            ),
-        ],
-      ),
-      body: Column(
-        children: [
-          Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : _error != null
-                    ? Center(child: Text('加载失败：$_error'))
-                    : _urls.isEmpty
-                        ? const Center(child: Text('本章没有图片'))
-                        : PageView.builder(
-                            controller: _controller,
-                            itemCount: _urls.length,
-                            onPageChanged: (page) {
-                              setState(() => _page = page);
-                              // 看到当前页就预取下 1–2 页的图片字节，
-                              // 翻页不再现下现等；失败静默，不管它。
-                              for (var i = 1; i <= 2; i++) {
-                                final next = page + i;
-                                if (next >= _urls.length) break;
-                                unawaited(
-                                  precacheImage(
-                                    NetworkImage(_urls[next]),
-                                    context,
-                                  ).then((_) {}, onError: (_) {}),
-                                );
-                              }
-                            },
-                            itemBuilder: (_, i) => InteractiveViewer(
-                              child: Center(
-                                child: Image.network(
-                                  _urls[i],
-                                  fit: BoxFit.contain,
-                                  errorBuilder: (_, _, _) =>
-                                      const Text('图片加载失败'),
-                                ),
-                              ),
+            if (widget.onSwitchSource != null)
+              IconButton(
+                icon: const Icon(Icons.swap_horiz),
+                tooltip: '换源',
+                onPressed: () => widget.onSwitchSource!(_index),
+              ),
+            if (_urls.isNotEmpty)
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.only(right: 16),
+                  child: Text(
+                    '${_page + 1} / ${_urls.length}',
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                ),
+              ),
+          ],
+        ),
+        body: Column(
+          children: [
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _error != null
+                  ? Center(
+                      child: Text(
+                        '加载失败：$_error',
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                    )
+                  : _urls.isEmpty
+                  ? const Center(
+                      child: Text(
+                        '本章没有图片',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    )
+                  : PageView.builder(
+                      controller: _controller,
+                      itemCount: _urls.length,
+                      onPageChanged: (page) {
+                        setState(() => _page = page);
+                        // 看到当前页就预取下 1–2 页的图片字节，
+                        // 翻页不再现下现等；失败静默，不管它。
+                        for (var i = 1; i <= 2; i++) {
+                          final next = page + i;
+                          if (next >= _urls.length) break;
+                          unawaited(
+                            precacheImage(
+                              NetworkImage(_urls[next]),
+                              context,
+                            ).then((_) {}, onError: (_) {}),
+                          );
+                        }
+                      },
+                      itemBuilder: (_, i) => InteractiveViewer(
+                        child: Center(
+                          child: Image.network(
+                            _urls[i],
+                            fit: BoxFit.contain,
+                            errorBuilder: (_, _, _) => const Text(
+                              '图片加载失败',
+                              style: TextStyle(color: Colors.white),
                             ),
                           ),
-          ),
-          SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              child: Row(
-                children: [
-                  TextButton(
-                    onPressed: _index > 0 ? () => _jump(-1) : null,
-                    child: const Text('上一章'),
-                  ),
-                  Expanded(
-                    child: Text(
-                      widget.episodes.isEmpty
-                          ? ''
-                          : '${_index + 1} / ${widget.episodes.length}',
-                      textAlign: TextAlign.center,
+                        ),
+                      ),
                     ),
-                  ),
-                  TextButton(
-                    onPressed: _index < widget.episodes.length - 1
-                        ? () => _jump(1)
-                        : null,
-                    child: const Text('下一章'),
-                  ),
-                ],
+            ),
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: Row(
+                  children: [
+                    TextButton(
+                      onPressed: _index > 0 ? () => _jump(-1) : null,
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.white,
+                      ),
+                      child: const Text('上一章'),
+                    ),
+                    Expanded(
+                      child: Text(
+                        widget.episodes.isEmpty
+                            ? ''
+                            : '${_index + 1} / ${widget.episodes.length}',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: _index < widget.episodes.length - 1
+                          ? () => _jump(1)
+                          : null,
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.white,
+                      ),
+                      child: const Text('下一章'),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

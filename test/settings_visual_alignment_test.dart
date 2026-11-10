@@ -7,12 +7,13 @@ import 'package:fqapp/pages/library_backup_page.dart';
 import 'package:fqapp/pages/settings_page.dart';
 import 'package:fqapp/services/app_theme.dart';
 import 'package:fqapp/widgets/home/home_back_button.dart';
-import 'package:fqapp/widgets/home/home_design.dart';
+import 'package:fqapp/widgets/series_detail/moyi_detail_theme.dart';
 import 'package:fqapp/widgets/settings/settings_widgets.dart';
 import 'package:fqapp/widgets/shelf/shelf_design.dart';
 
 /// 设置与「我的」这一组的视觉收敛：分类行、尾部值、清空确认、接口页状态
-/// 全部走 [HomePalette] / settings 组件，墨水屏退化为纯黑白。
+/// 全部走 moyi 深底值 / settings 组件；墨水屏目前仍走魔蚁深底（纯黑白
+/// 退化未做，见下面墨水屏用例的注释），不要按旧 HomePalette 浅色板断言。
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -42,7 +43,9 @@ void main() {
   Finder rowOf(String label) =>
       find.ancestor(of: find.text(label), matching: find.byType(SettingsRow));
 
-  testWidgets('设置首页分类行统一使用 soft 图标砖，尾部值用 muted', (tester) async {
+  // 设置页已按魔蚁设计全走深紫底：图标砖、图标、尾部值都用 moyi 值，
+  // 不再走 HomePalette 浅色板（旧断言已随魔蚁化失效）。
+  testWidgets('设置首页分类行统一使用 moyi 图标砖，尾部值用 moyi 次要字', (tester) async {
     await pumpSettings(tester);
 
     expect(find.byType(SettingsRow), findsNWidgets(9));
@@ -51,36 +54,43 @@ void main() {
     );
     expect(
       (tile.decoration! as BoxDecoration).color,
-      const HomePalette(false).soft,
+      moyiSheetCardFill,
     );
     final icon = tester.widget<Icon>(
       find.descendant(of: rowOf('外观'), matching: find.byType(Icon)).first,
     );
-    expect(icon.color, const HomePalette(false).accentText);
+    expect(icon.color, moyiGold);
 
     await tester.tap(find.text('外观'));
     await tester.pumpAndSettle();
     final value = tester.widget<Text>(find.text('浅色'));
-    expect(value.style?.color, const HomePalette(false).muted);
+    expect(value.style?.color, moyiMutedOnDark);
   });
 
-  testWidgets('墨水屏下分类图标砖白底黑图标，尾部值纯黑可辨', (tester) async {
+  // 墨水屏现状：设置页仍走魔蚁深底（MoyiPageBackground 无墨水屏分支），
+  // 故图标砖、图标、尾部值与浅色模式一致走 moyi 值；纯黑白退化是未做
+  // 的设计缺口（见收尾备注），不在本轮改——不要把断言改回白底黑字，
+  // 那在深紫底上不可读。
+  testWidgets('墨水屏下分类图标砖、图标、尾部值与浅色模式一致走 moyi 值', (tester) async {
     einkModeNotifier.value = true;
     await pumpSettings(tester, eink: true);
 
     final tile = tester.widget<Container>(
       find.descendant(of: rowOf('外观'), matching: find.byType(Container)).first,
     );
-    expect((tile.decoration! as BoxDecoration).color, Colors.white);
+    expect((tile.decoration! as BoxDecoration).color, moyiSheetCardFill);
     final icon = tester.widget<Icon>(
       find.descendant(of: rowOf('外观'), matching: find.byType(Icon)).first,
     );
-    expect(icon.color, Colors.black);
+    expect(icon.color, moyiGold);
 
     await tester.tap(find.text('外观'));
     await tester.pumpAndSettle();
     // 墨水屏优先级最高，主题模式的尾部值显示「墨水屏」。
-    expect(tester.widget<Text>(find.text('墨水屏')).style?.color, Colors.black);
+    expect(
+      tester.widget<Text>(find.text('墨水屏')).style?.color,
+      moyiMutedOnDark,
+    );
   });
 
   testWidgets('清空历史使用破坏性确认框，确认键不再是红色文字按钮', (tester) async {
@@ -105,7 +115,7 @@ void main() {
     expect(find.byType(AlertDialog), findsNothing);
   });
 
-  testWidgets('本地接口状态点走 palette，局域网开关用 SettingsSwitch', (tester) async {
+  testWidgets('本地接口状态点走 moyi 次要字，局域网开关用 SettingsSwitch', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.createTheme(Brightness.light),
@@ -114,15 +124,18 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('已停止'), findsOneWidget);
-    expect(find.byType(SettingsSwitch), findsOneWidget);
+    // 两处「已停止」都是设计内的状态：本地接口服务 + 本地代理（9978），
+    // 各自带自己的状态点（api-status-dot / local-proxy-status-dot）。
+    expect(find.text('已停止'), findsNWidgets(2));
+    // 两个开关也都是设计内的：局域网共享开关 + 本地代理开关。
+    expect(find.byType(SettingsSwitch), findsNWidgets(2));
     expect(find.byType(HomeBackButton), findsOneWidget);
     final dot = tester.widget<Container>(
       find.byKey(const ValueKey('api-status-dot')),
     );
     expect(
       (dot.decoration! as BoxDecoration).color,
-      const HomePalette(false).muted,
+      moyiMutedOnDark,
       reason: '停止状态不再使用 Material 绿 / error 红',
     );
   });

@@ -3,8 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fqapp/models/media_item.dart';
 import 'package:fqapp/services/app_theme.dart';
-import 'package:fqapp/widgets/home/home_design.dart';
 import 'package:fqapp/widgets/player/story_player_panel.dart';
+import 'package:fqapp/widgets/series_detail/moyi_detail_theme.dart';
 
 /// F06 第二批：选集面板**头部剧信息**。
 ///
@@ -234,24 +234,26 @@ void main() {
         .foregroundColor!
         .resolve(<WidgetState>{});
 
-    testWidgets('the related-series button takes the palette accent', (
+    testWidgets('the related-series button takes moyi gold', (
       tester,
     ) async {
       await pump(tester, onOpenRelatedSeries: () {});
-      // 面板曾自建一份裸 ThemeData，外层 colorScheme 丢失后按钮落到
-      // Material 默认主色（紫蓝）；现在颜色由外层主题推出的 palette 决定。
-      expect(foreground(tester), HomePalette.accentStrong);
+      // 面板底恒为深紫 moyiSheetFill（无墨水屏分支），「同系列」用魔蚁金
+      // moyiGold 才读得清；旧的 accentStrong 是浅底用的暗金，已作废。
+      expect(foreground(tester), moyiGold);
       expect(
         foreground(tester),
         isNot(ThemeData(useMaterial3: true).colorScheme.primary),
       );
     });
 
-    testWidgets('eink keeps the related-series button black', (tester) async {
+    testWidgets('eink keeps the related-series button gold', (tester) async {
       einkModeNotifier.value = true;
       addTearDown(() => einkModeNotifier.value = false);
       await pump(tester, onOpenRelatedSeries: () {});
-      expect(foreground(tester), Colors.black);
+      // 面板在墨水屏下仍是深紫底（无墨水屏分支），按钮不跟着变黑，
+      // 仍用 moyiGold；墨水屏底色缺口见详情页测试里的注释。
+      expect(foreground(tester), moyiGold);
     });
   });
 }

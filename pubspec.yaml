@@ -104,6 +104,8 @@ flutter:
     - assets/config/config.json
     # 创建人物界面的背景音乐：《修仙缘》15 秒片段循环播。
     - assets/audio/xiuxianyuan.mp3
+    - assets/audio/thunder.mp3
+    - assets/audio/sword_clash.mp3
     - assets/jars/zakatv.jar
     - assets/jars/youtube.jar
     - assets/builtin_sites/

@@ -5,6 +5,7 @@ import 'package:flutter_lucide/flutter_lucide.dart';
 
 import '../../models/media_item.dart';
 import '../home/home_design.dart';
+import '../series_detail/moyi_detail_theme.dart';
 import '../home/home_sheet.dart';
 
 /// 漫画目录弹层：走统一的 [showHomeSheet] / [HomeSheetFrame]。
@@ -99,7 +100,11 @@ class _ChapterRow extends StatelessWidget {
           key: selected ? const Key('comic-directory-current') : null,
           padding: const EdgeInsets.symmetric(horizontal: 12),
           decoration: BoxDecoration(
-            color: selected ? palette.soft : Colors.transparent,
+            color: selected
+                ? ((palette.eink || palette.dark)
+                      ? palette.soft
+                      : moyiDarkCardFill)
+                : Colors.transparent,
             borderRadius: BorderRadius.circular(12),
             // 墨水屏 soft 也是白，光靠底色看不出选中；补一圈黑描边。
             border: selected && palette.eink
@@ -115,7 +120,13 @@ class _ChapterRow extends StatelessWidget {
                   maxLines: 1,
                   style: TextStyle(
                     fontSize: 12.5,
-                    color: selected ? palette.accentText : palette.muted,
+                    color: selected
+                        ? ((palette.eink || palette.dark)
+                              ? palette.accentText
+                              : moyiGold)
+                        : ((palette.eink || palette.dark)
+                              ? palette.muted
+                              : moyiMutedOnDark),
                   ),
                 ),
               ),
@@ -127,12 +138,20 @@ class _ChapterRow extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 15,
                     fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                    color: palette.ink,
+                    color: (palette.eink || palette.dark)
+                        ? palette.ink
+                        : Colors.white,
                   ),
                 ),
               ),
               if (selected)
-                Icon(LucideIcons.check, size: 18, color: palette.accentText),
+                Icon(
+                  LucideIcons.check,
+                  size: 18,
+                  color: (palette.eink || palette.dark)
+                      ? palette.accentText
+                      : moyiGold,
+                ),
             ],
           ),
         ),

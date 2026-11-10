@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/rank.dart';
 import '../home/home_design.dart';
+import '../series_detail/moyi_detail_theme.dart';
 import '../home/home_shelf.dart' show homeGutter;
 
 /// 榜单层级：与首页榜单块同一套下划线文字 tab（13sp，选中墨色加粗 +
@@ -69,7 +70,11 @@ class RankBoardTabs extends StatelessWidget {
                               fontWeight: selected
                                   ? FontWeight.w700
                                   : FontWeight.w500,
-                              color: selected ? palette.ink : palette.muted,
+                              color: selected
+                                  ? (palette.eink ? palette.ink : Colors.white)
+                                  : (palette.eink
+                                        ? palette.muted
+                                        : moyiMutedOnDark),
                             ),
                           ),
                         ),
@@ -77,7 +82,9 @@ class RankBoardTabs extends StatelessWidget {
                           width: 16,
                           height: 2,
                           decoration: BoxDecoration(
-                            color: selected ? palette.ink : Colors.transparent,
+                            color: selected
+                                ? (palette.eink ? palette.ink : Colors.white)
+                                : Colors.transparent,
                             borderRadius: BorderRadius.circular(1),
                           ),
                         ),

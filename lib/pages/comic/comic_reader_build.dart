@@ -8,10 +8,14 @@ extension _ComicReaderBuild on _ComicReaderPageState {
     final empty = widget.chapters.isEmpty;
     final palette = HomePalette.of(context);
     return Scaffold(
-      backgroundColor: palette.canvas,
+      backgroundColor: (palette.eink || palette.dark)
+          ? palette.canvas
+          : Colors.transparent,
       appBar: AppBar(
-        backgroundColor: palette.canvas,
-        foregroundColor: palette.ink,
+        backgroundColor: Colors.transparent,
+        foregroundColor: (palette.eink || palette.dark)
+            ? palette.ink
+            : Colors.white,
         elevation: 0,
         scrolledUnderElevation: 0,
         surfaceTintColor: Colors.transparent,
@@ -20,7 +24,9 @@ extension _ComicReaderBuild on _ComicReaderPageState {
           empty ? widget.title : _chapter.title,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: TextStyle(color: palette.ink),
+          style: TextStyle(
+            color: (palette.eink || palette.dark) ? palette.ink : Colors.white,
+          ),
         ),
         actions: empty
             ? null
@@ -63,17 +69,25 @@ extension _ComicReaderBuild on _ComicReaderPageState {
                   ? null
                   : () => _changeChapter(_chapterIndex + 1),
             ),
-      body: SafeArea(
-        top: false,
-        bottom: false,
-        child: _buildBody(palette, empty),
+      body: MoyiPageBackground(
+        child: SafeArea(
+          top: false,
+          bottom: false,
+          child: _buildBody(palette, empty),
+        ),
       ),
     );
   }
 
   Widget _buildBody(HomePalette palette, bool empty) {
     if (_loading) {
-      return Center(child: CircularProgressIndicator(color: palette.ink));
+      return Center(
+        child: CircularProgressIndicator(
+          color: (palette.eink || palette.dark)
+              ? palette.accentText
+              : Colors.white,
+        ),
+      );
     }
     if (_error != null) {
       return _errorView(canRetry: !empty);

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../home/home_design.dart';
+import '../series_detail/moyi_detail_theme.dart';
 
 /// 漫画阅读器 chrome（顶栏 / 底栏）共用的图标按钮。
 ///
@@ -30,7 +31,11 @@ class ComicChromeButton extends StatelessWidget {
     final glyph = Icon(
       icon,
       size: iconSize,
-      color: enabled ? palette.ink : palette.muted.withValues(alpha: 0.4),
+      color: enabled
+          ? ((palette.eink || palette.dark) ? palette.ink : Colors.white)
+          : ((palette.eink || palette.dark)
+                ? palette.muted.withValues(alpha: 0.4)
+                : moyiMutedOnDark.withValues(alpha: 0.4)),
     );
     final box = SizedBox(
       width: size,

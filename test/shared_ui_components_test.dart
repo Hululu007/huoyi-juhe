@@ -9,6 +9,7 @@ import 'package:fqapp/widgets/home/home_design.dart';
 import 'package:fqapp/widgets/home/home_feed_states.dart';
 import 'package:fqapp/widgets/home/home_sheet.dart';
 import 'package:fqapp/widgets/home/home_stream_footer.dart';
+import 'package:fqapp/widgets/series_detail/moyi_detail_theme.dart';
 import 'package:fqapp/widgets/settings/settings_widgets.dart';
 import 'package:fqapp/widgets/shelf/shelf_design.dart';
 
@@ -58,7 +59,7 @@ void main() {
     );
   });
 
-  testWidgets('浅色 HomeChip 是 soft 底 + ink 实心选中', (tester) async {
+  testWidgets('浅色 HomeChip 是魔蚁卡底 + 紫实心选中', (tester) async {
     await tester.pumpWidget(
       _app(
         Row(
@@ -80,7 +81,6 @@ void main() {
         ),
       ),
     );
-    const palette = HomePalette(false);
     ShapeDecoration decoration(String key) =>
         tester
                 .widget<Container>(
@@ -91,13 +91,13 @@ void main() {
                 )
                 .decoration
             as ShapeDecoration;
-    expect(decoration('chip-light-selected').color, palette.ink);
-    expect(decoration('chip-light-plain').color, palette.soft);
+    expect(decoration('chip-light-selected').color, moyiPurple);
+    expect(decoration('chip-light-plain').color, moyiDarkCardFill);
     expect(
       (decoration('chip-light-plain').shape as StadiumBorder).side,
       BorderSide.none,
     );
-    expect(tester.widget<Text>(find.text('已选')).style!.color, palette.canvas);
+    expect(tester.widget<Text>(find.text('已选')).style!.color, Colors.white);
   });
 
   testWidgets('墨水屏下 HomeChip 选中黑底白字、未选中白底黑字并描边', (tester) async {

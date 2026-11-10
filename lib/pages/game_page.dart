@@ -131,6 +131,18 @@ class _GamePageState extends State<GamePage> {
     );
   }
 
+  /// 一只小怪被打死：按这只怪自己的表结算（修为 / 元宝 /
+  /// 12% 掉装备，走原来 killMonster 那套）。
+  Future<void> _onMinionKilled(GameMonster monster) async {
+    final result = await _game.killMonster(monster);
+    final dropped = result.droppedEquipId == null
+        ? ''
+        : '，掉落${gameEquipmentById(result.droppedEquipId!)?.name ?? ''}';
+    _showKillToast(
+      '击杀${monster.name} +${result.xp}修为 +${result.yuanbao}元宝$dropped',
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -178,6 +190,7 @@ class _GamePageState extends State<GamePage> {
                   cultivationCostumeById(snapshot.costumeId),
               active: widget.active,
               onMonsterKilled: _onMonsterKilled,
+              onMinionKilled: _onMinionKilled,
               onHeroStrike: (_) {},
               onOpenShop: () => _openSheet(context, _ShopSheet()),
               onOpenTasks: () => _openSheet(context, _TasksSheet()),
@@ -459,24 +472,40 @@ class _GamePageState extends State<GamePage> {
   }
 
   /// 底部弹窗（深色底，内容可滚动，游戏在后面照常打）。
+  ///
+  /// 竖滑只滚内容，不抢弹窗本身：不用 DraggableScrollableSheet——
+  /// 它会先把竖滑拿去伸缩弹窗（原来 initial 0.72 / min 0.4，内容
+  /// 要等弹窗撑到顶才开始滚；滑到底还把弹窗收掉、看着像页面被
+  /// 刷新；把 min/max/initial 全锁 0.92 更糟，isAtMin 与 isAtMax
+  /// 同时为真，上滑增量永远去撑一个到顶的 extent、被 clamp 吃掉，
+  /// 内容一次都滚不动）。现在是普通 SingleChildScrollView，高度按
+  /// 内容走、上限 0.92 屏，竖滑直达内容；下滑关闭也禁掉
+  /// （enableDrag: false），关弹窗点标题栏的 ×、点弹窗外面或返回键。
   Future<void> _openSheet(BuildContext context, Widget child) {
     return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: moyiSheetFill,
+      enableDrag: false,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
       ),
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.72,
-        minChildSize: 0.4,
-        maxChildSize: 0.92,
-        expand: false,
-        builder: (context, scrollController) => SingleChildScrollView(
-          controller: scrollController,
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 32),
-          child: child,
+      builder: (context) => ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.92,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: SingleChildScrollView(
+                physics: const ClampingScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 32),
+                child: child,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -709,12 +738,14 @@ class _SwitchVideoButton extends StatelessWidget {
   }
 }
 
-/// 弹窗标题行。
+/// 弹窗标题行。showClose 只给各弹窗顶栏的标题：弹窗已禁下滑关闭，
+/// × 是关弹窗的口子（页内小标题不用）。
 class _SheetTitle extends StatelessWidget {
-  const _SheetTitle({required this.title, this.trailing});
+  const _SheetTitle({required this.title, this.trailing, this.showClose = false});
 
   final String title;
   final Widget? trailing;
+  final bool showClose;
 
   @override
   Widget build(BuildContext context) {
@@ -741,6 +772,14 @@ class _SheetTitle extends StatelessWidget {
           ),
           const Spacer(),
           ?trailing,
+          if (showClose)
+            GestureDetector(
+              onTap: () => Navigator.of(context).pop(),
+              child: const Padding(
+                padding: EdgeInsets.only(left: 8),
+                child: Icon(LucideIcons.x, color: Colors.white70, size: 20),
+              ),
+            ),
         ],
       ),
     );
@@ -948,7 +987,7 @@ class _FunctionsSheet extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SheetTitle(title: '功能'),
+        const _SheetTitle(title: '功能', showClose: true),
         GridView.count(
           crossAxisCount: 3,
           shrinkWrap: true,
@@ -1006,6 +1045,7 @@ class _ShopSheet extends StatelessWidget {
           children: [
             _SheetTitle(
               title: '商城',
+              showClose: true,
               trailing: Text(
                 '元宝 ${game.yuanbao}',
                 style: const TextStyle(
@@ -1055,6 +1095,7 @@ class _InventorySheet extends StatelessWidget {
           children: [
             _SheetTitle(
               title: '背包',
+              showClose: true,
               trailing: Text(
                 '元宝 ${game.yuanbao}',
                 style: const TextStyle(
@@ -1249,7 +1290,7 @@ class _TasksSheetState extends State<_TasksSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const _SheetTitle(title: '任务 · 主线推图'),
+            const _SheetTitle(title: '任务 · 主线推图', showClose: true),
             for (var i = 0; i < gameChapters.length; i++)
               _SheetRow(
                 title:
@@ -1344,6 +1385,7 @@ class _TowerSheet extends StatelessWidget {
           children: [
             _SheetTitle(
               title: '试炼塔 · 已通 ${game.towerFloor}/30 层',
+              showClose: true,
             ),
             const Padding(
               padding: EdgeInsets.only(bottom: 4),
@@ -1459,7 +1501,7 @@ class _ProfileSheet extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const _SheetTitle(title: '人物'),
+            const _SheetTitle(title: '人物', showClose: true),
             Center(
               child: GameHeroFullPortrait(
                 isFemale: snapshot.gender == CultivationGender.female,
@@ -1638,6 +1680,7 @@ class _EquipmentSheet extends StatelessWidget {
             _SheetTitle(
               title:
                   '装备 · 战力 ${game.power}（境界 ${game.basePower} + 装备 ${game.equipPower}）',
+              showClose: true,
             ),
             const Padding(
               padding: EdgeInsets.only(bottom: 8),
@@ -1729,7 +1772,7 @@ class _RewardsSheetState extends State<_RewardsSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const _SheetTitle(title: '领取'),
+            const _SheetTitle(title: '领取', showClose: true),
             if (offline != null)
               _SheetRow(
                 title:
@@ -1846,6 +1889,7 @@ class _FilmSheet extends StatelessWidget {
           children: [
             _SheetTitle(
               title: '影视',
+              showClose: true,
               trailing: Text(
                 '元宝 ${game.yuanbao}',
                 style: const TextStyle(
@@ -2024,7 +2068,7 @@ class _SettingsSheet extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SheetTitle(title: '设置'),
+        const _SheetTitle(title: '设置', showClose: true),
         ValueListenableBuilder<bool>(
           valueListenable: sound.musicMutedNotifier,
           builder: (context, muted, _) => SwitchListTile(
@@ -2129,7 +2173,7 @@ class _AnnounceSheet extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SheetTitle(title: '公告'),
+        const _SheetTitle(title: '公告', showClose: true),
         for (final (title, body) in notices)
           _SheetRow(
             title: title,

@@ -9,7 +9,7 @@ import 'package:flutter_lucide/flutter_lucide.dart';
 import '../services/app_log.dart';
 import '../services/book_txt_export.dart';
 import '../services/playlet_share.dart';
-import '../widgets/home/home_design.dart';
+import '../widgets/series_detail/moyi_detail_theme.dart';
 import '../widgets/home/home_feed_states.dart';
 import '../widgets/home/home_sheet.dart';
 import '../widgets/logs/log_entry_card.dart';
@@ -424,7 +424,7 @@ class _LogViewerPageState extends State<LogViewerPage>
               : '${visible.length} 条 · 系统分享',
           enabled: visible.isNotEmpty,
         ),
-        Divider(height: 17, color: HomePalette.of(context).line),
+        Divider(height: 17, color: moyiDarkCardBorder),
         _actionRow(
           _LogAction.clear,
           LucideIcons.trash,
@@ -452,10 +452,12 @@ class _LogViewerPageState extends State<LogViewerPage>
   }
 
   Widget _sheetHint(String text) {
-    final palette = HomePalette.of(context);
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
-      child: Text(text, style: TextStyle(fontSize: 12.5, color: palette.muted)),
+      child: Text(
+        text,
+        style: TextStyle(fontSize: 12.5, color: moyiMutedOnDark),
+      ),
     );
   }
 
@@ -478,15 +480,21 @@ class _LogViewerPageState extends State<LogViewerPage>
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('清空当前视图'),
-        content: const Text('清空当前可查看的应用日志，保留已保存的日志文件。重启后可能再次显示历史记录。'),
+        backgroundColor: moyiSheetFill,
+        title: const Text('清空当前视图', style: TextStyle(color: Colors.white)),
+        content: const Text(
+          '清空当前可查看的应用日志，保留已保存的日志文件。重启后可能再次显示历史记录。',
+          style: TextStyle(color: moyiBodyOnDark),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
+            style: TextButton.styleFrom(foregroundColor: moyiBodyOnDark),
             child: const Text('取消'),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: moyiPink),
             child: const Text('清空'),
           ),
         ],
@@ -524,7 +532,6 @@ class _LogViewerPageState extends State<LogViewerPage>
 
   @override
   Widget build(BuildContext context) {
-    final palette = HomePalette.of(context);
     final indices = <Key, int>{
       for (var i = 0; i < _displayEntries.length; i++)
         ObjectKey(_displayEntries[i]): _displayEntries.length - 1 - i,
@@ -538,8 +545,8 @@ class _LogViewerPageState extends State<LogViewerPage>
           icon: Icon(
             LucideIcons.ellipsis,
             color: _exporting
-                ? palette.muted.withValues(alpha: 0.4)
-                : palette.ink,
+                ? moyiMutedOnDark.withValues(alpha: 0.4)
+                : Colors.white,
           ),
         ),
       ],
@@ -563,8 +570,8 @@ class _LogViewerPageState extends State<LogViewerPage>
             if (_exporting)
               LinearProgressIndicator(
                 minHeight: 2,
-                color: palette.accentText,
-                backgroundColor: palette.line,
+                color: moyiGold,
+                backgroundColor: moyiDarkCardBorder,
               ),
             Expanded(
               child: _displayEntries.isEmpty

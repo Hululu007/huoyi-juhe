@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
 
 import '../home/home_design.dart';
+import '../series_detail/moyi_detail_theme.dart';
 import 'comic_chrome_button.dart';
 
 /// 漫画阅读器底栏：上一章 / 章节与页码 / 下一章。
@@ -35,10 +36,17 @@ class ComicChapterBar extends StatelessWidget {
     final palette = HomePalette.of(context);
     return Material(
       key: const Key('comic_chapter_bar'),
-      color: palette.canvas,
+      color: (palette.eink || palette.dark) ? palette.canvas : moyiSheetFill,
       child: Container(
         decoration: BoxDecoration(
-          border: Border(top: BorderSide(color: palette.line, width: 0.6)),
+          border: Border(
+            top: BorderSide(
+              color: (palette.eink || palette.dark)
+                  ? palette.line
+                  : moyiDarkCardBorder,
+              width: 0.6,
+            ),
+          ),
         ),
         child: SafeArea(
           top: false,
@@ -62,7 +70,9 @@ class ComicChapterBar extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 12,
                           height: 1.2,
-                          color: palette.muted,
+                          color: (palette.eink || palette.dark)
+                              ? palette.muted
+                              : moyiMutedOnDark,
                         ),
                       ),
                       const SizedBox(height: 2),
@@ -74,7 +84,9 @@ class ComicChapterBar extends StatelessWidget {
                           fontSize: 15,
                           height: 1.2,
                           fontWeight: FontWeight.w600,
-                          color: palette.ink,
+                          color: (palette.eink || palette.dark)
+                              ? palette.ink
+                              : Colors.white,
                         ),
                       ),
                     ],

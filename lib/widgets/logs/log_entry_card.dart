@@ -3,6 +3,7 @@ import 'package:flutter_lucide/flutter_lucide.dart';
 
 import '../../services/app_log.dart';
 import '../home/home_design.dart';
+import '../series_detail/moyi_detail_theme.dart';
 import '../shelf/shelf_design.dart';
 
 /// Collapsed summaries keep stack traces from taking over the log list.
@@ -24,10 +25,9 @@ class _LogEntryCardState extends State<LogEntryCard> {
   Color _levelColor(HomePalette palette, LogLevel level) {
     if (palette.eink) return Colors.black;
     return switch (level) {
-      LogLevel.debug => palette.muted,
-      LogLevel.info => palette.accentText,
-      LogLevel.warn =>
-        palette.dark ? const Color(0xFFFFCF7C) : const Color(0xFF805300),
+      LogLevel.debug => moyiMutedOnDark,
+      LogLevel.info => moyiGold,
+      LogLevel.warn => const Color(0xFFFFCF7C),
       LogLevel.error => ShelfTokens.deleteRed,
     };
   }
@@ -43,17 +43,17 @@ class _LogEntryCardState extends State<LogEntryCard> {
       fontFamily: 'monospace',
       fontSize: 12.5,
       height: 1.5,
-      color: palette.ink,
+      color: Colors.white,
     );
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: Material(
-        color: palette.surface,
+        color: moyiDarkCardFill,
         clipBehavior: Clip.antiAlias,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: palette.line, width: 0.6),
+          side: BorderSide(color: moyiDarkCardBorder, width: 0.6),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -81,7 +81,7 @@ class _LogEntryCardState extends State<LogEntryCard> {
                               style: TextStyle(
                                 fontSize: 12.5,
                                 fontWeight: FontWeight.w600,
-                                color: palette.ink,
+                                color: Colors.white,
                               ),
                             ),
                           ),
@@ -90,7 +90,7 @@ class _LogEntryCardState extends State<LogEntryCard> {
                             timestamp.substring(11, 19),
                             style: TextStyle(
                               fontSize: 11,
-                              color: palette.muted,
+                              color: moyiMutedOnDark,
                             ),
                           ),
                           const SizedBox(width: 4),
@@ -99,7 +99,7 @@ class _LogEntryCardState extends State<LogEntryCard> {
                                 ? LucideIcons.chevron_up
                                 : LucideIcons.chevron_down,
                             size: 18,
-                            color: palette.muted,
+                            color: moyiMutedOnDark,
                           ),
                         ],
                       ),
@@ -125,16 +125,14 @@ class _LogEntryCardState extends State<LogEntryCard> {
                   children: [
                     SelectableText(
                       '${timestamp.replaceFirst('T', ' ')} · ${entry.tag}',
-                      style: TextStyle(fontSize: 11, color: palette.muted),
+                      style: TextStyle(fontSize: 11, color: moyiMutedOnDark),
                     ),
                     const SizedBox(height: 8),
                     SelectableText(entry.message, style: messageStyle),
                     const SizedBox(height: 4),
                     TextButton.icon(
                       onPressed: widget.onCopy,
-                      style: TextButton.styleFrom(
-                        foregroundColor: palette.accentText,
-                      ),
+                      style: TextButton.styleFrom(foregroundColor: moyiGold),
                       icon: const Icon(LucideIcons.copy, size: 16),
                       label: const Text('复制单条'),
                     ),

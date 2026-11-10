@@ -4,6 +4,7 @@ import 'package:flutter_lucide/flutter_lucide.dart';
 import '../services/audio_floating_routes.dart';
 import '../services/system_tts.dart';
 import '../widgets/home/home_design.dart';
+import '../widgets/series_detail/moyi_detail_theme.dart';
 import '../widgets/home/home_feed_states.dart';
 import '../widgets/settings/settings_widgets.dart';
 
@@ -152,7 +153,7 @@ class _SystemTtsSettingsPageState extends State<SystemTtsSettingsPage>
                             style: TextStyle(
                               fontSize: 13,
                               height: 1.5,
-                              color: palette.ink,
+                              color: Colors.white,
                             ),
                           ),
                         ),
@@ -173,8 +174,8 @@ class _SystemTtsSettingsPageState extends State<SystemTtsSettingsPage>
                   icon: const Icon(LucideIcons.settings_2, size: 18),
                   label: const Text('打开系统语音设置'),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: palette.ink,
-                    side: BorderSide(color: palette.line),
+                    foregroundColor: Colors.white,
+                    side: BorderSide(color: moyiDarkCardBorder),
                     minimumSize: const Size.fromHeight(46),
                   ),
                 ),
@@ -185,7 +186,7 @@ class _SystemTtsSettingsPageState extends State<SystemTtsSettingsPage>
 
   Widget _bodyText(HomePalette palette, String text) => Text(
     text,
-    style: TextStyle(fontSize: 13, height: 1.6, color: palette.muted),
+    style: TextStyle(fontSize: 13, height: 1.6, color: moyiMutedOnDark),
   );
 
   Widget _enginePicker(bool selectedMissing, String? defaultLabel) {
@@ -235,7 +236,7 @@ class _SystemTtsSettingsPageState extends State<SystemTtsSettingsPage>
             style: TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.w600,
-              color: palette.ink,
+              color: Colors.white,
             ),
           ),
           Slider(

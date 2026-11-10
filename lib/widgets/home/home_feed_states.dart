@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
 
 import 'home_design.dart';
+import '../series_detail/moyi_detail_theme.dart';
 
 /// 紧凑版空 / 错态：图标砖 + 标题 + 说明 + 可选动作。
 ///
@@ -48,10 +49,10 @@ class HomeStateView extends StatelessWidget {
             width: 44,
             height: 44,
             decoration: BoxDecoration(
-              color: palette.soft,
+              color: moyiDarkCardFill,
               borderRadius: BorderRadius.circular(14),
             ),
-            child: Icon(icon, size: 22, color: palette.accentText),
+            child: Icon(icon, size: 22, color: moyiGold),
           ),
           const SizedBox(height: 14),
           Text(
@@ -61,7 +62,7 @@ class HomeStateView extends StatelessWidget {
               fontSize: 16,
               height: 1.3,
               fontWeight: FontWeight.w700,
-              color: palette.ink,
+              color: Colors.white,
             ),
           ),
           if (message != null) ...[
@@ -69,7 +70,11 @@ class HomeStateView extends StatelessWidget {
             Text(
               message!,
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 13, height: 1.5, color: palette.muted),
+              style: TextStyle(
+                fontSize: 13,
+                height: 1.5,
+                color: moyiMutedOnDark,
+              ),
             ),
           ],
           if (actionLabel != null) ...[
@@ -85,7 +90,7 @@ class HomeStateView extends StatelessWidget {
 
   Widget _action(HomePalette palette, String label, IconData? icon) {
     final style = TextButton.styleFrom(
-      foregroundColor: palette.accentText,
+      foregroundColor: moyiGold,
       minimumSize: const Size(48, 44),
       padding: const EdgeInsets.symmetric(horizontal: 16),
     );
@@ -125,36 +130,33 @@ class HomeFeedEmpty extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = HomePalette.of(context);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 32),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, size: 28, color: palette.muted),
+          Icon(icon, size: 28, color: moyiMutedOnDark),
           const SizedBox(height: 16),
           Text(
             title,
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w700,
-              color: palette.ink,
+              color: Colors.white,
             ),
           ),
           const SizedBox(height: 10),
           Text(
             message,
             textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 13, color: palette.muted),
+            style: TextStyle(fontSize: 13, color: moyiMutedOnDark),
           ),
           const SizedBox(height: 22),
           OutlinedButton.icon(
             onPressed: onRefresh,
             icon: const Icon(LucideIcons.rotate_ccw, size: 16),
             label: Text(actionLabel),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: palette.accentText,
-            ),
+            style: OutlinedButton.styleFrom(foregroundColor: moyiGold),
           ),
         ],
       ),
@@ -182,7 +184,6 @@ class HomeFeedError extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = HomePalette.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 32, 16, 48),
       child: Column(
@@ -191,7 +192,7 @@ class HomeFeedError extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
-              color: palette.soft,
+              color: moyiDarkCardFill,
               borderRadius: BorderRadius.circular(20),
             ),
             child: const Icon(
@@ -207,25 +208,29 @@ class HomeFeedError extends StatelessWidget {
               fontSize: 30,
               height: 1.2,
               fontWeight: FontWeight.w800,
-              color: palette.ink,
+              color: Colors.white,
             ),
           ),
           const SizedBox(height: 12),
           Text(
             message,
-            style: TextStyle(color: palette.muted, fontSize: 14, height: 1.6),
+            style: TextStyle(color: moyiMutedOnDark, fontSize: 14, height: 1.6),
           ),
           const SizedBox(height: 24),
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: palette.soft,
+              color: moyiDarkCardFill,
               borderRadius: BorderRadius.circular(16),
             ),
             child: Text(
               detail,
-              style: TextStyle(fontSize: 12, height: 1.6, color: palette.muted),
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.6,
+                color: moyiMutedOnDark,
+              ),
             ),
           ),
           const SizedBox(height: 24),
@@ -261,7 +266,6 @@ class HomeFeedLoading extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = HomePalette.of(context);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 56),
       child: Row(
@@ -272,11 +276,11 @@ class HomeFeedLoading extends StatelessWidget {
             height: 14,
             child: CircularProgressIndicator(
               strokeWidth: 2,
-              color: palette.muted,
+              color: moyiMutedOnDark,
             ),
           ),
           const SizedBox(width: 10),
-          Text(message, style: TextStyle(fontSize: 13, color: palette.muted)),
+          Text(message, style: TextStyle(fontSize: 13, color: moyiMutedOnDark)),
         ],
       ),
     );

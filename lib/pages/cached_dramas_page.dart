@@ -7,6 +7,7 @@ import '../services/drama_downloader.dart';
 import '../widgets/cache/cache_page_widgets.dart';
 import '../widgets/cache/cached_drama_widgets.dart';
 import '../widgets/home/home_design.dart';
+import '../widgets/series_detail/moyi_detail_theme.dart';
 import '../widgets/settings/settings_widgets.dart';
 
 /// 短剧离线缓存管理页（官方 DownloadManagementActivity 的「已下载」tab
@@ -183,8 +184,8 @@ class _CachedDramasPageState extends State<CachedDramasPage> {
     icon: Icon(
       icon,
       color: onPressed == null
-          ? palette.muted.withValues(alpha: 0.4)
-          : palette.ink,
+          ? moyiMutedOnDark.withValues(alpha: 0.4)
+          : Colors.white,
     ),
   );
 

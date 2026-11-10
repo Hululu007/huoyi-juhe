@@ -222,7 +222,7 @@ class _CachedBooksPageState extends State<CachedBooksPage> {
                     icon: Icon(
                       LucideIcons.download,
                       size: 20,
-                      color: palette.muted,
+                      color: moyiMutedOnDark,
                     ),
                   ),
                 IconButton(
@@ -247,7 +247,7 @@ class _CachedBooksPageState extends State<CachedBooksPage> {
                       ? '导出中…'
                       : '导出 ${progress.completed}/${progress.total} 章',
                   key: Key('cached_book_export_progress_$bookId'),
-                  style: TextStyle(fontSize: 12, color: palette.accentText),
+                  style: TextStyle(fontSize: 12, color: moyiGold),
                 ),
               ),
             ),
@@ -303,7 +303,7 @@ class _CachedBooksPageState extends State<CachedBooksPage> {
             icon: Icon(
               LucideIcons.trash,
               color: _books.isEmpty
-                  ? palette.muted.withValues(alpha: 0.4)
+                  ? moyiMutedOnDark.withValues(alpha: 0.4)
                   : (palette.eink ? Colors.black : ShelfTokens.deleteRed),
             ),
           ),

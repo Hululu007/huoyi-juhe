@@ -20,6 +20,7 @@ import '../services/cultivation.dart';
 import '../services/player_history.dart';
 import '../widgets/reader/reader_video_button.dart';
 import '../widgets/reader/reader_listen_button.dart';
+import '../widgets/series_detail/moyi_detail_theme.dart';
 import 'player_page.dart';
 import '../services/api_client.dart';
 import '../services/app_theme.dart';
@@ -490,9 +491,16 @@ class _ReaderPageState extends State<ReaderPage>
   @override
   Widget build(BuildContext context) {
     if (widget.chapters.isEmpty) {
-      return Scaffold(
-        appBar: AppBar(title: Text(widget.title)),
-        body: _errorView(),
+      return MoyiPageBackground(
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          appBar: AppBar(
+            backgroundColor: Colors.transparent,
+            foregroundColor: Colors.white,
+            title: Text(widget.title),
+          ),
+          body: _errorView(textColor: Colors.white),
+        ),
       );
     }
     return MediaQuery(

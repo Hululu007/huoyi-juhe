@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/media_item.dart';
 import '../services/nonvideo_play.dart';
+import '../widgets/series_detail/moyi_detail_theme.dart';
 
 class NovelTextPage extends StatefulWidget {
   const NovelTextPage({
@@ -72,81 +73,103 @@ class _NovelTextPageState extends State<NovelTextPage> {
   @override
   Widget build(BuildContext context) {
     final episode = widget.episodes.isEmpty ? null : widget.episodes[_index];
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(episode?.title ?? widget.seriesTitle),
-        actions: [
-          if (widget.onAddToShelf != null)
-            IconButton(
-              icon: const Icon(Icons.bookmark_add_outlined),
-              tooltip: '加入书架',
-              onPressed: widget.onAddToShelf,
-            ),
-          if (widget.onSwitchSource != null)
-            IconButton(
-              icon: const Icon(Icons.swap_horiz),
-              tooltip: '换源',
-              onPressed: () => widget.onSwitchSource!(_index),
-            ),
-        ],
-      ),
-      body: Column(
-        children: [
-          Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : _error != null
-                    ? Center(child: Text('加载失败：$_error'))
-                    : SingleChildScrollView(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if ((_payload?.title ?? '').isNotEmpty)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 12),
-                                child: Text(
-                                  _payload!.title,
-                                  style: Theme.of(context).textTheme.titleLarge,
-                                ),
-                              ),
-                            SelectableText(
-                              _payload?.content ?? '',
-                              style: const TextStyle(fontSize: 16, height: 1.7),
-                            ),
-                          ],
-                        ),
+    return MoyiPageBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          foregroundColor: Colors.white,
+          title: Text(episode?.title ?? widget.seriesTitle),
+          actions: [
+            if (widget.onAddToShelf != null)
+              IconButton(
+                icon: const Icon(Icons.bookmark_add_outlined),
+                tooltip: '加入书架',
+                onPressed: widget.onAddToShelf,
+              ),
+            if (widget.onSwitchSource != null)
+              IconButton(
+                icon: const Icon(Icons.swap_horiz),
+                tooltip: '换源',
+                onPressed: () => widget.onSwitchSource!(_index),
+              ),
+          ],
+        ),
+        body: Column(
+          children: [
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _error != null
+                  ? Center(
+                      child: Text(
+                        '加载失败：$_error',
+                        style: const TextStyle(color: Colors.white),
                       ),
-          ),
-          SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              child: Row(
-                children: [
-                  TextButton(
-                    onPressed: _index > 0 ? () => _jump(-1) : null,
-                    child: const Text('上一章'),
-                  ),
-                  Expanded(
-                    child: Text(
-                      widget.episodes.isEmpty
-                          ? ''
-                          : '${_index + 1} / ${widget.episodes.length}',
-                      textAlign: TextAlign.center,
+                    )
+                  : SingleChildScrollView(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if ((_payload?.title ?? '').isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: Text(
+                                _payload!.title,
+                                style: Theme.of(context).textTheme.titleLarge
+                                    ?.copyWith(color: Colors.white),
+                              ),
+                            ),
+                          SelectableText(
+                            _payload?.content ?? '',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              height: 1.7,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  TextButton(
-                    onPressed: _index < widget.episodes.length - 1
-                        ? () => _jump(1)
-                        : null,
-                    child: const Text('下一章'),
-                  ),
-                ],
+            ),
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: Row(
+                  children: [
+                    TextButton(
+                      onPressed: _index > 0 ? () => _jump(-1) : null,
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.white,
+                      ),
+                      child: const Text('上一章'),
+                    ),
+                    Expanded(
+                      child: Text(
+                        widget.episodes.isEmpty
+                            ? ''
+                            : '${_index + 1} / ${widget.episodes.length}',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: _index < widget.episodes.length - 1
+                          ? () => _jump(1)
+                          : null,
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.white,
+                      ),
+                      child: const Text('下一章'),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

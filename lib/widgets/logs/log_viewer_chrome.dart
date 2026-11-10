@@ -3,6 +3,7 @@ import 'package:flutter_lucide/flutter_lucide.dart';
 
 import '../home/home_chip.dart';
 import '../home/home_design.dart';
+import '../series_detail/moyi_detail_theme.dart';
 import 'log_filter_sheet.dart';
 
 /// 日志来源：应用内环形缓冲，或核心落盘文件。
@@ -81,19 +82,19 @@ class LogToolbar extends StatelessWidget {
     return TextField(
       controller: controller,
       onChanged: onQueryChanged,
-      style: TextStyle(color: palette.ink, fontSize: 14),
+      style: TextStyle(color: Colors.white, fontSize: 14),
       decoration: InputDecoration(
         hintText: '搜索标签或内容',
-        hintStyle: TextStyle(color: palette.searchBarText, fontSize: 14),
+        hintStyle: TextStyle(color: moyiMutedOnDark, fontSize: 14),
         filled: true,
-        fillColor: palette.searchBar,
+        fillColor: moyiDarkCardFill,
         isDense: true,
-        prefixIcon: Icon(LucideIcons.search, size: 20, color: palette.muted),
+        prefixIcon: Icon(LucideIcons.search, size: 20, color: moyiMutedOnDark),
         suffixIcon: query.isEmpty
             ? null
             : IconButton(
                 tooltip: '清除搜索',
-                icon: Icon(LucideIcons.x, size: 18, color: palette.muted),
+                icon: Icon(LucideIcons.x, size: 18, color: moyiMutedOnDark),
                 onPressed: () {
                   controller.clear();
                   onQueryChanged('');
@@ -111,8 +112,8 @@ class LogToolbar extends StatelessWidget {
       tooltip: '筛选日志',
       onPressed: onPickFilters,
       style: IconButton.styleFrom(
-        backgroundColor: palette.soft,
-        foregroundColor: palette.ink,
+        backgroundColor: moyiDarkCardFill,
+        foregroundColor: Colors.white,
         minimumSize: const Size(40, 40),
         padding: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
@@ -186,11 +187,10 @@ class LogFollowBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = HomePalette.of(context);
     return Container(
       decoration: BoxDecoration(
-        color: palette.surface,
-        border: Border(top: BorderSide(color: palette.line, width: 0.6)),
+        color: moyiDarkCardFill,
+        border: Border(top: BorderSide(color: moyiDarkCardBorder, width: 0.6)),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: Row(
@@ -200,12 +200,12 @@ class LogFollowBar extends StatelessWidget {
               '$count 条${following ? '' : ' · 已暂停'}',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 12.5, color: palette.muted),
+              style: TextStyle(fontSize: 12.5, color: moyiMutedOnDark),
             ),
           ),
           TextButton.icon(
             onPressed: onToggle,
-            style: TextButton.styleFrom(foregroundColor: palette.accentText),
+            style: TextButton.styleFrom(foregroundColor: moyiGold),
             icon: Icon(
               following ? LucideIcons.pause : LucideIcons.arrow_down,
               size: 18,

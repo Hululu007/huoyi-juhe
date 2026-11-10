@@ -129,7 +129,7 @@ class MockStillHttpRequest implements HttpClientRequest {
   @override
   Uri get uri => Uri.parse('http://127.0.0.1/still.png');
 
-  @override
+  // HttpClientRequest 没有 requestedUri：这是造假类自带成员，不加 @override。
   Uri get requestedUri => uri;
 
   @override
@@ -345,10 +345,9 @@ class MockStillHttpHeaders implements HttpHeaders {
   @override
   set ifModifiedSince(DateTime? value) {}
 
-  @override
+  // HttpClientRequest 没有 lastModified/transferEncoding：造假类自带成员。
   DateTime? get lastModified => null;
 
-  @override
   set lastModified(DateTime? value) {}
 
   @override
@@ -363,10 +362,8 @@ class MockStillHttpHeaders implements HttpHeaders {
   @override
   set port(int? value) {}
 
-  @override
   String? get transferEncoding => null;
 
-  @override
   set transferEncoding(String? value) {}
 
   @override

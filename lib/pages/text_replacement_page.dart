@@ -6,6 +6,7 @@ import '../services/chapter_text_formatter.dart';
 import '../services/text_replacement_engine.dart';
 import '../services/text_replacement_store.dart';
 import '../widgets/home/home_design.dart';
+import '../widgets/series_detail/moyi_detail_theme.dart';
 import '../widgets/home/home_feed_states.dart';
 import '../widgets/settings/settings_widgets.dart';
 
@@ -101,66 +102,68 @@ class _TextReplacementPageState extends State<TextReplacementPage> {
     final snapshot = _store.snapshot;
     final full = snapshot.rules.length >= 50;
     return Scaffold(
-      backgroundColor: palette.canvas,
+      backgroundColor: Colors.transparent,
       // SettingsScaffold 没有底部操作栏槽位；正文替换需要一个固定的「添加规则」
       // 按钮，所以这里只复用 settingsAppBar，其余仍是设置页的画布与组件。
       appBar: settingsAppBar(context, title: '正文替换'),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : ListView(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-              children: [
-                SettingsGroupCard(
-                  children: [
-                    SettingsRow(
-                      key: const ValueKey('replacement-enabled'),
-                      icon: LucideIcons.type,
-                      iconTile: true,
-                      title: '启用正文替换',
-                      subtitle: '应用于所有小说，原始缓存保持不变',
-                      trailing: SettingsSwitch(
-                        value: snapshot.enabled,
-                        semanticLabel: '启用正文替换',
-                        onChanged: _saving
-                            ? null
-                            : (enabled) =>
-                                  _update(snapshot.rules, enabled: enabled),
-                      ),
-                      onTap: _saving
-                          ? null
-                          : () => _update(
-                              snapshot.rules,
-                              enabled: !snapshot.enabled,
-                            ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                _hint(
-                  palette,
-                  '规则从上到下执行，仅匹配每段正文。系统朗读使用替换后的文字，'
-                  '真人音频保持原样。修改规则会停止当前系统朗读。',
-                ),
-                if (_store.warning case final warning?) ...[
-                  const SizedBox(height: 8),
-                  _hint(palette, warning),
-                ],
-                const SizedBox(height: 12),
-                if (snapshot.rules.isEmpty)
-                  const HomeStateView(
-                    icon: LucideIcons.file_text,
-                    title: '还没有替换规则',
-                    message: '点击下方「添加规则」新增一条。',
-                  )
-                else
+      body: MoyiPageBackground(
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : ListView(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                children: [
                   SettingsGroupCard(
                     children: [
-                      for (var i = 0; i < snapshot.rules.length; i++)
-                        _ruleBlock(i, snapshot.rules[i], palette),
+                      SettingsRow(
+                        key: const ValueKey('replacement-enabled'),
+                        icon: LucideIcons.type,
+                        iconTile: true,
+                        title: '启用正文替换',
+                        subtitle: '应用于所有小说，原始缓存保持不变',
+                        trailing: SettingsSwitch(
+                          value: snapshot.enabled,
+                          semanticLabel: '启用正文替换',
+                          onChanged: _saving
+                              ? null
+                              : (enabled) =>
+                                    _update(snapshot.rules, enabled: enabled),
+                        ),
+                        onTap: _saving
+                            ? null
+                            : () => _update(
+                                snapshot.rules,
+                                enabled: !snapshot.enabled,
+                              ),
+                      ),
                     ],
                   ),
-              ],
-            ),
+                  const SizedBox(height: 12),
+                  _hint(
+                    palette,
+                    '规则从上到下执行，仅匹配每段正文。系统朗读使用替换后的文字，'
+                    '真人音频保持原样。修改规则会停止当前系统朗读。',
+                  ),
+                  if (_store.warning case final warning?) ...[
+                    const SizedBox(height: 8),
+                    _hint(palette, warning),
+                  ],
+                  const SizedBox(height: 12),
+                  if (snapshot.rules.isEmpty)
+                    const HomeStateView(
+                      icon: LucideIcons.file_text,
+                      title: '还没有替换规则',
+                      message: '点击下方「添加规则」新增一条。',
+                    )
+                  else
+                    SettingsGroupCard(
+                      children: [
+                        for (var i = 0; i < snapshot.rules.length; i++)
+                          _ruleBlock(i, snapshot.rules[i], palette),
+                      ],
+                    ),
+                ],
+              ),
+      ),
       bottomNavigationBar: _addBar(
         palette,
         enabled: !(_loading || _saving || full),
@@ -172,7 +175,7 @@ class _TextReplacementPageState extends State<TextReplacementPage> {
     padding: const EdgeInsets.symmetric(horizontal: 4),
     child: Text(
       text,
-      style: TextStyle(fontSize: 13, height: 1.6, color: palette.muted),
+      style: TextStyle(fontSize: 13, height: 1.6, color: moyiMutedOnDark),
     ),
   );
 
@@ -186,7 +189,7 @@ class _TextReplacementPageState extends State<TextReplacementPage> {
         icon: const Icon(LucideIcons.plus, size: 18),
         label: const Text('添加规则'),
         style: FilledButton.styleFrom(
-          backgroundColor: palette.accentText,
+          backgroundColor: moyiPurple,
           foregroundColor: Colors.white,
           minimumSize: const Size.fromHeight(50),
           shape: RoundedRectangleBorder(
@@ -233,14 +236,14 @@ class _TextReplacementPageState extends State<TextReplacementPage> {
               IconButton(
                 key: ValueKey('replacement-up-$i'),
                 tooltip: '上移',
-                color: palette.muted,
+                color: moyiMutedOnDark,
                 onPressed: _saving || i == 0 ? null : () => _move(i, -1),
                 icon: const Icon(LucideIcons.arrow_up, size: 18),
               ),
               IconButton(
                 key: ValueKey('replacement-down-$i'),
                 tooltip: '下移',
-                color: palette.muted,
+                color: moyiMutedOnDark,
                 onPressed: _saving || i == _store.snapshot.rules.length - 1
                     ? null
                     : () => _move(i, 1),
@@ -249,7 +252,7 @@ class _TextReplacementPageState extends State<TextReplacementPage> {
               IconButton(
                 key: ValueKey('replacement-delete-$i'),
                 tooltip: '删除',
-                color: palette.muted,
+                color: moyiMutedOnDark,
                 onPressed: _saving
                     ? null
                     : () => _update([..._store.snapshot.rules]..removeAt(i)),
@@ -354,6 +357,13 @@ class _RuleEditorState extends State<_RuleEditor> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
+    backgroundColor: moyiSheetFill,
+    titleTextStyle: const TextStyle(
+      fontSize: 18,
+      fontWeight: FontWeight.w600,
+      color: Colors.white,
+    ),
+    contentTextStyle: const TextStyle(color: moyiBodyOnDark),
     title: Text(widget.rule == null ? '添加规则' : '编辑规则'),
     content: SizedBox(
       width: 460,
@@ -367,39 +377,57 @@ class _RuleEditorState extends State<_RuleEditor> {
               controller: _pattern,
               enabled: !_busy,
               maxLength: 2048,
-              decoration: const InputDecoration(labelText: '匹配内容'),
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                labelText: '匹配内容',
+                labelStyle: TextStyle(color: moyiMutedOnDark),
+              ),
             ),
             TextField(
               key: const ValueKey('replacement-value'),
               controller: _value,
               enabled: !_busy,
               maxLength: 2048,
+              style: const TextStyle(color: Colors.white),
               decoration: const InputDecoration(
                 labelText: '替换内容',
+                labelStyle: TextStyle(color: moyiMutedOnDark),
                 helperText: '留空表示删除匹配文字',
+                helperStyle: TextStyle(color: moyiMutedOnDark),
               ),
             ),
             _regexToggle(context),
             if (_regex)
-              const Text(r'使用 Dart 正则语法，仅匹配当前段落。替换支持 $0、$1…$99 和 $$。'),
+              const Text(
+                r'使用 Dart 正则语法，仅匹配当前段落。替换支持 $0、$1…$99 和 $$。',
+                style: TextStyle(color: moyiBodyOnDark),
+              ),
             TextField(
               controller: _sample,
               enabled: !_busy,
               maxLines: 3,
               maxLength: 10000,
-              decoration: const InputDecoration(labelText: '测试文本'),
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                labelText: '测试文本',
+                labelStyle: TextStyle(color: moyiMutedOnDark),
+              ),
             ),
             TextButton(
               onPressed: _busy ? null : () => _run(preview: true),
+              style: TextButton.styleFrom(foregroundColor: moyiGold),
               child: const Text('预览本条规则'),
             ),
             if (_preview != null)
-              SelectableText(_preview!.isEmpty ? '（替换结果为空）' : _preview!),
+              SelectableText(
+                _preview!.isEmpty ? '（替换结果为空）' : _preview!,
+                style: const TextStyle(color: moyiBodyOnDark),
+              ),
             if (_error != null)
               Text(
                 _error!,
-                style: TextStyle(
-                  color: HomePalette.of(context).accentText,
+                style: const TextStyle(
+                  color: moyiPink,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -411,6 +439,7 @@ class _RuleEditorState extends State<_RuleEditor> {
     actions: [
       TextButton(
         onPressed: () => Navigator.pop(context),
+        style: TextButton.styleFrom(foregroundColor: moyiBodyOnDark),
         child: const Text('取消'),
       ),
       FilledButton(
@@ -425,7 +454,7 @@ class _RuleEditorState extends State<_RuleEditor> {
       Expanded(
         child: Text(
           '使用正则表达式',
-          style: TextStyle(fontSize: 15, color: HomePalette.of(context).ink),
+          style: TextStyle(fontSize: 15, color: Colors.white),
         ),
       ),
       SettingsSwitch(

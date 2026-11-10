@@ -4206,11 +4206,8 @@ class _HistoryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pixelRatio = MediaQuery.devicePixelRatioOf(context);
-    final palette = HomePalette.of(context);
-    // 深色 / OLED 下卡片换浮层色，编辑态再错一档（原来编辑态是 #FAFAFA）。
-    final cardColor = palette.dark
-        ? (editing ? palette.soft : palette.surface)
-        : (editing ? const Color(0xFFFAFAFA) : Colors.white);
+    // 魔蚁深底上的卡片：深紫半透明，编辑态再深一档（原来浅色下是白卡 / #FAFAFA）。
+    final cardColor = editing ? moyiSheetFill : moyiDarkCardFill;
     return GestureDetector(
       onTap: onTap,
       onLongPress: onLongPress,
@@ -4330,11 +4327,11 @@ class _HistoryCard extends StatelessWidget {
                       item.title,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.bold,
                         height: 1.25,
-                        color: palette.ink,
+                        color: Colors.white,
                       ),
                     ),
                     if (subtitle != null)
@@ -4344,10 +4341,10 @@ class _HistoryCard extends StatelessWidget {
                           subtitle!,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
+                          style: const TextStyle(
                             fontSize: 12,
                             height: 1.2,
-                            color: palette.muted,
+                            color: moyiMutedOnDark,
                           ),
                         ),
                       ),
@@ -4395,7 +4392,6 @@ class _BrowseCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final subtitle = _subtitle;
     final pixelRatio = MediaQuery.devicePixelRatioOf(context);
-    final palette = HomePalette.of(context);
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
@@ -4430,9 +4426,7 @@ class _BrowseCard extends StatelessWidget {
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                          color: palette.dark
-                              ? palette.line
-                              : const Color(0x0F000000),
+                          color: moyiDarkCardBorder,
                           width: 0.5,
                         ),
                       ),
@@ -4447,11 +4441,11 @@ class _BrowseCard extends StatelessWidget {
             item.title,
             maxLines: titleMaxLines,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w600,
               height: 1.25,
-              color: palette.ink,
+              color: Colors.white,
             ),
           ),
           if (subtitle != null)
@@ -4461,10 +4455,10 @@ class _BrowseCard extends StatelessWidget {
                 subtitle,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(
+                style: const TextStyle(
                   fontSize: 11,
                   height: 1.2,
-                  color: palette.muted,
+                  color: moyiMutedOnDark,
                 ),
               ),
             ),
@@ -4504,16 +4498,17 @@ class _HistoryEmpty extends StatelessWidget {
             width: 88,
             height: 88,
             decoration: BoxDecoration(
-              color: palette.eink
-                  ? Colors.white
-                  : (palette.dark ? palette.soft : const Color(0xFFFFF3E0)),
+              color: palette.eink ? Colors.white : moyiDarkCardFill,
               shape: BoxShape.circle,
               border: palette.eink ? Border.all(color: palette.line) : null,
             ),
             child: Icon(LucideIcons.clapperboard, size: 38, color: accent),
           ),
           const SizedBox(height: 16),
-          Text(message, style: TextStyle(fontSize: 14, color: palette.muted)),
+          Text(
+            message,
+            style: const TextStyle(fontSize: 14, color: moyiMutedOnDark),
+          ),
           if (onFind != null) ...[
             const SizedBox(height: 20),
             GestureDetector(
@@ -4561,7 +4556,7 @@ class _ListEndFooter extends StatelessWidget {
       padding: const EdgeInsets.only(top: 16, bottom: 24),
       child: Text(
         '已显示全部内容',
-        style: TextStyle(fontSize: 12, color: HomePalette.of(context).muted),
+        style: TextStyle(fontSize: 12, color: moyiMutedOnDark),
       ),
     ),
   );
@@ -4784,7 +4779,6 @@ class _LocalListState extends State<_LocalList> {
   /// 悬浮顶栏藏掉，而编辑头只在有记录时出现，用户就没有「完成」可按了。
   Widget _normalHeader(List<MediaItem> filtered) {
     final top = MediaQuery.paddingOf(context).top;
-    final palette = HomePalette.of(context);
     // 让位高度必须跟 [_TopBar] 同一套算法：搜索行 51 + 频道条 38（桌面端
     // 没有搜索行，也要少让一段）。这里曾经写死 84（＝旧 38+38+8），
     // 搜索行加高后 chips 会钻到频道条底下（2026-10-25）。
@@ -4817,12 +4811,12 @@ class _LocalListState extends State<_LocalList> {
               key: const Key('drama_recent_edit'),
               behavior: HitTestBehavior.opaque,
               onTap: () => _setEditing(true),
-              child: Text(
+              child: const Text(
                 '编辑',
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.bold,
-                  color: palette.ink,
+                  color: Colors.white,
                 ),
               ),
             ),
@@ -4838,10 +4832,9 @@ class _LocalListState extends State<_LocalList> {
   Widget _editHeader(List<MediaItem> filtered) {
     final allSelected = _selected.length == filtered.length;
     final top = MediaQuery.paddingOf(context).top;
-    final palette = HomePalette.of(context);
     return Container(
       key: const Key('drama_recent_edit_header'),
-      color: palette.dark ? palette.canvas : Colors.white,
+      color: moyiSheetFill,
       padding: EdgeInsets.fromLTRB(22, top + 4, 22, 4),
       child: SizedBox(
         height: 56,
@@ -4863,7 +4856,7 @@ class _LocalListState extends State<_LocalList> {
                   }),
                   child: Text(
                     allSelected ? '取消全选' : '全选',
-                    style: TextStyle(fontSize: 16, color: palette.ink),
+                    style: const TextStyle(fontSize: 16, color: Colors.white),
                   ),
                 ),
                 const Spacer(),
@@ -4872,7 +4865,7 @@ class _LocalListState extends State<_LocalList> {
                   onTap: () => _setEditing(false),
                   child: Text(
                     '完成',
-                    style: TextStyle(fontSize: 16, color: palette.ink),
+                    style: const TextStyle(fontSize: 16, color: Colors.white),
                   ),
                 ),
               ],
@@ -4884,10 +4877,10 @@ class _LocalListState extends State<_LocalList> {
                   Text(
                     // 最近 `Ee()`：全部→「视频」；收藏 `ye()`：全部→「全部」。
                     fromShelfEdit ? _shelfFilterTitle : _filterTitle,
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      color: palette.ink,
+                      color: Colors.white,
                     ),
                   ),
                   if (_selected.isNotEmpty)
@@ -4895,7 +4888,10 @@ class _LocalListState extends State<_LocalList> {
                       padding: const EdgeInsets.only(top: 2),
                       child: Text(
                         '已选择 ${_selected.length} 个$_selectionSuffix',
-                        style: TextStyle(fontSize: 12, color: palette.muted),
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: moyiMutedOnDark,
+                        ),
                       ),
                     ),
                 ],
@@ -4918,15 +4914,9 @@ class _LocalListState extends State<_LocalList> {
       key: Key(
         fromShelfEdit ? 'drama_shelf_bottom_bar' : 'drama_recent_bottom_bar',
       ),
-      decoration: BoxDecoration(
-        color: palette.dark ? palette.canvas : Colors.white,
-        border: Border(
-          top: BorderSide(
-            color: palette.dark
-                ? palette.line
-                : const Color(0xFF1B1B1B).withAlpha(15),
-          ),
-        ),
+      decoration: const BoxDecoration(
+        color: moyiSheetFill,
+        border: Border(top: BorderSide(color: moyiDarkCardBorder)),
       ),
       child: SafeArea(
         top: false,
@@ -4939,7 +4929,7 @@ class _LocalListState extends State<_LocalList> {
                 _barAction(
                   key: const Key('drama_recent_follow'),
                   label: _filter == 'manju' ? '追漫' : '追剧',
-                  color: palette.ink,
+                  color: Colors.white,
                   enabled: enabled,
                   onTap: enabled
                       ? () => unawaited(_followSelected(filtered))
@@ -5030,15 +5020,21 @@ class _LocalListState extends State<_LocalList> {
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text('确定删除浏览历史吗？'),
+          backgroundColor: moyiSheetFill,
+          title: const Text(
+            '确定删除浏览历史吗？',
+            style: TextStyle(color: Colors.white),
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
+              style: TextButton.styleFrom(foregroundColor: moyiBodyOnDark),
               child: const Text('取消'),
             ),
             TextButton(
               key: const Key('drama_recent_delete_confirm'),
               onPressed: () => Navigator.pop(context, true),
+              style: TextButton.styleFrom(foregroundColor: moyiPink),
               child: const Text('确认'),
             ),
           ],
@@ -5085,9 +5081,7 @@ class _LocalListState extends State<_LocalList> {
     final selectedBackground = palette.eink
         ? palette.ink
         : const Color(0x1AFA6725);
-    final idleBackground = palette.eink
-        ? Colors.white
-        : (palette.dark ? palette.soft : const Color(0x08000000));
+    final idleBackground = palette.eink ? Colors.white : moyiDarkCardFill;
     final selectedForeground = palette.eink
         ? palette.canvas
         : const Color(0xFFFA6725);
@@ -5108,7 +5102,7 @@ class _LocalListState extends State<_LocalList> {
             style: TextStyle(
               fontSize: 14,
               fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-              color: selected ? selectedForeground : palette.ink,
+              color: selected ? selectedForeground : moyiBodyOnDark,
             ),
           ),
         ),

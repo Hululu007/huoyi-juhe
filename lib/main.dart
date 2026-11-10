@@ -66,6 +66,7 @@ import 'services/system_proxy.dart';
 import 'widgets/lazy_indexed_stack.dart';
 import 'widgets/cultivation_level_up_dialog.dart';
 import 'widgets/home/home_design.dart';
+import 'widgets/series_detail/moyi_detail_theme.dart';
 
 Future<void> main() async {
   // 绑定初始化与 runApp 必须处在同一个 Zone：此前 `ensureInitialized` 在
@@ -929,13 +930,15 @@ class _RootShellState extends State<RootShell>
     final palette = HomePalette.of(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final isDramaTab = _index == 2;
-    // 短剧的推荐频道压在全屏视频流上，dock 用深色玻璃；看剧/漫剧/最近/收藏
-    // 是浅色页，dock 跟主题走，否则浅色外观下页面是奶白、dock 还是黑的。
+    // 短剧的推荐频道压在全屏视频流上，dock 用深色玻璃。
     final dramaOnVideo = isDramaTab && !dramaLightPageNotifier.value;
-    final glassDark = isDark || dramaOnVideo;
     // 墨水屏模式：本 build 由 Theme 变化触发重建（上面读了 Theme.of），
     // 这里直接读 notifier 当前值即可拿到最新开关，不另加监听。
     final eink = einkModeNotifier.value;
+    // 第 27 轮背景全换补漏：全页已是魔蚁深紫蓝渐变底，底部导航 dock 与
+    // 顶栏也必须走深底（墨水屏除外：白底黑字另有分支）。原来只在深色外观
+    // 或短剧视频流时用深色 dock，浅色外观下是白底圆角条，与深底整页脱节。
+    final glassDark = !eink || isDark || dramaOnVideo;
     // OLED 纯黑只在深色外观下生效，浅色 / 墨水屏时该值为 false。
     final oled = oledActive();
     final navBar = NavigationBarTheme(
@@ -1041,18 +1044,19 @@ class _RootShellState extends State<RootShell>
     // 变化的视频流，BackdropFilter 每帧重算模糊，GPU 满负荷；该 tab 下
     // 用静态底，外观几乎不变；切出短剧 tab 后恢复毛玻璃）。OLED 纯黑直接
     // 用不透明的近黑底：纯黑画布上毛玻璃只会晕出一圈灰，还白白模糊每帧。
+    // 第 27 轮背景全换补漏：其余 tab 的 dock 不再是白底（浅灰色圆角条），
+    // 改实色深紫 moyiSheetFill，与顶栏统一；短剧视频流仍沿用原来的深色
+    // 玻璃（背后是视频流，半透明 + 静态底是省 GPU 的做法，不动）。
     final staticNavBar = Container(
       decoration: BoxDecoration(
         color: oled
             ? const Color(0xFF0C0C0E)
-            : (glassDark
+            : (dramaOnVideo
                   ? const Color(0xFF161619).withValues(alpha: 0.72)
-                  : Colors.white.withValues(alpha: 0.82)),
+                  : moyiSheetFill),
         borderRadius: BorderRadius.circular(28),
         border: Border.all(
-          color: glassDark
-              ? Colors.white.withValues(alpha: 0.16)
-              : Colors.white.withValues(alpha: 0.75),
+          color: Colors.white.withValues(alpha: 0.16),
           width: 0.8,
         ),
       ),
@@ -1062,14 +1066,23 @@ class _RootShellState extends State<RootShell>
     // 系统导航栏（Android 底部系统自绘的那条）按当前画布取色。Flutter 的
     // light / dark 两套预设都把它写成纯黑底 + 白图标，浅色页面下会在最底部
     // 留一条突兀的黑带；短剧只有视频流（推荐）背后是视频，仍用黑。
-    final lightSystemIcons = dramaOnVideo || isDark;
+    // 第 27 轮背景全换补漏：各页已是魔蚁深紫蓝底，系统导航栏底色跟顶栏 /
+    // 底部 dock 统一用实色深紫 moyiSheetFill，不再是浅色画布色；墨水屏除外。
+    final lightSystemIcons = eink ? (dramaOnVideo || isDark) : true;
     shell = Scaffold(
+      // 壳层画布：透明顶栏（影视 / 我的页 AppBar）透出的是这里。浅色外观下
+      // 主题画布是白色，顶栏“影视 / 游戏 / 分类”一行与状态栏下方就是那块
+      // 浅色底（白字“分类”在上面发白）；全页已是魔蚁深紫蓝，壳层画布跟顶栏
+      // 统一用实色深紫，墨水屏除外。
+      backgroundColor: eink ? null : moyiSheetFill,
       extendBody: true,
       // 状态栏图标亮度挂在壳层、按选中 tab 切换：短剧页是黑底视频流（官方
       // SeriesMallFragment 的透明顶栏直接压在 feed 上），深色图标在黑底上
       // 整条状态栏都看不见，必须浅色；其余三页浅色底用深色。样式放壳层而不是
       // 各页内部，是因为 IndexedStack 里未选中的页不参与绘制，页内
       // AnnotatedRegion 切走后会残留上一个页的样式。
+      // 第 27 轮背景全换补漏：各页顶栏已是深底，状态栏图标一律浅色才看得清
+      // （墨水屏白底除外，仍按原来的深色图标）。
       body: AnnotatedRegion<SystemUiOverlayStyle>(
         value:
             (lightSystemIcons
@@ -1078,10 +1091,10 @@ class _RootShellState extends State<RootShell>
                 .copyWith(
                   systemNavigationBarColor: dramaOnVideo
                       ? Colors.black
-                      : palette.canvas,
+                      : (eink ? palette.canvas : moyiSheetFill),
                   systemNavigationBarDividerColor: dramaOnVideo
                       ? Colors.black
-                      : palette.canvas,
+                      : (eink ? palette.canvas : moyiSheetFill),
                   systemNavigationBarIconBrightness: lightSystemIcons
                       ? Brightness.light
                       : Brightness.dark,

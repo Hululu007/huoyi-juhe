@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../services/app_log.dart';
 import '../home/home_chip.dart';
 import '../home/home_design.dart';
+import '../series_detail/moyi_detail_theme.dart';
 
 class LogFilterSelection {
   const LogFilterSelection({this.level, this.timeWindow});
@@ -94,8 +95,8 @@ class _LogFilterSheetState extends State<LogFilterSheet> {
           _timeWindow = null;
         }),
         style: OutlinedButton.styleFrom(
-          foregroundColor: palette.ink,
-          side: BorderSide(color: palette.line),
+          foregroundColor: Colors.white,
+          side: const BorderSide(color: moyiDarkCardBorder),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
@@ -110,8 +111,8 @@ class _LogFilterSheetState extends State<LogFilterSheet> {
             LogFilterSelection(level: _level, timeWindow: _timeWindow),
           ),
           style: FilledButton.styleFrom(
-            backgroundColor: palette.ink,
-            foregroundColor: palette.canvas,
+            backgroundColor: moyiPurple,
+            foregroundColor: Colors.white,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
             ),
@@ -124,10 +125,10 @@ class _LogFilterSheetState extends State<LogFilterSheet> {
 
   Widget _section(HomePalette palette, String title) => Text(
     title,
-    style: TextStyle(
+    style: const TextStyle(
       fontSize: 13,
       fontWeight: FontWeight.w600,
-      color: palette.ink,
+      color: Colors.white,
     ),
   );
 }

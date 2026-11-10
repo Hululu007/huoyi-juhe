@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/cultivation.dart';
 import '../widgets/cultivation_title_label.dart';
+import '../widgets/series_detail/moyi_detail_theme.dart';
 
 /// 称号排行榜页：按修为从低到高列 14 档（每境一行）。
 ///
@@ -37,8 +38,10 @@ class _CultivationTitlesPageState extends State<CultivationTitlesPage> {
         sect: snapshot.sect.isEmpty ? null : snapshot.sect,
       );
       final current = currentTitleTierIndex(snapshot.totalXp, ladder);
-      final offset = ((current - 1) * CultivationTitlesPage.rowHeight)
-          .clamp(0.0, _controller.position.maxScrollExtent);
+      final offset = ((current - 1) * CultivationTitlesPage.rowHeight).clamp(
+        0.0,
+        _controller.position.maxScrollExtent,
+      );
       _controller.jumpTo(offset);
     });
   }
@@ -67,30 +70,37 @@ class _CultivationTitlesPageState extends State<CultivationTitlesPage> {
     final xp = snapshot.totalXp;
     final current = currentTitleTierIndex(xp, ladder);
     final theme = Theme.of(context);
-    return Scaffold(
-      appBar: AppBar(title: const Text('称号排行')),
-      // 只有 14 行，一次建全：单测不用先滚就能找到每一行，
-      // 行高固定，首次进页仍按行高算偏移跳到当前行附近。
-      body: ListView(
-        controller: _controller,
-        children: [
-          for (var index = 0; index < ladder.length; index++)
-            SizedBox(
-              height: CultivationTitlesPage.rowHeight,
-              child: _TitleRow(
-                key: ValueKey('cultivation_title_row_${ladder[index].rank}'),
-                tier: ladder[index],
-                isCurrent: index == current,
-                achieved: xp >= ladder[index].requiredXp,
-                // 前三特效称号是榜单最后三档：道祖第 1 名、大罗第 2 名、
-                // 太乙第 3 名（太乙的称号用户还没想起名字，先留占位）。
-                topThreePlace: ladder[index].isTopThree
-                    ? ladder.length - index
-                    : null,
-                theme: theme,
+    return MoyiPageBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          foregroundColor: Colors.white,
+          title: const Text('称号排行'),
+        ),
+        // 只有 14 行，一次建全：单测不用先滚就能找到每一行，
+        // 行高固定，首次进页仍按行高算偏移跳到当前行附近。
+        body: ListView(
+          controller: _controller,
+          children: [
+            for (var index = 0; index < ladder.length; index++)
+              SizedBox(
+                height: CultivationTitlesPage.rowHeight,
+                child: _TitleRow(
+                  key: ValueKey('cultivation_title_row_${ladder[index].rank}'),
+                  tier: ladder[index],
+                  isCurrent: index == current,
+                  achieved: xp >= ladder[index].requiredXp,
+                  // 前三特效称号是榜单最后三档：道祖第 1 名、大罗第 2 名、
+                  // 太乙第 3 名（太乙的称号用户还没想起名字，先留占位）。
+                  topThreePlace: ladder[index].isTopThree
+                      ? ladder.length - index
+                      : null,
+                  theme: theme,
+                ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -119,13 +129,11 @@ class _TitleRow extends StatelessWidget {
     final titleStyle = TextStyle(
       fontSize: 15,
       fontWeight: FontWeight.w700,
-      color: achieved ? theme.colorScheme.onSurface : Colors.grey,
+      color: achieved ? Colors.white : moyiMutedOnDark,
     );
     final subStyle = TextStyle(
       fontSize: 12,
-      color: achieved
-          ? theme.colorScheme.onSurfaceVariant
-          : Colors.grey,
+      color: achieved ? moyiBodyOnDark : moyiMutedOnDark,
     );
     final row = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -139,9 +147,7 @@ class _TitleRow extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w700,
-                      color: achieved
-                          ? theme.colorScheme.primary
-                          : Colors.grey,
+                      color: achieved ? moyiGold : moyiMutedOnDark,
                     ),
                   )
                 : _TopThreeMedal(place: topThreePlace!),
@@ -166,17 +172,11 @@ class _TitleRow extends StatelessWidget {
                       // 标「待起名」，等用户想起名字再换。
                       if (topThreePlace != null) ...[
                         const SizedBox(width: 6),
-                        _MiniTag(
-                          label: '前三特效',
-                          color: const Color(0xFFD4AF37),
-                        ),
+                        _MiniTag(label: '前三特效', color: const Color(0xFFD4AF37)),
                       ],
                       if (tier.isPlaceholderTitle) ...[
                         const SizedBox(width: 6),
-                        const _MiniTag(
-                          label: '待起名',
-                          color: Colors.grey,
-                        ),
+                        const _MiniTag(label: '待起名', color: moyiMutedOnDark),
                       ],
                     ],
                   )
@@ -196,14 +196,9 @@ class _TitleRow extends StatelessWidget {
     );
     if (!isCurrent) return row;
     return Container(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.45),
-        border: Border(
-          left: BorderSide(
-            color: theme.colorScheme.primary,
-            width: 3,
-          ),
-        ),
+      decoration: const BoxDecoration(
+        color: moyiDarkCardFill,
+        border: Border(left: BorderSide(color: moyiGold, width: 3)),
       ),
       child: row,
     );
@@ -220,8 +215,8 @@ class _StatusChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final label = isCurrent ? '当前' : (achieved ? '已达成' : '未达成');
     final color = isCurrent
-        ? Theme.of(context).colorScheme.primary
-        : (achieved ? Colors.green : Colors.grey);
+        ? moyiGold
+        : (achieved ? Colors.green : moyiMutedOnDark);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(

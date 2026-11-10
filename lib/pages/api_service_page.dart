@@ -10,6 +10,7 @@ import '../services/lan_share_preferences.dart';
 import '../services/local_media_proxy.dart';
 import '../services/local_proxy_preferences.dart';
 import '../widgets/home/home_design.dart';
+import '../widgets/series_detail/moyi_detail_theme.dart';
 import '../widgets/settings/settings_widgets.dart';
 import 'log_viewer_page.dart';
 
@@ -100,9 +101,9 @@ class _ApiServicePageState extends State<ApiServicePage> {
         final request = await client
             .getUrl(Uri.parse('$base/'))
             .timeout(const Duration(seconds: 3));
-        final response = await request
-            .close()
-            .timeout(const Duration(seconds: 3));
+        final response = await request.close().timeout(
+          const Duration(seconds: 3),
+        );
         final body = await response.transform(utf8.decoder).join();
         ok = response.statusCode == 200 && body.contains('local-proxy-ok');
         result = ok
@@ -202,9 +203,7 @@ class _ApiServicePageState extends State<ApiServicePage> {
 
   String get _base {
     final base = BackendService.instance.baseUrl;
-    return base.endsWith('/')
-        ? base.substring(0, base.length - 1)
-        : base;
+    return base.endsWith('/') ? base.substring(0, base.length - 1) : base;
   }
 
   /// Port the core is bound to, taken from [baseUrl] so the LAN rows and the
@@ -227,8 +226,11 @@ class _ApiServicePageState extends State<ApiServicePage> {
     var ok = false;
     try {
       final base = BackendService.instance.baseUrl;
-      final response = await BackendService.instance.transport
-          .send('GET', Uri.parse('$base/health'), timeout: const Duration(seconds: 3));
+      final response = await BackendService.instance.transport.send(
+        'GET',
+        Uri.parse('$base/health'),
+        timeout: const Duration(seconds: 3),
+      );
       if (response.statusCode == 200) {
         ok = true;
         try {
@@ -273,7 +275,8 @@ class _ApiServicePageState extends State<ApiServicePage> {
         try {
           final decoded = jsonDecode(utf8.decode(response.body));
           if (decoded is Map && decoded['devices'] is num) {
-            result = '通了 · HTTP 200 · ${(decoded['devices'] as num).toInt()} 个设备';
+            result =
+                '通了 · HTTP 200 · ${(decoded['devices'] as num).toInt()} 个设备';
           }
         } catch (_) {}
       }
@@ -358,7 +361,7 @@ class _ApiServicePageState extends State<ApiServicePage> {
                   height: 8,
                   decoration: BoxDecoration(
                     // 运行中的状态点跟随主题强调色：墨水屏退化为纯黑。
-                    color: healthy ? palette.accentText : palette.muted,
+                    color: healthy ? moyiGold : moyiMutedOnDark,
                     shape: BoxShape.circle,
                   ),
                 ),
@@ -366,7 +369,7 @@ class _ApiServicePageState extends State<ApiServicePage> {
                 Text(
                   _devices == null ? _status : '$_status · $_devices 个设备',
                   style: theme.textTheme.bodyMedium?.copyWith(
-                    color: palette.ink,
+                    color: Colors.white,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -383,7 +386,7 @@ class _ApiServicePageState extends State<ApiServicePage> {
                   label: const Text('自测'),
                   style: TextButton.styleFrom(
                     visualDensity: VisualDensity.compact,
-                    foregroundColor: palette.muted,
+                    foregroundColor: moyiMutedOnDark,
                   ),
                 ),
               ],
@@ -395,7 +398,7 @@ class _ApiServicePageState extends State<ApiServicePage> {
               child: Text(
                 _probeResult!,
                 style: theme.textTheme.bodySmall?.copyWith(
-                  color: _probeOk ? palette.accentText : palette.ink,
+                  color: _probeOk ? moyiGold : Colors.white,
                 ),
               ),
             ),
@@ -411,7 +414,7 @@ class _ApiServicePageState extends State<ApiServicePage> {
                   label: _lanShare ? '本机' : '地址',
                   value: _base,
                 ),
-                Divider(height: 20, color: palette.line),
+                Divider(height: 20, color: moyiDarkCardBorder),
                 InkWell(
                   onTap: _switching ? null : () => _toggleLanShare(!_lanShare),
                   borderRadius: BorderRadius.circular(8),
@@ -420,17 +423,15 @@ class _ApiServicePageState extends State<ApiServicePage> {
                     child: Row(
                       children: [
                         Icon(
-                          _lanShare
-                              ? LucideIcons.wifi
-                              : LucideIcons.wifi_off,
+                          _lanShare ? LucideIcons.wifi : LucideIcons.wifi_off,
                           size: 16,
-                          color: palette.muted,
+                          color: moyiMutedOnDark,
                         ),
                         const SizedBox(width: 8),
                         Text(
                           '局域网共享',
                           style: theme.textTheme.bodyMedium?.copyWith(
-                            color: palette.ink,
+                            color: Colors.white,
                           ),
                         ),
                         const Spacer(),
@@ -455,7 +456,7 @@ class _ApiServicePageState extends State<ApiServicePage> {
                     Text(
                       '未检测到局域网地址，请确认已连接 WiFi。',
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: palette.muted,
+                        color: moyiMutedOnDark,
                       ),
                     )
                   else
@@ -470,7 +471,7 @@ class _ApiServicePageState extends State<ApiServicePage> {
                   Text(
                     '无密码，同一网络下任何设备都能读取。公共 WiFi 建议关闭。',
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: palette.ink,
+                      color: Colors.white,
                     ),
                   ),
                 ],
@@ -495,8 +496,8 @@ class _ApiServicePageState extends State<ApiServicePage> {
                       height: 8,
                       decoration: BoxDecoration(
                         color: _proxyStatus == '运行中'
-                            ? palette.accentText
-                            : palette.muted,
+                            ? moyiGold
+                            : moyiMutedOnDark,
                         shape: BoxShape.circle,
                       ),
                     ),
@@ -504,7 +505,7 @@ class _ApiServicePageState extends State<ApiServicePage> {
                     Text(
                       '本地代理',
                       style: theme.textTheme.bodyMedium?.copyWith(
-                        color: palette.ink,
+                        color: Colors.white,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -514,7 +515,7 @@ class _ApiServicePageState extends State<ApiServicePage> {
                           ? _proxyStatus
                           : '$_proxyStatus · 端口 $_proxyPort',
                       style: theme.textTheme.bodyMedium?.copyWith(
-                        color: palette.ink,
+                        color: Colors.white,
                       ),
                     ),
                     const Spacer(),
@@ -530,7 +531,7 @@ class _ApiServicePageState extends State<ApiServicePage> {
                       label: const Text('自测'),
                       style: TextButton.styleFrom(
                         visualDensity: VisualDensity.compact,
-                        foregroundColor: palette.muted,
+                        foregroundColor: moyiMutedOnDark,
                       ),
                     ),
                   ],
@@ -541,11 +542,11 @@ class _ApiServicePageState extends State<ApiServicePage> {
                     child: Text(
                       _proxyProbeResult!,
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: _proxyProbeOk ? palette.accentText : palette.ink,
+                        color: _proxyProbeOk ? moyiGold : Colors.white,
                       ),
                     ),
                   ),
-                Divider(height: 20, color: palette.line),
+                Divider(height: 20, color: moyiDarkCardBorder),
                 _addressRow(
                   palette: palette,
                   theme: theme,
@@ -553,7 +554,7 @@ class _ApiServicePageState extends State<ApiServicePage> {
                   value: LocalMediaProxy.instance.baseUrl,
                   emptyText: '已关闭',
                 ),
-                Divider(height: 20, color: palette.line),
+                Divider(height: 20, color: moyiDarkCardBorder),
                 InkWell(
                   onTap: _proxySwitching
                       ? null
@@ -568,13 +569,13 @@ class _ApiServicePageState extends State<ApiServicePage> {
                               ? LucideIcons.globe
                               : LucideIcons.globe_off,
                           size: 16,
-                          color: palette.muted,
+                          color: moyiMutedOnDark,
                         ),
                         const SizedBox(width: 8),
                         Text(
                           '本地代理开关',
                           style: theme.textTheme.bodyMedium?.copyWith(
-                            color: palette.ink,
+                            color: Colors.white,
                           ),
                         ),
                         const Spacer(),
@@ -600,7 +601,7 @@ class _ApiServicePageState extends State<ApiServicePage> {
                 Text(
                   'FongMiTV 同款：蜘蛛包出的 127.0.0.1:9978/proxy 地址由本服务接住，/r/ 带头转发、/h/ 走蜘蛛 localProxy。关掉后部分站点封面与播放会走直连或报错。',
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: palette.muted,
+                    color: moyiMutedOnDark,
                   ),
                 ),
               ],
@@ -610,18 +611,17 @@ class _ApiServicePageState extends State<ApiServicePage> {
           // 接口是参考信息，默认收起；要用的人自己点开。
           const SizedBox(height: 8),
           TextButton.icon(
-            onPressed: () =>
-                setState(() => _showEndpoints = !_showEndpoints),
+            onPressed: () => setState(() => _showEndpoints = !_showEndpoints),
             icon: Icon(
               _showEndpoints
                   ? LucideIcons.chevron_down
                   : LucideIcons.chevron_right,
               size: 16,
-              color: palette.muted,
+              color: moyiMutedOnDark,
             ),
             label: Text(
               _showEndpoints ? '隐藏接口' : '查看可用接口',
-              style: TextStyle(color: palette.muted),
+              style: TextStyle(color: moyiMutedOnDark),
             ),
             style: TextButton.styleFrom(
               alignment: Alignment.centerLeft,
@@ -634,7 +634,7 @@ class _ApiServicePageState extends State<ApiServicePage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   for (var i = 0; i < endpoints.length; i++) ...[
-                    if (i > 0) Divider(height: 18, color: palette.line),
+                    if (i > 0) Divider(height: 18, color: moyiDarkCardBorder),
                     _endpointRow(
                       palette: palette,
                       theme: theme,
@@ -647,7 +647,7 @@ class _ApiServicePageState extends State<ApiServicePage> {
                   Text(
                     '路径拼在上面的地址后面；{ } 内是变量，需替换成实际 ID。',
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: palette.muted,
+                      color: moyiMutedOnDark,
                     ),
                   ),
                 ],
@@ -666,19 +666,23 @@ class _ApiServicePageState extends State<ApiServicePage> {
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 child: Row(
                   children: [
-                    Icon(LucideIcons.terminal, size: 18, color: palette.muted),
+                    Icon(
+                      LucideIcons.terminal,
+                      size: 18,
+                      color: moyiMutedOnDark,
+                    ),
                     const SizedBox(width: 10),
                     Text(
                       '运行日志',
                       style: theme.textTheme.bodyMedium?.copyWith(
-                        color: palette.ink,
+                        color: Colors.white,
                       ),
                     ),
                     const Spacer(),
                     Icon(
                       LucideIcons.chevron_right,
                       size: 16,
-                      color: palette.muted,
+                      color: moyiMutedOnDark,
                     ),
                   ],
                 ),
@@ -715,7 +719,7 @@ class _ApiServicePageState extends State<ApiServicePage> {
               child: Text(
                 label,
                 style: theme.textTheme.bodySmall?.copyWith(
-                  color: palette.muted,
+                  color: moyiMutedOnDark,
                 ),
               ),
             ),
@@ -723,12 +727,12 @@ class _ApiServicePageState extends State<ApiServicePage> {
               child: Text(
                 value.isEmpty ? emptyText : value,
                 style: theme.textTheme.bodyMedium?.copyWith(
-                  color: palette.ink,
+                  color: Colors.white,
                   fontFamily: 'monospace',
                 ),
               ),
             ),
-            Icon(LucideIcons.copy, size: 15, color: palette.muted),
+            Icon(LucideIcons.copy, size: 15, color: moyiMutedOnDark),
           ],
         ),
       ),
@@ -756,7 +760,7 @@ class _ApiServicePageState extends State<ApiServicePage> {
                 Text(
                   name,
                   style: theme.textTheme.bodyMedium?.copyWith(
-                    color: palette.ink,
+                    color: Colors.white,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -767,13 +771,13 @@ class _ApiServicePageState extends State<ApiServicePage> {
                     vertical: 1,
                   ),
                   decoration: BoxDecoration(
-                    color: palette.soft,
+                    color: moyiDarkCardFill,
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
                     'GET',
                     style: theme.textTheme.labelSmall?.copyWith(
-                      color: palette.muted,
+                      color: moyiMutedOnDark,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -784,14 +788,14 @@ class _ApiServicePageState extends State<ApiServicePage> {
             Text(
               path,
               style: theme.textTheme.bodySmall?.copyWith(
-                color: palette.ink,
+                color: Colors.white,
                 fontFamily: 'monospace',
               ),
             ),
             Text(
               hint,
               style: theme.textTheme.bodySmall?.copyWith(
-                color: palette.muted,
+                color: moyiMutedOnDark,
                 fontSize: 11,
               ),
             ),

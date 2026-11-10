@@ -13,7 +13,8 @@ import 'cultivation_bgm.dart';
 /// 挂机游戏音效：按《凡人修仙传》2.5D 版本那个感觉做——
 /// 出剑是剑鸣破空、青元剑诀是剑气上扬、万剑归宗是连珠剑雨、
 /// 大庚剑阵是沉钟剑鸣、真魔功是低沉魔啸、泰阳诀是金钟长鸣、
-/// 惊蛰十二变是雷鸣化龙；打中是闷响、暴击是脆裂金鸣、
+/// 惊蛰十二变是雷鸣化龙；打中是闷响加拼杀音、暴击是脆裂
+/// 金鸣加拼杀音、挥剑与出招也叠一层拼杀音；
 /// 妖兽死是惨叫低吼、通关是登仙琶音。
 ///
 /// 背景音乐：用户说的“仙凡缘”——树里现成的音频文件只有
@@ -24,8 +25,11 @@ import 'cultivation_bgm.dart';
 /// 音乐和打怪音效可以同时播，音量分开、开关分开（设置里
 /// 各有一组开关与音量）。
 ///
-/// 树里没有现成音效文件（只有一首《修仙缘》mp3），所以音效
-/// 用代码合成：22050Hz 单声道 16 位 PCM 写成 wav 存到
+/// 树里现成音效文件有三首：背景乐《修仙缘》mp3、打雷音
+/// thunder.mp3（辟邪神雷 / 惊蛰十二变用，见 [playThunder]）
+/// 与刀剑拼杀音 sword_clash.mp3（挥剑 / 剑砍中怪物 /
+/// 剑剑相碰用，见 [playSwordClash]）；
+/// 其余音效用代码合成：22050Hz 单声道 16 位 PCM 写成 wav 存到
 /// 应用文档目录，首次播放时生成一次、以后直接播；不用
 /// 通用系统提示音代替。测试环境（FLUTTER_TEST）里不建
 /// 播放器、不写文件。
@@ -58,8 +62,7 @@ class GameSoundService {
   final ValueNotifier<bool> sfxMutedNotifier = ValueNotifier<bool>(false);
 
   /// 背景音乐音量（默认 0.6），设置里单独调，落盘。
-  final ValueNotifier<double> musicVolumeNotifier =
-      ValueNotifier<double>(0.6);
+  final ValueNotifier<double> musicVolumeNotifier = ValueNotifier<double>(0.6);
 
   /// 打怪音效音量（默认 1.0），设置里单独调，落盘。
   final ValueNotifier<double> sfxVolumeNotifier = ValueNotifier<double>(1.0);
@@ -72,21 +75,23 @@ class GameSoundService {
   Future<void>? _initFuture;
   String? _sfxDir;
 
-  Future<void> ensureInitialized() =>
-      _initFuture ??= _init();
+  Future<void> ensureInitialized() => _initFuture ??= _init();
 
   Future<void> _init() async {
     try {
       final sp = await SharedPreferences.getInstance();
       // 旧版只有一个统一静音键：没存过新键时按旧键迁移到两边。
       final legacy = sp.getBool(_legacyMutedKey);
-      musicMutedNotifier.value =
-          sp.getBool(_musicMutedKey) ?? legacy ?? false;
+      musicMutedNotifier.value = sp.getBool(_musicMutedKey) ?? legacy ?? false;
       sfxMutedNotifier.value = sp.getBool(_sfxMutedKey) ?? legacy ?? false;
-      musicVolumeNotifier.value =
-          (sp.getDouble(_musicVolumeKey) ?? 0.6).clamp(0.0, 1.0);
-      sfxVolumeNotifier.value =
-          (sp.getDouble(_sfxVolumeKey) ?? 1.0).clamp(0.0, 1.0);
+      musicVolumeNotifier.value = (sp.getDouble(_musicVolumeKey) ?? 0.6).clamp(
+        0.0,
+        1.0,
+      );
+      sfxVolumeNotifier.value = (sp.getDouble(_sfxVolumeKey) ?? 1.0).clamp(
+        0.0,
+        1.0,
+      );
       if (legacy != null) await sp.remove(_legacyMutedKey);
     } catch (_) {}
   }
@@ -160,18 +165,125 @@ class GameSoundService {
   /// 点按。
   Future<void> playTap() => _play('tap');
 
-  /// 出剑（剑鸣破空）。
-  Future<void> playSword() => _play('sword');
+  /// 出剑（剑鸣破空 + 一层刀剑拼杀音）。
+  Future<void> playSword() {
+    unawaited(playSwordClash());
+    return _play('sword');
+  }
 
   /// 放大招：按技能 id 选音效（青元剑诀/大庚剑阵/万剑归宗/
   /// 真魔功/泰阳诀/惊蛰十二变），未知 id 退化为出剑音。
-  Future<void> playSkill(String skillId) => _play(skillId);
+  /// 辟邪神雷（bixie）与惊蛰十二变（jingzhe）走独立打雷音
+  /// 文件 [playThunder]，不再用运行时合成的短促版。
+  /// 其余出招同时叠一层刀剑拼杀音（[playSwordClash]）。
+  Future<void> playSkill(String skillId) {
+    if (skillId == 'bixie' || skillId == 'jingzhe') return playThunder();
+    unawaited(playSwordClash());
+    return _play(skillId);
+  }
 
-  /// 打中（闷响）。
-  Future<void> playHit() => _play('hit');
+  /// 上次播打雷音的时间（600ms 防抖用）。
+  DateTime? _lastThunderAt;
 
-  /// 暴击（脆裂金鸣）。
-  Future<void> playCrit() => _play('crit');
+  /// 打雷音：播独立文件 assets/audio/thunder.mp3（辟邪神雷 /
+  /// 惊蛰十二变的主音）。走打怪音效通道：受 sfxMuted 静音
+  /// 开关与 sfxVolume 音量控制；600ms 内重复调用只播一次，
+  /// 免得大招多波雷叠加炸耳朵；资源加载失败时回退到运行时
+  /// 合成的 [_thunderCrack]，不静默无声。
+  Future<void> playThunder() async {
+    if (sfxMuted) return;
+    if (Platform.environment['FLUTTER_TEST'] == 'true') return;
+    final now = DateTime.now();
+    if (_lastThunderAt != null &&
+        now.difference(_lastThunderAt!) < const Duration(milliseconds: 600)) {
+      return;
+    }
+    _lastThunderAt = now;
+    AudioPlayer? player;
+    try {
+      player = AudioPlayer();
+      await player.setVolume(sfxVolume);
+      await player.play(AssetSource('audio/thunder.mp3'));
+      final started = player;
+      unawaited(
+        Future<void>.delayed(const Duration(seconds: 3)).then((_) async {
+          await started.dispose();
+        }),
+      );
+    } on MissingPluginException {
+      // 插件不可用时静默跳过，免得拖垮页面。
+      try {
+        await player?.dispose();
+      } catch (_) {}
+    } catch (_) {
+      // 资源加载失败时回退到合成雷声，别静默无声。
+      try {
+        await player?.dispose();
+      } catch (_) {}
+      await _play('bixie');
+    }
+  }
+
+  /// 上次播刀剑拼杀音的时间（120ms 防抖用）。
+  DateTime? _lastSwordClashAt;
+
+  /// 刀剑拼杀音测试可见：上次播拼杀音的时间（防抖测试用）。
+  @visibleForTesting
+  DateTime? get lastSwordClashAtForTest => _lastSwordClashAt;
+
+  /// 刀剑拼杀音：播独立文件 assets/audio/sword_clash.mp3（挥剑 /
+  /// 剑砍中怪物 / 剑剑相碰的清脆金属声：2500/3700/5200Hz 金属
+  /// 泛音 + 短促剑刃摩擦噪声，0.45 秒）。走打怪音效通道：受
+  /// sfxMuted 静音开关与 sfxVolume 音量控制；120ms 内重复调
+  /// 用只播一次，免得连续命中叠加炸耳朵；资源加载失败时静
+  /// 默跳过。另一路在战场渲染的挥剑与命中点直接调本方法；
+  /// 本文件内的挥剑 / 命中 / 暴击 / 出招（打雷的两招除外）
+  /// 也叠一层本音效。
+  Future<void> playSwordClash() async {
+    if (sfxMuted) return;
+    final now = DateTime.now();
+    if (_lastSwordClashAt != null &&
+        now.difference(_lastSwordClashAt!) <
+            const Duration(milliseconds: 120)) {
+      return;
+    }
+    _lastSwordClashAt = now;
+    if (Platform.environment['FLUTTER_TEST'] == 'true') return;
+    AudioPlayer? player;
+    try {
+      player = AudioPlayer();
+      await player.setVolume(sfxVolume);
+      await player.play(AssetSource('audio/sword_clash.mp3'));
+      final started = player;
+      unawaited(
+        Future<void>.delayed(const Duration(seconds: 2)).then((_) async {
+          await started.dispose();
+        }),
+      );
+    } on MissingPluginException {
+      // 插件不可用时静默跳过，免得拖垮页面。
+      try {
+        await player?.dispose();
+      } catch (_) {}
+    } catch (_) {
+      // 资源加载失败时静默跳过。
+      try {
+        await player?.dispose();
+      } catch (_) {}
+    }
+  }
+
+  /// 打中（闷响 + 一层刀剑拼杀音）。
+  Future<void> playHit() {
+    unawaited(playSwordClash());
+    return _play('hit');
+  }
+
+  /// 暴击（脆裂金鸣 + 一层刀剑拼杀音）。
+  Future<void> playCrit() {
+    unawaited(playSwordClash());
+    return _play('crit');
+  }
 
   /// 妖兽惨叫（低吼下滑）。
   Future<void> playMonsterCry() => _play('monster_cry');
@@ -194,12 +306,15 @@ class GameSoundService {
       final player = AudioPlayer();
       await player.setVolume(sfxVolume);
       unawaited(
-        player.play(DeviceFileSource(path)).then((_) async {
-          await Future<void>.delayed(const Duration(seconds: 2));
-          await player.dispose();
-        }).catchError((Object _) async {
-          await player.dispose();
-        }),
+        player
+            .play(DeviceFileSource(path))
+            .then((_) async {
+              await Future<void>.delayed(const Duration(seconds: 2));
+              await player.dispose();
+            })
+            .catchError((Object _) async {
+              await player.dispose();
+            }),
       );
     } on MissingPluginException {
       // 插件不可用时静默跳过，免得拖垮页面。
@@ -250,11 +365,7 @@ class GameSoundService {
       'hit' => _thud(160, 0.12),
       'crit' => _crit(),
       'monster_cry' => _cry(),
-      'clear' => _arpeggio(
-        const [523, 659, 784, 1046],
-        0.16,
-        0.6,
-      ),
+      'clear' => _arpeggio(const [523, 659, 784, 1046], 0.16, 0.6),
       'level_up' => _levelUp(),
       'meditate' => _tone(660, 0.5, 0.25),
       _ => _tone(1200, 0.08, 0.4),
@@ -292,7 +403,8 @@ class GameSoundService {
       final decay = math.exp(-4 * frac);
       var value = volume * decay * math.sin(phase);
       if (shimmer != null) {
-        value += 0.15 * decay * math.sin(2 * math.pi * shimmer * i / _sampleRate);
+        value +=
+            0.15 * decay * math.sin(2 * math.pi * shimmer * i / _sampleRate);
       }
       out[i] = value;
     }
@@ -342,7 +454,8 @@ class GameSoundService {
           ? (random.nextDouble() * 2 - 1) * 0.5 * (1 - frac * 4)
           : 0.0;
       // 剑鸣：1568Hz + 2093Hz 金属泛音。
-      final ring = math.exp(-8 * t) *
+      final ring =
+          math.exp(-8 * t) *
           (0.5 * math.sin(2 * math.pi * 1568 * t) +
               0.3 * math.sin(2 * math.pi * 2093 * t));
       out[i] = noise + ring;
@@ -359,7 +472,8 @@ class GameSoundService {
       final frac = i / n;
       final wobble = 1 + 0.4 * math.sin(2 * math.pi * 7 * t);
       final decay = math.exp(-2.5 * frac);
-      out[i] = 0.55 *
+      out[i] =
+          0.55 *
           decay *
           wobble *
           (math.sin(2 * math.pi * 90 * t) +
@@ -379,7 +493,8 @@ class GameSoundService {
       final crack = frac < 0.15
           ? (random.nextDouble() * 2 - 1) * 0.9 * (1 - frac / 0.15)
           : 0.0;
-      final ring = math.exp(-10 * t) *
+      final ring =
+          math.exp(-10 * t) *
           (0.4 * math.sin(2 * math.pi * 1800 * t) +
               0.25 * math.sin(2 * math.pi * 900 * t));
       out[i] = crack + ring;
@@ -398,10 +513,12 @@ class GameSoundService {
       final noise = frac < 0.3
           ? (random.nextDouble() * 2 - 1) * 0.7 * (1 - frac * 3.3)
           : 0.0;
-      final rise = math.exp(-3 * frac) * math.sin(2 * math.pi * (200 + 1000 * frac) * t);
+      final rise =
+          math.exp(-3 * frac) * math.sin(2 * math.pi * (200 + 1000 * frac) * t);
       // 十二下连珠：每 0.06 秒一记短鸣。
       final tick = (i % (0.06 * _sampleRate).round() == 0)
-          ? 0.3 * math.exp(-20 * (i % (0.06 * _sampleRate).round()) / _sampleRate)
+          ? 0.3 *
+                math.exp(-20 * (i % (0.06 * _sampleRate).round()) / _sampleRate)
           : 0.0;
       out[i] = noise + 0.4 * rise + tick;
     }
@@ -416,7 +533,8 @@ class GameSoundService {
     for (var i = 0; i < n; i++) {
       final t = i / _sampleRate;
       final decay = math.exp(-25 * t);
-      out[i] = decay *
+      out[i] =
+          decay *
           (0.7 * math.sin(2 * math.pi * freq * t) +
               0.3 * (random.nextDouble() * 2 - 1));
     }
@@ -452,13 +570,9 @@ class GameSoundService {
       phase += 2 * math.pi * freq / _sampleRate;
       final vibrato = 1 + 0.25 * math.sin(2 * math.pi * 9 * i / _sampleRate);
       final decay = math.exp(-2.0 * frac);
-      out[i] = 0.5 *
-              decay *
-              vibrato *
-              math.sin(phase) +
-          0.12 *
-              decay *
-              (random.nextDouble() * 2 - 1);
+      out[i] =
+          0.5 * decay * vibrato * math.sin(phase) +
+          0.12 * decay * (random.nextDouble() * 2 - 1);
     }
     return out;
   }

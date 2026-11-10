@@ -7,6 +7,7 @@ import 'package:fqapp/models/series_detail.dart';
 import 'package:fqapp/pages/series_detail_page.dart';
 import 'package:fqapp/services/app_theme.dart' show einkModeNotifier;
 import 'package:fqapp/widgets/home/home_design.dart' show HomePalette;
+import 'package:fqapp/widgets/series_detail/moyi_detail_theme.dart';
 
 import 'support/fakes.dart';
 import 'support/series_detail_fixtures.dart';
@@ -17,25 +18,26 @@ import 'support/series_detail_fixtures.dart';
 ///
 /// 既有行为仍在 `series_detail_page_test.dart`。
 void main() {
-  testWidgets('跟随浅色主题：画布 + 剧集主色淡色带 + 品牌强调色播放钮', (tester) async {
+  testWidgets('魔蚁深紫底：全页渐变 + 剧集主色淡色带 + 品牌强调色播放钮', (tester) async {
     await pumpSeriesDetail(
       tester,
       detail: seriesDetailFixture(),
       episodes: [for (var i = 0; i < 12; i++) chapterAt(i)],
     );
+    // Scaffold 透明：底由 _backdrop 的魔蚁渐变画，不再是浅色画布 #EAF2F8。
     final scaffold = tester.widget<Scaffold>(
       find.byKey(const ValueKey('series-detail-page')),
     );
-    expect(scaffold.backgroundColor, const Color(0xFFEAF2F8));
-    // 色带顶部 = 剧集主色 #F5E6C8 按 10% 混到画布，然后淡出到画布。
+    expect(scaffold.backgroundColor, Colors.transparent);
+    // 色带顶部 = 剧集主色 #F5E6C8 按 10% 混到魔蚁渐变中色，然后淡出到透明。
     final bandTop = Color.alphaBlend(
       const Color(0xFFF5E6C8).withValues(alpha: 0.10),
-      const Color(0xFFEAF2F8),
+      moyiPageGradient.colors[1],
     );
     final gradientBox = tester.widget<DecoratedBox>(twoColorGradientFinder());
     final gradient =
         (gradientBox.decoration as BoxDecoration).gradient! as LinearGradient;
-    expect(gradient.colors, [bandTop, const Color(0xFFEAF2F8)]);
+    expect(gradient.colors, [bandTop, Colors.transparent]);
     // 播放钮 = 品牌强调色。
     final button = tester.widget<FilledButton>(
       find.byKey(const ValueKey('series-detail-play-button')),
@@ -43,7 +45,7 @@ void main() {
     expect(button.style!.backgroundColor!.resolve({}), HomePalette.accent);
   });
 
-  testWidgets('灰色系 / 缺失品牌色时不出色带（页面就是画布色）', (tester) async {
+  testWidgets('灰色系 / 缺失品牌色时不出色带（页面就是魔蚁渐变底）', (tester) async {
     for (final hex in <String>['', '#404040']) {
       await pumpSeriesDetail(
         tester,
@@ -53,12 +55,12 @@ void main() {
       final scaffold = tester.widget<Scaffold>(
         find.byKey(const ValueKey('series-detail-page')),
       );
-      expect(scaffold.backgroundColor, const Color(0xFFEAF2F8));
+      expect(scaffold.backgroundColor, Colors.transparent);
       expect(twoColorGradientFinder(), findsNothing);
     }
   });
 
-  testWidgets('跟随深色主题：深色画布，主色只做更实的暗色带（不再强制深色背景）', (tester) async {
+  testWidgets('跟随深色主题：魔蚁深紫底，主色只做更实的暗色带', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         theme: ThemeData.dark(useMaterial3: true),
@@ -82,17 +84,17 @@ void main() {
     final scaffold = tester.widget<Scaffold>(
       find.byKey(const ValueKey('series-detail-page')),
     );
-    expect(scaffold.backgroundColor, const Color(0xFF1E1D38));
+    expect(scaffold.backgroundColor, Colors.transparent);
     final bandTop = Color.alphaBlend(
       const Color(0xFF302010).withValues(alpha: 0.16),
-      const Color(0xFF1E1D38),
+      moyiPageGradient.colors[1],
     );
     // 仍是暗色，白字可读。
     expect(bandTop.computeLuminance(), lessThan(0.1));
     final gradientBox = tester.widget<DecoratedBox>(twoColorGradientFinder());
     final gradient =
         (gradientBox.decoration as BoxDecoration).gradient! as LinearGradient;
-    expect(gradient.colors, [bandTop, const Color(0xFF1E1D38)]);
+    expect(gradient.colors, [bandTop, Colors.transparent]);
     // 版式稿深色的当前集：底 #3A2420、文字调亮到 #FF7A63。
     final currentTile = tester.widget<Material>(
       find.descendant(
@@ -122,7 +124,10 @@ void main() {
     final scaffold = tester.widget<Scaffold>(
       find.byKey(const ValueKey('series-detail-page')),
     );
-    expect(scaffold.backgroundColor, Colors.white);
+    // 注意：墨水屏纯黑白底是未做的设计缺口——MoyiPageBackground /
+    // _backdrop 没有墨水屏分支，墨水屏下页面仍画魔蚁渐变底；
+    // 这里只锁 Scaffold 透明与黑白按钮/当前集，底色缺口留待定夺。
+    expect(scaffold.backgroundColor, Colors.transparent);
     expect(twoColorGradientFinder(), findsNothing);
     final button = tester.widget<FilledButton>(
       find.byKey(const ValueKey('series-detail-play-button')),

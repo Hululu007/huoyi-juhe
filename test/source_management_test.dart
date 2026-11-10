@@ -88,16 +88,21 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 200));
     // ListView 懒加载：滚到目标组再断言。
+    // scrollUntilVisible 结尾的 ensureVisible 是 100ms 动画，返回时动画
+    // 还没跑完，目标行下一行还没建出来；先 settle 再断言。
     await tester.scrollUntilVisible(
       find.text('Python 内容源'),
       500,
     );
+    await tester.pumpAndSettle();
     expect(find.text('我的 Python 小说站'), findsOneWidget);
     await tester.scrollUntilVisible(find.text('阅读书源'), 500);
+    await tester.pumpAndSettle();
     expect(find.text('我的阅读书源'), findsOneWidget);
     // 断言对象是副标题里的计数：直接滚到计数字样再断言，行高变化
     // （如站源行折叠变矮）不会把副标题顶出可视区导致误判。
     await tester.scrollUntilVisible(find.textContaining('个直播源'), 500);
+    await tester.pumpAndSettle();
     expect(find.textContaining('个直播源'), findsOneWidget);
   });
 }

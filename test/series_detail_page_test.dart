@@ -13,6 +13,7 @@ import 'package:fqapp/models/series_detail.dart';
 import 'package:fqapp/pages/series_detail_page.dart';
 import 'package:fqapp/services/shelf_store.dart';
 import 'package:fqapp/widgets/home/home_design.dart' show HomePalette;
+import 'package:fqapp/widgets/series_detail/moyi_detail_theme.dart';
 
 import 'support/fakes.dart';
 import 'support/series_detail_fixtures.dart';
@@ -104,24 +105,25 @@ void main() {
     );
     final shape = currentTile.shape! as RoundedRectangleBorder;
     expect(shape.side.color, HomePalette.accent);
-    // 版式稿当前集底色 #FDECE8（浅色）。
-    expect(currentTile.color, const Color(0xFFFDECE8));
+    // 详情页内层强制深色（魔蚁深紫底），当前集底色取深色档 #3A2420，
+    // 不是浅色档 #FDECE8。
+    expect(currentTile.color, const Color(0xFF3A2420));
     final current = tester.widget<Text>(
       find.descendant(
         of: find.byKey(const ValueKey('series-episode-3')),
         matching: find.text('4'),
       ),
     );
-    expect(current.style?.color, HomePalette.accentStrong);
+    expect(current.style?.color, const Color(0xFFFF7A63));
     expect(current.style?.fontWeight, FontWeight.w500);
-    // 已看集（第 1 格）灰字 #706C66（浅色 palette.muted）。
+    // 已看集（第 1 格）灰字：深色下 palette.muted 为 #A7A39E。
     final watched = tester.widget<Text>(
       find.descendant(
         of: find.byKey(const ValueKey('series-episode-0')),
         matching: find.text('1'),
       ),
     );
-    expect(watched.style?.color, const Color(0xFF706C66));
+    expect(watched.style?.color, const Color(0xFFA7A39E));
     // 点普通格回传该集下标。
     await tester.tap(find.byKey(const ValueKey('series-episode-6')));
     expect(played, [6]);
@@ -704,9 +706,10 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    // 色带顶混进魔蚁渐变的中色（#1A0F3C），不再是浅色画布 #EAF2F8。
     final bandTop = Color.alphaBlend(
       const Color(0xFF302010).withValues(alpha: 0.10),
-      const Color(0xFFEAF2F8),
+      moyiPageGradient.colors[1],
     );
     Future<void> checkPixels() async {
       final boundary =
@@ -723,11 +726,12 @@ void main() {
       expect(pixels, isNotNull);
       int channel(int x, int y, int c) =>
           pixels!.getUint8((y * 360 + x) * 4 + c);
-      // 右边缘没有文字/封面：同时覆盖状态栏、返回栏与色带淡出后的画布。
+      // 右边缘没有文字/封面：同时覆盖状态栏、返回栏与色带淡出后的渐变底。
       expect(channel(358, 0, 0), closeTo(bandTop.r * 255, 2));
-      // 色带高度 = 安全区顶 32 + 顶栏 52，到这里已经是纯画布。
-      expect(channel(358, 90, 0), closeTo(0xEA, 2));
-      expect(channel(358, 300, 0), closeTo(0xEA, 2));
+      // 色带高度 = 安全区顶 32 + 顶栏 52；到这里已是纯魔蚁渐变底
+      // （y=90 在 #2E1B62→#1A0F3C 段，y=300 更靠近中色）。
+      expect(channel(358, 90, 0), closeTo(42, 2));
+      expect(channel(358, 300, 0), closeTo(32, 2));
       // 相邻行不跳变：顶栏边界也不能出现横条。
       for (var y = 1; y < 420; y++) {
         expect(

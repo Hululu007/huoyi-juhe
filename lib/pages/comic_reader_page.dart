@@ -29,6 +29,7 @@ import '../widgets/comic/comic_reader_viewport.dart';
 import '../widgets/home/home_back_button.dart';
 import '../widgets/home/home_design.dart';
 import '../widgets/home/home_feed_states.dart';
+import '../widgets/series_detail/moyi_detail_theme.dart';
 
 // 漫画图的默认提供方放在 ComicImageTile 里（墨水屏包装也在那），这里转出
 // 给既有调用方 / 测试继续从本页面导入。

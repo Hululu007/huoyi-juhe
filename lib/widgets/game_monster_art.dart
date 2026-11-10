@@ -57,21 +57,36 @@ bool gameMonsterArtIsBoss(GameMonster monster) =>
     monster.kind == GameMonsterKind.jiao ||
     monster.kind == GameMonsterKind.king;
 
-/// 怪物金框卡片：圆角 + 金边，图按中央裁切填满。
+/// 怪物原图比例（360x732 竖幅全身像）：卡片必须按这个比例
+/// 开盒，图才能整幅显示不裁切、不拉伸；以前 120x140 的框
+/// 配 BoxFit.cover 是横向撑满后上下裁掉约四成，怪的头尾
+/// 全被裁掉只剩中间一段，看着像发飘的残片。
+const double gameMonsterArtAspect = 360 / 732;
+
+/// 怪物金框卡片：整幅原图按原比例显示，不裁切、不拉伸、
+/// 不加半透明、不加模糊影——图本身是深蓝底全身像，
+/// 描边和细节直接看得清。卡片只留 1.5 金边，不垫模糊黑影
+/// （以前 boxShadow blur 8 的黑晕把卡片边缘罩虚了一层）。
 class GameMonsterArt extends StatelessWidget {
   const GameMonsterArt({
     super.key,
     required this.monster,
     required this.width,
-    required this.height,
+    this.artOverride,
   });
 
   final GameMonster monster;
+
+  /// 卡片宽；高按原图比例算（width * 732 / 360）。
   final double width;
-  final double height;
+
+  /// 强制用这张图（小怪按槽位轮着用四张野兽图时用；
+  /// 不传就按 [gameMonsterArtFor] 的种类映射取图）。
+  final String? artOverride;
 
   @override
   Widget build(BuildContext context) {
+    final height = width / gameMonsterArtAspect;
     return Container(
       width: width,
       height: height,
@@ -81,20 +96,14 @@ class GameMonsterArt extends StatelessWidget {
           color: const Color(0xFFD4A017),
           width: 1.5,
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.5),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(8),
         child: Image.asset(
-          gameMonsterArtFor(monster),
+          artOverride ?? gameMonsterArtFor(monster),
           fit: BoxFit.cover,
           alignment: Alignment.center,
+          filterQuality: FilterQuality.high,
         ),
       ),
     );

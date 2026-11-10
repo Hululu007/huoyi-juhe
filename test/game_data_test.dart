@@ -214,14 +214,11 @@ void main() {
       }
     });
 
-    test('机器人：组队 2 名各不同，托机器人 50 个名不重复', () {
+    test('机器人：组队 2 名各不同', () {
       expect(gameTeamBots.length, 2);
       expect(gameTeamBots[0].name, isNot(gameTeamBots[1].name));
       expect(gameTeamBots[0].costumeId, isNot(gameTeamBots[1].costumeId));
       expect(gameTeamBots[0].profession, isNot(gameTeamBots[1].profession));
-      expect(gameAmbientBotNames.length, 50);
-      expect(gameAmbientBotNames.toSet().length, 50);
-      expect(gameAmbientBotRealms.length, 8);
     });
 
     test('战力定境界名：低阶炼气、高阶元婴', () {
@@ -237,7 +234,6 @@ void main() {
       expect(gameOfflineCapHours, 8);
       expect(gameHuntPerDay, 3);
       expect(gameBottleXp, 500);
-      expect(gameCheerLines, contains('老大！你一定能赢！'));
     });
   });
 }

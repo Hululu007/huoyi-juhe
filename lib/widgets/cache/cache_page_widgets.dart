@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
 
 import '../home/home_design.dart';
+import '../series_detail/moyi_detail_theme.dart';
 import '../home/home_feed_states.dart';
 import '../settings/settings_widgets.dart';
 
@@ -23,7 +24,6 @@ class CacheSummaryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = HomePalette.of(context);
     return SettingsGroupCard(
       showDividers: false,
       children: [
@@ -35,10 +35,10 @@ class CacheSummaryCard extends StatelessWidget {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: palette.soft,
+                  color: moyiDarkCardFill,
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(icon, size: 22, color: palette.accentText),
+                child: Icon(icon, size: 22, color: moyiGold),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -51,7 +51,7 @@ class CacheSummaryCard extends StatelessWidget {
                         fontSize: 15,
                         height: 1.3,
                         fontWeight: FontWeight.w700,
-                        color: palette.ink,
+                        color: Colors.white,
                       ),
                     ),
                     const SizedBox(height: 3),
@@ -60,7 +60,7 @@ class CacheSummaryCard extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 12,
                         height: 1.4,
-                        color: palette.muted,
+                        color: moyiMutedOnDark,
                       ),
                     ),
                   ],

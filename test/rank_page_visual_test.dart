@@ -6,8 +6,8 @@ import 'package:fqapp/models/rank.dart';
 import 'package:fqapp/pages/rank_page.dart';
 import 'package:fqapp/services/app_theme.dart' show einkModeNotifier;
 import 'package:fqapp/widgets/home/home_chip.dart';
-import 'package:fqapp/widgets/home/home_design.dart';
 import 'package:fqapp/widgets/home/home_feed_states.dart';
+import 'package:fqapp/widgets/series_detail/moyi_detail_theme.dart';
 
 /// 榜单页视觉对齐：层级用首页同款下划线文字 tab、分类用 HomeChip、
 /// 空榜与失败分开（共享空/错态）、名次与流尾跟随色板。
@@ -71,16 +71,15 @@ void main() {
 
   testWidgets('榜单层级是下划线文字 tab，不是橙底胶囊', (tester) async {
     await pump(tester);
-    const palette = HomePalette(false);
 
     expect(tester.getSize(find.byKey(const Key('rank_tabs'))).height, 44);
     final selected = tabText(tester, 200);
     expect(selected.style?.fontSize, 13);
     expect(selected.style?.fontWeight, FontWeight.w700);
-    expect(selected.style?.color, palette.ink);
+    expect(selected.style?.color, Colors.white);
     final unselected = tabText(tester, 100);
     expect(unselected.style?.fontWeight, FontWeight.w500);
-    expect(unselected.style?.color, palette.muted);
+    expect(unselected.style?.color, moyiMutedOnDark);
 
     // 文字 tab 视觉只有约 23dp 高，可点区域必须补到 44dp 高、48dp 宽，
     // 并且由 InkWell 承载：焦点遍历 + 键盘 Enter/Space 用它激活。
@@ -206,13 +205,9 @@ void main() {
 
   testWidgets('前三名用强调文字色，第四名起是 muted', (tester) async {
     await pump(tester);
-    const palette = HomePalette(false);
 
-    expect(
-      tester.widget<Text>(find.text('1')).style?.color,
-      palette.accentText,
-    );
-    expect(tester.widget<Text>(find.text('4')).style?.color, palette.muted);
+    expect(tester.widget<Text>(find.text('1')).style?.color, moyiGold);
+    expect(tester.widget<Text>(find.text('4')).style?.color, moyiMutedOnDark);
   });
 
   testWidgets('墨水屏：名次与选中 tab 退化为纯黑', (tester) async {

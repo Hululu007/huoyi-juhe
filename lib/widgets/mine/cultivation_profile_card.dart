@@ -130,30 +130,46 @@ class CultivationProfileCard extends StatelessWidget {
     );
   }
 
+  // 窄屏 + 大字号下标题与境界组徽章会挤爆：标题可缩放、徽章可省略，
+  // 徽章（下境界·人界 6 字）本身不缩放，只截尾。
   Widget _titleRow(String groupName) {
     return Row(
       children: [
         const Icon(Icons.auto_graph, size: 14, color: _goldBright),
         const SizedBox(width: 6),
-        const Text(
-          '道友档案',
-          style: TextStyle(
-            fontSize: 13,
-            height: 1.2,
-            fontWeight: FontWeight.w700,
-            color: Colors.white,
+        Flexible(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: const Text(
+              '道友档案',
+              style: TextStyle(
+                fontSize: 13,
+                height: 1.2,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+              ),
+            ),
           ),
         ),
         const Spacer(),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(10),
-            color: _gold.withValues(alpha: 0.14),
-          ),
-          child: Text(
-            groupName,
-            style: const TextStyle(fontSize: 10, height: 1.2, color: _gold),
+        Flexible(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              color: _gold.withValues(alpha: 0.14),
+            ),
+            child: Text(
+              groupName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 10,
+                height: 1.2,
+                color: _gold,
+              ),
+            ),
           ),
         ),
       ],
@@ -190,23 +206,28 @@ class CultivationProfileCard extends StatelessWidget {
               const SizedBox(height: 2),
               Row(
                 children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 7,
-                      vertical: 1,
-                    ),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(9),
-                      color: _gold.withValues(alpha: 0.18),
-                      border: Border.all(color: _gold.withValues(alpha: 0.5)),
-                    ),
-                    child: Text(
-                      realm.levelLabel,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        height: 1.2,
-                        fontWeight: FontWeight.w700,
-                        color: _gold,
+                  // 窄屏 + 大字号下等级徽章会把用户名挤爆：徽章可缩、文字截尾。
+                  Flexible(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 7,
+                        vertical: 1,
+                      ),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(9),
+                        color: _gold.withValues(alpha: 0.18),
+                        border: Border.all(color: _gold.withValues(alpha: 0.5)),
+                      ),
+                      child: Text(
+                        realm.levelLabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          height: 1.2,
+                          fontWeight: FontWeight.w700,
+                          color: _gold,
+                        ),
                       ),
                     ),
                   ),
@@ -264,27 +285,31 @@ class CultivationProfileCard extends StatelessWidget {
           border: Border.all(color: _gold, width: 1.5),
         ),
         alignment: Alignment.center,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              realm.badgeLine1,
-              style: const TextStyle(
-                fontSize: 10,
-                height: 1.2,
-                fontWeight: FontWeight.w700,
-                color: _goldBright,
+        // 36px 圆徽章里的两行字：大字号下会换行撑爆，整体等比缩小放得下。
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                realm.badgeLine1,
+                style: const TextStyle(
+                  fontSize: 10,
+                  height: 1.2,
+                  fontWeight: FontWeight.w700,
+                  color: _goldBright,
+                ),
               ),
-            ),
-            Text(
-              realm.badgeLine2,
-              style: const TextStyle(
-                fontSize: 9,
-                height: 1.2,
-                color: _goldBright,
+              Text(
+                realm.badgeLine2,
+                style: const TextStyle(
+                  fontSize: 9,
+                  height: 1.2,
+                  color: _goldBright,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

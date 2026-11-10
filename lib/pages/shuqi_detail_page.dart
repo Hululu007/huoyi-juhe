@@ -6,6 +6,7 @@ import '../models/shuqi_book.dart';
 import '../services/api_client.dart';
 import '../services/library_store.dart';
 import '../services/user_facing_error.dart';
+import '../widgets/series_detail/moyi_detail_theme.dart';
 import 'reader_page.dart';
 
 /// 书旗书籍详情 + 目录。
@@ -154,9 +155,28 @@ class _ShuqiDetailPageState extends State<ShuqiDetailPage> {
     final title = _book?.name.isNotEmpty == true
         ? _book!.name
         : (widget.initialTitle.isEmpty ? '书旗' : widget.initialTitle);
-    return Scaffold(
-      appBar: AppBar(title: Text(title, overflow: TextOverflow.ellipsis)),
-      body: _buildBody(theme),
+    // 深紫底上的正文一律白字：_buildBody 里大量文本直接取 theme.textTheme，
+    // 这里把整套 textTheme 的 body/display 色一次性翻成白字，逐行改不动它。
+    final darkTextTheme = theme.textTheme.apply(
+      bodyColor: Colors.white,
+      displayColor: Colors.white,
+    );
+    return MoyiPageBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          foregroundColor: Colors.white,
+          title: Text(title, overflow: TextOverflow.ellipsis),
+        ),
+        body: Theme(
+          data: theme.copyWith(
+            textTheme: darkTextTheme,
+            dividerColor: moyiDarkCardBorder,
+          ),
+          child: Builder(builder: (context) => _buildBody(Theme.of(context))),
+        ),
+      ),
     );
   }
 
@@ -317,8 +337,12 @@ class _ShuqiDetailPageState extends State<ShuqiDetailPage> {
     final fallback = Container(
       width: width,
       height: height,
-      color: theme.colorScheme.surfaceContainerHighest,
-      child: const Icon(Icons.menu_book_outlined, size: 28),
+      color: moyiDarkCardFill,
+      child: const Icon(
+        Icons.menu_book_outlined,
+        size: 28,
+        color: moyiMutedOnDark,
+      ),
     );
     if (book.coverUrl.isEmpty) return fallback;
     return ClipRRect(

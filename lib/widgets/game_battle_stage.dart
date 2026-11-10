@@ -44,20 +44,24 @@ class BattleStrike {
 /// 3-4 人紧贴 BOSS 围成半弧贴身打，BOSS 居中偏上；全程自动
 /// 战斗自动寻路，不用手操作。
 /// 人物改小（用户看截图说原来太大互相重叠）：主角 46×58、
-/// 队友 38×48、BOSS 120×140，名牌栏 96 宽、9px 小字不截断
-/// 不压叠；50 个托机器人只在地图五条边缘带活动，不进中央。
+/// 队友 38×48、BOSS 全幅 96×195（原图 360x732 比例，整幅
+/// 显示不裁切），名牌栏 96 宽、9px 小字不截断不压叠；
+/// 战场上没有虚拟玩家托机器人，只有 14 只小怪铺满全场。
 ///
 /// 人物图：3D 写实白发剑修背影（男 / 女两张，见
 /// [gameHeroAssetForGender]），战场上用半身裁切图缩成
 /// 金环圆形徽章（只占画面高度十分之一左右），创建页 /
 /// 人物页 / 档案卡用整幅图；旧 Q 版豆包图保留在资源里当回退。
 /// 怪物：3D 写实野兽五格图按格切分（见 [gameMonsterArtFor]），
-/// 普通怪随机金光蟒 / 紫电妖狼 / 赤焰火虎 / 金刚巨猿，
-/// 首领固定墨蛟放大一圈。
+/// 章节怪固定种类映射（蛟 / 蛟王是墨蛟）；小怪 14 只，数值
+/// 用妖兽表里本章战力及以下的怪（蛟 / 蛟王除外），图按槽位
+/// 轮着用金光蟒 / 紫电妖狼 / 赤焰火虎 / 金刚巨猿四张，
+/// 死后 1.2 秒在场上随机点重刷，挂机一直有怪打。
 ///
 /// 技能特效要酷：剑气又长又亮带拖尾，万剑归宗满屏飞剑，
-/// 大庚剑阵金色剑阵铺开，乾蓝冰焰蓝白火焰加冰晶，辟邪神雷
-/// 紫白闪电从天劈下，绝招全屏大光效加震屏，命中爆裂光加飘字。
+/// 大庚剑阵金色剑阵铺开，乾蓝冰焰蓝白冰火球飞、命中冰晶爆开，
+/// 辟邪神雷紫白闪电从天劈下、命中三道竖劈，绝招全屏大光效加
+/// 震屏，命中爆裂光加飘字。
 ///
 /// 界面布局照视频里来：
 /// - 中央金字“自动战斗中…/自动寻路中…”；
@@ -75,12 +79,11 @@ class BattleStrike {
 /// 删掉）；没有聊天（单机游戏不联网：没有聊天条、聊天气泡、
 /// 宗门聊天、世界聊天、聊天角标，左下也没有聊天图标）。
 ///
-/// 队友全是机器人：道友 + 2 名虚拟队友（紫灵、厉飞雨）3 人
-/// 满队进副本围打 BOSS；每张地图另有 50 个托机器人随机走动、
-/// 随机找怪打、随机放技能、随机跑图，名字境界各不一样，像
-/// 真人一样在地图里活动；队友名字衣服武器各不一样，会走位、
-/// 会放技能、会喊话（“老大！你一定能赢！”），旁人看屏幕
-/// 以为是好几个人在组队玩，其实全是机器人单机。
+/// 队友是固定的 2 名机器人：道友 + 2 名队友（紫灵、厉飞雨）
+/// 3 人满队进副本围打 BOSS；队友名字衣服武器各不一样，
+/// 会走位、会放技能，不喊话（喊话气泡已删）。
+/// 战场上另有 14 只小怪铺满全场：主角普攻优先打最近的小怪，
+/// 小怪死后原地 1.2 秒重刷一只，挂机一直有怪打。
 ///
 /// 技能特效以金色为主：巨大金色螺旋光环罩全队、中央白黄闪光，
 /// 另有紫漩涡、蓝剑气、白闪电、红爆炸。
@@ -114,6 +117,7 @@ class GameBattleStage extends StatefulWidget {
     this.heroCostume,
     this.active = true,
     required this.onMonsterKilled,
+    required this.onMinionKilled,
     required this.onHeroStrike,
     required this.onOpenShop,
     required this.onOpenTasks,
@@ -164,6 +168,10 @@ class GameBattleStage extends StatefulWidget {
   /// 妖兽被击杀。
   final VoidCallback onMonsterKilled;
 
+  /// 一只小怪被击杀（父级按这只怪自己的表结算修为 / 元宝 /
+  /// 掉落，走原来 [GameService.killMonster] 那套）。
+  final ValueChanged<GameMonster> onMinionKilled;
+
   /// 道友出招命中一次。
   final ValueChanged<BattleStrike> onHeroStrike;
 
@@ -195,7 +203,6 @@ class _GameBattleStageState extends State<GameBattleStage>
   double _spirit = 100;
 
   Timer? _tickTimer;
-  Timer? _cheerTimer;
   Timer? _bannerTimer;
   Timer? _toastTimer;
   DateTime _fightStart = DateTime.now();
@@ -213,22 +220,22 @@ class _GameBattleStageState extends State<GameBattleStage>
   /// 寻路代次（防旧的延时回调把新一局的寻路提前清掉）。
   int _seekToken = 0;
   int _hitCount = 0;
-  bool _monsterFlash = false;
   bool _heroFlash = false;
   bool _monsterDying = false;
   bool _slashArcShowing = false;
+
+  /// 斩弧落点（普攻打小怪时落在那只小怪身上，打 BOSS 时
+  /// 落在 BOSS 身上）。
+  Offset _slashCenter = Offset.zero;
   bool _impactFlash = false;
   bool _autoBattle = true;
-  bool _lowHpCheered = false;
   String? _ultBanner;
-  String? _cheer;
-  int _cheerBotIndex = 0;
   String? _toast;
 
   final List<_Floater> _floaters = [];
   int _floaterId = 0;
 
-  /// 飞行中的法宝 / 法术（飞剑、神雷、冰焰）。
+  /// 飞行中的法宝 / 法术（飞剑、辟邪神雷、乾蓝冰焰）。
   final List<_Projectile> _projectiles = [];
   int _projectileId = 0;
 
@@ -236,11 +243,14 @@ class _GameBattleStageState extends State<GameBattleStage>
   final List<_Burst> _bursts = [];
   int _burstId = 0;
 
-  /// 50 个托机器人（每图随机走动打怪）。
-  late final List<_AmbientBot> _ambientBots;
+  /// 战场上的小怪（14 只铺满全场，见 [_makeMinions]）。
+  late List<_Minion> _minions;
 
-  /// 托机器人名字排版缓存（State 里持有，不随每帧重建）。
-  final Map<int, TextPainter> _ambientLabelCache = {};
+  /// 小怪重刷定时器（按槽位记，换章 / 销毁时全取消）。
+  final Map<int, Timer> _minionRespawnTimers = {};
+
+  /// 小怪布阵代次（防旧的死亡回调把新一章的小怪结算掉）。
+  int _minionGeneration = 0;
 
   late final AnimationController _lunge;
   late final AnimationController _shake;
@@ -257,8 +267,8 @@ class _GameBattleStageState extends State<GameBattleStage>
   /// 大招金色螺旋光环（1.6 秒旋转淡出）。
   late final AnimationController _halo;
 
-  /// 托机器人走动（6 秒循环，位置由时间函数算）。
-  late final AnimationController _ambient;
+  /// 小怪走动（6 秒循环，位置由时间函数算）。
+  late final AnimationController _minionWander;
 
   /// 高阶（战力 >= 1500）看法宝法术对轰，低阶看身法近身突袭。
   bool get _isHighTier => widget.heroPower >= 1500;
@@ -271,7 +281,7 @@ class _GameBattleStageState extends State<GameBattleStage>
     super.initState();
     _monsterHp = widget.monster.hp;
     _heroHp = widget.heroMaxHp;
-    _ambientBots = _makeAmbientBots();
+    _minions = _makeMinions();
     _lunge = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 380),
@@ -296,65 +306,155 @@ class _GameBattleStageState extends State<GameBattleStage>
       vsync: this,
       duration: const Duration(milliseconds: 1600),
     );
-    _ambient = AnimationController(
+    _minionWander = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 6),
     )..repeat();
     _startSeeking();
     _startTick();
-    _cheerTimer = Timer.periodic(const Duration(seconds: 12), (_) {
-      if (!mounted || !widget.active) return;
-      _showCheer(
-        gameCheerLines[math.Random().nextInt(gameCheerLines.length)],
+  }
+
+  /// 战场小怪一共 14 只（铺满全场，够打）：
+  /// 数值用妖兽表里本章战力及以下的怪（蛟 / 蛟王是 BOSS，
+  /// 不进小怪池），同章每次进场是同一套怪、同一批位置
+  /// （种子取章节怪 id 各字符码求和，不会每进一次就乱变）；
+  /// 图按槽位轮着用金光蟒 / 紫电妖狼 / 赤焰火虎 / 金刚巨猿
+  /// 四张（槽位 i 用 gameMonsterCommonArts[i % 4]），四种
+  /// 从第一章起就全在场上；位置用带排除的随机采样：避开
+  /// 右上副本面板、避开 BOSS 身边、互相之间不重叠。
+  static const int _minionCount = 14;
+
+  List<_Minion> _makeMinions() {
+    final seed = widget.monster.id.codeUnits.fold(0, (sum, unit) => sum + unit);
+    final random = math.Random(seed);
+    final templates = _minionTemplates();
+    final made = <_Minion>[];
+    for (var i = 0; i < _minionCount; i++) {
+      final (x, y) = _sampleMinionSpot(random, made);
+      made.add(
+        _Minion(
+          index: i,
+          monster:
+              templates[(i + random.nextInt(templates.length)) %
+                  templates.length],
+          art: gameMonsterCommonArts[i % gameMonsterCommonArts.length],
+          baseX: x,
+          baseY: y,
+          phase: random.nextDouble() * math.pi * 2,
+          speed: 0.5 + random.nextDouble() * 0.8,
+        ),
       );
+    }
+    return made;
+  }
+
+  /// 小怪数值池：妖兽表里战力不超过本章怪、且不是蛟 /
+  /// 蛟王的怪（小怪必须打得动，不能比章节怪还硬）。
+  List<GameMonster> _minionTemplates() {
+    final cap = widget.monster.power;
+    final list = gameMonsters
+        .where(
+          (monster) =>
+              monster.kind != GameMonsterKind.jiao &&
+              monster.kind != GameMonsterKind.king &&
+              monster.power <= cap,
+        )
+        .toList();
+    return list.isEmpty ? [gameMonsters.first] : list;
+  }
+
+  /// 采一个小怪落点：石台带 y 0.20..0.58、x 0.07..0.93；
+  /// 避开右上副本面板（x > 0.54 且 y < 0.30）、避开 BOSS
+  /// 身边 0.13、与已布好的小怪之间不小于 0.13（y 按 1.4
+  /// 加权，屏是竖的）；40 次采不到就放一个保底点。
+  (double, double) _sampleMinionSpot(math.Random random, List<_Minion> others) {
+    for (var attempt = 0; attempt < 40; attempt++) {
+      final x = 0.07 + random.nextDouble() * 0.86;
+      final y = 0.20 + random.nextDouble() * 0.38;
+      if (x > 0.54 && y < 0.30) continue;
+      final dBoss = math.sqrt(
+        math.pow(x - 0.5, 2) + math.pow((y - 0.30) * 1.4, 2),
+      );
+      if (dBoss < 0.13) continue;
+      var ok = true;
+      for (final other in others) {
+        if (other.dying) continue;
+        final dx = x - other.baseX;
+        final dy = (y - other.baseY) * 1.4;
+        if (math.sqrt(dx * dx + dy * dy) < 0.13) {
+          ok = false;
+          break;
+        }
+      }
+      if (ok) return (x, y);
+    }
+    return (
+      0.10 + random.nextDouble() * 0.80,
+      0.24 + random.nextDouble() * 0.30,
+    );
+  }
+
+  /// 换章：小怪池（战力上限）变了，整批小怪重布；
+  /// 旧的死亡 / 重刷回调用代次拦住，不结算旧怪。
+  void _resetMinions() {
+    _minionGeneration++;
+    for (final timer in _minionRespawnTimers.values) {
+      timer.cancel();
+    }
+    _minionRespawnTimers.clear();
+    _minions = _makeMinions();
+  }
+
+  /// 一只小怪死后重刷：换一张表里的怪（同池随机）、
+  /// 换一个新落点、满血，图仍按槽位轮四张。
+  void _respawnMinion(int index) {
+    final minion = _minions[index];
+    if (!minion.dying) return;
+    final random = math.Random(DateTime.now().microsecondsSinceEpoch ^ index);
+    final templates = _minionTemplates();
+    final others = _minions.where((m) => m.index != index).toList();
+    final (x, y) = _sampleMinionSpot(random, others);
+    setState(() {
+      minion.monster = templates[random.nextInt(templates.length)];
+      minion.art = gameMonsterCommonArts[index % gameMonsterCommonArts.length];
+      minion.hp = minion.monster.hp;
+      minion.baseX = x;
+      minion.baseY = y;
+      minion.phase = random.nextDouble() * math.pi * 2;
+      minion.speed = 0.5 + random.nextDouble() * 0.8;
+      minion.dying = false;
+      minion.diedAt = null;
     });
   }
 
-  /// 50 个托机器人：固定种子随机，保证每图一样又各不一样。
-  /// 只在地图五条边缘带活动（左带 / 右带 / 左下角 / 右下角 /
-  /// 左上带），绝不进主战场中央，主战场只留道友加两个队友。
-  List<_AmbientBot> _makeAmbientBots() {
-    final random = math.Random(20261108);
-    return List<_AmbientBot>.generate(50, (index) {
-      final zone = index % 5;
-      final (baseX, baseY) = switch (zone) {
-        // 左边缘带。
-        0 => (
-            0.02 + random.nextDouble() * 0.07,
-            0.32 + random.nextDouble() * 0.50,
-          ),
-        // 右边缘带。
-        1 => (
-            0.91 + random.nextDouble() * 0.07,
-            0.32 + random.nextDouble() * 0.50,
-          ),
-        // 左下角。
-        2 => (
-            0.03 + random.nextDouble() * 0.20,
-            0.84 + random.nextDouble() * 0.06,
-          ),
-        // 右下角。
-        3 => (
-            0.77 + random.nextDouble() * 0.20,
-            0.84 + random.nextDouble() * 0.06,
-          ),
-        // 左上带。
-        _ => (
-            0.02 + random.nextDouble() * 0.16,
-            0.08 + random.nextDouble() * 0.12,
-          ),
-      };
-      return _AmbientBot(
-        name: gameAmbientBotNames[index % gameAmbientBotNames.length],
-        realm: gameAmbientBotRealms[
-            index % gameAmbientBotRealms.length],
-        baseX: baseX,
-        baseY: baseY,
-        phase: random.nextDouble() * math.pi * 2,
-        speed: 0.5 + random.nextDouble() * 0.8,
-        colorIndex: index % 6,
-      );
-    });
+  /// 离主角最近的活小怪（普攻目标）；没有活小怪时
+  /// 返回 null，主角改打 BOSS。
+  _Minion? _nearestMinion() {
+    _Minion? best;
+    var bestDist = double.infinity;
+    for (final minion in _minions) {
+      if (minion.dying) continue;
+      final dx = minion.baseX - 0.5;
+      final dy = (minion.baseY - 0.49) * 1.4;
+      final dist = dx * dx + dy * dy;
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = minion;
+      }
+    }
+    return best;
+  }
+
+  /// 某只小怪当前在屏上的中心点（走动漂移算进去，
+  /// 法宝落点 / 飘字 / 斩弧都落这儿）。
+  Offset _minionCenter(_Minion minion) {
+    final wander =
+        _minionWander.value * math.pi * 2 * minion.speed + minion.phase;
+    final size = _arenaSize;
+    return Offset(
+      (minion.baseX + math.sin(wander) * 0.012) * size.width,
+      (minion.baseY + math.cos(wander * 0.9) * 0.01) * size.height,
+    );
   }
 
   @override
@@ -363,10 +463,10 @@ class _GameBattleStageState extends State<GameBattleStage>
     if (oldWidget.monster.id != widget.monster.id) {
       _monsterHp = widget.monster.hp;
       _monsterDying = false;
-      _lowHpCheered = false;
       _heroHp = widget.heroMaxHp;
       _fightStart = DateTime.now();
       _skillReadyAt.clear();
+      _resetMinions();
       _startSeeking();
     }
     if (oldWidget.heroMaxHp != widget.heroMaxHp) {
@@ -385,16 +485,19 @@ class _GameBattleStageState extends State<GameBattleStage>
   @override
   void dispose() {
     _tickTimer?.cancel();
-    _cheerTimer?.cancel();
     _bannerTimer?.cancel();
     _toastTimer?.cancel();
+    for (final timer in _minionRespawnTimers.values) {
+      timer.cancel();
+    }
+    _minionRespawnTimers.clear();
     _lunge.dispose();
     _shake.dispose();
     _monsterLunge.dispose();
     _walk.dispose();
     _seek.dispose();
     _halo.dispose();
-    _ambient.dispose();
+    _minionWander.dispose();
     for (final projectile in _projectiles) {
       projectile.controller.dispose();
     }
@@ -438,8 +541,7 @@ class _GameBattleStageState extends State<GameBattleStage>
       for (final bot in gameTeamBots) {
         final last = _botLastStrikeAt[bot.name];
         final interval = bot.name == '紫灵' ? 2000 : 2400;
-        if (last == null ||
-            now.difference(last).inMilliseconds >= interval) {
+        if (last == null || now.difference(last).inMilliseconds >= interval) {
           _botLastStrikeAt[bot.name] = now;
           _botStrike(bot);
         }
@@ -483,8 +585,8 @@ class _GameBattleStageState extends State<GameBattleStage>
     _spirit = (_spirit - 8).clamp(0.0, 100.0);
     final random = math.Random();
     final isCrit = random.nextDouble() < 0.15;
-    var damage = (widget.heroPower ~/ 8 +
-            random.nextInt(widget.heroPower ~/ 8 + 1)) *
+    var damage =
+        (widget.heroPower ~/ 8 + random.nextInt(widget.heroPower ~/ 8 + 1)) *
         3 ~/
         2;
     if (isCrit) damage *= 2;
@@ -504,6 +606,8 @@ class _GameBattleStageState extends State<GameBattleStage>
       'taiyang' => _ProjectileKind.lightning,
       _ => _ProjectileKind.sword,
     };
+    // 出招音效：辟邪神雷与惊蛰十二变走打雷音，其余走合成音
+    // （见 [GameSoundService.playSkill]）。
     unawaited(GameSoundService.instance.playSkill(skill.id));
     if (skill.id == 'zhenmo') {
       _spawnBurst(_BurstKind.purpleVortex, _monsterCenter);
@@ -516,13 +620,21 @@ class _GameBattleStageState extends State<GameBattleStage>
       _spawnBurst(_BurstKind.swordArray, _monsterCenter);
       _halo.forward(from: 0);
     }
-    // 乾蓝冰焰：蓝白火焰加冰晶爆开。
+    // 乾蓝冰焰：命中炸开一团冰晶（冰晶爆开）。
     if (skill.id == 'qianlan') {
-      _spawnBurst(_BurstKind.iceCrystal, _monsterCenter);
+      _spawnBurst(_BurstKind.iceBlast, _monsterCenter);
     }
-    // 辟邪神雷：紫白闪电从天劈下。
+    // 辟邪神雷：命中三道闪电竖劈而下。
     if (skill.id == 'bixie') {
       _spawnBurst(_BurstKind.lightningStrike, _monsterCenter);
+      _spawnBurst(
+        _BurstKind.lightningStrike,
+        _monsterCenter + const Offset(-40, 0),
+      );
+      _spawnBurst(
+        _BurstKind.lightningStrike,
+        _monsterCenter + const Offset(40, 0),
+      );
     }
     _launchProjectile(
       kind,
@@ -546,17 +658,14 @@ class _GameBattleStageState extends State<GameBattleStage>
         if (!mounted || _monsterDying) return;
         _launchProjectile(
           _ProjectileKind.sword,
-          Offset(
-            _arenaSize.width * (0.12 + random.nextDouble() * 0.76),
-            -10,
-          ),
+          Offset(_arenaSize.width * (0.12 + random.nextDouble() * 0.76), -10),
           isLast
               ? () => _applyDamage(
-                    damage,
-                    isCrit: isCrit,
-                    isUlt: isUlt,
-                    skillName: skillName,
-                  )
+                  damage,
+                  isCrit: isCrit,
+                  isUlt: isUlt,
+                  skillName: skillName,
+                )
               : null,
           dyOffset: random.nextDouble() * 40 - 20,
         );
@@ -568,13 +677,17 @@ class _GameBattleStageState extends State<GameBattleStage>
   void _botStrike(GameTeamBot bot) {
     if (_monsterDying || !mounted) return;
     final random = math.Random();
-    final damage = (widget.heroPower * 0.25).round() +
+    final damage =
+        (widget.heroPower * 0.25).round() +
         random.nextInt(widget.heroPower ~/ 10 + 1);
     final kind = bot.profession == '天道'
         ? _ProjectileKind.sword
         : _ProjectileKind.flame;
     if (random.nextDouble() < 0.3) {
       unawaited(GameSoundService.instance.playSword());
+      // 刀剑拼杀音（另一路在 game_sound.dart 里加
+      // playSwordClash，播 sword_clash.mp3）。
+      unawaited(GameSoundService.instance.playSwordClash());
     }
     _launchProjectile(
       kind,
@@ -583,9 +696,10 @@ class _GameBattleStageState extends State<GameBattleStage>
     );
   }
 
-  /// 出手一次（普攻）：低阶身法近身突袭，高阶法宝法术对轰；
-  /// 每 4 击一次大招（完整动画：横幅 → 金环罩队 → 三波齐轰 →
-  /// 中央白黄闪光收尾）。
+  /// 出手一次（普攻）：目标优先离主角最近的活小怪，
+  /// 没活小怪才打 BOSS；低阶身法近身突袭，高阶法宝法术
+  /// 对轰；每 4 击一次大招（完整动画：横幅 → 金环罩队 →
+  /// 三波齐轰 → 中央白黄闪光收尾）。
   void _heroStrike() {
     if (_monsterDying || !mounted) return;
     _lastBasicAt = DateTime.now();
@@ -595,14 +709,19 @@ class _GameBattleStageState extends State<GameBattleStage>
     final skill = skills[(_hitCount ~/ 4) % skills.length];
     final random = math.Random();
     final isCrit = random.nextDouble() < 0.15;
-    var damage = widget.heroPower ~/ 8 +
-        random.nextInt(widget.heroPower ~/ 8 + 1);
+    var damage =
+        widget.heroPower ~/ 8 + random.nextInt(widget.heroPower ~/ 8 + 1);
     if (isUlt) damage *= 3;
     if (isCrit) damage *= 2;
     if (isUlt) {
       _ultStrike(skill, damage, isCrit);
       return;
     }
+    // 普攻目标：最近的活小怪，没有就打 BOSS。
+    final minion = _nearestMinion();
+    final targetCenter = minion == null
+        ? _monsterCenter
+        : _minionCenter(minion);
     if (_isHighTier) {
       // 高阶：原地施法，法宝法术对轰——青竹蜂云剑剑雨、
       // 辟邪神雷、乾蓝冰焰轮着轰过去。
@@ -615,18 +734,36 @@ class _GameBattleStageState extends State<GameBattleStage>
       _launchProjectile(
         kind,
         _heroCenter,
-        () => _applyDamage(damage, isCrit: isCrit),
+        () => _applyDamage(
+          damage,
+          isCrit: isCrit,
+          minion: minion,
+          targetCenter: targetCenter,
+        ),
+        target: targetCenter,
       );
       unawaited(GameSoundService.instance.playSword());
+      // 刀剑拼杀音（另一路在 game_sound.dart 里加
+      // playSwordClash，播 sword_clash.mp3）。
+      unawaited(GameSoundService.instance.playSwordClash());
     } else {
       // 低阶：身法走位近身突袭——快速前冲、贴身一斩、立刻撤回。
       _lunge.forward(from: 0);
+      _slashCenter = targetCenter;
       setState(() => _slashArcShowing = true);
       unawaited(GameSoundService.instance.playSword());
+      // 刀剑拼杀音（另一路在 game_sound.dart 里加
+      // playSwordClash，播 sword_clash.mp3）。
+      unawaited(GameSoundService.instance.playSwordClash());
       Future<void>.delayed(const Duration(milliseconds: 280), () {
         if (!mounted || _monsterDying) return;
         setState(() => _slashArcShowing = false);
-        _applyDamage(damage, isCrit: isCrit);
+        _applyDamage(
+          damage,
+          isCrit: isCrit,
+          minion: minion,
+          targetCenter: targetCenter,
+        );
       });
     }
   }
@@ -654,7 +791,7 @@ class _GameBattleStageState extends State<GameBattleStage>
       _spawnBurst(_BurstKind.swordArray, _monsterCenter);
     }
     final perWave = (damage / 3).ceil();
-    // 大庚剑阵三波全是飞剑，其余三波剑 / 雷 / 焰轮着轰。
+    // 大庚剑阵三波全是飞剑，其余三波剑 / 辟邪神雷 / 乾蓝冰焰轮着轰。
     final kinds = skill.id == 'dageng'
         ? const <_ProjectileKind>[_ProjectileKind.sword]
         : const <_ProjectileKind>[
@@ -701,14 +838,21 @@ class _GameBattleStageState extends State<GameBattleStage>
     }
   }
 
-  /// 发一枚法宝 / 一道法术：从 from 处飞向妖兽，命中时结算
-  /// （onImpact 为空时只看特效不结算，大招齐轰时用）。
+  /// 发一枚法宝 / 一道法术：从 from 处飞向目标（不传默认
+  /// 打 BOSS），命中时结算（onImpact 为空时只看特效不结算，
+  /// 大招齐轰时用）。
   void _launchProjectile(
     _ProjectileKind kind,
     Offset from,
     VoidCallback? onImpact, {
     double dyOffset = 0,
+    Offset? target,
   }) {
+    // 雷声：辟邪神雷 / 泰阳诀出招时放一声雷（playThunder 由另一路
+    // 在 game_sound.dart 里补，方法名已对好，这里只管调）。
+    if (kind == _ProjectileKind.lightning) {
+      unawaited(GameSoundService.instance.playThunder());
+    }
     final controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 480),
@@ -718,7 +862,7 @@ class _GameBattleStageState extends State<GameBattleStage>
       kind: kind,
       controller: controller,
       from: from,
-      to: _monsterCenter,
+      to: target ?? _monsterCenter,
       dyOffset: dyOffset,
     );
     setState(() => _projectiles.add(projectile));
@@ -732,7 +876,8 @@ class _GameBattleStageState extends State<GameBattleStage>
     );
   }
 
-  /// 派一个一次性特效（紫漩涡 / 红爆炸 / 金闪光 / 金环）。
+  /// 派一个一次性特效（紫漩涡 / 红爆炸 / 金闪光 / 金环），
+  /// 默认 700ms 播完即撤。
   void _spawnBurst(_BurstKind kind, Offset center) {
     final controller = AnimationController(
       vsync: this,
@@ -754,47 +899,72 @@ class _GameBattleStageState extends State<GameBattleStage>
     unawaited(
       controller.forward().then((_) {
         if (!mounted) return;
-        setState(() => _bursts.remove(burst));
-        controller.dispose();
+        // 播完才撤：还挂在列表里才 dispose；已被超量
+        // 顶掉的（上面已 dispose 过）不再 dispose 第二次，
+        // 否则 debug 下报 dispose() called more than once。
+        if (_bursts.remove(burst)) {
+          setState(() {});
+          controller.dispose();
+        }
       }),
     );
   }
 
-  /// 一次命中结算：妖兽掉血、受击点飘橙黄伤害数字、音效、
-  /// 暴击红爆炸 + 震屏；没死就扑回来咬一口；血到三成以下
-  /// 队友喊一句助威。
+  /// 一次命中结算：目标掉血、受击点飘橙黄伤害数字、音效、
+  /// 暴击红爆炸 + 震屏。目标不传就是 BOSS；传了小怪就打
+  /// 那只小怪（小怪不反咬，死后走 [_killMinion] 重刷）。
+  /// 受击不加半透明（以前每中一剑 BOSS 就 0.6 闪一下，
+  /// 看着发虚）：命中反馈只靠飘字 + 爆裂星光。
   void _applyDamage(
     int damage, {
     bool isCrit = false,
     bool isUlt = false,
     String skillName = '',
     bool isBot = false,
+    _Minion? minion,
+    Offset? targetCenter,
   }) {
     if (!mounted || _monsterDying) return;
+    if (minion != null && minion.dying) return;
+    final center = targetCenter ?? _monsterCenter;
     setState(() {
-      _monsterFlash = true;
-      _monsterHp -= damage;
+      if (minion != null) {
+        minion.hp -= damage;
+      } else {
+        _monsterHp -= damage;
+      }
     });
     if (isUlt) {
       // 大招音效已在出招时放过，这里只补命中音。
       unawaited(GameSoundService.instance.playHit());
+      // 刀剑拼杀音（另一路在 game_sound.dart 里加
+      // playSwordClash，播 sword_clash.mp3）。
+      unawaited(GameSoundService.instance.playSwordClash());
     } else if (isCrit) {
       // 暴击：红爆炸 + 金闪光 + 震屏，命中爆裂光加飘字。
       unawaited(GameSoundService.instance.playCrit());
-      _spawnBurst(_BurstKind.redBlast, _monsterCenter);
-      _spawnBurst(_BurstKind.goldFlash, _monsterCenter);
+      // 刀剑拼杀音（另一路在 game_sound.dart 里加
+      // playSwordClash，播 sword_clash.mp3）。
+      unawaited(GameSoundService.instance.playSwordClash());
+      _spawnBurst(_BurstKind.redBlast, center);
+      _spawnBurst(_BurstKind.goldFlash, center);
       _shake.forward(from: 0);
     } else if (!isBot) {
       unawaited(GameSoundService.instance.playHit());
+      // 刀剑拼杀音（另一路在 game_sound.dart 里加
+      // playSwordClash，播 sword_clash.mp3）。
+      unawaited(GameSoundService.instance.playSwordClash());
       // 普通命中也有白金爆裂星光。
-      _spawnBurst(_BurstKind.hitSpark, _monsterCenter);
+      _spawnBurst(_BurstKind.hitSpark, center);
+    } else {
+      // 队友命中：也补一声刀剑拼杀音。
+      unawaited(GameSoundService.instance.playSwordClash());
     }
     _addFloater(
       '-$damage',
-      isCrit
-          ? const Color(0xFFFFD54F)
-          : const Color(0xFFFFB300),
+      isCrit ? const Color(0xFFFFD54F) : const Color(0xFFFFB300),
       isCrit ? 24 : (isBot ? 12 : 18),
+      anchor: center,
     );
     if (isCrit) _shake.forward(from: 0);
     if (!isBot) {
@@ -807,16 +977,13 @@ class _GameBattleStageState extends State<GameBattleStage>
         ),
       );
     }
-    Future<void>.delayed(const Duration(milliseconds: 160), () {
-      if (mounted) setState(() => _monsterFlash = false);
-    });
+    if (minion != null) {
+      if (minion.hp <= 0) _killMinion(minion);
+      return;
+    }
     if (_monsterHp <= 0) {
       _killMonster();
       return;
-    }
-    if (!_lowHpCheered && _monsterHp * 10 < widget.monster.hp * 3) {
-      _lowHpCheered = true;
-      _showCheer('这老妖快不行了！');
     }
     if (isBot) return;
     // 妖兽扑回来咬一口（前冲 + 撕咬）。
@@ -825,18 +992,14 @@ class _GameBattleStageState extends State<GameBattleStage>
       _monsterLunge.forward(from: 0);
       Future<void>.delayed(const Duration(milliseconds: 200), () {
         if (!mounted || _monsterDying) return;
-        final hurt = widget.monster.power ~/ 20 +
+        final hurt =
+            widget.monster.power ~/ 20 +
             math.Random().nextInt(widget.monster.power ~/ 20 + 1);
         setState(() {
           _heroHp -= hurt;
           _heroFlash = true;
         });
-        _addFloater(
-          '-$hurt',
-          const Color(0xFFEF5350),
-          13,
-          anchor: _heroCenter,
-        );
+        _addFloater('-$hurt', const Color(0xFFEF5350), 13, anchor: _heroCenter);
         Future<void>.delayed(const Duration(milliseconds: 160), () {
           if (mounted) setState(() => _heroFlash = false);
         });
@@ -864,23 +1027,36 @@ class _GameBattleStageState extends State<GameBattleStage>
     });
   }
 
+  /// 一只小怪被打死：红爆炸 + 金闪光，680ms 后按这只怪
+  /// 自己的表结算（父级调 [GameService.killMonster]），
+  /// 再过 1.2 秒在场上随机点重刷一只新的；换章时旧的
+  /// 回调用代次拦住，不结算、不重刷。
+  void _killMinion(_Minion minion) {
+    final generation = _minionGeneration;
+    setState(() {
+      minion.dying = true;
+      minion.diedAt = DateTime.now();
+    });
+    unawaited(GameSoundService.instance.playMonsterCry());
+    final center = _minionCenter(minion);
+    _spawnBurst(_BurstKind.redBlast, center);
+    _spawnBurst(_BurstKind.goldFlash, center);
+    Future<void>.delayed(const Duration(milliseconds: 680), () {
+      if (!mounted || generation != _minionGeneration) return;
+      widget.onMinionKilled(minion.monster);
+      final timer = Timer(const Duration(milliseconds: 1200), () {
+        if (!mounted || generation != _minionGeneration) return;
+        _respawnMinion(minion.index);
+      });
+      _minionRespawnTimers[minion.index] = timer;
+    });
+  }
+
   void _showUltBanner(String skillName) {
     _bannerTimer?.cancel();
     setState(() => _ultBanner = skillName);
     _bannerTimer = Timer(const Duration(milliseconds: 1600), () {
       if (mounted) setState(() => _ultBanner = null);
-    });
-  }
-
-  /// 队友喊话：随机一名队友头顶飘气泡 3 秒（喊话不是聊天，
-  /// 单机游戏没有聊天功能）。
-  void _showCheer(String line) {
-    setState(() {
-      _cheer = line;
-      _cheerBotIndex = math.Random().nextInt(gameTeamBots.length);
-    });
-    Future<void>.delayed(const Duration(seconds: 3), () {
-      if (mounted) setState(() => _cheer = null);
     });
   }
 
@@ -894,12 +1070,7 @@ class _GameBattleStageState extends State<GameBattleStage>
   }
 
   /// 伤害数字：橙黄粗体带黑边，从受击点向上飘，多个同时错开。
-  void _addFloater(
-    String text,
-    Color color,
-    double size, {
-    Offset? anchor,
-  }) {
+  void _addFloater(String text, Color color, double size, {Offset? anchor}) {
     final controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 800),
@@ -910,7 +1081,8 @@ class _GameBattleStageState extends State<GameBattleStage>
       text: text,
       color: color,
       size: size,
-      anchor: (anchor ?? _monsterCenter) +
+      anchor:
+          (anchor ?? _monsterCenter) +
           Offset(random.nextDouble() * 28 - 14, random.nextDouble() * 10 - 5),
       controller: controller,
     );
@@ -924,10 +1096,12 @@ class _GameBattleStageState extends State<GameBattleStage>
     unawaited(
       controller.forward().then((_) {
         if (!mounted) return;
-        setState(() {
-          _floaters.remove(floater);
-        });
-        floater.controller.dispose();
+        // 同 _spawnBurst：已被超量顶掉的已 dispose 过，
+        // 不再 dispose 第二次。
+        if (_floaters.remove(floater)) {
+          setState(() {});
+          floater.controller.dispose();
+        }
       }),
     );
   }
@@ -946,9 +1120,15 @@ class _GameBattleStageState extends State<GameBattleStage>
   static const double _botW = 38;
   static const double _botH = 48;
 
-  /// BOSS 立绘宽高（比人物大一圈，居中偏上）。
-  static const double _bossW = 120;
-  static const double _bossH = 140;
+  /// BOSS 立绘宽（全幅原图比例，高 = 宽 × 732 / 360 ≈ 195，
+  /// 整幅显示不裁切；以前 120×140 的框裁掉了怪的头尾）。
+  static const double _bossW = 96;
+
+  /// 普通章节怪立绘宽（全幅原图比例，高 ≈ 163）。
+  static const double _monsterW = 80;
+
+  /// 小怪立绘宽（全幅原图比例，高 ≈ 122）。
+  static const double _minionW = 60;
 
   /// 头顶名牌栏宽（比立绘宽，名字才放得下不截断；
   /// 三人名牌各隔 0.26 屏宽，96 宽不互相压叠）。
@@ -961,17 +1141,14 @@ class _GameBattleStageState extends State<GameBattleStage>
   }
 
   /// BOSS 中心点（居中偏上，站在圆形石台远端；
-  /// 首领图放大一圈，中心再往上挪一点，脚不压主角名牌）。
+  /// 全幅图高了，中心再往上挪一点，脚不压主角名牌；
+  /// 怪站着不动，不左右摇摆——以前每 3 秒一个来回的
+  /// 正弦摇摆让怪看着发飘）。
   Offset get _monsterCenter {
     final size = _arenaSize;
-    final walk = math.sin(_walk.value * math.pi * 2 + math.pi) * 4;
     final lunge = -_monsterLunge.value * 12;
-    final heightRatio =
-        gameMonsterArtIsBoss(widget.monster) ? 0.33 : 0.35;
-    return Offset(
-      size.width * 0.5 + walk + lunge,
-      size.height * heightRatio,
-    );
+    final heightRatio = gameMonsterArtIsBoss(widget.monster) ? 0.29 : 0.31;
+    return Offset(size.width * 0.5 + lunge, size.height * heightRatio);
   }
 
   /// 道友中心点（半弧正下方；寻路时从出生点走上来）。
@@ -980,8 +1157,7 @@ class _GameBattleStageState extends State<GameBattleStage>
     final walk = math.sin(_walk.value * math.pi * 2) * 3;
     final lunge = _lunge.value * 12;
     final arc = Offset(size.width * 0.5 + walk + lunge, size.height * 0.49);
-    final spawn =
-        Offset(size.width * 0.5 + walk, size.height * 0.86);
+    final spawn = Offset(size.width * 0.5 + walk, size.height * 0.86);
     return Offset.lerp(spawn, arc, _seekT)!;
   }
 
@@ -1057,16 +1233,15 @@ class _GameBattleStageState extends State<GameBattleStage>
                     ),
                   ),
                 ),
-                // 50 个托机器人（背景里随机走动打怪）。
+                // 14 只小怪（铺满全场，位置随走动轻微漂移）。
                 AnimatedBuilder(
-                  animation: _ambient,
+                  animation: _minionWander,
                   builder: (context, _) => Positioned.fill(
-                    child: CustomPaint(
-                      painter: _AmbientBotsPainter(
-                        bots: _ambientBots,
-                        time: _ambient.value,
-                        labelCache: _ambientLabelCache,
-                      ),
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        for (final minion in _minions) _buildMinion(minion),
+                      ],
                     ),
                   ),
                 ),
@@ -1097,8 +1272,7 @@ class _GameBattleStageState extends State<GameBattleStage>
                           builder: (context, _) => _buildBot(bot),
                         ),
                       AnimatedBuilder(
-                        animation: Listenable.merge(
-                            [_walk, _monsterLunge]),
+                        animation: Listenable.merge([_walk, _monsterLunge]),
                         builder: (context, _) => _buildBoss(monster),
                       ),
                       if (_slashArcShowing) _buildSlashArc(),
@@ -1120,13 +1294,13 @@ class _GameBattleStageState extends State<GameBattleStage>
                       height: 380,
                       child: Opacity(
                         opacity: t == 0 ? 0 : (1 - t) * 0.9,
-                          child: CustomPaint(
-                            painter: _GoldHaloPainter(rotation: t * math.pi * 2),
-                          ),
+                        child: CustomPaint(
+                          painter: _GoldHaloPainter(rotation: t * math.pi * 2),
                         ),
-                      );
-                    },
-                  ),
+                      ),
+                    );
+                  },
+                ),
                 // 右上副本面板：副本名、击败 BOSS 0/1、用时。
                 _buildDungeonPanel(monster),
                 // 中央金字：自动寻路中… / 自动战斗中…（移到 62% 处，
@@ -1143,9 +1317,7 @@ class _GameBattleStageState extends State<GameBattleStage>
                         fontSize: 16,
                         fontWeight: FontWeight.w900,
                         letterSpacing: 2,
-                        shadows: [
-                          Shadow(color: Colors.black87, blurRadius: 6),
-                        ],
+                        shadows: [Shadow(color: Colors.black87, blurRadius: 6)],
                       ),
                     ),
                   ),
@@ -1255,9 +1427,7 @@ class _GameBattleStageState extends State<GameBattleStage>
         decoration: BoxDecoration(
           color: Colors.black.withValues(alpha: 0.55),
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: Colors.white.withValues(alpha: 0.15),
-          ),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1274,18 +1444,12 @@ class _GameBattleStageState extends State<GameBattleStage>
             const SizedBox(height: 2),
             Text(
               '击败${monster.name} ${killed ? 1 : 0}/1',
-              style: const TextStyle(
-                color: Colors.white70,
-                fontSize: 12,
-              ),
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
             ),
             const SizedBox(height: 2),
             Text(
               '用时 $_fightClock',
-              style: const TextStyle(
-                color: Colors.white70,
-                fontSize: 12,
-              ),
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
             ),
           ],
         ),
@@ -1322,12 +1486,10 @@ class _GameBattleStageState extends State<GameBattleStage>
     );
   }
 
-  /// 队友机器人：名字衣服武器各不一样，头顶“境界+名字”，
-  /// 喊话气泡飘在喊话的队友头顶。
+  /// 队友机器人：名字衣服武器各不一样，头顶“境界+名字”
+  /// （不喊话，喊话气泡已删）。
   Widget _buildBot(GameTeamBot bot) {
     final center = _botCenter(bot);
-    final index = gameTeamBots.indexOf(bot);
-    final cheering = _cheer != null && _cheerBotIndex == index;
     return Positioned(
       left: center.dx - _nameTagW / 2,
       top: center.dy - _botH / 2 - 14,
@@ -1335,87 +1497,95 @@ class _GameBattleStageState extends State<GameBattleStage>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (cheering)
-            Container(
-              margin: const EdgeInsets.only(bottom: 2),
-              padding: const EdgeInsets.symmetric(
-                horizontal: 8,
-                vertical: 4,
-              ),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Text(
-                _cheer!,
-                style: const TextStyle(
-                  color: Color(0xFF333333),
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
           _NameTag(text: '${_botRealm(bot)} ${bot.name}'),
           const SizedBox(height: 2),
           _FighterFigure(
             width: _botW,
             height: _botH,
-            child: GameHeroPortrait(
-              isFemale: bot.isFemale,
-              size: _botW,
-            ),
+            child: GameHeroPortrait(isFemale: bot.isFemale, size: _botW),
           ),
         ],
       ),
     );
   }
 
-  /// BOSS：居中偏上，头顶只有小血条（名字在右上副本面板里）。
-  Widget _buildBoss(GameMonster monster) {
-    final center = _monsterCenter;
-    // 首领（蛟 / 蛟王）用墨蛟图，放大一圈；普通怪原尺寸。
-    final isBoss = gameMonsterArtIsBoss(monster);
-    final width = isBoss ? _bossW * 1.25 : _bossW;
-    final height = isBoss ? _bossH * 1.25 : _bossH;
-    final boxWidth = isBoss ? width : _nameTagW;
+  /// 一只小怪：头顶小血条 + 全幅野兽图（60×122，原图比例，
+  /// 不裁切不拉伸不加半透明）；死时不淡出，只往下沉一点，
+  /// 红爆炸 + 金闪光已经说明它死了。
+  Widget _buildMinion(_Minion minion) {
+    final center = _minionCenter(minion);
+    const width = _minionW;
+    final height = width / gameMonsterArtAspect;
     return Positioned(
-      left: center.dx - boxWidth / 2,
-      top: center.dy - height / 2 - 12,
-      width: boxWidth,
-      child: Opacity(
-        opacity: _monsterDying ? 0.25 : (_monsterFlash ? 0.6 : 1.0),
-        child: Transform.translate(
-          offset: Offset(0, _monsterDying ? 20 : 0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _HpBar(
-                ratio: (_monsterHp / monster.hp).clamp(0.0, 1.0),
-                width: 70,
-                color: const Color(0xFFE53935),
-              ),
-              const SizedBox(height: 2),
-              _FighterFigure(
+      left: center.dx - width / 2,
+      top: center.dy - height / 2 - 8,
+      width: width,
+      child: Transform.translate(
+        offset: Offset(0, minion.dying ? 14 : 0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _HpBar(
+              ratio: (minion.hp / minion.monster.hp).clamp(0.0, 1.0),
+              width: 44,
+              color: const Color(0xFFE53935),
+            ),
+            const SizedBox(height: 2),
+            _FighterFigure(
+              width: width,
+              height: height,
+              child: GameMonsterArt(
+                monster: minion.monster,
                 width: width,
-                height: height,
-                child: GameMonsterArt(
-                  monster: monster,
-                  width: width,
-                  height: height,
-                ),
+                artOverride: minion.art,
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  /// 低阶近身突袭的贴身斩弧（落在 BOSS 身上）。
-  Widget _buildSlashArc() {
+  /// BOSS：居中偏上，头顶只有小血条（名字在右上副本面板里）。
+  /// 全幅原图按原比例显示，不裁切、不拉伸、不加半透明：
+  /// 受击不再 0.6 闪一下，死时不再 0.25 淡出（只往下沉 20），
+  /// 命中反馈只靠飘字 + 爆裂星光，怪全程实实在在站在石台上。
+  Widget _buildBoss(GameMonster monster) {
     final center = _monsterCenter;
+    // 首领（蛟 / 蛟王）用墨蛟图，全幅 96×195；普通章节怪
+    // 全幅 80×163。
+    final isBoss = gameMonsterArtIsBoss(monster);
+    final width = isBoss ? _bossW : _monsterW;
+    final height = width / gameMonsterArtAspect;
+    return Positioned(
+      left: center.dx - width / 2,
+      top: center.dy - height / 2 - 8,
+      width: width,
+      child: Transform.translate(
+        offset: Offset(0, _monsterDying ? 20 : 0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _HpBar(
+              ratio: (_monsterHp / monster.hp).clamp(0.0, 1.0),
+              width: 70,
+              color: const Color(0xFFE53935),
+            ),
+            const SizedBox(height: 2),
+            _FighterFigure(
+              width: width,
+              height: height,
+              child: GameMonsterArt(monster: monster, width: width),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 低阶近身突袭的贴身斩弧（落在当前目标——小怪或 BOSS 身上）。
+  Widget _buildSlashArc() {
+    final center = _slashCenter;
     return Positioned(
       left: center.dx - 58,
       top: center.dy - 58,
@@ -1434,16 +1604,25 @@ class _GameBattleStageState extends State<GameBattleStage>
         final from = projectile.from;
         final to = projectile.to;
         final x = from.dx + (to.dx - from.dx) * t;
-        final y = from.dy +
+        final y =
+            from.dy +
             (to.dy - from.dy) * t -
             math.sin(t * math.pi) * 30 +
             projectile.dyOffset * (1 - t);
-        // 剑气又长又亮（96 宽带拖尾），神雷从天劈下（44x96 竖着），
-        // 冰焰是蓝白火球加冰晶（48 见方）。
+        // 飞行方向：对弧线轨迹求导，剑尖始终朝向飞行方向
+        // （剑雨从天落下时剑尖朝下，从主角飞出时剑尖朝怪）。
+        final dx = to.dx - from.dx;
+        final dy =
+            (to.dy - from.dy) -
+            30 * math.pi * math.cos(t * math.pi) -
+            projectile.dyOffset;
+        final angle = math.atan2(dy, dx);
+        // 真飞剑 110x28（带拖尾），辟邪神雷从天劈下（56x120 竖着），
+        // 乾蓝冰焰是蓝白冰火球（64x40，沿飞行方向转）。
         final (w, h) = switch (projectile.kind) {
-          _ProjectileKind.sword => (96.0, 24.0),
-          _ProjectileKind.lightning => (44.0, 96.0),
-          _ProjectileKind.flame => (48.0, 48.0),
+          _ProjectileKind.sword => (110.0, 28.0),
+          _ProjectileKind.lightning => (56.0, 120.0),
+          _ProjectileKind.flame => (64.0, 40.0),
         };
         return Positioned(
           left: x - w / 2,
@@ -1451,12 +1630,12 @@ class _GameBattleStageState extends State<GameBattleStage>
           width: w,
           height: h,
           child: switch (projectile.kind) {
-            _ProjectileKind.sword => _SwordMissile(),
+            _ProjectileKind.sword => _SwordMissile(angle: angle),
             _ProjectileKind.lightning => const CustomPaint(
-                size: Size(44, 96),
-                painter: _LightningPainter(),
-              ),
-            _ProjectileKind.flame => _FlameMissile(),
+              size: Size(56, 120),
+              painter: _LightningPainter(),
+            ),
+            _ProjectileKind.flame => _FlameMissile(angle: angle),
           },
         );
       },
@@ -1464,68 +1643,70 @@ class _GameBattleStageState extends State<GameBattleStage>
   }
 
   /// 一次性特效（紫漩涡 / 红爆炸 / 金闪光 / 金环）。
+  /// 竖劈闪电是 56x120，其余仍按进度从 60 长到 150。
   Widget _buildBurst(_Burst burst) {
     return AnimatedBuilder(
       animation: burst.controller,
       builder: (context, _) {
         final t = burst.controller.value;
-        final size = 60 + t * 90;
+        final (w, h) = switch (burst.kind) {
+          _BurstKind.lightningStrike => (56.0, 120.0),
+          _ => (60 + t * 90, 60 + t * 90),
+        };
         return Positioned(
-          left: burst.center.dx - size / 2,
-          top: burst.center.dy - size / 2,
-          width: size,
-          height: size,
+          left: burst.center.dx - w / 2,
+          top: burst.center.dy - h / 2,
+          width: w,
+          height: h,
           child: Opacity(
             opacity: 1 - t,
             child: switch (burst.kind) {
               _BurstKind.purpleVortex => CustomPaint(
-                  painter: _VortexPainter(rotation: t * math.pi * 2),
-                ),
+                painter: _VortexPainter(rotation: t * math.pi * 2),
+              ),
               _BurstKind.redBlast => Container(
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: RadialGradient(
-                      colors: [
-                        Colors.red.withValues(alpha: 0.85),
-                        Colors.orange.withValues(alpha: 0.4),
-                        Colors.transparent,
-                      ],
-                    ),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [
+                      Colors.red.withValues(alpha: 0.85),
+                      Colors.orange.withValues(alpha: 0.4),
+                      Colors.transparent,
+                    ],
                   ),
                 ),
+              ),
               _BurstKind.goldFlash => Container(
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: RadialGradient(
-                      colors: [
-                        Color(0xFFFFFFFF),
-                        Color(0xFFFFD54F),
-                        Colors.transparent,
-                      ],
-                    ),
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [
+                      Color(0xFFFFFFFF),
+                      Color(0xFFFFD54F),
+                      Colors.transparent,
+                    ],
                   ),
                 ),
+              ),
               _BurstKind.goldRing => Container(
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: const Color(0xFFFFD54F),
-                      width: 3,
-                    ),
-                  ),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: const Color(0xFFFFD54F), width: 3),
                 ),
-              _BurstKind.iceCrystal => CustomPaint(
-                  painter: _IceShardPainter(progress: t),
-                ),
-              _BurstKind.lightningStrike => CustomPaint(
-                  painter: _SkyLightningPainter(progress: t),
-                ),
+              ),
+              _BurstKind.iceBlast => CustomPaint(
+                painter: _IceBlastPainter(progress: t),
+              ),
+              _BurstKind.lightningStrike => const CustomPaint(
+                size: Size(56, 120),
+                painter: _LightningPainter(),
+              ),
               _BurstKind.swordArray => CustomPaint(
-                  painter: _SwordArrayPainter(progress: t),
-                ),
+                painter: _SwordArrayPainter(progress: t),
+              ),
               _BurstKind.hitSpark => CustomPaint(
-                  painter: _SparkPainter(progress: t),
-                ),
+                painter: _SparkPainter(progress: t),
+              ),
             },
           ),
         );
@@ -1578,25 +1759,13 @@ class _GameBattleStageState extends State<GameBattleStage>
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          _ArrowTag(
-            label: '和平',
-            onTap: () => _showToast('单机模式：和平'),
-          ),
+          _ArrowTag(label: '和平', onTap: () => _showToast('单机模式：和平')),
           const SizedBox(height: 6),
-          _ArrowTag(
-            label: '状态',
-            onTap: widget.onOpenProfile,
-          ),
+          _ArrowTag(label: '状态', onTap: widget.onOpenProfile),
           const SizedBox(height: 6),
-          _ArrowTag(
-            label: '药品',
-            onTap: widget.onOpenShop,
-          ),
+          _ArrowTag(label: '药品', onTap: widget.onOpenShop),
           const SizedBox(height: 6),
-          _ArrowTag(
-            label: '目标',
-            onTap: widget.onOpenTasks,
-          ),
+          _ArrowTag(label: '目标', onTap: widget.onOpenTasks),
           const SizedBox(height: 12),
           GestureDetector(
             onTap: widget.onOpenFunctions,
@@ -1610,9 +1779,7 @@ class _GameBattleStageState extends State<GameBattleStage>
                   topLeft: Radius.circular(6),
                   bottomLeft: Radius.circular(6),
                 ),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.25),
-                ),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
               ),
               child: const Text(
                 '功能',
@@ -1671,10 +1838,7 @@ class _GameBattleStageState extends State<GameBattleStage>
             decoration: BoxDecoration(
               color: const Color(0xFFC62828),
               borderRadius: BorderRadius.circular(4),
-              border: Border.all(
-                color: const Color(0xFFFFD54F),
-                width: 1,
-              ),
+              border: Border.all(color: const Color(0xFFFFD54F), width: 1),
             ),
             child: Text(
               seal,
@@ -1738,8 +1902,7 @@ class _GameBattleStageState extends State<GameBattleStage>
     final now = DateTime.now();
     final skills = <({String shortName, double progress})>[];
     // 普攻：1.6 秒一剑。
-    final basicElapsed =
-        now.difference(_lastBasicAt).inMilliseconds / 1600;
+    final basicElapsed = now.difference(_lastBasicAt).inMilliseconds / 1600;
     skills.add((shortName: '普攻', progress: basicElapsed.clamp(0.0, 1.0)));
     for (final skill in gameSkillsForProfession(widget.profession)) {
       if (skill.profession == '共用') continue;
@@ -1760,8 +1923,7 @@ class _GameBattleStageState extends State<GameBattleStage>
     if (ult != null) {
       skills.add((
         shortName: '惊蛰',
-        progress:
-            _skillProgress(ult.id, const Duration(seconds: 20), now),
+        progress: _skillProgress(ult.id, const Duration(seconds: 20), now),
       ));
     }
     return Positioned(
@@ -1783,11 +1945,7 @@ class _GameBattleStageState extends State<GameBattleStage>
   }
 
   /// 某技能冷却进度（0 刚放完 → 1 冷却好了）。
-  double _skillProgress(
-    String skillId,
-    Duration total,
-    DateTime now,
-  ) {
+  double _skillProgress(String skillId, Duration total, DateTime now) {
     final readyAt = _skillReadyAt[skillId];
     if (readyAt == null) return 1.0;
     final remaining = readyAt.difference(now).inMilliseconds;
@@ -1810,10 +1968,7 @@ class _GameBattleStageState extends State<GameBattleStage>
             children: [
               Text(
                 widget.xpLabel,
-                style: const TextStyle(
-                  color: Colors.white70,
-                  fontSize: 10,
-                ),
+                style: const TextStyle(color: Colors.white70, fontSize: 10),
               ),
               const SizedBox(width: 6),
               Container(
@@ -1854,15 +2009,15 @@ class _GameBattleStageState extends State<GameBattleStage>
   }
 }
 
-/// 飞行法宝的种类。
+/// 飞行法宝的种类（飞剑、辟邪神雷、乾蓝冰焰三系）。
 enum _ProjectileKind {
   /// 青竹蜂云剑：绿光飞剑。
   sword,
 
-  /// 辟邪神雷：黄色闪电。
+  /// 辟邪神雷：天上劈下的紫白闪电（单体雷）。
   lightning,
 
-  /// 乾蓝冰焰：蓝色火球。
+  /// 乾蓝冰焰：蓝白冰火球（单体火）。
   flame,
 }
 
@@ -1920,10 +2075,10 @@ enum _BurstKind {
   /// 泰阳诀：金环。
   goldRing,
 
-  /// 乾蓝冰焰：蓝白冰晶爆开。
-  iceCrystal,
+  /// 乾蓝冰焰：命中炸开的冰晶（冰晶爆开）。
+  iceBlast,
 
-  /// 辟邪神雷：紫白闪电从天劈下。
+  /// 辟邪神雷：命中竖劈而下的闪电（三道竖劈）。
   lightningStrike,
 
   /// 大庚剑阵：金色剑阵铺开。
@@ -1948,27 +2103,43 @@ class _Burst {
   final AnimationController controller;
 }
 
-/// 一个托机器人（地图里随机走动打怪）。
-class _AmbientBot {
-  _AmbientBot({
-    required this.name,
-    required this.realm,
+/// 战场上的一只小怪：数值用妖兽表里的怪（见
+/// [_GameBattleStageState._minionTemplates]），图按槽位
+/// 轮着用四张野兽图（见 [gameMonsterCommonArts]）。
+class _Minion {
+  _Minion({
+    required this.index,
+    required this.monster,
+    required this.art,
     required this.baseX,
     required this.baseY,
     required this.phase,
     required this.speed,
-    required this.colorIndex,
-  });
+  }) : hp = monster.hp;
 
-  final String name;
-  final String realm;
+  /// 槽位（0..9，图按槽位轮，定时器按槽位记）。
+  final int index;
 
-  /// 基准位置（0..1 相对值）。
-  final double baseX;
-  final double baseY;
-  final double phase;
-  final double speed;
-  final int colorIndex;
+  /// 数值来源（血量 / 奖励按这只怪的表算）。
+  GameMonster monster;
+
+  /// 显示用的图（四张野兽图之一，与数值怪的种类无关）。
+  String art;
+
+  /// 当前血量（满血 = monster.hp）。
+  int hp;
+
+  /// 基准位置（0..1 相对值，走动漂移以此为中心）。
+  double baseX;
+  double baseY;
+  double phase;
+  double speed;
+
+  /// 正在播放死亡动画（不吃伤害，主角会换目标）。
+  bool dying = false;
+
+  /// 死于何时（重刷定时器用）。
+  DateTime? diedAt;
 }
 
 /// 头顶名字：很小白色紧贴头顶，格式境界+名字（9px，
@@ -1999,11 +2170,7 @@ class _NameTag extends StatelessWidget {
 
 /// 头顶小血条（BOSS 用）。
 class _HpBar extends StatelessWidget {
-  const _HpBar({
-    required this.ratio,
-    required this.width,
-    required this.color,
-  });
+  const _HpBar({required this.ratio, required this.width, required this.color});
 
   final double ratio;
   final double width;
@@ -2017,9 +2184,7 @@ class _HpBar extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.6),
         borderRadius: BorderRadius.circular(3),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.35),
-        ),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
       ),
       child: FractionallySizedBox(
         alignment: Alignment.centerLeft,
@@ -2069,9 +2234,7 @@ class _BottomBar extends StatelessWidget {
             decoration: BoxDecoration(
               color: Colors.black.withValues(alpha: 0.65),
               borderRadius: BorderRadius.circular(5),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.3),
-              ),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
             ),
             child: FractionallySizedBox(
               alignment: Alignment.centerLeft,
@@ -2143,19 +2306,14 @@ class _ArrowTag extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          CustomPaint(
-            size: const Size(10, 30),
-            painter: _ArrowHeadPainter(),
-          ),
+          CustomPaint(size: const Size(10, 30), painter: _ArrowHeadPainter()),
           Container(
             width: 52,
             height: 30,
             alignment: Alignment.center,
             decoration: BoxDecoration(
               color: Colors.black.withValues(alpha: 0.75),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.2),
-              ),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
             ),
             child: Text(
               label,
@@ -2238,21 +2396,14 @@ class _DiamondButton extends StatelessWidget {
               ),
               child: Transform.rotate(
                 angle: -math.pi / 4,
-                child: Icon(
-                  icon,
-                  size: 15,
-                  color: Colors.white,
-                ),
+                child: Icon(icon, size: 15, color: Colors.white),
               ),
             ),
           ),
           const SizedBox(height: 3),
           Text(
             label,
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 9,
-            ),
+            style: const TextStyle(color: Colors.white70, fontSize: 9),
           ),
         ],
       ),
@@ -2280,11 +2431,7 @@ class _SkillDiamond extends StatelessWidget {
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             gradient: const RadialGradient(
-              colors: [
-                Color(0xFF64B5F6),
-                Color(0xFF1565C0),
-                Color(0xFF0D47A1),
-              ],
+              colors: [Color(0xFF64B5F6), Color(0xFF1565C0), Color(0xFF0D47A1)],
               stops: [0.0, 0.6, 1.0],
             ),
             border: Border.all(
@@ -2321,146 +2468,264 @@ class _SkillDiamond extends StatelessWidget {
                   color: Colors.white,
                   fontSize: 11,
                   fontWeight: FontWeight.w900,
-                  shadows: [
-                    Shadow(color: Colors.black54, blurRadius: 3),
-                  ],
+                  shadows: [Shadow(color: Colors.black54, blurRadius: 3)],
                 ),
               ),
             ],
           ),
         ),
         const SizedBox(height: 3),
-        Text(
-          label,
-          style: const TextStyle(
-            color: Colors.white70,
-            fontSize: 9,
-          ),
-        ),
+        Text(label, style: const TextStyle(color: Colors.white70, fontSize: 9)),
       ],
     );
   }
 }
 
-/// 青竹蜂云剑飞弹：绿光剑身。
-/// 剑气飞弹：又长又亮带拖尾——后面 52 宽渐隐绿光拖尾，
-/// 前面 40 宽白绿剑身，带强光晕。
+/// 青竹蜂云剑飞弹：真飞剑造型（3D 写实风，不画卡通简笔画）。
+/// 剑尖朝飞行方向（调用处按 from→to 的轨迹方向传 angle）。
 class _SwordMissile extends StatelessWidget {
+  const _SwordMissile({required this.angle});
+
+  /// 飞行角度（弧度，0 = 剑尖朝右）。
+  final double angle;
+
   @override
   Widget build(BuildContext context) {
     return Transform.rotate(
-      angle: -0.35,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 52,
-            height: 6,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(3),
-              gradient: const LinearGradient(
-                colors: [
-                  Colors.transparent,
-                  Color(0xFF69F0AE),
-                  Color(0xFFE8F5E9),
-                ],
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.greenAccent.withValues(alpha: 0.55),
-                  blurRadius: 12,
-                  spreadRadius: 1,
-                ),
-              ],
-            ),
-          ),
-          Container(
-            width: 40,
-            height: 9,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(4),
-              gradient: const LinearGradient(
-                colors: [
-                  Color(0xFF69F0AE),
-                  Color(0xFFFFFFFF),
-                  Color(0xFF00C853),
-                ],
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.white.withValues(alpha: 0.9),
-                  blurRadius: 16,
-                  spreadRadius: 2,
-                ),
-              ],
-            ),
-          ),
-        ],
+      angle: angle,
+      child: const SizedBox(
+        width: 110,
+        height: 28,
+        child: CustomPaint(painter: _SwordPainter()),
       ),
     );
   }
 }
 
-/// 乾蓝冰焰飞弹：蓝白火焰球心 + 外圈冰蓝光晕 + 三枚冰晶。
+/// 真飞剑画法（画布 110x28，剑尖朝右 +x 方向）：
+/// 从左到右是青绿剑光拖尾 → 金色剑首 → 深色剑柄 →
+/// 金色剑格 → 钢色剑身（白→青绿渐变）+ 中央剑脊亮线，
+/// 整剑垫一层青绿光晕。
+class _SwordPainter extends CustomPainter {
+  const _SwordPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // 剑身轮廓：剑格 x=40，剑尖 x=106，脊线 y=14。
+    final blade = Path()
+      ..moveTo(40, 10.5)
+      ..lineTo(96, 12.0)
+      ..lineTo(106, 14)
+      ..lineTo(96, 16.0)
+      ..lineTo(40, 17.5)
+      ..close();
+    // 青绿光晕（垫在剑身下面）。
+    final glowPaint = Paint()
+      ..color = const Color(0xFF69F0AE).withValues(alpha: 0.45)
+      ..style = PaintingStyle.fill
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7);
+    canvas.drawPath(blade, glowPaint);
+    // 剑光拖尾：从剑格向后渐隐的青绿光带。
+    final trail = Path()
+      ..moveTo(40, 14)
+      ..lineTo(2, 10.5)
+      ..lineTo(0, 14)
+      ..lineTo(2, 17.5)
+      ..close();
+    final trailPaint = Paint()
+      ..shader = const LinearGradient(
+        colors: [Color(0x0069F0AE), Color(0xFF69F0AE), Color(0xFFE8F5E9)],
+        stops: [0.0, 0.75, 1.0],
+      ).createShader(Rect.fromLTWH(0, 10, 40, 8))
+      ..style = PaintingStyle.fill;
+    canvas.drawPath(trail, trailPaint);
+    // 剑身：钢色渐变（白 → 青绿），从剑格亮到剑尖。
+    final bladePaint = Paint()
+      ..shader = const LinearGradient(
+        colors: [
+          Color(0xFFFFFFFF),
+          Color(0xFFD8F5E3),
+          Color(0xFF69F0AE),
+          Color(0xFF00C853),
+        ],
+        stops: [0.0, 0.45, 0.8, 1.0],
+      ).createShader(Rect.fromLTWH(40, 10, 66, 8))
+      ..style = PaintingStyle.fill;
+    canvas.drawPath(blade, bladePaint);
+    // 剑刃边：上下两道深绿刃线。
+    final edgePaint = Paint()
+      ..color = const Color(0xFF1B5E20).withValues(alpha: 0.55)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    canvas.drawPath(
+      Path()
+        ..moveTo(40, 10.5)
+        ..lineTo(96, 12.0)
+        ..lineTo(106, 14),
+      edgePaint,
+    );
+    canvas.drawPath(
+      Path()
+        ..moveTo(40, 17.5)
+        ..lineTo(96, 16.0)
+        ..lineTo(106, 14),
+      edgePaint,
+    );
+    // 剑脊亮线：剑身中央一条亮白线。
+    final ridgePaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.95)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.6
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(const Offset(44, 14), const Offset(100, 14), ridgePaint);
+    // 剑格：金色横杠（竖向金条，上下各出头）。
+    final guardPaint = Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [Color(0xFFFFE082), Color(0xFFFFB300), Color(0xFFFF8F00)],
+        stops: [0.0, 0.5, 1.0],
+      ).createShader(const Rect.fromLTWH(35, 4, 6, 20))
+      ..style = PaintingStyle.fill;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        const Rect.fromLTWH(35, 4, 6, 20),
+        const Radius.circular(2),
+      ),
+      guardPaint,
+    );
+    // 剑柄：深色缠柄，两道金丝。
+    final hiltPaint = Paint()
+      ..color = const Color(0xFF212121)
+      ..style = PaintingStyle.fill;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        const Rect.fromLTWH(27, 11.5, 8, 5),
+        const Radius.circular(2),
+      ),
+      hiltPaint,
+    );
+    final wrapPaint = Paint()
+      ..color = const Color(0xFFFFD54F)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    canvas.drawLine(
+      const Offset(29.5, 11.5),
+      const Offset(29.5, 16.5),
+      wrapPaint,
+    );
+    canvas.drawLine(
+      const Offset(32.5, 11.5),
+      const Offset(32.5, 16.5),
+      wrapPaint,
+    );
+    // 剑首：金色小圆珠 + 高光点。
+    final pommelPaint = Paint()
+      ..color = const Color(0xFFFFB300)
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(const Offset(25, 14), 3.2, pommelPaint);
+    final pommelHiPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.9)
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(const Offset(24, 13), 1, pommelHiPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+/// 乾蓝冰焰飞弹：蓝白冰火球拖着冰晶尾飞出去打怪（画布 64x40，
+/// 球头朝 +x，调用处按飞行方向传 angle 转过去）。
 class _FlameMissile extends StatelessWidget {
+  const _FlameMissile({required this.angle});
+
+  /// 飞行角度（弧度，0 = 球头朝右）。
+  final double angle;
+
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      alignment: Alignment.center,
-      children: [
-        Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: const RadialGradient(
-              colors: [
-                Color(0xFFFFFFFF),
-                Color(0xFF4FC3F7),
-                Color(0xFF01579B),
-                Colors.transparent,
-              ],
-              stops: [0.0, 0.45, 0.75, 1.0],
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.lightBlueAccent.withValues(alpha: 0.9),
-                blurRadius: 18,
-                spreadRadius: 3,
-              ),
-            ],
-          ),
-        ),
-        for (final (dx, dy, angle) in [
-          (-16.0, -12.0, 0.5),
-          (16.0, -10.0, -0.6),
-          (0.0, 18.0, 0.2),
-        ])
-          Positioned(
-            left: 24 + dx - 4,
-            top: 24 + dy - 6,
-            child: Transform.rotate(
-              angle: angle,
-              child: Container(
-                width: 8,
-                height: 12,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFB3E5FC),
-                  borderRadius: BorderRadius.circular(2),
-                  border: Border.all(color: Colors.white, width: 1),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.cyanAccent.withValues(alpha: 0.8),
-                      blurRadius: 6,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-      ],
+    return Transform.rotate(
+      angle: angle,
+      child: const SizedBox(
+        width: 64,
+        height: 40,
+        child: CustomPaint(painter: _FlamePainter()),
+      ),
     );
   }
+}
+
+/// 冰火球画法：球头白蓝冰核 + 浅蓝冰晶三层拖尾向后渐隐，
+/// 整球垫一层淡蓝光晕。
+class _FlamePainter extends CustomPainter {
+  const _FlamePainter();
+
+  /// 一道冰尾：从球头向后收窄的冰晶形。
+  void _tongue(
+    Canvas canvas,
+    double tipX,
+    double baseY,
+    double len,
+    double w,
+    Color color,
+  ) {
+    final path = Path()
+      ..moveTo(48, baseY - w)
+      ..quadraticBezierTo(48 - len * 0.55, baseY - w * 0.4, tipX, baseY)
+      ..quadraticBezierTo(48 - len * 0.55, baseY + w * 0.4, 48, baseY + w)
+      ..close();
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = color
+        ..style = PaintingStyle.fill,
+    );
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // 光晕：球头下一圈淡蓝柔光。
+    final glowPaint = Paint()
+      ..color = const Color(0xFF42A5F5).withValues(alpha: 0.45)
+      ..style = PaintingStyle.fill
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7);
+    canvas.drawCircle(const Offset(46, 20), 13, glowPaint);
+    // 冰尾：外深蓝 → 中蓝 → 内浅蓝三层冰晶，越往后越细。
+    _tongue(
+      canvas,
+      4,
+      20,
+      44,
+      11,
+      const Color(0xFF1565C0).withValues(alpha: 0.85),
+    );
+    _tongue(
+      canvas,
+      12,
+      20,
+      36,
+      8,
+      const Color(0xFF42A5F5).withValues(alpha: 0.9),
+    );
+    _tongue(canvas, 22, 20, 26, 5, const Color(0xFFBBDEFB));
+    // 冰核：白蓝实心球，蓝边收口。
+    final corePaint = Paint()
+      ..shader = const RadialGradient(
+        colors: [Color(0xFFFFFFFF), Color(0xFFBBDEFB), Color(0xFF42A5F5)],
+        stops: [0.0, 0.55, 1.0],
+      ).createShader(const Rect.fromLTWH(32, 6, 28, 28))
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(const Offset(46, 20), 12, corePaint);
+    // 冰晶：两点亮白冰晶溅在球头边。
+    final sparkPaint = Paint()
+      ..color = const Color(0xFFE3F2FD)
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(const Offset(56, 10), 2.2, sparkPaint);
+    canvas.drawCircle(const Offset(58, 28), 1.6, sparkPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _SlashPainter extends CustomPainter {
@@ -2515,105 +2780,159 @@ class _SlashPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-/// 辟邪神雷：紫白闪电从天劈下——竖着的锯齿电光，
-/// 外紫晕、内白芯，带分叉。
+/// 辟邪神雷：紫白闪电从天劈下——主电弧 + 3 条分叉电弧，
+/// 外层紫色光晕描边、内芯亮白，落点加一圈闪光。
 class _LightningPainter extends CustomPainter {
   const _LightningPainter();
 
+  /// 一道电弧：外层紫晕 → 中层紫电 → 内芯亮白，三层描边。
+  void _drawBolt(Canvas canvas, List<Offset> points, double coreWidth) {
+    final path = Path()..moveTo(points.first.dx, points.first.dy);
+    for (var i = 1; i < points.length; i++) {
+      path.lineTo(points[i].dx, points[i].dy);
+    }
+    final glow = Paint()
+      ..color = const Color(0xFFAB47BC).withValues(alpha: 0.5)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = coreWidth * 3.2
+      ..strokeJoin = StrokeJoin.round
+      ..strokeCap = StrokeCap.round;
+    canvas.drawPath(path, glow);
+    final mid = Paint()
+      ..color = const Color(0xFFCE93D8)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = coreWidth * 1.6
+      ..strokeJoin = StrokeJoin.round
+      ..strokeCap = StrokeCap.round;
+    canvas.drawPath(path, mid);
+    final core = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = coreWidth
+      ..strokeJoin = StrokeJoin.round
+      ..strokeCap = StrokeCap.round;
+    canvas.drawPath(path, core);
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
-    final path = Path()
-      ..moveTo(size.width * 0.5, 0)
-      ..lineTo(size.width * 0.68, size.height * 0.3)
-      ..lineTo(size.width * 0.48, size.height * 0.36)
-      ..lineTo(size.width * 0.72, size.height * 0.62)
-      ..lineTo(size.width * 0.38, size.height)
-      ..lineTo(size.width * 0.48, size.height * 0.66)
-      ..lineTo(size.width * 0.28, size.height * 0.58)
-      ..lineTo(size.width * 0.42, size.height * 0.32)
-      ..close();
-    final glow = Paint()
-      ..color = const Color(0xFF7C4DFF).withValues(alpha: 0.55)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 10
-      ..strokeJoin = StrokeJoin.round;
-    canvas.drawPath(path, glow);
-    final bolt = Paint()
-      ..color = Colors.white
+    final w = size.width;
+    final h = size.height;
+    // 主电弧：从顶到底的锯齿。
+    _drawBolt(canvas, [
+      Offset(w * 0.52, 0),
+      Offset(w * 0.64, h * 0.20),
+      Offset(w * 0.44, h * 0.34),
+      Offset(w * 0.66, h * 0.56),
+      Offset(w * 0.42, h * 0.70),
+      Offset(w * 0.58, h * 0.86),
+      Offset(w * 0.48, h),
+    ], 2.0);
+    // 分叉 1：从主干上段斜向左下，细一点、短一点。
+    _drawBolt(canvas, [
+      Offset(w * 0.50, h * 0.30),
+      Offset(w * 0.32, h * 0.44),
+      Offset(w * 0.16, h * 0.58),
+    ], 1.2);
+    // 分叉 2：从主干中段斜向右下。
+    _drawBolt(canvas, [
+      Offset(w * 0.58, h * 0.52),
+      Offset(w * 0.74, h * 0.66),
+      Offset(w * 0.86, h * 0.80),
+    ], 1.2);
+    // 分叉 3：从主干上段斜向右上短叉。
+    _drawBolt(canvas, [
+      Offset(w * 0.58, h * 0.18),
+      Offset(w * 0.74, h * 0.28),
+      Offset(w * 0.88, h * 0.34),
+    ], 1.0);
+    // 落点闪光：白光圆心 + 紫环。
+    final impact = Offset(w * 0.48, h * 0.96);
+    final flash = Paint()
+      ..color = Colors.white.withValues(alpha: 0.85)
       ..style = PaintingStyle.fill;
-    canvas.drawPath(path, bolt);
-    final core = Paint()
-      ..color = const Color(0xFFEDE7F6).withValues(alpha: 0.9)
+    canvas.drawCircle(impact, w * 0.14, flash);
+    final ring = Paint()
+      ..color = const Color(0xFFCE93D8).withValues(alpha: 0.8)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2;
-    canvas.drawPath(path, core);
+    canvas.drawCircle(impact, w * 0.20, ring);
   }
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-/// 从天劈下的闪电特效（爆裂框内用，带落点闪光）。
-class _SkyLightningPainter extends CustomPainter {
-  const _SkyLightningPainter({required this.progress});
-
-  final double progress;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final bolt = _LightningPainter();
-    bolt.paint(canvas, size);
-    final flash = Paint()
-      ..color = Colors.white.withValues(alpha: (1 - progress) * 0.7)
-      ..style = PaintingStyle.fill;
-    canvas.drawCircle(
-      Offset(size.width / 2, size.height * 0.92),
-      size.width * 0.3 * (1 - progress * 0.5),
-      flash,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _SkyLightningPainter oldDelegate) =>
-      oldDelegate.progress != progress;
-}
-
-/// 乾蓝冰焰冰晶爆开：蓝白菱形冰晶向外炸 + 中心白光。
-class _IceShardPainter extends CustomPainter {
-  const _IceShardPainter({required this.progress});
+/// 冰晶爆开：命中炸开的一团冰晶——白蓝冰核 + 浅蓝冰晶向外翻，
+/// 8 道冰刺随进度向外窜。
+class _IceBlastPainter extends CustomPainter {
+  const _IceBlastPainter({required this.progress});
 
   final double progress;
 
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final flash = Paint()
-      ..color = Colors.white.withValues(alpha: (1 - progress) * 0.85)
+    final maxR = size.width / 2;
+    final blastR = maxR * (0.55 + progress * 0.45);
+    // 外层冰团：白蓝 → 浅蓝 → 蓝径向渐变，随进度胀大变淡。
+    final blastPaint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          const Color(0xFFE3F2FD).withValues(alpha: 1 - progress),
+          const Color(0xFF90CAF9).withValues(alpha: (1 - progress) * 0.85),
+          const Color(0xFF42A5F5).withValues(alpha: (1 - progress) * 0.5),
+          Colors.transparent,
+        ],
+        stops: const [0.0, 0.45, 0.75, 1.0],
+      ).createShader(Rect.fromCircle(center: center, radius: blastR))
       ..style = PaintingStyle.fill;
-    canvas.drawCircle(center, size.width * 0.22 * (1 - progress * 0.4), flash);
+    canvas.drawCircle(center, blastR, blastPaint);
+    // 冰核：亮白实心，随进度缩小。
+    final corePaint = Paint()
+      ..color = Colors.white.withValues(alpha: (1 - progress) * 0.95)
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(center, maxR * 0.22 * (1 - progress * 0.5), corePaint);
+    // 8 道冰刺：向外窜的细长冰晶。
     for (var i = 0; i < 8; i++) {
-      final angle = i * math.pi / 4 + progress * 0.6;
-      final dist = size.width * (0.18 + progress * 0.3);
-      final pos = center + Offset(math.cos(angle) * dist, math.sin(angle) * dist);
-      canvas.save();
-      canvas.translate(pos.dx, pos.dy);
-      canvas.rotate(angle);
+      final angle = i * math.pi / 4 + progress * 0.5;
+      final dist = maxR * (0.42 + progress * 0.42);
+      final tip =
+          center + Offset(math.cos(angle) * dist, math.sin(angle) * dist);
+      final base =
+          center +
+          Offset(math.cos(angle) * maxR * 0.25, math.sin(angle) * maxR * 0.25);
+      final side =
+          Offset(-math.sin(angle), math.cos(angle)) *
+          maxR *
+          0.05 *
+          (1 - progress * 0.5);
+      final mid =
+          center +
+          Offset(math.cos(angle) * dist * 0.7, math.sin(angle) * dist * 0.7);
       final shard = Path()
-        ..moveTo(0, -11)
-        ..lineTo(6, 0)
-        ..lineTo(0, 11)
-        ..lineTo(-6, 0)
+        ..moveTo(base.dx + side.dx, base.dy + side.dy)
+        ..quadraticBezierTo(mid.dx + side.dx, mid.dy + side.dy, tip.dx, tip.dy)
+        ..quadraticBezierTo(
+          mid.dx - side.dx,
+          mid.dy - side.dy,
+          base.dx - side.dx,
+          base.dy - side.dy,
+        )
         ..close();
-      final paint = Paint()
-        ..color = const Color(0xFFB3E5FC).withValues(alpha: 1 - progress)
-        ..style = PaintingStyle.fill;
-      canvas.drawPath(shard, paint);
-      canvas.restore();
+      canvas.drawPath(
+        shard,
+        Paint()
+          ..color =
+              (i.isEven ? const Color(0xFF90CAF9) : const Color(0xFFE3F2FD))
+                  .withValues(alpha: 1 - progress)
+          ..style = PaintingStyle.fill,
+      );
     }
   }
 
   @override
-  bool shouldRepaint(covariant _IceShardPainter oldDelegate) =>
+  bool shouldRepaint(covariant _IceBlastPainter oldDelegate) =>
       oldDelegate.progress != progress;
 }
 
@@ -2638,7 +2957,8 @@ class _SwordArrayPainter extends CustomPainter {
     for (var i = 0; i < 8; i++) {
       final angle = i * math.pi / 4;
       final dist = size.width * (0.3 + progress * 0.12);
-      final pos = center + Offset(math.cos(angle) * dist, math.sin(angle) * dist);
+      final pos =
+          center + Offset(math.cos(angle) * dist, math.sin(angle) * dist);
       canvas.save();
       canvas.translate(pos.dx, pos.dy);
       canvas.rotate(angle + math.pi / 2);
@@ -2698,82 +3018,6 @@ class _SparkPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _SparkPainter oldDelegate) =>
       oldDelegate.progress != progress;
-}
-
-/// 50 个托机器人：地图边缘带里随机走动的小人（圆点身体 +
-/// 头顶“境界+名字”小字），位置由时间函数算，不进中央主战场。
-/// 名字排版用 State 里传进来的缓存，不随每帧重建。
-class _AmbientBotsPainter extends CustomPainter {
-  _AmbientBotsPainter({
-    required this.bots,
-    required this.time,
-    required this.labelCache,
-  });
-
-  final List<_AmbientBot> bots;
-  final double time;
-  final Map<int, TextPainter> labelCache;
-
-  static const _robeColors = <Color>[
-    Color(0xFF69F0AE),
-    Color(0xFF64B5F6),
-    Color(0xFFCE93D8),
-    Color(0xFFFFD54F),
-    Color(0xFFEF9A9A),
-    Color(0xFF80CBC4),
-  ];
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    for (var i = 0; i < bots.length; i++) {
-      final bot = bots[i];
-      final wander = time * math.pi * 2 * bot.speed + bot.phase;
-      final x = (bot.baseX + math.sin(wander) * 0.012) * size.width;
-      final y = (bot.baseY + math.cos(wander * 0.9) * 0.01) * size.height;
-      final color = _robeColors[bot.colorIndex % _robeColors.length];
-      final shadowPaint = Paint()
-        ..color = Colors.black.withValues(alpha: 0.3)
-        ..style = PaintingStyle.fill;
-      canvas.drawOval(
-        Rect.fromCenter(
-          center: Offset(x, y + 9),
-          width: 12,
-          height: 4,
-        ),
-        shadowPaint,
-      );
-      final bodyPaint = Paint()
-        ..color = color
-        ..style = PaintingStyle.fill;
-      canvas.drawCircle(Offset(x, y + 2), 6.5, bodyPaint);
-      final headPaint = Paint()
-        ..color = const Color(0xFFFFE0B2)
-        ..style = PaintingStyle.fill;
-      canvas.drawCircle(Offset(x, y - 7), 3.5, headPaint);
-      final label = labelCache.putIfAbsent(i, () {
-        final painter = TextPainter(
-          text: TextSpan(
-            text: '${bot.realm} ${bot.name}',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 8,
-              fontWeight: FontWeight.w600,
-              shadows: [
-                Shadow(color: Colors.black, offset: Offset(1, 1)),
-              ],
-            ),
-          ),
-          textDirection: TextDirection.ltr,
-        )..layout();
-        return painter;
-      });
-      label.paint(canvas, Offset(x - label.width / 2, y - 22));
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _AmbientBotsPainter oldDelegate) =>
-      oldDelegate.time != time;
 }
 
 /// 大招金色螺旋光环：三圈金环 + 十二道旋转金芒 + 一道弧光，罩全队。

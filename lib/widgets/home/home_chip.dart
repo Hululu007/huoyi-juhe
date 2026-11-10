@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'home_design.dart';
+import '../series_detail/moyi_detail_theme.dart';
 
 /// 首页 / 搜索 / 分类共用的胶囊筛选 chip（替换 Material 默认 ChoiceChip）。
 ///
@@ -34,9 +35,14 @@ class HomeChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final palette = HomePalette.of(context);
     // eink 下 palette.ink = 黑、palette.canvas = 白，下面两行自然得到
-    // 黑底白字 / 白底黑字；非 eink 沿用搜索页的 soft → ink 选中。
-    final background = selected ? palette.ink : palette.soft;
-    final foreground = selected ? palette.canvas : palette.ink;
+    // 黑底白字 / 白底黑字；非 eink 走魔蚁深底：选中魔蚁紫底白字、未选中
+    // 深紫半透明底 + 白 70% 字。
+    final background = palette.eink
+        ? (selected ? palette.ink : palette.soft)
+        : (selected ? moyiPurple : moyiDarkCardFill);
+    final foreground = palette.eink
+        ? (selected ? palette.canvas : palette.ink)
+        : (selected ? Colors.white : moyiBodyOnDark);
     final side = palette.eink && !selected
         ? const BorderSide(color: Colors.black)
         : BorderSide.none;

@@ -6,7 +6,7 @@ import 'package:flutter_lucide/flutter_lucide.dart';
 
 import '../models/library_backup.dart';
 import '../services/library_backup_service.dart';
-import '../widgets/home/home_design.dart';
+import '../widgets/series_detail/moyi_detail_theme.dart';
 import '../widgets/data_transfer_widgets.dart';
 import '../widgets/settings/settings_widgets.dart';
 import 'fanqie_history_import_page.dart';
@@ -123,162 +123,165 @@ class _LibraryBackupPageState extends State<LibraryBackupPage> {
 
   @override
   Widget build(BuildContext context) {
-    final palette = HomePalette.of(context);
     final preview = _preview;
     final enabled = _busy == null;
     final exportedAt = preview?.createdAt.toLocal().toString().split('.').first;
     return PopScope(
       canPop: enabled,
       child: Scaffold(
-        backgroundColor: palette.canvas,
+        backgroundColor: Colors.transparent,
         appBar: settingsAppBar(context, title: '备份与导入'),
-        body: SafeArea(
-          child: Align(
-            alignment: Alignment.topCenter,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 640),
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                children: [
-                  const DataTransferHeader(
-                    icon: LucideIcons.database,
-                    title: '书架随你走',
-                    subtitle: '备份本机收藏与进度，或从番茄带回书架。',
-                  ),
-                  const SettingsSectionHeader(title: '本机数据'),
-                  SettingsGroupCard(
-                    children: [
-                      SettingsRow(
-                        icon: LucideIcons.download,
-                        iconTile: true,
-                        title: '导出备份',
-                        subtitle: '保存收藏、阅读进度与已看剧集',
-                        enabled: enabled,
-                        onTap: enabled ? _export : null,
-                      ),
-                      SettingsRow(
-                        icon: LucideIcons.file_input,
-                        iconTile: true,
-                        title: '从备份文件恢复',
-                        subtitle: preview == null
-                            ? '选择 FQApp 备份文件，预览后再合并'
-                            : '重新选择其他 FQApp 备份',
-                        enabled: enabled,
-                        onTap: enabled ? _pick : null,
-                      ),
-                    ],
-                  ),
-                  const SettingsSectionHeader(title: '其他来源'),
-                  SettingsGroupCard(
-                    children: [
-                      SettingsRow(
-                        icon: LucideIcons.book_open,
-                        iconTile: true,
-                        title: '导入番茄书架',
-                        subtitle: '网页登录、最近采集和旧版历史文件',
-                        enabled: enabled,
-                        onTap: enabled
-                            ? () => Navigator.push(
-                                context,
-                                MaterialPageRoute<void>(
-                                  builder: (_) =>
-                                      const FanqieHistoryImportPage(),
-                                ),
-                              )
-                            : null,
-                      ),
-                    ],
-                  ),
-                  if (preview != null) ...[
-                    SettingsSectionHeader(title: '恢复预览', key: _previewKey),
+        body: MoyiPageBackground(
+          child: SafeArea(
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 640),
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                  children: [
+                    const DataTransferHeader(
+                      icon: LucideIcons.database,
+                      title: '书架随你走',
+                      subtitle: '备份本机收藏与进度，或从番茄带回书架。',
+                    ),
+                    const SettingsSectionHeader(title: '本机数据'),
                     SettingsGroupCard(
-                      showDividers: false,
                       children: [
-                        Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '备份于 $exportedAt',
-                                style: TextStyle(
-                                  color: palette.muted,
-                                  fontSize: 12,
-                                ),
-                              ),
-                              const SizedBox(height: 14),
-                              DataTransferStats(
-                                values: {
-                                  '收藏': preview.shelf.length,
-                                  '进度': preview.history.length,
-                                  '已看剧集': preview.episodeCount,
-                                },
-                              ),
-                              const SizedBox(height: 14),
-                              Text(
-                                '只补充缺失的收藏与进度，保留本机已有记录。已看剧集会合并，可重复导入。',
-                                style: TextStyle(
-                                  color: palette.ink,
-                                  fontSize: 13,
-                                  height: 1.6,
-                                ),
-                              ),
-                              if (preview.excludedLocalRecords > 0) ...[
-                                const SizedBox(height: 8),
-                                Text(
-                                  '此备份不含 ${preview.excludedLocalRecords} 条本地书籍记录。',
-                                  style: TextStyle(
-                                    color: palette.muted,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
+                        SettingsRow(
+                          icon: LucideIcons.download,
+                          iconTile: true,
+                          title: '导出备份',
+                          subtitle: '保存收藏、阅读进度与已看剧集',
+                          enabled: enabled,
+                          onTap: enabled ? _export : null,
+                        ),
+                        SettingsRow(
+                          icon: LucideIcons.file_input,
+                          iconTile: true,
+                          title: '从备份文件恢复',
+                          subtitle: preview == null
+                              ? '选择 FQApp 备份文件，预览后再合并'
+                              : '重新选择其他 FQApp 备份',
+                          enabled: enabled,
+                          onTap: enabled ? _pick : null,
                         ),
                       ],
                     ),
-                  ],
-                  if (_message case final message?) ...[
-                    const SizedBox(height: 16),
-                    DataTransferNotice(
-                      key: _messageKey,
-                      message: message,
-                      error: _error,
+                    const SettingsSectionHeader(title: '其他来源'),
+                    SettingsGroupCard(
+                      children: [
+                        SettingsRow(
+                          icon: LucideIcons.book_open,
+                          iconTile: true,
+                          title: '导入番茄书架',
+                          subtitle: '网页登录、最近采集和旧版历史文件',
+                          enabled: enabled,
+                          onTap: enabled
+                              ? () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute<void>(
+                                    builder: (_) =>
+                                        const FanqieHistoryImportPage(),
+                                  ),
+                                )
+                              : null,
+                        ),
+                      ],
                     ),
-                  ],
-                  const SizedBox(height: 24),
-                  SettingsGroupCard(
-                    showDividers: false,
-                    children: [
-                      ExpansionTile(
-                        title: Text(
-                          '备份包含哪些内容？',
-                          style: TextStyle(color: palette.ink, fontSize: 14),
-                        ),
-                        tilePadding: const EdgeInsets.symmetric(horizontal: 16),
-                        childrenPadding: const EdgeInsets.fromLTRB(
-                          16,
-                          0,
-                          16,
-                          16,
-                        ),
+                    if (preview != null) ...[
+                      SettingsSectionHeader(title: '恢复预览', key: _previewKey),
+                      SettingsGroupCard(
+                        showDividers: false,
                         children: [
-                          Text(
-                            '包含在线小说、听书、漫画、短剧和漫剧的收藏、已保存进度，以及已看剧集。\n\n'
-                            '本地 TXT / EPUB 原文件、下载缓存、阅读时长、划线和应用设置需另行保留。\n\n'
-                            '导出前请退出阅读或暂停播放，让当前进度保存；换手机时传输备份文件，再在这里恢复。',
-                            style: TextStyle(
-                              color: palette.muted,
-                              fontSize: 13,
-                              height: 1.7,
+                          Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '备份于 $exportedAt',
+                                  style: TextStyle(
+                                    color: moyiMutedOnDark,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                const SizedBox(height: 14),
+                                DataTransferStats(
+                                  values: {
+                                    '收藏': preview.shelf.length,
+                                    '进度': preview.history.length,
+                                    '已看剧集': preview.episodeCount,
+                                  },
+                                ),
+                                const SizedBox(height: 14),
+                                Text(
+                                  '只补充缺失的收藏与进度，保留本机已有记录。已看剧集会合并，可重复导入。',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 13,
+                                    height: 1.6,
+                                  ),
+                                ),
+                                if (preview.excludedLocalRecords > 0) ...[
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    '此备份不含 ${preview.excludedLocalRecords} 条本地书籍记录。',
+                                    style: TextStyle(
+                                      color: moyiMutedOnDark,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ],
                             ),
                           ),
                         ],
                       ),
                     ],
-                  ),
-                ],
+                    if (_message case final message?) ...[
+                      const SizedBox(height: 16),
+                      DataTransferNotice(
+                        key: _messageKey,
+                        message: message,
+                        error: _error,
+                      ),
+                    ],
+                    const SizedBox(height: 24),
+                    SettingsGroupCard(
+                      showDividers: false,
+                      children: [
+                        ExpansionTile(
+                          title: Text(
+                            '备份包含哪些内容？',
+                            style: TextStyle(color: Colors.white, fontSize: 14),
+                          ),
+                          tilePadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                          ),
+                          childrenPadding: const EdgeInsets.fromLTRB(
+                            16,
+                            0,
+                            16,
+                            16,
+                          ),
+                          children: [
+                            Text(
+                              '包含在线小说、听书、漫画、短剧和漫剧的收藏、已保存进度，以及已看剧集。\n\n'
+                              '本地 TXT / EPUB 原文件、下载缓存、阅读时长、划线和应用设置需另行保留。\n\n'
+                              '导出前请退出阅读或暂停播放，让当前进度保存；换手机时传输备份文件，再在这里恢复。',
+                              style: TextStyle(
+                                color: moyiMutedOnDark,
+                                fontSize: 13,
+                                height: 1.7,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -287,7 +290,7 @@ class _LibraryBackupPageState extends State<LibraryBackupPage> {
             ? SafeArea(
                 top: false,
                 child: Container(
-                  color: palette.canvas,
+                  color: moyiSheetFill,
                   padding: const EdgeInsets.all(16),
                   child: _busy != null
                       ? Column(
@@ -300,7 +303,7 @@ class _LibraryBackupPageState extends State<LibraryBackupPage> {
                               child: Text(
                                 _busy!,
                                 style: TextStyle(
-                                  color: palette.ink,
+                                  color: Colors.white,
                                   fontSize: 13,
                                 ),
                               ),

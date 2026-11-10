@@ -8,6 +8,7 @@ import '../services/drama_site_play.dart';
 import '../services/source_registry.dart';
 import '../widgets/home/home_cell_blocks.dart';
 import '../widgets/home/home_design.dart';
+import '../widgets/series_detail/moyi_detail_theme.dart';
 import '../widgets/home/home_media_card.dart';
 import '../widgets/home/home_shelf.dart';
 import 'home_provider.dart';
@@ -22,7 +23,11 @@ import 'home_provider.dart';
 ///
 /// 无门禁：成人书不再设门禁、不再隐藏，本页与入口常显，不取 MidnightGate。
 class AdultNovelsPage extends StatelessWidget {
-  const AdultNovelsPage({super.key, this.type = ContentType.novel, this.loader});
+  const AdultNovelsPage({
+    super.key,
+    this.type = ContentType.novel,
+    this.loader,
+  });
 
   final ContentType type;
 
@@ -39,9 +44,16 @@ class AdultNovelsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(_title)),
-      body: _AdultTypeGrid(type, loader: loader),
+    return MoyiPageBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          foregroundColor: Colors.white,
+          title: Text(_title),
+        ),
+        body: _AdultTypeGrid(type, loader: loader),
+      ),
     );
   }
 }
@@ -109,9 +121,7 @@ Future<List<Future<List<MediaItem>>>> _adultReadingJobs(
       final client = await SourceRegistry.instance.clientFor(entry.id);
       if (client == null) return const [];
       final items = await firstPageItems(client);
-      return [
-        for (final item in items) adultRecommendItem(item, entry),
-      ];
+      return [for (final item in items) adultRecommendItem(item, entry)];
     } catch (_) {
       return const [];
     }
@@ -128,8 +138,7 @@ Future<List<Future<List<MediaItem>>>> _adultReadingJobs(
       if (client == null) return const [];
       final items = await firstPageItems(client);
       return [
-        for (final item in items)
-          coreAdultRecommendItem(item, siteId, type),
+        for (final item in items) coreAdultRecommendItem(item, siteId, type),
       ];
     } catch (_) {
       return const [];
@@ -158,9 +167,7 @@ Future<List<MediaItem>> loadAdultReadingItems(ContentType type) async {
   if (cached != null && _adultCacheFresh(type)) return cached.items;
   final jobs = await _adultReadingJobs(type);
   final results = await Future.wait(jobs);
-  final items = [
-    for (final list in results) ...list,
-  ].take(60).toList();
+  final items = [for (final list in results) ...list].take(60).toList();
   _adultReadingCache[type] = (at: DateTime.now(), items: items);
   return items;
 }
@@ -168,9 +175,7 @@ Future<List<MediaItem>> loadAdultReadingItems(ContentType type) async {
 /// 逐站先回先画的流式版：每站回来立刻吐一波，调用方边收边画，
 /// 首屏不再等最慢的站；缓存命中时只吐一次全量。聚合页用它，
 /// 轨道仍用 [loadAdultReadingItems]（同一份缓存，不重复抓）。
-Stream<List<MediaItem>> loadAdultReadingItemsStream(
-  ContentType type,
-) async* {
+Stream<List<MediaItem>> loadAdultReadingItemsStream(ContentType type) async* {
   final cached = _adultReadingCache[type];
   if (cached != null && _adultCacheFresh(type)) {
     yield cached.items;
@@ -187,10 +192,7 @@ Stream<List<MediaItem>> loadAdultReadingItemsStream(
     all.addAll(first.items);
     yield first.items;
   }
-  _adultReadingCache[type] = (
-    at: DateTime.now(),
-    items: all.take(60).toList(),
-  );
+  _adultReadingCache[type] = (at: DateTime.now(), items: all.take(60).toList());
 }
 
 /// 点成人卡走站内详情链路（source 带 `engine:` 前缀才进，不进番茄详情页）。
@@ -241,11 +243,19 @@ class AdultNovelsEntrySliver extends StatelessWidget {
                 ? 'adult-novels-entry'
                 : 'adult-entry-${type.name}',
           ),
+          color: moyiDarkCardFill,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: const BorderSide(color: moyiDarkCardBorder),
+          ),
           child: ListTile(
-            leading: const Icon(Icons.nightlight_round),
-            title: Text(_title),
-            subtitle: Text(_subtitle),
-            trailing: const Icon(Icons.chevron_right),
+            leading: const Icon(Icons.nightlight_round, color: moyiGold),
+            title: Text(_title, style: const TextStyle(color: Colors.white)),
+            subtitle: Text(
+              _subtitle,
+              style: const TextStyle(color: moyiMutedOnDark),
+            ),
+            trailing: const Icon(Icons.chevron_right, color: moyiMutedOnDark),
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute<void>(
@@ -271,7 +281,11 @@ class AdultNovelsEntrySliver extends StatelessWidget {
 /// 取数与聚合页同一份（loadAdultReadingItems），轨道只取前 12 张；
 /// 加载中只占轨道高度、不画空骨架，取空时留一行提示、入口（更多）仍在。
 class AdultCardRailSliver extends StatefulWidget {
-  const AdultCardRailSliver({super.key, this.type = ContentType.novel, this.loader});
+  const AdultCardRailSliver({
+    super.key,
+    this.type = ContentType.novel,
+    this.loader,
+  });
 
   final ContentType type;
 
@@ -321,8 +335,7 @@ class _AdultCardRailSliverState extends State<AdultCardRailSliver> {
     // 最慢的那站才出第一张卡，缓存共用修好了、轨道仍在等。
     // 缓存命中时流只吐一次全量，与原来一次到位的外观一致。
     try {
-      await for (final batch
-          in loadAdultReadingItemsStream(widget.type)) {
+      await for (final batch in loadAdultReadingItemsStream(widget.type)) {
         if (!mounted) return;
         setState(() {
           _items = [..._items, ...batch].take(12).toList();
@@ -356,11 +369,7 @@ class _AdultCardRailSliverState extends State<AdultCardRailSliver> {
     // 见 home_cell_blocks.dart 的 _rankRailHeight）。
     final scaler = MediaQuery.textScalerOf(context);
     final railHeight =
-        140 +
-        8 +
-        scaler.scale(13) * 1.35 * 2 +
-        4 +
-        scaler.scale(11) * 1.3;
+        140 + 8 + scaler.scale(13) * 1.35 * 2 + 4 + scaler.scale(11) * 1.3;
     return SliverToBoxAdapter(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -502,10 +511,7 @@ class _AdultTypeGridState extends State<_AdultTypeGrid> {
             const SizedBox(height: 4),
             const Text('核心站与已导入的成人源暂无内容'),
             const SizedBox(height: 16),
-            FilledButton(
-              onPressed: _load,
-              child: const Text('重新加载'),
-            ),
+            FilledButton(onPressed: _load, child: const Text('重新加载')),
           ],
         ),
       );
@@ -585,7 +591,6 @@ class _AdultNovelCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = HomePalette.of(context);
     final heat = _heatLine(item);
     return Stack(
       children: [
@@ -602,7 +607,7 @@ class _AdultNovelCard extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 11,
                   height: 1.3,
-                  color: palette.muted,
+                  color: moyiMutedOnDark,
                 ),
               ),
             ],
@@ -656,7 +661,6 @@ class _AdultRankCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = HomePalette.of(context);
     final scaler = MediaQuery.textScalerOf(context);
     final meta = _heatLine(item);
     return HomePressable(
@@ -715,7 +719,7 @@ class _AdultRankCard extends StatelessWidget {
                 fontSize: 13,
                 height: 1.35,
                 fontWeight: FontWeight.w600,
-                color: palette.ink,
+                color: Colors.white,
               ),
             ),
           ),
@@ -728,7 +732,7 @@ class _AdultRankCard extends StatelessWidget {
               style: TextStyle(
                 fontSize: 11,
                 height: 1.3,
-                color: palette.muted,
+                color: moyiMutedOnDark,
               ),
             ),
           ],

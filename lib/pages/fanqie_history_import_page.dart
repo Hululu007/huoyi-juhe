@@ -7,6 +7,7 @@ import 'package:flutter_lucide/flutter_lucide.dart';
 
 import '../widgets/data_transfer_widgets.dart';
 import '../widgets/home/home_design.dart';
+import '../widgets/series_detail/moyi_detail_theme.dart';
 import '../widgets/settings/settings_widgets.dart';
 import '../models/fanqie_library_capture.dart';
 import '../services/backend_transport.dart';
@@ -245,265 +246,266 @@ class _FanqieHistoryImportPageState extends State<FanqieHistoryImportPage> {
     return PopScope(
       canPop: !_busy,
       child: Scaffold(
-        backgroundColor: palette.canvas,
+        backgroundColor: Colors.transparent,
         appBar: settingsAppBar(
           context,
           title: '导入番茄书架',
           actions: [_loginActions(enabled)],
         ),
-        body: SafeArea(
-          child: Align(
-            alignment: Alignment.topCenter,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 640),
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                children: [
-                  const DataTransferHeader(
-                    icon: LucideIcons.book_open,
-                    title: '书架和进度，一起带回来',
-                    subtitle: '从番茄读取小说，加入本机书架与历史。\n有章节记录的书，可以接着读。',
-                  ),
-                  const SettingsSectionHeader(title: '选择导入来源'),
-                  SettingsGroupCard(
-                    children: [
-                      SettingsRow(
-                        icon: LucideIcons.globe,
-                        iconTile: true,
-                        title: '从番茄账号读取',
-                        subtitle: '打开官方页面登录，保留本机登录状态',
-                        enabled: enabled,
-                        onTap: enabled ? _collect : null,
-                      ),
-                      SettingsRow(
-                        icon: LucideIcons.file_input,
-                        iconTile: true,
-                        title: '从历史文件导入',
-                        subtitle: '兼容此前保存的番茄历史 JSON',
-                        enabled: enabled,
-                        onTap: enabled ? _pick : null,
-                      ),
-                    ],
-                  ),
-                  if (_loadingLatest)
-                    const Padding(
-                      padding: EdgeInsets.all(16),
-                      child: LinearProgressIndicator(),
+        body: MoyiPageBackground(
+          child: SafeArea(
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 640),
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                  children: [
+                    const DataTransferHeader(
+                      icon: LucideIcons.book_open,
+                      title: '书架和进度，一起带回来',
+                      subtitle: '从番茄读取小说，加入本机书架与历史。\n有章节记录的书，可以接着读。',
                     ),
-                  if (capture != null) ...[
-                    const SettingsSectionHeader(title: '最近一次采集'),
+                    const SettingsSectionHeader(title: '选择导入来源'),
                     SettingsGroupCard(
                       children: [
                         SettingsRow(
-                          icon: LucideIcons.clock,
+                          icon: LucideIcons.globe,
                           iconTile: true,
-                          title: '使用已保存的书架数据',
-                          subtitle:
-                              '${capture.received} 个响应已保存 · 无需重新登录'
-                              '${capture.stopReason.isNotEmpty ? ' · 部分采集' : ''}',
+                          title: '从番茄账号读取',
+                          subtitle: '打开官方页面登录，保留本机登录状态',
                           enabled: enabled,
-                          onTap: enabled ? _prepareLibrary : null,
+                          onTap: enabled ? _collect : null,
                         ),
-                        ExpansionTile(
-                          title: Text(
-                            '采集详情与文件',
-                            style: TextStyle(
-                              color: palette.muted,
-                              fontSize: 13,
-                            ),
-                          ),
-                          tilePadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                          ),
-                          childrenPadding: const EdgeInsets.fromLTRB(
-                            16,
-                            0,
-                            16,
-                            12,
-                          ),
-                          children: [
-                            if (capture.stopReason.isNotEmpty)
-                              DataTransferNotice(
-                                message: capture.stopReason,
-                                error: true,
-                              ),
-                            Text(
-                              '已保存 ${capture.parts.length} 个分卷，失败 ${capture.failed} 个响应。响应数量不是书籍数量。',
-                              style: TextStyle(
-                                color: palette.muted,
-                                fontSize: 12,
-                                height: 1.6,
-                              ),
-                            ),
-                            for (final group in _captureSummary(
-                              capture,
-                            ).entries)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 6),
-                                child: Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        group.key,
-                                        style: TextStyle(
-                                          color: palette.ink,
-                                          fontSize: 12,
-                                        ),
-                                      ),
-                                    ),
-                                    Flexible(
-                                      child: Text(
-                                        group.value,
-                                        style: TextStyle(
-                                          color: palette.muted,
-                                          fontSize: 11,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            const SizedBox(height: 12),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: [
-                                TextButton.icon(
-                                  onPressed: enabled ? _resumeMetadata : null,
-                                  icon: const Icon(
-                                    LucideIcons.refresh_cw,
-                                    size: 16,
-                                  ),
-                                  label: const Text('补齐书籍资料'),
-                                ),
-                                TextButton.icon(
-                                  onPressed: enabled
-                                      ? () => _run(() async {
-                                          final saved = await _collector.export(
-                                            capture,
-                                          );
-                                          if (mounted) {
-                                            setState(
-                                              () => _message = saved
-                                                  ? '原始数据文件已导出'
-                                                  : '已取消导出',
-                                            );
-                                          }
-                                        })
-                                      : null,
-                                  icon: const Icon(
-                                    LucideIcons.download,
-                                    size: 16,
-                                  ),
-                                  label: const Text('导出原始数据'),
-                                ),
-                              ],
-                            ),
-                          ],
+                        SettingsRow(
+                          icon: LucideIcons.file_input,
+                          iconTile: true,
+                          title: '从历史文件导入',
+                          subtitle: '兼容此前保存的番茄历史 JSON',
+                          enabled: enabled,
+                          onTap: enabled ? _pick : null,
                         ),
                       ],
                     ),
-                  ],
-                  if (parsed != null) ...[
-                    SettingsSectionHeader(
-                      title: '导入预览 · $_previewSource',
-                      key: _previewKey,
-                    ),
-                    SettingsGroupCard(
-                      showDividers: false,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                    if (_loadingLatest)
+                      const Padding(
+                        padding: EdgeInsets.all(16),
+                        child: LinearProgressIndicator(),
+                      ),
+                    if (capture != null) ...[
+                      const SettingsSectionHeader(title: '最近一次采集'),
+                      SettingsGroupCard(
+                        children: [
+                          SettingsRow(
+                            icon: LucideIcons.clock,
+                            iconTile: true,
+                            title: '使用已保存的书架数据',
+                            subtitle:
+                                '${capture.received} 个响应已保存 · 无需重新登录'
+                                '${capture.stopReason.isNotEmpty ? ' · 部分采集' : ''}',
+                            enabled: enabled,
+                            onTap: enabled ? _prepareLibrary : null,
+                          ),
+                          ExpansionTile(
+                            title: Text(
+                              '采集详情与文件',
+                              style: TextStyle(
+                                color: moyiMutedOnDark,
+                                fontSize: 13,
+                              ),
+                            ),
+                            tilePadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                            ),
+                            childrenPadding: const EdgeInsets.fromLTRB(
+                              16,
+                              0,
+                              16,
+                              12,
+                            ),
                             children: [
-                              DataTransferStats(
-                                values: {
-                                  '小说': parsed.records.length,
-                                  '章节已定位': parsed.matched,
-                                  '待重试': parsed.unresolved,
-                                },
-                              ),
-                              const SizedBox(height: 12),
-                              Text(
-                                '同时加入书架和历史，保留较新的本机阅读位置。',
-                                style: TextStyle(
-                                  color: palette.ink,
-                                  fontSize: 13,
-                                  height: 1.6,
+                              if (capture.stopReason.isNotEmpty)
+                                DataTransferNotice(
+                                  message: capture.stopReason,
+                                  error: true,
                                 ),
-                              ),
                               Text(
-                                '未取得章节的作品从头开始；已定位的作品从对应章节开头续读。',
+                                '已保存 ${capture.parts.length} 个分卷，失败 ${capture.failed} 个响应。响应数量不是书籍数量。',
                                 style: TextStyle(
-                                  color: palette.muted,
+                                  color: moyiMutedOnDark,
                                   fontSize: 12,
                                   height: 1.6,
                                 ),
                               ),
+                              for (final group in _captureSummary(
+                                capture,
+                              ).entries)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 6),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          group.key,
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ),
+                                      Flexible(
+                                        child: Text(
+                                          group.value,
+                                          style: TextStyle(
+                                            color: moyiMutedOnDark,
+                                            fontSize: 11,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              const SizedBox(height: 12),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  TextButton.icon(
+                                    onPressed: enabled ? _resumeMetadata : null,
+                                    icon: const Icon(
+                                      LucideIcons.refresh_cw,
+                                      size: 16,
+                                    ),
+                                    label: const Text('补齐书籍资料'),
+                                  ),
+                                  TextButton.icon(
+                                    onPressed: enabled
+                                        ? () => _run(() async {
+                                            final saved = await _collector
+                                                .export(capture);
+                                            if (mounted) {
+                                              setState(
+                                                () => _message = saved
+                                                    ? '原始数据文件已导出'
+                                                    : '已取消导出',
+                                              );
+                                            }
+                                          })
+                                        : null,
+                                    icon: const Icon(
+                                      LucideIcons.download,
+                                      size: 16,
+                                    ),
+                                    label: const Text('导出原始数据'),
+                                  ),
+                                ],
+                              ),
                             ],
                           ),
-                        ),
-                        for (final record in parsed.records.take(6))
-                          ListTile(
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                            ),
-                            leading: _cover(record, palette),
-                            title: Text(
-                              (record['title'] as String).isEmpty
-                                  ? '未注明书名'
-                                  : record['title'] as String,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: palette.ink,
-                                fontSize: 14,
-                              ),
-                            ),
-                            subtitle: Text(
-                              record['ep'] as String? ??
-                                  (record['chapterId'] == null
-                                      ? '未取得阅读章节'
-                                      : '打开时重新匹配章节'),
-                              style: TextStyle(
-                                color: palette.muted,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                        if (parsed.records.length > 6)
+                        ],
+                      ),
+                    ],
+                    if (parsed != null) ...[
+                      SettingsSectionHeader(
+                        title: '导入预览 · $_previewSource',
+                        key: _previewKey,
+                      ),
+                      SettingsGroupCard(
+                        showDividers: false,
+                        children: [
                           Padding(
                             padding: const EdgeInsets.all(16),
-                            child: Text(
-                              '仅展示前 6 本，导入包含全部 ${parsed.records.length} 本小说',
-                              style: TextStyle(
-                                color: palette.muted,
-                                fontSize: 12,
-                              ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                DataTransferStats(
+                                  values: {
+                                    '小说': parsed.records.length,
+                                    '章节已定位': parsed.matched,
+                                    '待重试': parsed.unresolved,
+                                  },
+                                ),
+                                const SizedBox(height: 12),
+                                Text(
+                                  '同时加入书架和历史，保留较新的本机阅读位置。',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 13,
+                                    height: 1.6,
+                                  ),
+                                ),
+                                Text(
+                                  '未取得章节的作品从头开始；已定位的作品从对应章节开头续读。',
+                                  style: TextStyle(
+                                    color: moyiMutedOnDark,
+                                    fontSize: 12,
+                                    height: 1.6,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                      ],
+                          for (final record in parsed.records.take(6))
+                            ListTile(
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                              ),
+                              leading: _cover(record, palette),
+                              title: Text(
+                                (record['title'] as String).isEmpty
+                                    ? '未注明书名'
+                                    : record['title'] as String,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              subtitle: Text(
+                                record['ep'] as String? ??
+                                    (record['chapterId'] == null
+                                        ? '未取得阅读章节'
+                                        : '打开时重新匹配章节'),
+                                style: TextStyle(
+                                  color: moyiMutedOnDark,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                          if (parsed.records.length > 6)
+                            Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Text(
+                                '仅展示前 6 本，导入包含全部 ${parsed.records.length} 本小说',
+                                style: TextStyle(
+                                  color: moyiMutedOnDark,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                    if (_message case final message?) ...[
+                      const SizedBox(height: 16),
+                      DataTransferNotice(
+                        key: _messageKey,
+                        message: message,
+                        error: _error,
+                      ),
+                    ],
+                    const SizedBox(height: 24),
+                    Text(
+                      '只读取番茄数据，不向账号写入。网页登录状态保存在本应用中，可在右上角退出；导出文件不含登录凭证。',
+                      style: TextStyle(
+                        color: moyiMutedOnDark,
+                        fontSize: 12,
+                        height: 1.7,
+                      ),
                     ),
                   ],
-                  if (_message case final message?) ...[
-                    const SizedBox(height: 16),
-                    DataTransferNotice(
-                      key: _messageKey,
-                      message: message,
-                      error: _error,
-                    ),
-                  ],
-                  const SizedBox(height: 24),
-                  Text(
-                    '只读取番茄数据，不向账号写入。网页登录状态保存在本应用中，可在右上角退出；导出文件不含登录凭证。',
-                    style: TextStyle(
-                      color: palette.muted,
-                      fontSize: 12,
-                      height: 1.7,
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
           ),
@@ -512,7 +514,7 @@ class _FanqieHistoryImportPageState extends State<FanqieHistoryImportPage> {
             ? SafeArea(
                 top: false,
                 child: Container(
-                  color: palette.canvas,
+                  color: moyiSheetFill,
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -524,7 +526,7 @@ class _FanqieHistoryImportPageState extends State<FanqieHistoryImportPage> {
                           liveRegion: true,
                           child: Text(
                             _captureProgress ?? '正在处理，请稍候…',
-                            style: TextStyle(color: palette.ink, fontSize: 13),
+                            style: TextStyle(color: Colors.white, fontSize: 13),
                           ),
                         ),
                         if (_request != null)
@@ -570,10 +572,10 @@ class _FanqieHistoryImportPageState extends State<FanqieHistoryImportPage> {
       height: 46,
       child: (record['cover'] as String? ?? '').isEmpty
           ? ColoredBox(
-              color: palette.soft,
+              color: moyiDarkCardFill,
               child: Icon(
                 LucideIcons.book_open,
-                color: palette.muted,
+                color: moyiMutedOnDark,
                 size: 18,
               ),
             )
@@ -581,10 +583,10 @@ class _FanqieHistoryImportPageState extends State<FanqieHistoryImportPage> {
               record['cover'] as String,
               fit: BoxFit.cover,
               errorBuilder: (_, _, _) => ColoredBox(
-                color: palette.soft,
+                color: moyiDarkCardFill,
                 child: Icon(
                   LucideIcons.book_open,
-                  color: palette.muted,
+                  color: moyiMutedOnDark,
                   size: 18,
                 ),
               ),

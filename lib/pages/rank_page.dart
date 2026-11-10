@@ -10,6 +10,7 @@ import '../services/user_facing_error.dart';
 import '../widgets/home/home_back_button.dart';
 import '../widgets/home/home_chip.dart';
 import '../widgets/home/home_design.dart';
+import '../widgets/series_detail/moyi_detail_theme.dart';
 import '../widgets/home/home_media_card.dart' show StoryCover;
 import '../widgets/home/home_shelf.dart' show homeGutter;
 import '../widgets/home/home_stream_footer.dart';
@@ -246,38 +247,42 @@ class _RankPageState extends State<RankPage> {
   @override
   Widget build(BuildContext context) {
     final palette = HomePalette.of(context);
-    return Scaffold(
-      backgroundColor: palette.canvas,
-      appBar: AppBar(
-        backgroundColor: palette.canvas,
-        surfaceTintColor: Colors.transparent,
-        scrolledUnderElevation: 0,
-        leading: const HomeBackButton(),
-        title: Text(
-          '排行榜',
-          style: TextStyle(
-            color: palette.ink,
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
+    return MoyiPageBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          foregroundColor: Colors.white,
+          surfaceTintColor: Colors.transparent,
+          scrolledUnderElevation: 0,
+          leading: const HomeBackButton(),
+          title: Text(
+            '排行榜',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
-      ),
-      body: Align(
-        alignment: Alignment.topCenter,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 840),
-          child: Column(
-            children: [
-              if (_catalog.tabs.isNotEmpty)
-                RankBoardTabs(
-                  tabs: _catalog.tabs,
-                  selectedIndex: _rankIndex,
-                  onSelect: _selectRank,
-                ),
-              if (_catalog.categories.isNotEmpty && !(_rank?.isDrama ?? false))
-                _categoryChips(palette),
-              Expanded(child: _body()),
-            ],
+        body: Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 840),
+            child: Column(
+              children: [
+                if (_catalog.tabs.isNotEmpty)
+                  RankBoardTabs(
+                    tabs: _catalog.tabs,
+                    selectedIndex: _rankIndex,
+                    onSelect: _selectRank,
+                  ),
+                if (_catalog.categories.isNotEmpty &&
+                    !(_rank?.isDrama ?? false))
+                  _categoryChips(palette),
+                Expanded(child: _body()),
+              ],
+            ),
           ),
         ),
       ),
@@ -418,7 +423,9 @@ class _RankRow extends StatelessWidget {
                   '${entry.position}',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    color: top ? palette.accentText : palette.muted,
+                    color: top
+                        ? (palette.eink ? Colors.black : moyiGold)
+                        : (palette.eink ? Colors.black : moyiMutedOnDark),
                     fontSize: top ? 17 : 15,
                     fontWeight: FontWeight.w700,
                     fontFeatures: const [FontFeature.tabularFigures()],
@@ -449,7 +456,7 @@ class _RankRow extends StatelessWidget {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: palette.ink,
+                      color: Colors.white,
                       fontSize: 15,
                       fontWeight: FontWeight.w600,
                       height: 1.35,
@@ -461,7 +468,7 @@ class _RankRow extends StatelessWidget {
                       entry.metaLabel,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: palette.muted, fontSize: 11.5),
+                      style: TextStyle(color: moyiMutedOnDark, fontSize: 11.5),
                     ),
                   ],
                   if (entry.abstract.isNotEmpty) ...[
@@ -471,7 +478,7 @@ class _RankRow extends StatelessWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: palette.muted,
+                        color: moyiMutedOnDark,
                         fontSize: 12,
                         height: 1.6,
                       ),

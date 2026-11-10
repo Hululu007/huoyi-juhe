@@ -5,6 +5,7 @@ import '../../services/chapter_cache_store.dart' show formatCacheBytes;
 import '../../services/drama_download_store.dart';
 import '../../services/drama_downloader.dart';
 import '../home/home_design.dart';
+import '../series_detail/moyi_detail_theme.dart';
 import '../settings/settings_widgets.dart';
 import '../shelf/shelf_design.dart';
 
@@ -25,7 +26,7 @@ Widget _rowDivider(HomePalette palette) => Divider(
   thickness: 0.6,
   indent: 16,
   endIndent: 16,
-  color: palette.line,
+  color: moyiDarkCardBorder,
 );
 
 /// 任务行尾：进行中给文字状态，失败给红色「失败」+ 重试，暂停给继续。
@@ -47,18 +48,18 @@ class TaskTrailing extends StatelessWidget {
           IconButton(
             tooltip: '重试',
             onPressed: onRetry,
-            icon: Icon(LucideIcons.rotate_cw, size: 20, color: palette.ink),
+            icon: Icon(LucideIcons.rotate_cw, size: 20, color: Colors.white),
           ),
         ],
       ),
       DramaDownloadStatus.paused => IconButton(
         tooltip: '继续下载',
         onPressed: onRetry,
-        icon: Icon(LucideIcons.play, size: 20, color: palette.ink),
+        icon: Icon(LucideIcons.play, size: 20, color: Colors.white),
       ),
       DramaDownloadStatus.downloading || DramaDownloadStatus.waiting => Text(
         dramaTaskLabel(task.status),
-        style: TextStyle(fontSize: 13, color: palette.muted),
+        style: TextStyle(fontSize: 13, color: moyiMutedOnDark),
       ),
     };
   }
@@ -71,8 +72,8 @@ Widget _progressBar(HomePalette palette, double? value) => Padding(
     child: LinearProgressIndicator(
       value: value,
       minHeight: 3,
-      color: palette.accentText,
-      backgroundColor: palette.line,
+      color: moyiGold,
+      backgroundColor: moyiDarkCardBorder,
     ),
   ),
 );
@@ -215,7 +216,7 @@ class _CachedDramaCardState extends State<CachedDramaCard> {
                 Icon(
                   _expanded ? LucideIcons.chevron_up : LucideIcons.chevron_down,
                   size: 18,
-                  color: palette.muted,
+                  color: moyiMutedOnDark,
                 ),
               ],
             ),

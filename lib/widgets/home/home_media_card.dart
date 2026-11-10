@@ -262,7 +262,7 @@ class HomeMediaCard extends StatelessWidget {
                   fontSize: 15,
                   height: 1.35,
                   fontWeight: FontWeight.w600,
-                  color: palette.ink,
+                  color: Colors.white,
                 ),
               ),
             ),
@@ -275,7 +275,7 @@ class HomeMediaCard extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 11,
                   height: 1.3,
-                  color: palette.muted,
+                  color: moyiMutedOnDark,
                 ),
               ),
             ],

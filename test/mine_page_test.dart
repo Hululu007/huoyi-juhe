@@ -53,7 +53,7 @@ void main() {
           home: const MinePage(),
         ),
       );
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 100));
       expect(find.text('今日阅读'), findsOneWidget);
       expect(find.text('阅读热力图'), findsOneWidget);
       for (final weekday in {0: '周一', 2: '周三', 4: '周五'}.entries) {
@@ -78,7 +78,7 @@ void main() {
   ) async {
     addTearDown(() => tester.pumpWidget(const SizedBox.shrink()));
     await tester.pumpWidget(const MaterialApp(home: MinePage()));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 100));
     expect(find.text('书友'), findsNothing);
     expect(find.text('沉浸阅读，记录每一个好故事'), findsNothing);
     expect(find.text('每日记录'), findsNothing);
@@ -95,7 +95,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(navigatorObservers: [observer], home: const MinePage()),
     );
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 100));
     await tester.tap(find.byTooltip('应用设置'));
     final context = tester.element(find.byType(MinePage));
     final route = observer.lastRoute! as MaterialPageRoute;
@@ -107,10 +107,10 @@ void main() {
   ) async {
     addTearDown(() => tester.pumpWidget(const SizedBox.shrink()));
     await tester.pumpWidget(const MaterialApp(home: MinePage()));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 100));
     await tester.scrollUntilVisible(find.text('离线缓存'), 200);
     await tester.tap(find.text('离线缓存'));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 100));
     expect(find.text('小说离线缓存'), findsOneWidget);
     expect(find.text('短剧离线缓存'), findsOneWidget);
   });
@@ -120,7 +120,7 @@ void main() {
   ) async {
     addTearDown(() => tester.pumpWidget(const SizedBox.shrink()));
     await tester.pumpWidget(const MaterialApp(home: MinePage()));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 100));
     final context = tester.element(find.byType(MinePage));
     final list = tester.widget<ListView>(find.byType(ListView).first);
     expect(
@@ -134,7 +134,7 @@ void main() {
     await readFor(tester, 'today-book', 'book');
     addTearDown(() => tester.pumpWidget(const SizedBox.shrink()));
     await tester.pumpWidget(const MaterialApp(home: MinePage()));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 100));
     final readout = find.byKey(const ValueKey('reading-heatmap-day'));
     expect(tester.widget<Text>(readout).data, '今天 · 1分钟');
     // Column 0 is fifteen weeks back, so its Monday is never today.
@@ -155,7 +155,7 @@ void main() {
     addTearDown(() => einkModeNotifier.value = original);
     addTearDown(() => tester.pumpWidget(const SizedBox.shrink()));
     await tester.pumpWidget(const MaterialApp(home: MinePage()));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 100));
     final empty = tester.widget<DecoratedBox>(
       find.descendant(
         of: find.byKey(const ValueKey('reading-heatmap-cell-0')),
@@ -199,13 +199,16 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(navigatorObservers: [observer], home: const MinePage()),
     );
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 100));
     final showAll = find.text('全部');
     await tester.scrollUntilVisible(showAll, 200);
     await _dragIntoView(tester, showAll);
     expect(find.text('听书 book6'), findsNothing, reason: 'preview stops at 5');
     await tester.tap(showAll);
-    await tester.pumpAndSettle();
+    // 底部表入场动画约 300ms：一次 pump 100ms 不够，表还在往上滑，
+    // 后面滚到「听书 book6」再点会打偏；等 500ms 让表完全停稳。
+    // （页里有常驻循环动画，不能用 pumpAndSettle。）
+    await tester.pump(const Duration(milliseconds: 500));
     expect(find.text('全部 7 本'), findsOneWidget);
     expect(find.byType(HomeSheetFrame), findsOneWidget);
     expect(find.byTooltip('关闭'), findsOneWidget);
@@ -218,6 +221,9 @@ void main() {
           .descendant(of: sheet, matching: find.byType(Scrollable))
           .first,
     );
+    // 同站源管理那案：scrollUntilVisible 结尾的 ensureVisible 是 100ms
+    // 动画，返回时还没跑完，目标行还在屏外；等 200ms 让它滚进视口再点。
+    await tester.pump(const Duration(milliseconds: 200));
     final context = tester.element(find.byType(MinePage));
     await tester.tap(last);
     await tester.pump();
@@ -262,7 +268,7 @@ Future<DetailPage> _openRankedTitle(WidgetTester tester, String title) async {
   await tester.pumpWidget(
     MaterialApp(navigatorObservers: [observer], home: const MinePage()),
   );
-  await tester.pumpAndSettle();
+  await tester.pump(const Duration(milliseconds: 100));
   final row = find.text(title);
   await tester.scrollUntilVisible(row, 200);
   await _dragIntoView(tester, row);

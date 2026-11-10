@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
 
-import 'home/home_design.dart';
+import 'series_detail/moyi_detail_theme.dart';
 
 /// Shared surfaces for local backups and upstream imports.
 ///
@@ -20,7 +20,6 @@ class DataTransferHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = HomePalette.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 12, 4, 8),
       child: Row(
@@ -30,10 +29,10 @@ class DataTransferHeader extends StatelessWidget {
             width: 48,
             height: 48,
             decoration: BoxDecoration(
-              color: palette.soft,
+              color: moyiDarkCardFill,
               borderRadius: BorderRadius.circular(14),
             ),
-            child: Icon(icon, color: palette.accentText, size: 24),
+            child: Icon(icon, color: moyiGold, size: 24),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -43,7 +42,7 @@ class DataTransferHeader extends StatelessWidget {
                 Text(
                   title,
                   style: TextStyle(
-                    color: palette.ink,
+                    color: Colors.white,
                     fontSize: 21,
                     fontWeight: FontWeight.w700,
                   ),
@@ -52,7 +51,7 @@ class DataTransferHeader extends StatelessWidget {
                 Text(
                   subtitle,
                   style: TextStyle(
-                    color: palette.muted,
+                    color: moyiMutedOnDark,
                     fontSize: 13,
                     height: 1.6,
                   ),
@@ -72,7 +71,6 @@ class DataTransferStats extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = HomePalette.of(context);
     // Wrap keeps enlarged system text and narrow windows readable.
     return Wrap(
       spacing: 12,
@@ -83,7 +81,7 @@ class DataTransferStats extends StatelessWidget {
             constraints: const BoxConstraints(minWidth: 80),
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
-              color: palette.soft,
+              color: moyiDarkCardFill,
               borderRadius: BorderRadius.circular(12),
             ),
             child: Column(
@@ -92,14 +90,14 @@ class DataTransferStats extends StatelessWidget {
                 Text(
                   '${entry.value}',
                   style: TextStyle(
-                    color: palette.ink,
+                    color: Colors.white,
                     fontSize: 23,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
                 Text(
                   entry.key,
-                  style: TextStyle(color: palette.muted, fontSize: 12),
+                  style: TextStyle(color: moyiMutedOnDark, fontSize: 12),
                 ),
               ],
             ),
@@ -120,17 +118,16 @@ class DataTransferNotice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = HomePalette.of(context);
-    final color = error ? palette.ink : palette.accentText;
+    final color = error ? Colors.white : moyiGold;
     return Semantics(
       liveRegion: true,
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: palette.surface,
+          color: moyiDarkCardFill,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: error ? color.withValues(alpha: .4) : palette.line,
+            color: error ? color.withValues(alpha: .4) : moyiDarkCardBorder,
           ),
         ),
         child: Row(
@@ -145,7 +142,7 @@ class DataTransferNotice extends StatelessWidget {
             Expanded(
               child: Text(
                 message,
-                style: TextStyle(color: palette.ink, height: 1.6),
+                style: TextStyle(color: Colors.white, height: 1.6),
               ),
             ),
           ],
@@ -166,10 +163,9 @@ class DataTransferAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = HomePalette.of(context);
     return FilledButton(
       style: FilledButton.styleFrom(
-        backgroundColor: palette.accentText,
+        backgroundColor: moyiPurple,
         foregroundColor: Colors.white,
         minimumSize: const Size.fromHeight(50),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
