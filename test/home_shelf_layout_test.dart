@@ -55,7 +55,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('小说一'), findsOneWidget);
+    expect(find.text('小说一'), findsWidgets);
+    // 小说一同时在轮播与网格里出现（同一份推荐流），网格里的那张按入场 key 钉。
+    expect(find.byKey(const ValueKey('book:b1')), findsOneWidget);
     expect(find.text('短剧一'), findsNothing);
     expect(tester.takeException(), isNull);
   });
@@ -102,11 +104,13 @@ void main() {
     await tester.pumpAndSettle();
 
     // 没有主视觉、也没有「今日之选」：两本书都按普通卡片落进网格。
+    // 两本书同时也在轮播里（同一份推荐流），所以标题按文本会找到两处；
+    // 网格里的卡片按入场 key 钉。
     expect(find.text('今日之选'), findsNothing);
     expect(find.text('继续阅读'), findsNothing);
     expect(find.text('这段简介用来占住编辑位。'), findsNothing);
-    expect(find.text('带简介的书'), findsOneWidget);
-    expect(find.text('第一本'), findsOneWidget);
+    expect(find.byKey(const ValueKey('book:b2')), findsOneWidget);
+    expect(find.byKey(const ValueKey('book:b1')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

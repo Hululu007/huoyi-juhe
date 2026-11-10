@@ -793,7 +793,7 @@ class _ShopSheet extends StatelessWidget {
   }
 }
 
-/// 背包：已拥有的装备，穿戴 / 强化。
+/// 背包：已拥有的装备，穿戴 / 强化 / 分解；自动合成与自动补材料开关。
 class _InventorySheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -801,10 +801,11 @@ class _InventorySheet extends StatelessWidget {
     return AnimatedBuilder(
       animation: game,
       builder: (context, _) {
-        final owned = game.ownedEquip
-            .map(gameEquipmentById)
-            .whereType<GameEquipment>()
+        final owned = game.ownedEquip.entries
+            .map((e) => (equip: gameEquipmentById(e.key), count: e.value))
+            .where((row) => row.equip != null)
             .toList();
+        final synth = game.lastSynthesizeResults;
         return Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -820,6 +821,77 @@ class _InventorySheet extends StatelessWidget {
                 ),
               ),
             ),
+            if (synth.isNotEmpty)
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFD4A017).withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (final result in synth)
+                      Text(
+                        '自动合成：${gameEquipmentById(result.resultId)?.name ?? ''}（${gameEquipQualityName(gameEquipmentById(result.resultId)?.quality ?? GameEquipQuality.white)}）',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                        ),
+                      ),
+                    const SizedBox(height: 6),
+                    _SheetButton(
+                      label: '知道了',
+                      gold: false,
+                      onTap: () => game.clearSynthesizeResults(),
+                    ),
+                  ],
+                ),
+              ),
+            _SheetRow(
+              title: '自动合成：${game.autoSynthesizeEnabled ? '开' : '关'}',
+              subtitle:
+                  '3 件同品质同部位自动合成高一档（3 绿→1 蓝，以此类推到七彩）',
+              action: Switch(
+                value: game.autoSynthesizeEnabled,
+                onChanged: (value) async {
+                  await game.setAutoSynthesize(value);
+                },
+              ),
+            ),
+            _SheetRow(
+              title: '自动补材料：${game.autoRefineMaterialEnabled ? '开' : '关'}',
+              subtitle: '强化元宝不够时，自动分解多余的低级装备补元宝（七彩不分）',
+              action: Switch(
+                value: game.autoRefineMaterialEnabled,
+                onChanged: (value) async {
+                  await game.setAutoRefineMaterial(value);
+                },
+              ),
+            ),
+            _SheetRow(
+              title: '立即合成',
+              subtitle: '把背包里所有满 3 件的同品质同部位合成高一档',
+              action: _SheetButton(
+                label: '合成',
+                onTap: () async {
+                  final results = game.synthesizeAll();
+                  await game.persist();
+                  if (!context.mounted) return;
+                  if (results.isEmpty) {
+                    _snack(context, '没有满 3 件可合成的装备');
+                  } else {
+                    final names = [
+                      for (final r in results)
+                        gameEquipmentById(r.resultId)?.name ?? '',
+                    ].join('、');
+                    _snack(context, '合成出：$names');
+                  }
+                },
+              ),
+            ),
             if (owned.isEmpty)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 24),
@@ -830,27 +902,29 @@ class _InventorySheet extends StatelessWidget {
                   ),
                 ),
               ),
-            for (final equip in owned)
+            for (final row in owned)
               _SheetRow(
                 title:
-                    '${equip.name} · ${gameEquipQualityName(equip.quality)}',
+                    '${row.equip!.name} · ${gameEquipQualityName(row.equip!.quality)}'
+                    '${row.count > 1 ? ' ×${row.count}' : ''}',
                 subtitle:
-                    '${gameEquipSlotName(equip.slot)} 攻+${equip.attack} '
-                    '防+${equip.defense} 血+${equip.hp}'
-                    ' · 强化 Lv.${game.refine[equip.id] ?? 0}',
+                    '${gameEquipSlotName(row.equip!.slot)} 攻+${row.equip!.attack} '
+                    '防+${row.equip!.defense} 血+${row.equip!.hp}'
+                    ' · 强化 Lv.${game.refine[row.equip!.id] ?? 0}'
+                    ' · ${gameEquipDropSource(row.equip!.quality)}',
                 action: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     _SheetButton(
                       label:
-                          game.equipped[equip.slot.name] == equip.id
+                          game.equipped[row.equip!.slot.name] == row.equip!.id
                               ? '已穿戴'
                               : '穿戴',
                       gold: false,
                       enabled:
-                          game.equipped[equip.slot.name] != equip.id,
+                          game.equipped[row.equip!.slot.name] != row.equip!.id,
                       onTap: () async {
-                        final ok = await game.equip(equip.id);
+                        final ok = await game.equip(row.equip!.id);
                         if (!context.mounted) return;
                         if (!ok) _snack(context, '境界不够，穿不上');
                       },
@@ -858,14 +932,46 @@ class _InventorySheet extends StatelessWidget {
                     const SizedBox(width: 8),
                     _SheetButton(
                       label:
-                          '强化 ${20 * ((game.refine[equip.id] ?? 0) + 1)}',
-                      enabled: (game.refine[equip.id] ?? 0) < 5 &&
-                          game.yuanbao >=
-                              20 * ((game.refine[equip.id] ?? 0) + 1),
+                          '强化 ${20 * ((game.refine[row.equip!.id] ?? 0) + 1)}',
+                      enabled: (game.refine[row.equip!.id] ?? 0) <
+                              gameEquipRefineMax &&
+                          (game.yuanbao >=
+                                  20 *
+                                      ((game.refine[row.equip!.id] ?? 0) + 1) ||
+                              game.autoRefineMaterialEnabled),
                       onTap: () async {
-                        final ok = await game.refineEquip(equip.id);
+                        final ok = await game.refineEquip(row.equip!.id);
                         if (!context.mounted) return;
-                        if (!ok) _snack(context, '元宝不够或已满级');
+                        if (!ok) {
+                          _snack(context, '元宝不够或已满级');
+                        } else if (game.lastAutoSalvageNames.isNotEmpty) {
+                          _snack(
+                            context,
+                            '强化成功，自动分解补材料：${game.lastAutoSalvageNames.join('、')}',
+                          );
+                        }
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                    _SheetButton(
+                      label:
+                          '分解 +${gameEquipSalvageValue(row.equip!.quality)}',
+                      gold: false,
+                      enabled: row.equip!.quality !=
+                              GameEquipQuality.rainbow &&
+                          row.count >
+                              (game.equipped[row.equip!.slot.name] ==
+                                      row.equip!.id
+                                  ? 1
+                                  : 0),
+                      onTap: () async {
+                        final value =
+                            await game.salvageEquip(row.equip!.id);
+                        if (!context.mounted) return;
+                        _snack(
+                          context,
+                          value > 0 ? '分解得 $value 元宝' : '这件不能分解',
+                        );
                       },
                     ),
                   ],
@@ -991,6 +1097,13 @@ class _TowerSheet extends StatelessWidget {
           children: [
             _SheetTitle(
               title: '试炼塔 · 已通 ${game.towerFloor}/30 层',
+            ),
+            const Padding(
+              padding: EdgeInsets.only(bottom: 4),
+              child: Text(
+                '每层难度随层数上涨，备好装备再来；通关 30 层得一件七彩装备。',
+                style: TextStyle(color: Colors.white60, fontSize: 12),
+              ),
             ),
             for (final entry in groups.entries) ...[
               Padding(
@@ -1119,7 +1232,8 @@ class _ProfileSheet extends StatelessWidget {
             _SheetRow(
               title: '战力 ${game.power} · 血量 $maxHp',
               subtitle:
-                  '攻击 ${game.power} · 防御 ${game.level * 5} · '
+                  '攻击 ${game.power}（境界 +${game.basePower} / 装备 +${game.equipPower}）'
+                  ' · 防御 ${game.level * 5} · '
                   '修为 ${snapshot.totalXp} · 元宝 ${game.yuanbao}',
               action: _SheetButton(
                 label: '改名',
@@ -1214,7 +1328,15 @@ class _EquipmentSheet extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _SheetTitle(
-              title: '装备 · 战力 ${game.power}',
+              title:
+                  '装备 · 战力 ${game.power}（境界 ${game.basePower} + 装备 ${game.equipPower}）',
+            ),
+            const Padding(
+              padding: EdgeInsets.only(bottom: 8),
+              child: Text(
+                '战力主要靠装备：七彩只能合成（3 件红同部位）或通关试炼塔 30 层获得，不直接掉落；强化每级 +12% 属性。',
+                style: TextStyle(color: Colors.white60, fontSize: 12),
+              ),
             ),
             for (final slot in GameEquipSlot.values)
               Builder(
@@ -1226,11 +1348,12 @@ class _EquipmentSheet extends StatelessWidget {
                     title: equip == null
                         ? '${gameEquipSlotName(slot)}：空'
                         : '${gameEquipSlotName(slot)}：${equip.name} '
+                            '· ${gameEquipQualityName(equip.quality)} '
                             'Lv.$refineLevel',
                     subtitle: equip == null
                         ? '背包里穿戴一件'
                         : '攻+${equip.attack} 防+${equip.defense} '
-                            '血+${equip.hp}（强化每级 +10%）',
+                            '血+${equip.hp}（品质倍率 ×${gameEquipQualityPowerMultiplier(equip.quality)}，强化每级 +12%）',
                     action: equip == null
                         ? const SizedBox.shrink()
                         : Row(
@@ -1239,14 +1362,22 @@ class _EquipmentSheet extends StatelessWidget {
                               _SheetButton(
                                 label:
                                     '强化 ${20 * (refineLevel + 1)}',
-                                enabled: refineLevel < 5 &&
-                                    game.yuanbao >=
-                                        20 * (refineLevel + 1),
+                                enabled: refineLevel < gameEquipRefineMax &&
+                                    (game.yuanbao >= 20 * (refineLevel + 1) ||
+                                        game.autoRefineMaterialEnabled),
                                 onTap: () async {
                                   final ok = await game
                                       .refineEquip(equip.id);
                                   if (!context.mounted) return;
-                                  if (!ok) _snack(context, '元宝不够或已满级');
+                                  if (!ok) {
+                                    _snack(context, '元宝不够或已满级');
+                                  } else if (game
+                                      .lastAutoSalvageNames.isNotEmpty) {
+                                    _snack(
+                                      context,
+                                      '强化成功，自动分解补材料：${game.lastAutoSalvageNames.join('、')}',
+                                    );
+                                  }
                                 },
                               ),
                               const SizedBox(width: 8),
@@ -1367,6 +1498,21 @@ class _RewardsSheetState extends State<_RewardsSheet> {
 
 /// 影视：短剧在前 + 13 个成人站点节点（通关节点，点亮能看，
 /// 看一次扣元宝；普通影视站不扣，只成人站扣）。
+/// 扣费记录里的时间：只显示时:分。
+String _spendTimeText(int millis) {
+  final time = DateTime.fromMillisecondsSinceEpoch(millis);
+  return '${time.hour.toString().padLeft(2, '0')}:'
+      '${time.minute.toString().padLeft(2, '0')}';
+}
+
+/// 扣费记录里的入口：游戏节点进站 / 影视区详情页 / 直接播放。
+String _spendSourceText(String source) => switch (source) {
+      'game' => '进站（旧）',
+      'detail' => '详情页',
+      'play' => '直接播放',
+      _ => source,
+    };
+
 class _FilmSheet extends StatelessWidget {
   const _FilmSheet({
     required this.onOpenFilmTab,
@@ -1410,9 +1556,9 @@ class _FilmSheet extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             const Text(
-              '成人站点：解锁后看一次扣元宝（第 1 档 5、第 2 档 10、'
-              '第 3 档 15、第 4 档 20），元宝不够不能看，去打怪'
-              '爬塔做任务赚元宝；普通影视站不扣。',
+              '成人站点：进站免费（境界与塔层够了就能进，不扣元宝）；'
+              '影视区进站免费，点一部片子进详情页再扣 20 元宝，同一部'
+              '片子一次进入只扣一次。去打怪爬塔做任务赚元宝；普通影视站不扣。',
               style: TextStyle(color: Colors.white60, fontSize: 12),
             ),
             const SizedBox(height: 12),
@@ -1432,17 +1578,18 @@ class _FilmSheet extends StatelessWidget {
                       return GestureDetector(
                         onTap: unlocked
                             ? () async {
-                                final ok = await game
-                                    .spendForAdultView(node);
+                                final outcome =
+                                    await game.tryEnterAdultSite(
+                                  node.coreId,
+                                  label: node.label,
+                                  source: 'game',
+                                );
                                 if (!context.mounted) return;
-                                if (ok) {
+                                if (outcome.allowed) {
                                   Navigator.of(context).pop();
                                   onOpenFilmTab();
                                 } else {
-                                  _snack(
-                                    context,
-                                    '元宝不够，去打怪爬塔做任务赚元宝',
-                                  );
+                                  _snack(context, '进站失败，稍后再试');
                                 }
                               }
                             : null,
@@ -1487,7 +1634,7 @@ class _FilmSheet extends StatelessWidget {
                               const SizedBox(height: 2),
                               Text(
                                 unlocked
-                                    ? '看一次扣 ${node.viewCost} 元宝'
+                                    ? '进站免费'
                                     : '还差 ${node.xpShort(xp)} 修为'
                                         '${node.floorShort(game.towerFloor) > 0 ? ' / ${node.floorShort(game.towerFloor)} 层塔' : ''}',
                                 style: const TextStyle(
@@ -1504,6 +1651,48 @@ class _FilmSheet extends StatelessWidget {
                     },
                   ),
               ],
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              '最近扣费',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 6),
+            AnimatedBuilder(
+              animation: GameService.instance,
+              builder: (context, _) {
+                final spends =
+                    GameService.instance.adultSpendHistory.take(5).toList();
+                if (spends.isEmpty) {
+                  return const Text(
+                    '暂无扣费记录',
+                    style: TextStyle(color: Colors.white60, fontSize: 12),
+                  );
+                }
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (final spend in spends)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Text(
+                          '${_spendTimeText(spend.timeMillis)} '
+                          '${spend.label} -${spend.cost}元宝'
+                          '（${_spendSourceText(spend.source)}，'
+                          '余额${spend.balanceAfter}）',
+                          style: const TextStyle(
+                            color: Colors.white60,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              },
             ),
           ],
         );
@@ -1622,7 +1811,7 @@ class _AnnounceSheet extends StatelessWidget {
     const notices = <(String, String)>[
       ('离线收益', '切走、切后台、关掉重开，回来都按离开时长结算修为与元宝，封顶 8 小时。'),
       ('境界解锁', '修为到 3000 解锁影视区，到 8000 解锁全部分类与称号；成人站按修为分 4 档。'),
-      ('成人站扣费', '成人站看一次扣 5–20 元宝（按档位），元宝不够不能看，去打怪爬塔做任务赚。'),
+      ('成人站扣费', '游戏节点与影视区进站都免费；点一部片子进详情页扣 20 元宝，同一部一次进入只扣一次。元宝不够不能看，去打怪爬塔做任务赚。'),
       ('全自动', '找怪、寻路、战斗、技能全自动，不用手操作；点一下战场可以亲手补一剑。'),
       ('单机', '游戏不联网、不聊天，队友与地图里的人全是机器人。'),
     ];

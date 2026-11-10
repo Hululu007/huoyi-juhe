@@ -9,7 +9,30 @@
 /// [cultivationRealms] / [cultivationProfessions]，不另起一套。
 library;
 
+import 'package:flutter/widgets.dart';
+
 import 'cultivation.dart';
+
+/// 战力公式（装备为主）：
+/// 总战力 = 境界基础 + 装备贡献。
+/// 境界基础 = 50 + 等级 ×2（满级 270 级也只有 590，小头）；
+/// 装备贡献 = Σ 已穿戴件（攻击 + 防御 + 血量 ÷10）
+///   × 品质倍率 ×（1 + 强化等级 ×12%）。
+/// 满配七彩 + 强化满级时装备贡献约 14600，占总战力 96% 以上；
+/// 只靠境界白板（590）连第 4 章（要 700）都打不过，必须靠装备。
+const int gamePowerBase = 50;
+
+/// 战力公式：境界基础每级加多少。
+const int gamePowerPerLevel = 2;
+
+/// 强化满级。
+const int gameEquipRefineMax = 5;
+
+/// 强化每级加多少属性（每级 +12%）。
+const double gameEquipRefineBonusPerLevel = 0.12;
+
+/// 合成：几件同品质同部位合成 1 件高一档。
+const int gameEquipSynthesizeCount = 3;
 
 /// 装备栏位。
 enum GameEquipSlot {
@@ -34,31 +57,86 @@ String gameEquipSlotName(GameEquipSlot slot) => switch (slot) {
   GameEquipSlot.accessory => '饰品',
 };
 
-/// 装备品质。
+/// 装备品质（七档，最高七彩）。
 enum GameEquipQuality {
-  /// 凡品。
-  common,
+  /// 白：普通。
+  white,
 
-  /// 灵器。
-  spirit,
+  /// 绿：优秀。
+  green,
 
-  /// 法宝。
-  magic,
+  /// 蓝：精良。
+  blue,
 
-  /// 古宝。
-  ancient,
+  /// 紫：史诗。
+  purple,
 
-  /// 玄天之宝。
-  heaven,
+  /// 橙：传说。
+  orange,
+
+  /// 红：神话。
+  red,
+
+  /// 七彩：至尊（最高，只能合成或通关试炼塔 30 层得，不直接掉）。
+  rainbow,
 }
 
 /// 品质显示名。
 String gameEquipQualityName(GameEquipQuality quality) => switch (quality) {
-  GameEquipQuality.common => '凡品',
-  GameEquipQuality.spirit => '灵器',
-  GameEquipQuality.magic => '法宝',
-  GameEquipQuality.ancient => '古宝',
-  GameEquipQuality.heaven => '玄天之宝',
+  GameEquipQuality.white => '普通',
+  GameEquipQuality.green => '优秀',
+  GameEquipQuality.blue => '精良',
+  GameEquipQuality.purple => '史诗',
+  GameEquipQuality.orange => '传说',
+  GameEquipQuality.red => '神话',
+  GameEquipQuality.rainbow => '至尊',
+};
+
+/// 品质颜色（白/绿/蓝/紫/橙/红/七彩）。
+Color gameEquipQualityColor(GameEquipQuality quality) => switch (quality) {
+  GameEquipQuality.white => const Color(0xFFB0BEC5),
+  GameEquipQuality.green => const Color(0xFF69F0AE),
+  GameEquipQuality.blue => const Color(0xFF40C4FF),
+  GameEquipQuality.purple => const Color(0xFFB388FF),
+  GameEquipQuality.orange => const Color(0xFFFFAB40),
+  GameEquipQuality.red => const Color(0xFFFF5252),
+  GameEquipQuality.rainbow => const Color(0xFFFFD54F),
+};
+
+/// 品质战力倍率：白 1.0、绿 1.3、蓝 1.7、紫 2.2、橙 2.8、红 3.6、
+/// 七彩 4.8。
+double gameEquipQualityPowerMultiplier(GameEquipQuality quality) =>
+    switch (quality) {
+      GameEquipQuality.white => 1.0,
+      GameEquipQuality.green => 1.3,
+      GameEquipQuality.blue => 1.7,
+      GameEquipQuality.purple => 2.2,
+      GameEquipQuality.orange => 2.8,
+      GameEquipQuality.red => 3.6,
+      GameEquipQuality.rainbow => 4.8,
+    };
+
+/// 分解一件装备得多少元宝（七彩不可分解）：白 5、绿 10、蓝 20、
+/// 紫 40、橙 80、红 160。强化材料不足时自动分解多余低级装备补。
+int gameEquipSalvageValue(GameEquipQuality quality) => switch (quality) {
+  GameEquipQuality.white => 5,
+  GameEquipQuality.green => 10,
+  GameEquipQuality.blue => 20,
+  GameEquipQuality.purple => 40,
+  GameEquipQuality.orange => 80,
+  GameEquipQuality.red => 160,
+  GameEquipQuality.rainbow => 0,
+};
+
+/// 某品质装备从哪来（掉落来源说明）。
+String gameEquipDropSource(GameEquipQuality quality) => switch (quality) {
+  GameEquipQuality.white => '推图 1–2 章 / 打怪掉落',
+  GameEquipQuality.green => '推图 2–4 章 / 乱星海狩猎',
+  GameEquipQuality.blue => '推图 4–6 章 / 爬塔 1–12 层',
+  GameEquipQuality.purple => '推图 6–9 章 / 爬塔 13–24 层',
+  GameEquipQuality.orange => '推图 9–11 章 / 爬塔 25–30 层',
+  GameEquipQuality.red => '推图 11–12 章 / 爬塔 28–30 层 / 合成',
+  GameEquipQuality.rainbow => '合成（3 件红同部位）/ 通关试炼塔 30 层',
 };
 
 /// 一件装备（小说原物）。
@@ -99,207 +177,381 @@ class GameEquipment {
   });
 }
 
-/// 装备表（20 件，全是小说原物）。
+/// 装备表（36 件，全是小说原物）。
+/// 品质与原物强度对得上：掌天瓶、玄天斩灵剑、噬金虫王、
+/// 金缕玉衣只在七彩档；太乙仙甲、五行环、阴罗幡在橙档；
+/// 金雷竹剑、墨灵圣舟、万妖幡、噬金虫在红档。
+/// 旧存档兼容：20 件旧装备 id 全部保留，品质按新表映射；
+/// 新倍率下同强化等级每件装备的战力贡献都比旧公式高，
+/// 老玩家装备不消失、不贬值（太乙仙甲由旧最高档调至橙档，
+/// 是因为上面新加了玄天仙甲、金缕玉衣两档防具，绝对战力仍涨）。
 const gameEquipments = <GameEquipment>[
+  // 白：普通（倍率 1.0）。
   GameEquipment(
     id: 'jin_guang_jian',
     name: '金光剑',
     slot: GameEquipSlot.weapon,
-    quality: GameEquipQuality.common,
+    quality: GameEquipQuality.white,
     attack: 12,
     defense: 0,
     hp: 0,
     requiredRealmIndex: 0,
   ),
   GameEquipment(
-    id: 'qing_yuan_jian',
-    name: '青元剑',
-    slot: GameEquipSlot.weapon,
-    quality: GameEquipQuality.spirit,
-    attack: 35,
-    defense: 0,
-    hp: 0,
-    requiredRealmIndex: 1,
-  ),
-  GameEquipment(
-    id: 'qing_zhu_feng_yun_jian',
-    name: '青竹蜂云剑',
-    slot: GameEquipSlot.weapon,
-    quality: GameEquipQuality.magic,
-    attack: 90,
-    defense: 0,
-    hp: 0,
-    requiredRealmIndex: 2,
-  ),
-  GameEquipment(
-    id: 'xue_mo_jian',
-    name: '血魔剑',
-    slot: GameEquipSlot.weapon,
-    quality: GameEquipQuality.ancient,
-    attack: 170,
-    defense: 0,
-    hp: 0,
-    requiredRealmIndex: 4,
-  ),
-  GameEquipment(
-    id: 'xuan_tian_zhan_ling_jian',
-    name: '玄天斩灵剑',
-    slot: GameEquipSlot.weapon,
-    quality: GameEquipQuality.heaven,
-    attack: 320,
-    defense: 0,
-    hp: 0,
-    requiredRealmIndex: 8,
-  ),
-  GameEquipment(
-    id: 'yin_yang_zi_mu_huan',
-    name: '阴阳子母环',
+    id: 'qing_jiao_qi',
+    name: '青蛟旗',
     slot: GameEquipSlot.treasure,
-    quality: GameEquipQuality.spirit,
-    attack: 20,
-    defense: 10,
-    hp: 50,
-    requiredRealmIndex: 1,
-  ),
-  GameEquipment(
-    id: 'pi_xie_shen_lei_zhu',
-    name: '辟邪神雷珠',
-    slot: GameEquipSlot.treasure,
-    quality: GameEquipQuality.magic,
-    attack: 55,
-    defense: 20,
-    hp: 100,
-    requiredRealmIndex: 2,
-  ),
-  GameEquipment(
-    id: 'feng_lei_chi',
-    name: '风雷翅',
-    slot: GameEquipSlot.treasure,
-    quality: GameEquipQuality.magic,
-    attack: 40,
-    defense: 30,
-    hp: 150,
-    requiredRealmIndex: 3,
-  ),
-  GameEquipment(
-    id: 'xu_tian_ding',
-    name: '虚天鼎',
-    slot: GameEquipSlot.treasure,
-    quality: GameEquipQuality.ancient,
-    attack: 120,
-    defense: 60,
-    hp: 300,
-    requiredRealmIndex: 5,
-  ),
-  GameEquipment(
-    id: 'zhang_tian_ping',
-    name: '掌天瓶',
-    slot: GameEquipSlot.treasure,
-    quality: GameEquipQuality.heaven,
-    attack: 200,
-    defense: 100,
-    hp: 600,
-    requiredRealmIndex: 8,
+    quality: GameEquipQuality.white,
+    attack: 8,
+    defense: 5,
+    hp: 40,
+    requiredRealmIndex: 0,
   ),
   GameEquipment(
     id: 'xuan_tie_zhong_kai',
     name: '玄铁重铠',
     slot: GameEquipSlot.armor,
-    quality: GameEquipQuality.common,
+    quality: GameEquipQuality.white,
     attack: 0,
     defense: 15,
     hp: 80,
     requiredRealmIndex: 0,
   ),
   GameEquipment(
+    id: 'chu_wu_zhuo',
+    name: '储物镯',
+    slot: GameEquipSlot.accessory,
+    quality: GameEquipQuality.white,
+    attack: 5,
+    defense: 5,
+    hp: 60,
+    requiredRealmIndex: 0,
+  ),
+  // 绿：优秀（倍率 1.3）。
+  GameEquipment(
+    id: 'qing_yuan_jian',
+    name: '青元剑',
+    slot: GameEquipSlot.weapon,
+    quality: GameEquipQuality.green,
+    attack: 35,
+    defense: 0,
+    hp: 0,
+    requiredRealmIndex: 1,
+  ),
+  GameEquipment(
+    id: 'jin_fu_zi_mu_ren',
+    name: '金蚨子母刃',
+    slot: GameEquipSlot.weapon,
+    quality: GameEquipQuality.green,
+    attack: 28,
+    defense: 0,
+    hp: 0,
+    requiredRealmIndex: 1,
+  ),
+  GameEquipment(
+    id: 'yin_yang_zi_mu_huan',
+    name: '阴阳子母环',
+    slot: GameEquipSlot.treasure,
+    quality: GameEquipQuality.green,
+    attack: 20,
+    defense: 10,
+    hp: 50,
+    requiredRealmIndex: 1,
+  ),
+  GameEquipment(
     id: 'jin_gang_zhao',
     name: '金刚罩',
     slot: GameEquipSlot.armor,
-    quality: GameEquipQuality.spirit,
+    quality: GameEquipQuality.green,
     attack: 0,
     defense: 35,
     hp: 150,
     requiredRealmIndex: 1,
   ),
   GameEquipment(
+    id: 'bai_xi_pei',
+    name: '白犀佩',
+    slot: GameEquipSlot.accessory,
+    quality: GameEquipQuality.green,
+    attack: 18,
+    defense: 12,
+    hp: 130,
+    requiredRealmIndex: 1,
+  ),
+  GameEquipment(
+    id: 'ling_shou_huan',
+    name: '灵兽环',
+    slot: GameEquipSlot.accessory,
+    quality: GameEquipQuality.green,
+    attack: 15,
+    defense: 10,
+    hp: 120,
+    requiredRealmIndex: 1,
+  ),
+  // 蓝：精良（倍率 1.7）。
+  GameEquipment(
+    id: 'qing_zhu_feng_yun_jian',
+    name: '青竹蜂云剑',
+    slot: GameEquipSlot.weapon,
+    quality: GameEquipQuality.blue,
+    attack: 90,
+    defense: 0,
+    hp: 0,
+    requiredRealmIndex: 2,
+  ),
+  GameEquipment(
+    id: 'pi_xie_shen_lei_zhu',
+    name: '辟邪神雷珠',
+    slot: GameEquipSlot.treasure,
+    quality: GameEquipQuality.blue,
+    attack: 55,
+    defense: 20,
+    hp: 100,
+    requiredRealmIndex: 2,
+  ),
+  GameEquipment(
+    id: 'qing_ning_jing',
+    name: '青凝镜',
+    slot: GameEquipSlot.treasure,
+    quality: GameEquipQuality.blue,
+    attack: 45,
+    defense: 25,
+    hp: 120,
+    requiredRealmIndex: 2,
+  ),
+  GameEquipment(
+    id: 'feng_lei_chi',
+    name: '风雷翅',
+    slot: GameEquipSlot.treasure,
+    quality: GameEquipQuality.blue,
+    attack: 40,
+    defense: 30,
+    hp: 150,
+    requiredRealmIndex: 3,
+  ),
+  GameEquipment(
     id: 'tian_can_bao_jia',
     name: '天蚕宝甲',
     slot: GameEquipSlot.armor,
-    quality: GameEquipQuality.magic,
+    quality: GameEquipQuality.blue,
     attack: 0,
     defense: 80,
     hp: 300,
     requiredRealmIndex: 2,
   ),
   GameEquipment(
+    id: 'yang_hun_mu_pei',
+    name: '养魂木佩',
+    slot: GameEquipSlot.accessory,
+    quality: GameEquipQuality.blue,
+    attack: 30,
+    defense: 25,
+    hp: 250,
+    requiredRealmIndex: 3,
+  ),
+  // 紫：史诗（倍率 2.2）。
+  GameEquipment(
+    id: 'xue_mo_jian',
+    name: '血魔剑',
+    slot: GameEquipSlot.weapon,
+    quality: GameEquipQuality.purple,
+    attack: 170,
+    defense: 0,
+    hp: 0,
+    requiredRealmIndex: 4,
+  ),
+  GameEquipment(
+    id: 'mo_long_ren',
+    name: '魔龙刃',
+    slot: GameEquipSlot.weapon,
+    quality: GameEquipQuality.purple,
+    attack: 150,
+    defense: 0,
+    hp: 0,
+    requiredRealmIndex: 4,
+  ),
+  GameEquipment(
+    id: 'xu_tian_ding',
+    name: '虚天鼎',
+    slot: GameEquipSlot.treasure,
+    quality: GameEquipQuality.purple,
+    attack: 120,
+    defense: 60,
+    hp: 300,
+    requiredRealmIndex: 5,
+  ),
+  GameEquipment(
+    id: 'qian_lan_bing_yan',
+    name: '乾蓝冰焰',
+    slot: GameEquipSlot.treasure,
+    quality: GameEquipQuality.purple,
+    attack: 100,
+    defense: 40,
+    hp: 200,
+    requiredRealmIndex: 5,
+  ),
+  GameEquipment(
     id: 'xue_sha_zhan_pao',
     name: '血煞战袍',
     slot: GameEquipSlot.armor,
-    quality: GameEquipQuality.ancient,
+    quality: GameEquipQuality.purple,
     attack: 10,
     defense: 150,
     hp: 500,
     requiredRealmIndex: 4,
   ),
   GameEquipment(
-    id: 'tai_yi_xian_jia',
-    name: '太乙仙甲',
-    slot: GameEquipSlot.armor,
-    quality: GameEquipQuality.heaven,
-    attack: 20,
-    defense: 280,
-    hp: 900,
-    requiredRealmIndex: 10,
-  ),
-  GameEquipment(
-    id: 'chu_wu_zhuo',
-    name: '储物镯',
-    slot: GameEquipSlot.accessory,
-    quality: GameEquipQuality.common,
-    attack: 5,
-    defense: 5,
-    hp: 60,
-    requiredRealmIndex: 0,
-  ),
-  GameEquipment(
-    id: 'ling_shou_huan',
-    name: '灵兽环',
-    slot: GameEquipSlot.accessory,
-    quality: GameEquipQuality.spirit,
-    attack: 15,
-    defense: 10,
-    hp: 120,
-    requiredRealmIndex: 1,
-  ),
-  GameEquipment(
-    id: 'yang_hun_mu_pei',
-    name: '养魂木佩',
-    slot: GameEquipSlot.accessory,
-    quality: GameEquipQuality.magic,
-    attack: 30,
-    defense: 25,
-    hp: 250,
-    requiredRealmIndex: 3,
-  ),
-  GameEquipment(
     id: 'xing_yue_pu_ti',
     name: '星月菩提',
     slot: GameEquipSlot.accessory,
-    quality: GameEquipQuality.ancient,
+    quality: GameEquipQuality.purple,
     attack: 60,
     defense: 50,
     hp: 400,
     requiredRealmIndex: 5,
   ),
+  // 橙：传说（倍率 2.8）。
+  GameEquipment(
+    id: 'da_geng_jian',
+    name: '大庚剑',
+    slot: GameEquipSlot.weapon,
+    quality: GameEquipQuality.orange,
+    attack: 260,
+    defense: 0,
+    hp: 0,
+    requiredRealmIndex: 6,
+  ),
+  GameEquipment(
+    id: 'wu_xing_huan',
+    name: '五行环',
+    slot: GameEquipSlot.treasure,
+    quality: GameEquipQuality.orange,
+    attack: 180,
+    defense: 90,
+    hp: 450,
+    requiredRealmIndex: 6,
+  ),
+  GameEquipment(
+    id: 'yin_luo_fan',
+    name: '阴罗幡',
+    slot: GameEquipSlot.treasure,
+    quality: GameEquipQuality.orange,
+    attack: 160,
+    defense: 80,
+    hp: 400,
+    requiredRealmIndex: 6,
+  ),
+  GameEquipment(
+    id: 'tai_yi_xian_jia',
+    name: '太乙仙甲',
+    slot: GameEquipSlot.armor,
+    quality: GameEquipQuality.orange,
+    attack: 20,
+    defense: 280,
+    hp: 900,
+    requiredRealmIndex: 8,
+  ),
+  GameEquipment(
+    id: 'ti_hun_shou',
+    name: '啼魂兽',
+    slot: GameEquipSlot.accessory,
+    quality: GameEquipQuality.orange,
+    attack: 120,
+    defense: 70,
+    hp: 500,
+    requiredRealmIndex: 6,
+  ),
+  // 红：神话（倍率 3.6）。
+  GameEquipment(
+    id: 'jin_lei_zhu_jian',
+    name: '金雷竹剑',
+    slot: GameEquipSlot.weapon,
+    quality: GameEquipQuality.red,
+    attack: 300,
+    defense: 0,
+    hp: 0,
+    requiredRealmIndex: 8,
+  ),
+  GameEquipment(
+    id: 'mo_ling_sheng_zhou',
+    name: '墨灵圣舟',
+    slot: GameEquipSlot.treasure,
+    quality: GameEquipQuality.red,
+    attack: 190,
+    defense: 100,
+    hp: 500,
+    requiredRealmIndex: 8,
+  ),
+  GameEquipment(
+    id: 'wan_yao_fan',
+    name: '万妖幡',
+    slot: GameEquipSlot.treasure,
+    quality: GameEquipQuality.red,
+    attack: 140,
+    defense: 90,
+    hp: 600,
+    requiredRealmIndex: 8,
+  ),
+  GameEquipment(
+    id: 'xuan_tian_xian_jia',
+    name: '玄天仙甲',
+    slot: GameEquipSlot.armor,
+    quality: GameEquipQuality.red,
+    attack: 30,
+    defense: 320,
+    hp: 1000,
+    requiredRealmIndex: 10,
+  ),
   GameEquipment(
     id: 'shi_jin_chong',
     name: '噬金虫',
     slot: GameEquipSlot.accessory,
-    quality: GameEquipQuality.heaven,
+    quality: GameEquipQuality.red,
     attack: 150,
     defense: 80,
     hp: 700,
     requiredRealmIndex: 8,
+  ),
+  // 七彩：至尊（倍率 4.8，最高档，只能合成或通关试炼塔 30 层得）。
+  GameEquipment(
+    id: 'xuan_tian_zhan_ling_jian',
+    name: '玄天斩灵剑',
+    slot: GameEquipSlot.weapon,
+    quality: GameEquipQuality.rainbow,
+    attack: 420,
+    defense: 0,
+    hp: 0,
+    requiredRealmIndex: 10,
+  ),
+  GameEquipment(
+    id: 'zhang_tian_ping',
+    name: '掌天瓶',
+    slot: GameEquipSlot.treasure,
+    quality: GameEquipQuality.rainbow,
+    attack: 260,
+    defense: 140,
+    hp: 800,
+    requiredRealmIndex: 10,
+  ),
+  GameEquipment(
+    id: 'jin_lv_yu_yi',
+    name: '金缕玉衣',
+    slot: GameEquipSlot.armor,
+    quality: GameEquipQuality.rainbow,
+    attack: 50,
+    defense: 420,
+    hp: 1400,
+    requiredRealmIndex: 12,
+  ),
+  GameEquipment(
+    id: 'shi_jin_chong_wang',
+    name: '噬金虫王',
+    slot: GameEquipSlot.accessory,
+    quality: GameEquipQuality.rainbow,
+    attack: 200,
+    defense: 110,
+    hp: 900,
+    requiredRealmIndex: 10,
   ),
 ];
 
@@ -310,6 +562,30 @@ GameEquipment? gameEquipmentById(String id) {
   }
   return null;
 }
+
+/// 某品质的全部装备（七彩奖励、合成目标用）。
+List<GameEquipment> gameEquipmentsOfQuality(GameEquipQuality quality) => [
+  for (final item in gameEquipments)
+    if (item.quality == quality) item,
+];
+
+/// 某栏位某品质的全部装备（合成选目标、掉落池用）。
+List<GameEquipment> gameEquipmentsOf(
+  GameEquipSlot slot,
+  GameEquipQuality quality,
+) => [
+  for (final item in gameEquipments)
+    if (item.slot == slot && item.quality == quality) item,
+];
+
+/// 打怪 / 狩猎的掉落池：境界够的装备，但七彩绝不直接掉
+/// （七彩只能合成或通关试炼塔 30 层得）。
+List<GameEquipment> gameDropPoolForRealm(int realmIndex) => [
+  for (final item in gameEquipments)
+    if (item.requiredRealmIndex <= realmIndex + 1 &&
+        item.quality != GameEquipQuality.rainbow)
+      item,
+];
 
 /// 妖兽种类（写实 2.5D 造型按种类画）。
 enum GameMonsterKind {
@@ -376,13 +652,18 @@ class GameMonster {
 }
 
 /// 妖兽表（按战力升序，打怪与爬塔共用）。
+/// 难度上调后：白板境界打不动了，必须靠装备。
+/// 怪物战力 = 建议战力，也是它咬人多疼的依据（战场里咬一口
+/// 按 战力÷20～战力÷10 算），所以战力上调 = 血量与伤害一起上调。
+/// BOSS 金蛟王只加一成（战力 7200→7900、血量 12000→13200）；
+/// 其余妖兽战力上调约 20%–30%、血量上调约 50%，打起来明显更费功夫。
 const gameMonsters = <GameMonster>[
   GameMonster(
     id: 'ye_lang',
     name: '野狼',
     kind: GameMonsterKind.wolf,
-    power: 50,
-    hp: 120,
+    power: 60,
+    hp: 180,
     xpReward: 8,
     yuanbaoReward: 1,
   ),
@@ -390,8 +671,8 @@ const gameMonsters = <GameMonster>[
     id: 'mo_jiao',
     name: '墨蛟',
     kind: GameMonsterKind.jiao,
-    power: 300,
-    hp: 700,
+    power: 380,
+    hp: 1100,
     xpReward: 30,
     yuanbaoReward: 2,
   ),
@@ -399,8 +680,8 @@ const gameMonsters = <GameMonster>[
     id: 'xue_yu_zhi_zhu',
     name: '血玉蜘蛛',
     kind: GameMonsterKind.spider,
-    power: 520,
-    hp: 1100,
+    power: 680,
+    hp: 1700,
     xpReward: 45,
     yuanbaoReward: 3,
   ),
@@ -408,8 +689,8 @@ const gameMonsters = <GameMonster>[
     id: 'jin_bei_yao_lang',
     name: '金背妖螂',
     kind: GameMonsterKind.mantis,
-    power: 850,
-    hp: 1700,
+    power: 1100,
+    hp: 2600,
     xpReward: 70,
     yuanbaoReward: 4,
   ),
@@ -417,8 +698,8 @@ const gameMonsters = <GameMonster>[
     id: 'tie_huo_yi',
     name: '铁火蚁',
     kind: GameMonsterKind.ant,
-    power: 1250,
-    hp: 2400,
+    power: 1600,
+    hp: 3600,
     xpReward: 100,
     yuanbaoReward: 5,
   ),
@@ -426,8 +707,8 @@ const gameMonsters = <GameMonster>[
     id: 'bing_huo_mang',
     name: '冰火蟒',
     kind: GameMonsterKind.python,
-    power: 1850,
-    hp: 3400,
+    power: 2400,
+    hp: 5200,
     xpReward: 140,
     yuanbaoReward: 6,
   ),
@@ -435,8 +716,8 @@ const gameMonsters = <GameMonster>[
     id: 'gu_mo',
     name: '古魔',
     kind: GameMonsterKind.demon,
-    power: 2700,
-    hp: 4800,
+    power: 3500,
+    hp: 7300,
     xpReward: 200,
     yuanbaoReward: 8,
   ),
@@ -444,8 +725,8 @@ const gameMonsters = <GameMonster>[
     id: 'yin_yue_yao_lang',
     name: '银月妖狼',
     kind: GameMonsterKind.wolf,
-    power: 3800,
-    hp: 6500,
+    power: 4900,
+    hp: 9800,
     xpReward: 280,
     yuanbaoReward: 10,
   ),
@@ -453,8 +734,8 @@ const gameMonsters = <GameMonster>[
     id: 'tian_gui',
     name: '天鬼',
     kind: GameMonsterKind.ghost,
-    power: 5200,
-    hp: 8800,
+    power: 6700,
+    hp: 13200,
     xpReward: 380,
     yuanbaoReward: 12,
   ),
@@ -462,8 +743,8 @@ const gameMonsters = <GameMonster>[
     id: 'jin_jiao_wang',
     name: '金蛟王',
     kind: GameMonsterKind.king,
-    power: 7200,
-    hp: 12000,
+    power: 7900,
+    hp: 13200,
     xpReward: 520,
     yuanbaoReward: 15,
   ),
@@ -556,13 +837,17 @@ class GameChapter {
 /// 主线推图 12 章：顺序照挂机版 H5 的关卡线——推图天南大陆 →
 /// 血色禁地 → 乱星海狩猎 → 虚天殿玄关 → 坠魔谷 → 昆吾山 →
 /// 广寒界 → 惊蛰十二变 → 玄界巡狩 → 飞升之路 → 小绿瓶之谜。
+/// 建议战力 80→8200：只靠境界白板（满级 590）连第 4 章都打不过，
+/// 每章都要配齐当期装备、升强化才能过；第 1 章打几只怪掉一件
+/// 白装就能过，第 12 章要全身红装强化满级，混搭七彩更轻松。通关奖励
+/// 不再给七彩装备（七彩只合成或通关塔 30 层得）。
 const gameChapters = <GameChapter>[
   GameChapter(
     id: 'map01',
     title: '七玄门试炼',
     subtitle: '推图第 1 章 · 天南大陆',
     dungeon: '天南大陆',
-    requiredPower: 60,
+    requiredPower: 80,
     requiredRealmXp: 0,
     xpReward: 100,
     yuanbaoReward: 10,
@@ -573,7 +858,7 @@ const gameChapters = <GameChapter>[
     title: '黄枫谷入门',
     subtitle: '推图第 2 章 · 天南大陆',
     dungeon: '天南大陆',
-    requiredPower: 200,
+    requiredPower: 300,
     requiredRealmXp: 300,
     xpReward: 200,
     yuanbaoReward: 15,
@@ -584,7 +869,7 @@ const gameChapters = <GameChapter>[
     title: '血色禁地',
     subtitle: '推图第 3 章 · 禁地试炼',
     dungeon: '血色禁地',
-    requiredPower: 420,
+    requiredPower: 450,
     requiredRealmXp: 300,
     xpReward: 350,
     yuanbaoReward: 20,
@@ -606,7 +891,7 @@ const gameChapters = <GameChapter>[
     title: '虚天殿·玄关',
     subtitle: '推图第 5 章 · 虚天玄关',
     dungeon: '虚天殿',
-    requiredPower: 1050,
+    requiredPower: 1100,
     requiredRealmXp: 3000,
     xpReward: 700,
     yuanbaoReward: 30,
@@ -617,7 +902,7 @@ const gameChapters = <GameChapter>[
     title: '坠魔谷',
     subtitle: '推图第 6 章 · 古魔试炼',
     dungeon: '坠魔谷',
-    requiredPower: 1500,
+    requiredPower: 1600,
     requiredRealmXp: 3000,
     xpReward: 900,
     yuanbaoReward: 35,
@@ -628,7 +913,7 @@ const gameChapters = <GameChapter>[
     title: '昆吾山',
     subtitle: '推图第 7 章 · 封印之地',
     dungeon: '昆吾山',
-    requiredPower: 2100,
+    requiredPower: 2300,
     requiredRealmXp: 8000,
     xpReward: 1200,
     yuanbaoReward: 40,
@@ -639,7 +924,7 @@ const gameChapters = <GameChapter>[
     title: '广寒界',
     subtitle: '推图第 8 章 · 寒界秘境',
     dungeon: '广寒界',
-    requiredPower: 2900,
+    requiredPower: 3000,
     requiredRealmXp: 8000,
     xpReward: 1500,
     yuanbaoReward: 50,
@@ -650,7 +935,7 @@ const gameChapters = <GameChapter>[
     title: '惊蛰一变',
     subtitle: '推图第 9 章 · 渡劫十二变',
     dungeon: '惊蛰十二变',
-    requiredPower: 3900,
+    requiredPower: 4000,
     requiredRealmXp: 15000,
     xpReward: 2000,
     yuanbaoReward: 60,
@@ -661,7 +946,7 @@ const gameChapters = <GameChapter>[
     title: '玄界巡狩',
     subtitle: '推图第 10 章 · 巡狩试炼',
     dungeon: '玄界',
-    requiredPower: 5100,
+    requiredPower: 5200,
     requiredRealmXp: 15000,
     xpReward: 2600,
     yuanbaoReward: 70,
@@ -672,11 +957,11 @@ const gameChapters = <GameChapter>[
     title: '飞升之路',
     subtitle: '推图第 11 章 · 天劫闯关',
     dungeon: '飞升之路',
-    requiredPower: 6600,
+    requiredPower: 6800,
     requiredRealmXp: 30000,
     xpReward: 3500,
     yuanbaoReward: 90,
-    equipRewardId: 'xuan_tian_zhan_ling_jian',
+    equipRewardId: 'jin_lei_zhu_jian',
   ),
   GameChapter(
     id: 'map12',
@@ -687,7 +972,7 @@ const gameChapters = <GameChapter>[
     requiredRealmXp: 60000,
     xpReward: 5000,
     yuanbaoReward: 120,
-    equipRewardId: 'zhang_tian_ping',
+    equipRewardId: 'mo_ling_sheng_zhou',
   ),
 ];
 
@@ -797,6 +1082,9 @@ class GameTowerFloor {
 
 /// 试炼塔 30 层：血色禁地 1–6、虚天殿 7–12、坠魔谷 13–18、
 /// 昆吾山 19–24、广寒界 25–30。
+/// 建议战力 = 100 + 层数 ×65（第 1 层 165，第 30 层 2050）：
+/// 每层加成只比原来（+60/层）略高一点，但战力公式改了，
+/// 境界白板再也碾压不了塔，必须靠装备。通关 30 层得一件七彩装备。
 List<GameTowerFloor> get gameTowerFloors {
   const dungeons = <String>[
     '血色禁地',
@@ -825,7 +1113,7 @@ List<GameTowerFloor> get gameTowerFloors {
       floor: floor,
       dungeon: dungeon,
       monsterId: monster,
-      requiredPower: 150 + floor * 60,
+      requiredPower: 100 + floor * 65,
       xpReward: 50 + floor * 30,
       yuanbaoReward: 2 + floor ~/ 3,
     );
@@ -1097,19 +1385,14 @@ class GameSiteNode {
 
   /// 该节点所属成人档位（0–3）：按修为门槛排，
   /// 3000 第 1 档、8000 第 2 档、15000 第 3 档、30000 第 4 档。
+  /// 档位只用来在看片扣费提示里写清是哪一档，不参与定价；
+  /// 进站免费（境界与塔层够了就能进，不扣元宝），看片费另算。
   int get tier => switch (requiredRealmXp) {
     >= 30000 => 3,
     >= 15000 => 2,
     >= 8000 => 1,
     _ => 0,
   };
-
-  /// 看一次扣多少元宝（只成人站扣，普通影视站不扣）：
-  /// 按游戏里元宝产出定——挂机 1 元宝/分钟、打怪 1–15 元宝、
-  /// 爬塔 2–12 元宝、推图 10–120 元宝。第 1 档 5 元宝、
-  /// 第 2 档 10 元宝、第 3 档 15 元宝、第 4 档 20 元宝，
-  /// 挂几分钟、打几只怪就够看一次。
-  int get viewCost => gameAdultViewCost(tier);
 
   /// 还差多少修为；已够为 0。
   int xpShort(int xp) =>
@@ -1203,10 +1486,10 @@ const gameSiteNodes = <GameSiteNode>[
   ),
 ];
 
-/// 成人站看一次扣多少元宝（按档位）：第 1 档 5、第 2 档 10、
-/// 第 3 档 15、第 4 档 20。普通影视站不扣，只成人站扣。
-int gameAdultViewCost(int tier) =>
-    switch (tier.clamp(0, 3)) { 0 => 5, 1 => 10, 2 => 15, _ => 20 };
+/// 影视区看一部片子扣多少元宝：每部 20，不分档。
+/// 扣费点在进详情页（点一部片子进详情页时扣），不是进站、不是开播；
+/// 同一部片子同一次进入里重复进详情页不再重复扣，换一部再扣 20。
+const int gameAdultFilmCost = 20;
 
 /// 元宝商城一件商品。
 class GameShopItem {

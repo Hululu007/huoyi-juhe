@@ -7,13 +7,18 @@ import '../models/category_front.dart';
 import '../services/api_client.dart';
 import '../services/desktop_platform.dart';
 import '../services/drama_site_content.dart';
+import '../services/drama_site_play.dart';
 import '../services/drama_site_search.dart';
+import '../services/drama_sites.dart';
+import '../services/source_registry.dart';
 import '../services/unified_video_categories.dart';
 import '../services/user_facing_error.dart';
 import '../services/video_category_tags.dart';
 import '../widgets/category/category_dim_rail.dart';
 import '../widgets/home/home_design.dart';
 import '../widgets/home/home_feed_states.dart';
+import '../widgets/home/moyi_channel_card.dart';
+import 'rank_page.dart';
 import 'search_page.dart';
 import 'unified_browse_content_page.dart';
 
@@ -152,6 +157,17 @@ class _CategoryPageState extends State<CategoryPage> {
   /// 影视频道当前站 id（单站模式用；统一模式不需要站）。
   String? _videoSiteId;
 
+  /// 魔蚁风频道分类页的状态（只影视频道用，阅读模式不动）：
+  /// 左栏选中的分类（「热门」「全部」是伪分类，见 [_moyiSourcesFor]）、
+  /// 筛选行排序/状态、类型下拉、取到的作品与取数代际。
+  String _moyiSelected = '热门';
+  String _moyiSort = 'hot';
+  String _moyiType = 'all';
+  List<MoyiChannelWork> _moyiWorks = const [];
+  bool _moyiWorksLoading = false;
+  String? _moyiWorksError;
+  int _moyiWorksGeneration = 0;
+
   /// 统一模式页内搜索：输入框是否展开、当前过滤词。
   bool _unifiedSearching = false;
   String _unifiedQuery = '';
@@ -264,7 +280,9 @@ class _CategoryPageState extends State<CategoryPage> {
         _unifiedQuery = '';
         _unifiedSearchController.clear();
         _rebuildVideoSections();
+        _moyiSelected = '热门';
       });
+      unawaited(_loadMoyiWorks());
       _scrollVideoTabIntoView();
     } catch (error) {
       if (!mounted || generation != _loadGeneration) return;
@@ -326,7 +344,9 @@ class _CategoryPageState extends State<CategoryPage> {
         ];
         _selected = 0;
         _expanded.clear();
+        _moyiSelected = '热门';
       });
+      unawaited(_loadMoyiWorks());
       _scrollVideoTabIntoView();
     } catch (error) {
       if (!mounted || gen != _loadGeneration) return;
@@ -367,7 +387,9 @@ class _CategoryPageState extends State<CategoryPage> {
         _unifiedQuery = '';
         _unifiedSearchController.clear();
         _rebuildVideoSections();
+        _moyiSelected = '热门';
       });
+      unawaited(_loadMoyiWorks());
     } else {
       if (_singleData == null) {
         unawaited(_loadSingleSite());
@@ -379,7 +401,9 @@ class _CategoryPageState extends State<CategoryPage> {
         _unifiedQuery = '';
         _unifiedSearchController.clear();
         _rebuildVideoSections();
+        _moyiSelected = '热门';
       });
+      unawaited(_loadMoyiWorks());
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scroll.hasClients) _scroll.jumpTo(0);
@@ -636,8 +660,317 @@ class _CategoryPageState extends State<CategoryPage> {
     );
   }
 
+  // —— 魔蚁风频道分类页（只影视频道用）——
+  //
+  // 版式对照图 1/图 2：顶部「频道分类」大标题 + 搜索/奖杯圆钮；
+  // 筛选行「全部类型（下拉）/热门/最新/完结」；左栏是本站真实内容
+  // 分类（统一模式是统一分类 + 可浏览标签前 40，本站模式是本站
+  // 分类 + 主题/角色/情节），选中蓝色高亮 pill；右侧 2 列大卡
+  // （左高右矮，见 MoyiChannelWorksGrid），点卡走原站详情链路
+  // （openDramaSiteItem，与多站内容汇总页同路，不新写播放）。
+  //
+  // 取数与统一内容汇总页同路：一个分类名下取前 4 站的 catalog(path, 1)
+  // 并行取，取不到的站跳过；「热门」取热门分类前 3 名各首站，
+  // 「全部」取全部分类前 4 名各首站。单站模式没有分类路径，
+  // 先调客户端 categories() 按名找 id 再 catalog(id, 1)。
+  // 作品只取一次，筛选行在本地列表上排/滤，不重复发请求。
+  //
+  // 排序/状态用的都是站方备注里的真实信号（见 moyi_channel_card.dart）：
+  // 热门 = 所属分类站数多在前、站内原顺序；最新 = 备注日期新在前，
+  // 没日期的按「更新至 N 集」集数排、再没信号的保持原顺序；
+  // 完结 = 只留备注写着完结/全集/大结局的。全部类型下拉不过滤时
+  // 左栏分类 + 标签都显示；选「分类」只留分类，选「标签」只留标签。
+
+  /// 左栏一项：分类名 + 种类（分类/标签，类型下拉靠它过滤）。
+  List<_MoyiLeftEntry> get _moyiLeftEntries {
+    final query = _unifiedQuery.trim().toLowerCase();
+    bool matches(String name) =>
+        query.isEmpty || name.toLowerCase().contains(query);
+    final entries = <_MoyiLeftEntry>[
+      const _MoyiLeftEntry('热门', 'cat'),
+      const _MoyiLeftEntry('全部', 'cat'),
+    ];
+    final seen = {'热门', '全部'};
+    void add(String name, String kind) {
+      if (name.isEmpty || !seen.add(name) || !matches(name)) return;
+      entries.add(_MoyiLeftEntry(name, kind));
+    }
+
+    if (_unifiedMode) {
+      final data = _unifiedData;
+      if (data != null) {
+        if (_moyiType != 'tag') {
+          for (final name in data.allNames) {
+            add(name, 'cat');
+          }
+        }
+        if (_moyiType != 'cat') {
+          for (final name in data.tagNames.take(40)) {
+            add(name, 'tag');
+          }
+        }
+      }
+    } else {
+      final data = _singleData;
+      if (data != null) {
+        if (_moyiType != 'tag') {
+          for (final name in data.hotTags) {
+            add(name, 'cat');
+          }
+        }
+        if (_moyiType != 'cat') {
+          for (final name in [
+            ...data.themes,
+            ...data.roles,
+            ...data.plots,
+          ]) {
+            add(name, 'tag');
+          }
+        }
+      }
+    }
+    return entries;
+  }
+
+  /// 左栏选中项被类型下拉/页内搜索滤掉时，回到「热门」并重取作品。
+  void _ensureMoyiSelectionValid() {
+    if (_moyiLeftEntries.any((e) => e.name == _moyiSelected)) return;
+    setState(() => _moyiSelected = '热门');
+    unawaited(_loadMoyiWorks());
+  }
+
+  void _selectMoyiCategory(String name) {
+    if (name == _moyiSelected) return;
+    setState(() => _moyiSelected = name);
+    unawaited(_loadMoyiWorks());
+  }
+
+  void _setMoyiSort(String sort) {
+    if (sort == _moyiSort) return;
+    setState(() => _moyiSort = sort);
+  }
+
+  void _setMoyiType(String type) {
+    if (type == _moyiType) return;
+    setState(() => _moyiType = type);
+    _ensureMoyiSelectionValid();
+  }
+
+  Future<DramaSiteContentClient?> _moyiClientFor(String siteId) async =>
+      widget.unifiedClientForSite?.call(siteId) ??
+      dramaSiteContentClient(siteId) ??
+      await SourceRegistry.instance.clientFor(siteId);
+
+  /// 选中分类对应的取数源（站 + 目录路径/分类 id + 分类名 + 分类站数）。
+  Future<List<_MoyiSource>> _moyiSourcesFor(String name) async {
+    if (_unifiedMode) {
+      final data = _unifiedData;
+      if (data == null) return const [];
+      if (name == '热门') {
+        return [
+          for (final cat in data.hotNames.take(3))
+            for (final entry in data.sitesFor(cat).take(1))
+              _MoyiSource(
+                entry.siteId,
+                entry.path,
+                cat,
+                data.siteCountFor(cat),
+              ),
+        ];
+      }
+      if (name == '全部') {
+        return [
+          for (final cat in data.allNames.take(4))
+            for (final entry in data.sitesFor(cat).take(1))
+              _MoyiSource(
+                entry.siteId,
+                entry.path,
+                cat,
+                data.siteCountFor(cat),
+              ),
+        ];
+      }
+      final cats = data.sitesFor(name);
+      if (cats.isNotEmpty) {
+        return [
+          for (final entry in cats.take(4))
+            _MoyiSource(
+              entry.siteId,
+              entry.path,
+              name,
+              data.siteCountFor(name),
+            ),
+        ];
+      }
+      final tags = data.tagSitesFor(name);
+      return [
+        for (final tag in tags.take(4))
+          _MoyiSource(tag.siteId, tag.url, name, tags.length),
+      ];
+    }
+    final siteId = _videoSiteId;
+    if (siteId == null || siteId.isEmpty) return const [];
+    final client = await _moyiClientFor(siteId);
+    if (client == null) return const [];
+    late final List<DramaSiteCategory> cats;
+    try {
+      cats = await client.categories().timeout(
+        const Duration(seconds: 30),
+      );
+    } catch (_) {
+      return const [];
+    }
+    String? idFor(String categoryName) {
+      for (final cat in cats) {
+        if (cat.name.trim() == categoryName) return cat.id;
+      }
+      return null;
+    }
+
+    final names = switch (name) {
+      '热门' => (_singleData?.hotTags ?? []).take(3).toList(),
+      '全部' => (_singleData?.hotTags ?? []).take(4).toList(),
+      _ => [name],
+    };
+    return [
+      for (final cat in names)
+        if (idFor(cat) case final String id
+            when id.isNotEmpty && id != 'all')
+          _MoyiSource(siteId, id, cat, 0),
+    ];
+  }
+
+  /// 取选中分类的作品：前 4 源并行 catalog(path, 1)，一站取不到跳过，
+  /// 最多留 24 部。代际 guard：切分类/切模式后先到的旧响应不落地。
+  Future<void> _loadMoyiWorks() async {
+    final generation = ++_moyiWorksGeneration;
+    setState(() {
+      _moyiWorksLoading = true;
+      _moyiWorksError = null;
+    });
+    final sources = await _moyiSourcesFor(_moyiSelected);
+    if (!mounted || generation != _moyiWorksGeneration) return;
+    if (sources.isEmpty) {
+      setState(() {
+        _moyiWorks = const [];
+        _moyiWorksLoading = false;
+        _moyiWorksError = null;
+      });
+      return;
+    }
+    final results = await Future.wait([
+      for (final source in sources) _fetchMoyiSource(source),
+    ]);
+    if (!mounted || generation != _moyiWorksGeneration) return;
+    final works = <MoyiChannelWork>[];
+    final seen = <String>{};
+    for (final batch in results) {
+      for (final work in batch) {
+        // 同一站同一作品（多分类/多源重叠）只留一部，不然同列会
+        // 出现重复 key。
+        if (seen.add('${work.siteId}_${work.item.id}')) {
+          works.add(work);
+        }
+      }
+    }
+    setState(() {
+      _moyiWorks = works.take(24).toList();
+      _moyiWorksLoading = false;
+      _moyiWorksError = works.isEmpty ? '这些站现在都打不开，稍后再试' : null;
+    });
+  }
+
+  Future<List<MoyiChannelWork>> _fetchMoyiSource(
+    _MoyiSource source,
+  ) async {
+    try {
+      final client = await _moyiClientFor(source.siteId);
+      if (client == null) return const [];
+      final page = await client.catalog(source.path, 1).timeout(
+        ApiClient.dramaCatalogTimeout + const Duration(seconds: 5),
+      );
+      return [
+        for (var i = 0; i < page.items.length; i++)
+          MoyiChannelWork(
+            item: page.items[i],
+            siteId: source.siteId,
+            siteName: _moyiSiteDisplayName(source.siteId),
+            category: source.category,
+            categorySiteCount: source.siteCount,
+            index: i,
+          ),
+      ];
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  String _moyiSiteDisplayName(String siteId) {
+    for (final site in allDramaSites) {
+      if (site.id == siteId) return site.name;
+    }
+    return siteId;
+  }
+
+  /// 筛选行在已取到的作品上排/滤（不重发请求）。
+  List<MoyiChannelWork> get _moyiVisibleWorks {
+    final list = List<MoyiChannelWork>.of(_moyiWorks);
+    if (_moyiSort == 'finished') {
+      list.retainWhere((work) => work.isFinished);
+    } else if (_moyiSort == 'latest') {
+      list.sort((a, b) {
+        final aDate = a.remarkDate;
+        final bDate = b.remarkDate;
+        if (aDate != null && bDate != null) {
+          final byDate = bDate.compareTo(aDate);
+          if (byDate != 0) return byDate;
+        } else if (aDate != null) {
+          return -1;
+        } else if (bDate != null) {
+          return 1;
+        }
+        final aEp = a.episodeNumber;
+        final bEp = b.episodeNumber;
+        if (aEp != null && bEp != null) {
+          final byEp = bEp.compareTo(aEp);
+          if (byEp != 0) return byEp;
+        } else if (aEp != null) {
+          return -1;
+        } else if (bEp != null) {
+          return 1;
+        }
+        return a.index.compareTo(b.index);
+      });
+      return list;
+    }
+    list.sort((a, b) {
+      final byCount = b.categorySiteCount.compareTo(a.categorySiteCount);
+      return byCount != 0 ? byCount : a.index.compareTo(b.index);
+    });
+    return list;
+  }
+
+  /// 卡片点开走原站详情链路（与多站内容汇总页同路，不新写播放）。
+  void _onMoyiWorkTap(MoyiChannelWork work) {
+    unawaited(openDramaSiteItem(context, work.siteId, work.item));
+  }
+
+  void _openMoyiRank() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const RankPage()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    // 影视频道走魔蚁风：深紫蓝渐变底 + 大标题 + 筛选行 + 左栏分类 +
+    // 右侧 2 列大卡；阅读模式（图书分类）仍走下面的官方风老布局。
+    if (_isVideoTab) {
+      return Scaffold(
+        backgroundColor: const Color(0xFF1E1445),
+        body: _buildMoyiVideo(context),
+      );
+    }
     final palette = HomePalette.of(context);
     final front = _front;
     return Scaffold(
@@ -685,29 +1018,6 @@ class _CategoryPageState extends State<CategoryPage> {
                 // 一颗的目标宽度加列，免得 chip 被拉成细长横条。
                 child: Column(
                   children: [
-                    if (_isVideoTab) _VideoModeRow(
-                      unifiedMode: _unifiedMode,
-                      loading: _loading,
-                      onSelect: _setVideoMode,
-                    ),
-                    if (_isVideoTab && _unifiedMode && _unifiedSearching)
-                      _UnifiedSearchRow(
-                        controller: _unifiedSearchController,
-                        onChanged: (value) {
-                          setState(() {
-                            _unifiedQuery = value;
-                            _rebuildVideoSections();
-                          });
-                        },
-                        onClose: () {
-                          setState(() {
-                            _unifiedSearching = false;
-                            _unifiedQuery = '';
-                            _unifiedSearchController.clear();
-                            _rebuildVideoSections();
-                          });
-                        },
-                      ),
                     Expanded(
                       child: LayoutBuilder(
                         builder: (context, constraints) {
@@ -745,6 +1055,534 @@ class _CategoryPageState extends State<CategoryPage> {
       ),
     );
   }
+
+  /// 魔蚁风影视频道整页：深紫蓝渐变底，头 + 筛选行 + 模式行 +
+  /// （左栏分类 | 右侧作品网格）。数据未到时网格区转圈/报错，
+  /// 不整页白屏。
+  Widget _buildMoyiVideo(BuildContext context) {
+    final entries = _moyiLeftEntries;
+    final visible = _moyiVisibleWorks;
+    final showSearch = _unifiedMode && _unifiedSearching;
+    Widget gridBody;
+    if ((_loading && _unifiedData == null && _singleData == null) ||
+        _moyiWorksLoading) {
+      gridBody = const Center(
+        child: CircularProgressIndicator(color: Color(0xFF29B6F6)),
+      );
+    } else if (_error != null &&
+        _unifiedData == null &&
+        _singleData == null) {
+      gridBody = Center(
+        child: HomeStateView(
+          key: const Key('category_retry'),
+          icon: LucideIcons.cloud_off,
+          title: _error!,
+          actionLabel: '重试',
+          actionIcon: LucideIcons.refresh_cw,
+          onAction: () => _load(tab: _tabValue),
+        ),
+      );
+    } else if (_moyiWorksError != null) {
+      gridBody = Center(
+        child: HomeStateView(
+          icon: LucideIcons.cloud_off,
+          title: _moyiWorksError!,
+          actionLabel: '重试',
+          actionIcon: LucideIcons.refresh_cw,
+          onAction: () => unawaited(_loadMoyiWorks()),
+        ),
+      );
+    } else if (visible.isEmpty) {
+      gridBody = Center(
+        child: Text(
+          _moyiSort == 'finished'
+              ? '该分类下暂无完结作品'
+              : _moyiWorks.isEmpty
+                  ? '该分类下暂无作品'
+                  : '没有符合筛选的作品',
+          style: const TextStyle(fontSize: 14, color: Color(0xFFB9B2D6)),
+        ),
+      );
+    } else {
+      gridBody = MoyiChannelWorksGrid(
+        works: visible,
+        onTap: _onMoyiWorkTap,
+      );
+    }
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color(0xFF3D1E7A),
+            Color(0xFF1E1445),
+            Color(0xFF120A2E),
+          ],
+        ),
+      ),
+      child: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            _MoyiHeader(
+              onBack: () => Navigator.maybePop(context),
+              onHome: () =>
+                  Navigator.of(context).popUntil((route) => route.isFirst),
+              onSearch: _onTopSearchTap,
+              onRank: _openMoyiRank,
+            ),
+            _MoyiFilterRow(
+              type: _moyiType,
+              sort: _moyiSort,
+              onHome: () =>
+                  Navigator.of(context).popUntil((route) => route.isFirst),
+              onType: _setMoyiType,
+              onSort: _setMoyiSort,
+            ),
+            _VideoModeRow(
+              unifiedMode: _unifiedMode,
+              loading: _loading,
+              onSelect: _setVideoMode,
+            ),
+            if (showSearch)
+              _UnifiedSearchRow(
+                controller: _unifiedSearchController,
+                onChanged: (value) {
+                  setState(() {
+                    _unifiedQuery = value;
+                    _rebuildVideoSections();
+                  });
+                  _ensureMoyiSelectionValid();
+                },
+                onClose: () {
+                  setState(() {
+                    _unifiedSearching = false;
+                    _unifiedQuery = '';
+                    _unifiedSearchController.clear();
+                    _rebuildVideoSections();
+                  });
+                  _ensureMoyiSelectionValid();
+                },
+              ),
+            Expanded(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _MoyiLeftRail(
+                    entries: entries,
+                    selected: _moyiSelected,
+                    onSelect: _selectMoyiCategory,
+                  ),
+                  Expanded(child: gridBody),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 魔蚁风频道分类页顶栏（图 1/图 2）：粉紫渐变返回圆钮 + 「频道分类」
+/// 大标题 + 搜索/奖杯圆钮（深色描边圆，搜索进页内筛选、奖杯进榜单页）。
+class _MoyiHeader extends StatelessWidget {
+  const _MoyiHeader({
+    required this.onBack,
+    required this.onHome,
+    required this.onSearch,
+    required this.onRank,
+  });
+
+  final VoidCallback onBack;
+  final VoidCallback onHome;
+  final VoidCallback onSearch;
+  final VoidCallback onRank;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget circle({
+      required Widget child,
+      required VoidCallback onTap,
+      Key? key,
+      bool gradient = false,
+    }) {
+      return GestureDetector(
+        key: key,
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: gradient
+                ? const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color(0xFFF061FF), Color(0xFF7C3AED)],
+                  )
+                : null,
+            color: gradient ? null : Colors.white.withValues(alpha: 0.08),
+            border: gradient
+                ? null
+                : Border.all(color: Colors.white.withValues(alpha: 0.16)),
+          ),
+          child: Center(child: child),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+      child: Row(
+        children: [
+          circle(
+            key: const Key('category_back'),
+            gradient: true,
+            onTap: onBack,
+            child: const Icon(
+              LucideIcons.chevron_left,
+              size: 26,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(width: 12),
+          const Text(
+            '频道分类',
+            style: TextStyle(
+              fontSize: 28,
+              fontWeight: FontWeight.w800,
+              color: Colors.white,
+            ),
+          ),
+          const Spacer(),
+          circle(
+            key: const Key('category_search'),
+            onTap: onSearch,
+            child: const Icon(
+              LucideIcons.search,
+              size: 20,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(width: 10),
+          circle(
+            key: const ValueKey('moyi_rank'),
+            onTap: onRank,
+            child: const Icon(
+              LucideIcons.trophy,
+              size: 20,
+              color: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 魔蚁风筛选行（图 1/图 2）：粉紫主页圆钮 + 「全部类型」下拉
+/// + 「热门/最新/完结」三颗 pill，选中是亮蓝渐变 pill 黑字。
+class _MoyiFilterRow extends StatelessWidget {
+  const _MoyiFilterRow({
+    required this.type,
+    required this.sort,
+    required this.onHome,
+    required this.onType,
+    required this.onSort,
+  });
+
+  final String type;
+  final String sort;
+  final VoidCallback onHome;
+  final ValueChanged<String> onType;
+  final ValueChanged<String> onSort;
+
+  @override
+  Widget build(BuildContext context) {
+    const selectedGradient = LinearGradient(
+      begin: Alignment.centerLeft,
+      end: Alignment.centerRight,
+      colors: [Color(0xFF4FC3F7), Color(0xFF1E88E5)],
+    );
+    Widget pill({
+      required String label,
+      required bool selected,
+      required VoidCallback onTap,
+      Key? key,
+      IconData? icon,
+    }) {
+      return GestureDetector(
+        key: key,
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Container(
+          height: 40,
+          padding: const EdgeInsets.symmetric(horizontal: 13),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            gradient: selected ? selectedGradient : null,
+            color: selected ? null : Colors.white.withValues(alpha: 0.08),
+            border: selected
+                ? null
+                : Border.all(color: Colors.white.withValues(alpha: 0.14)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (icon != null) ...[
+                Icon(
+                  icon,
+                  size: 15,
+                  color: selected ? Colors.black87 : const Color(0xFFD8D2EE),
+                ),
+                const SizedBox(width: 4),
+              ],
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
+                  color: selected ? Colors.black87 : const Color(0xFFD8D2EE),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    String typeLabel(String value) => switch (value) {
+      'cat' => '分类',
+      'tag' => '标签',
+      _ => '全部类型',
+    };
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            GestureDetector(
+              key: const ValueKey('moyi_home'),
+              behavior: HitTestBehavior.opaque,
+              onTap: onHome,
+              child: Container(
+                width: 40,
+                height: 40,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color(0xFFF061FF), Color(0xFF7C3AED)],
+                  ),
+                ),
+                child: const Center(
+                  child: Icon(
+                    LucideIcons.house,
+                    size: 20,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            PopupMenuButton<String>(
+              key: const ValueKey('moyi_type_filter'),
+              tooltip: '类型',
+              color: const Color(0xFF2A2150),
+              onSelected: onType,
+              itemBuilder: (_) => [
+                for (final entry in const [
+                  ('all', '全部类型'),
+                  ('cat', '分类'),
+                  ('tag', '标签'),
+                ])
+                  PopupMenuItem<String>(
+                    key: ValueKey('moyi_type_${entry.$1}'),
+                    value: entry.$1,
+                    child: Row(
+                      children: [
+                        Text(
+                          entry.$2,
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                        const Spacer(),
+                        if (type == entry.$1)
+                          const Icon(
+                            LucideIcons.check,
+                            size: 16,
+                            color: Color(0xFF4FC3F7),
+                          ),
+                      ],
+                    ),
+                  ),
+              ],
+              child: Container(
+                height: 40,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  color: Colors.white.withValues(alpha: 0.08),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.14),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      LucideIcons.chevron_down,
+                      size: 15,
+                      color: Color(0xFFD8D2EE),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      typeLabel(type),
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: Color(0xFFD8D2EE),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            pill(
+              key: const ValueKey('moyi_filter_hot'),
+              label: '热门',
+              selected: sort == 'hot',
+              onTap: () => onSort('hot'),
+            ),
+            const SizedBox(width: 8),
+            pill(
+              key: const ValueKey('moyi_filter_latest'),
+              label: '最新',
+              selected: sort == 'latest',
+              onTap: () => onSort('latest'),
+            ),
+            const SizedBox(width: 8),
+            pill(
+              key: const ValueKey('moyi_filter_finished'),
+              label: '完结',
+              selected: sort == 'finished',
+              onTap: () => onSort('finished'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 魔蚁风左栏（图 1/图 2）：一长串内容分类纵向排，选中是亮蓝渐变
+/// pill 黑字，未选是淡紫灰字；「热门」带火苗、「全部」带格子图标，
+/// 其余带场记板图标。宽 96，可纵向滚动。
+class _MoyiLeftRail extends StatelessWidget {
+  const _MoyiLeftRail({
+    required this.entries,
+    required this.selected,
+    required this.onSelect,
+  });
+
+  final List<_MoyiLeftEntry> entries;
+  final String selected;
+  final ValueChanged<String> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 96,
+      child: ListView.builder(
+        key: const ValueKey('moyi_left_rail'),
+        padding: const EdgeInsets.fromLTRB(8, 6, 4, 16),
+        itemCount: entries.length,
+        itemBuilder: (context, index) {
+          final entry = entries[index];
+          final isSelected = entry.name == selected;
+          final icon = switch (entry.name) {
+            '热门' => LucideIcons.flame,
+            '全部' => LucideIcons.layout_grid,
+            _ => LucideIcons.clapperboard,
+          };
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: GestureDetector(
+              key: ValueKey('moyi_left_${entry.name}'),
+              behavior: HitTestBehavior.opaque,
+              onTap: () => onSelect(entry.name),
+              child: Container(
+                height: 44,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  gradient: isSelected
+                      ? const LinearGradient(
+                          begin: Alignment.centerLeft,
+                          end: Alignment.centerRight,
+                          colors: [Color(0xFF4FC3F7), Color(0xFF1E88E5)],
+                        )
+                      : null,
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      icon,
+                      size: 15,
+                      color: isSelected
+                          ? Colors.black87
+                          : const Color(0xFFB9B2D6),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        entry.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: isSelected
+                              ? FontWeight.w800
+                              : FontWeight.w500,
+                          color: isSelected
+                              ? Colors.black87
+                              : const Color(0xFFB9B2D6),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// 左栏一项：分类名 + 种类（`cat` 分类 / `tag` 标签）。
+class _MoyiLeftEntry {
+  const _MoyiLeftEntry(this.name, this.kind);
+
+  final String name;
+  final String kind;
+}
+
+/// 一个取数源：站 id + 目录路径（统一分类是 CATS path、标签是标签链接、
+/// 本站模式是客户端 categories() 的 id）+ 分类名 + 分类站数。
+class _MoyiSource {
+  const _MoyiSource(this.siteId, this.path, this.category, this.siteCount);
+
+  final String siteId;
+  final String path;
+  final String category;
+  final int siteCount;
 }
 
 /// 影视频道模式切换行：统一（全部站点）与单站两颗药丸，选中态明显
@@ -762,7 +1600,6 @@ class _VideoModeRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = HomePalette.of(context);
     Widget pill(String label, bool selected, bool value) {
       return ChoiceChip(
         key: ValueKey(
@@ -771,20 +1608,23 @@ class _VideoModeRow extends StatelessWidget {
         label: Text(label),
         selected: selected,
         onSelected: loading ? null : (_) => onSelect(value),
-        selectedColor: HomePalette.accent,
+        selectedColor: const Color(0xFF29B6F6),
         labelStyle: TextStyle(
           fontSize: 13,
-          color: selected ? Colors.white : palette.ink,
+          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+          color: selected ? Colors.black87 : const Color(0xFFD8D2EE),
         ),
-        backgroundColor: palette.soft,
+        backgroundColor: Colors.white.withValues(alpha: 0.08),
         side: BorderSide(
-          color: selected ? HomePalette.accent : palette.line,
+          color: selected
+              ? Colors.transparent
+              : Colors.white.withValues(alpha: 0.14),
         ),
       );
     }
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
       child: Row(
         children: [
           pill('全部站点', unifiedMode, true),
@@ -796,7 +1636,7 @@ class _VideoModeRow extends StatelessWidget {
   }
 }
 
-/// 统一模式页内搜索行：搜分类名/标签名，输入即过滤右侧 chip；
+/// 统一模式页内搜索行：搜分类名/标签名，输入即过滤左侧分类；
 /// 右端 X 关掉搜索框并清空过滤。
 class _UnifiedSearchRow extends StatelessWidget {
   const _UnifiedSearchRow({
@@ -811,9 +1651,8 @@ class _UnifiedSearchRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = HomePalette.of(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
       child: Row(
         children: [
           Expanded(
@@ -821,20 +1660,38 @@ class _UnifiedSearchRow extends StatelessWidget {
               key: const ValueKey('unified_category_search'),
               controller: controller,
               autofocus: true,
+              style: const TextStyle(color: Colors.white),
               decoration: InputDecoration(
                 hintText: '搜分类名',
+                hintStyle: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.5),
+                ),
                 prefixIcon: Icon(
                   LucideIcons.search,
                   size: 18,
-                  color: palette.muted,
+                  color: Colors.white.withValues(alpha: 0.6),
                 ),
+                filled: true,
+                fillColor: Colors.white.withValues(alpha: 0.08),
                 contentPadding: const EdgeInsets.symmetric(
                   horizontal: 12,
                   vertical: 8,
                 ),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(20),
-                  borderSide: BorderSide(color: palette.line),
+                  borderSide: BorderSide(
+                    color: Colors.white.withValues(alpha: 0.14),
+                  ),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  borderSide: BorderSide(
+                    color: Colors.white.withValues(alpha: 0.14),
+                  ),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  borderSide: const BorderSide(color: Color(0xFF4FC3F7)),
                 ),
               ),
               onChanged: onChanged,
@@ -842,7 +1699,7 @@ class _UnifiedSearchRow extends StatelessWidget {
           ),
           IconButton(
             key: const ValueKey('unified_category_search_close'),
-            icon: Icon(LucideIcons.x, size: 20, color: palette.ink),
+            icon: const Icon(LucideIcons.x, size: 20, color: Colors.white),
             tooltip: '关闭搜索',
             onPressed: onClose,
           ),

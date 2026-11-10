@@ -3,16 +3,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fqapp/pages/category_page.dart';
-import 'package:fqapp/pages/search_page.dart';
-import 'package:fqapp/pages/unified_browse_content_page.dart';
 import 'package:fqapp/services/drama_playback.dart';
 import 'package:fqapp/services/drama_site_content.dart';
 import 'package:fqapp/services/drama_sites.dart';
 import 'package:fqapp/services/unified_video_categories.dart';
 import 'package:fqapp/services/video_category_tags.dart';
 
-/// 分类页统一模式测试：影视频道默认全部站点（热门分类/全部两组），
-/// 模式切换、页内搜索过滤 chip、点 chip 进多站内容汇总。
+/// 分类页统一模式测试（魔蚁风频道分类页）：影视频道默认全部站点，
+/// 顶部「频道分类」+ 筛选行，左栏是本站真实内容分类（统一分类 +
+/// 可浏览标签），右侧 2 列大卡是该分类下各站 catalog 的真作品；
+/// 模式切换、页内搜索过滤左栏、筛选行排序/完结过滤、类型下拉。
 /// 数据与取数全是注入的假数据，不联网、不读真实资产。
 void main() {
   UnifiedVideoCategories fakeUnified() => parseUnifiedVideoCategories('''
@@ -74,57 +74,63 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('影视频道默认统一模式：热门分类与全部两组', (tester) async {
+  testWidgets('影视频道默认魔蚁风：大标题+左栏真实分类+作品卡', (tester) async {
     await pump(tester);
 
+    expect(find.text('频道分类'), findsOneWidget);
     // 模式切换行：全部站点选中、本站未选。
     expect(find.byKey(const ValueKey('unified_mode_all')), findsOneWidget);
     expect(
       find.byKey(const ValueKey('unified_mode_single')),
       findsOneWidget,
     );
-    // 左栏两组：热门分类/全部（没有小说那四组）。
-    expect(find.text('热门分类'), findsWidgets);
-    expect(find.text('全部'), findsWidgets);
-    expect(find.text('主题'), findsNothing);
-    // 热门组只有热门甲（>=5 站），全部组三名全有。
-    expect(find.text('热门甲'), findsNWidgets(2));
-    expect(find.text('中热丙'), findsOneWidget);
-    expect(find.text('冷门乙'), findsOneWidget);
-    // 热门 chip 带火苗。
+    // 筛选行四项都在。
+    expect(find.byKey(const ValueKey('moyi_type_filter')), findsOneWidget);
+    expect(find.byKey(const ValueKey('moyi_filter_hot')), findsOneWidget);
+    expect(find.byKey(const ValueKey('moyi_filter_latest')), findsOneWidget);
     expect(
-      find.descendant(
-        of: find
-            .byKey(const ValueKey('category_tile_unified_cat_热门甲'))
-            .first,
-        matching: find.byType(Icon),
-      ),
+      find.byKey(const ValueKey('moyi_filter_finished')),
       findsOneWidget,
     );
+    // 左栏：热门/全部 + 本站真实分类 + 可浏览标签（不是只三组）。
+    expect(find.byKey(const ValueKey('moyi_left_热门')), findsOneWidget);
+    expect(find.byKey(const ValueKey('moyi_left_全部')), findsOneWidget);
+    expect(find.byKey(const ValueKey('moyi_left_热门甲')), findsOneWidget);
+    expect(find.byKey(const ValueKey('moyi_left_中热丙')), findsOneWidget);
+    expect(find.byKey(const ValueKey('moyi_left_冷门乙')), findsOneWidget);
+    expect(find.byKey(const ValueKey('moyi_left_可看标签')), findsOneWidget);
+    // 旧 chip 布局已不在：没有分组头与 chip。
+    expect(find.text('热门分类'), findsNothing);
+    expect(find.text('主题'), findsNothing);
+    // 默认选中「热门」：热门甲首站的作品出了，角标按备注真实信号挂。
+    expect(find.text('a 站作品 /cat/1'), findsOneWidget);
+    expect(find.text('a 站作品二 /cat/1'), findsOneWidget);
+    expect(find.text('HD'), findsOneWidget);
+    expect(find.text('NEW'), findsOneWidget);
   });
 
-  testWidgets('模式切换：本站四组，来回切回统一', (tester) async {
+  testWidgets('模式切换：本站左栏与作品，来回切回统一', (tester) async {
     await pump(tester);
 
     await tester.tap(find.byKey(const ValueKey('unified_mode_single')));
     await tester.pumpAndSettle();
 
-    // 单站模式：老四组。
-    expect(find.text('热门标签'), findsWidgets);
-    expect(find.text('主题'), findsWidgets);
-    expect(find.text('本站热'), findsWidgets);
-    expect(find.text('本站主题'), findsWidgets);
-    expect(find.text('热门分类'), findsNothing);
+    // 单站模式：左栏是本站分类 + 主题，没有统一分类。
+    expect(find.byKey(const ValueKey('moyi_left_本站热')), findsOneWidget);
+    expect(find.byKey(const ValueKey('moyi_left_本站主题')), findsOneWidget);
+    expect(find.byKey(const ValueKey('moyi_left_热门甲')), findsNothing);
+    // 本站作品按名找客户端 categories() 的 id 取 catalog。
+    expect(find.text('a 站作品 cat1'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('unified_mode_all')));
     await tester.pumpAndSettle();
 
-    expect(find.text('热门分类'), findsWidgets);
-    expect(find.text('热门甲'), findsNWidgets(2));
-    expect(find.text('本站热'), findsNothing);
+    expect(find.byKey(const ValueKey('moyi_left_热门甲')), findsOneWidget);
+    expect(find.text('a 站作品 /cat/1'), findsOneWidget);
+    expect(find.text('a 站作品 cat1'), findsNothing);
   });
 
-  testWidgets('页内搜索过滤 chip，关闭后恢复', (tester) async {
+  testWidgets('页内搜索过滤左栏分类，关闭后恢复', (tester) async {
     await pump(tester);
 
     await tester.tap(find.byKey(const ValueKey('category_search')));
@@ -141,9 +147,9 @@ void main() {
     await tester.pumpAndSettle();
 
     // 只剩含「热门」的名字。
-    expect(find.text('热门甲'), findsWidgets);
-    expect(find.text('中热丙'), findsNothing);
-    expect(find.text('冷门乙'), findsNothing);
+    expect(find.byKey(const ValueKey('moyi_left_热门甲')), findsOneWidget);
+    expect(find.byKey(const ValueKey('moyi_left_中热丙')), findsNothing);
+    expect(find.byKey(const ValueKey('moyi_left_冷门乙')), findsNothing);
 
     await tester.tap(
       find.byKey(const ValueKey('unified_category_search_close')),
@@ -154,59 +160,80 @@ void main() {
       find.byKey(const ValueKey('unified_category_search')),
       findsNothing,
     );
-    expect(find.text('中热丙'), findsOneWidget);
-    expect(find.text('冷门乙'), findsOneWidget);
+    expect(find.byKey(const ValueKey('moyi_left_中热丙')), findsOneWidget);
+    expect(find.byKey(const ValueKey('moyi_left_冷门乙')), findsOneWidget);
   });
 
-  testWidgets('点统一分类 chip 进多站内容汇总', (tester) async {
+  testWidgets('点左栏分类换作品', (tester) async {
     await pump(tester);
 
-    // 「中热丙」在 a、b 两站：点全部组里的那颗。
-    await tester.tap(
-      find.byKey(const ValueKey('category_tile_unified_cat_中热丙')),
-    );
+    await tester.tap(find.byKey(const ValueKey('moyi_left_中热丙')));
     await tester.pumpAndSettle();
 
-    // 汇总页标题是分类名，两站内容都出现。
-    expect(find.text('中热丙'), findsWidgets);
-    expect(find.text('a 站作品'), findsOneWidget);
-    expect(find.text('b 站作品'), findsOneWidget);
-    expect(find.byType(UnifiedBrowseContentPage), findsOneWidget);
+    // 中热丙在 a、b 两站：两站作品都出现，热门甲的作品没了。
+    expect(find.text('a 站作品 /cat/3'), findsOneWidget);
+    expect(find.text('b 站作品 /cat/3'), findsOneWidget);
+    expect(find.text('a 站作品 /cat/1'), findsNothing);
   });
 
-  testWidgets('标签组出现，点标签进站源搜索（只收可浏览的）', (tester) async {
+  testWidgets('点左栏标签出该标签作品', (tester) async {
     await pump(tester);
 
-    expect(find.text('标签'), findsWidgets);
-    expect(find.text('可看标签'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('moyi_left_可看标签')));
+    await tester.pumpAndSettle();
 
-    await tester.tap(
-      find.byKey(const ValueKey('category_tile_unified_tag_可看标签')),
-    );
-    // 站源搜索会拉全站取数，不等它跑完：只验路由——点标签打开的是
-    // 站源搜索页（SearchPage，站源页签），查询词就是标签名，不再是
-    // 多站内容汇总页。
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('a 站作品 /tag/x'), findsOneWidget);
+    expect(find.text('a 站作品 /cat/1'), findsNothing);
+  });
 
-    expect(find.byType(SearchPage), findsOneWidget);
-    expect(find.byType(UnifiedBrowseContentPage), findsNothing);
-    expect(find.text('可看标签'), findsWidgets);
-    // 站源页签在 400 宽的横向栏可视区外：把测试面加宽到 800，
-    // 7 个页签一次排下，再断言「站源」chip 是选中态。
-    await tester.binding.setSurfaceSize(const Size(800, 800));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
-    expect(
-      find.byWidgetPredicate(
-        (widget) =>
-            widget is ChoiceChip &&
-            widget.selected &&
-            widget.label is Text &&
-            (widget.label as Text).data == '站源',
-      ),
-      findsOneWidget,
-    );
+  testWidgets('筛选行：最新按备注日期排前，完结只留完结', (tester) async {
+    await pump(tester);
+
+    // 默认热门：v1（更新至12集 高清）在左列、v2（带日期）在右列。
+    Offset left(String text) => tester.getTopLeft(find.text(text));
+    expect(left('a 站作品 /cat/1').dx < left('a 站作品二 /cat/1').dx, isTrue);
+
+    await tester.tap(find.byKey(const ValueKey('moyi_filter_latest')));
+    await tester.pumpAndSettle();
+
+    // 最新：带日期的 v2 排到左列、v1 换到右列。
+    expect(left('a 站作品二 /cat/1').dx < left('a 站作品 /cat/1').dx, isTrue);
+
+    await tester.tap(find.byKey(const ValueKey('moyi_filter_finished')));
+    await tester.pumpAndSettle();
+
+    // 完结：只留备注写着完结的 v2，v1 没了。
+    expect(find.text('a 站作品二 /cat/1'), findsOneWidget);
+    expect(find.text('a 站作品 /cat/1'), findsNothing);
+  });
+
+  testWidgets('类型下拉：选标签只留标签，选分类只留分类', (tester) async {
+    await pump(tester);
+
+    await tester.tap(find.byKey(const ValueKey('moyi_type_filter')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('moyi_type_tag')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('moyi_left_可看标签')), findsOneWidget);
+    expect(find.byKey(const ValueKey('moyi_left_热门甲')), findsNothing);
+    expect(find.byKey(const ValueKey('moyi_left_中热丙')), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('moyi_type_filter')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('moyi_type_cat')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('moyi_left_热门甲')), findsOneWidget);
+    expect(find.byKey(const ValueKey('moyi_left_可看标签')), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('moyi_type_filter')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('moyi_type_all')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('moyi_left_热门甲')), findsOneWidget);
+    expect(find.byKey(const ValueKey('moyi_left_可看标签')), findsOneWidget);
   });
 }
 
@@ -216,14 +243,40 @@ class _FakeClient extends DramaSiteContentClient {
   final String siteId;
 
   @override
-  Future<List<DramaSiteCategory>> categories() async =>
-      const [DramaSiteCategory('all', '全部')];
+  Future<List<DramaSiteCategory>> categories() async => const [
+    DramaSiteCategory('cat1', '本站热'),
+    DramaSiteCategory('cat2', '本站主题'),
+  ];
 
   @override
   Future<DramaSiteCatalogPage> catalog(String categoryId, int page) async {
+    if (categoryId == '/cat/1') {
+      return DramaSiteCatalogPage(
+        items: const [
+          DramaSiteItem(
+            id: 'v1',
+            title: 'a 站作品 /cat/1',
+            cover: '',
+            remark: '更新至12集 高清',
+          ),
+          DramaSiteItem(
+            id: 'v2',
+            title: 'a 站作品二 /cat/1',
+            cover: '',
+            remark: '2026-11-09 完结',
+          ),
+        ],
+        hasMore: false,
+      );
+    }
     return DramaSiteCatalogPage(
       items: [
-        DramaSiteItem(id: 'v1', title: '$siteId 站作品', cover: ''),
+        DramaSiteItem(
+          id: 'v1',
+          title: '$siteId 站作品 $categoryId',
+          cover: '',
+          remark: '更新至12集',
+        ),
       ],
       hasMore: false,
     );

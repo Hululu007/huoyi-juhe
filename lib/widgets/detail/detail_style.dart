@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 
 import '../home/home_design.dart';
+import '../series_detail/moyi_detail_theme.dart';
 
 /// The one accent fill the detail page uses for primary actions.
 ///
-/// E-ink has no brand orange; the primary pill becomes solid black there.
+/// 魔蚁主题：主按钮用魔蚁紫（对照图里粉紫渐变的紫端；FilledButton 只能
+/// 填纯色，渐变版见 [MoyiGradientButton]，影视区详情在用）。
+/// E-ink has no brand purple; the primary pill becomes solid black there.
 Color detailAccentFill(HomePalette palette) =>
-    palette.eink ? palette.ink : HomePalette.accent;
+    palette.eink ? palette.ink : moyiPurple;
 
 /// Text/icon colour that sits on [detailAccentFill].
 Color detailOnAccent(HomePalette palette) =>

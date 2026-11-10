@@ -25,6 +25,9 @@ import '../services/library_store.dart';
 import '../services/video_category_tags.dart';
 import '../widgets/home/drama_site_grid.dart';
 import '../widgets/home/home_film_zone.dart';
+import '../widgets/home/home_moyi_card.dart';
+import '../widgets/home/home_moyi_carousel.dart';
+import '../widgets/home/home_moyi_style.dart';
 import '../widgets/site_grid_dialog.dart';
 import '../widgets/home/home_cell_blocks.dart';
 import '../widgets/home/home_cell_renderers.dart';
@@ -64,6 +67,10 @@ import 'video_page.dart';
 /// 「推荐」只画书：上游的卡片流是混排（短剧、漫剧、听书都夹在里面），这里按
 /// 当前分类的种类过滤，其余媒介留在各自分类里。上游的其余区块仍然按
 /// `show_type` 分发（见 [HomeCellRenderers]），没登记的类型不会让页面变空。
+///
+/// 推荐页版式按魔蚁box首页重做：顶部品牌行 + 大轮播 + 「热播推荐 / 猜你想看」
+/// 两段 3 列卡片（见 [_moyiSections]、[MoyiHeroCarousel]）；其它分类仍是
+/// 原来的书架网格。
 class HomePage extends ConsumerStatefulWidget {
   const HomePage({
     super.key,
@@ -322,6 +329,10 @@ class _HomePageState extends ConsumerState<HomePage> {
   double? _blocksTitleScale;
   double? _blocksMetaScale;
 
+  /// 魔蚁式两段网格（热播推荐 / 猜你想看）的缓存，与 [_gridSliver] 同一规矩：
+  /// 只在同一份推荐流、同一 tab、同一宽度与字号下复用。
+  List<Widget>? _moyiSlivers;
+
   /// Last logged render shape; keeps the diagnostic to one line per change.
   String? _loggedShape;
 
@@ -516,6 +527,11 @@ class _HomePageState extends ConsumerState<HomePage> {
                 builder: (context, constraints) {
                   final gridWidth = constraints.maxWidth - homeGutter * 2;
                   final content = _contentSlivers(state, gridWidth);
+                  // 魔蚁式大轮播的片源：推荐页取推荐流前 6 张有封面的，
+                  // 其它分类不出现（那几页画自己的站目录/书架）。
+                  final carouselItems = state.tabIndex == 0
+                      ? moyiCarouselItems(_visibleItems(state))
+                      : const <MediaItem>[];
                   _rememberPreviewBody(
                     state.tabIndex,
                     content,
@@ -593,6 +609,15 @@ class _HomePageState extends ConsumerState<HomePage> {
                           const AdultCardRailSliver(
                             type: ContentType.audio,
                           ),
+                        // 魔蚁式大轮播：推荐页分类条下方、内容区上方，
+                        // 点卡片或「马上看」都进当前 hero 的详情/播放。
+                        if (state.tabIndex == 0 && carouselItems.isNotEmpty)
+                          SliverToBoxAdapter(
+                            child: MoyiHeroCarousel(
+                              items: carouselItems,
+                              onOpen: _openItem,
+                            ),
+                          ),
                         // 全局「影视」区（用户 2026-11-05 令）：只在推荐页
                         // 顶部出现，核心里所有站点的视频、小说、漫画、听书
                         // 都在这里；成人站按修仙境界解锁，未解锁的不显示。
@@ -626,7 +651,13 @@ class _HomePageState extends ConsumerState<HomePage> {
         child: HomeHero(
           key: _heroKey,
           onSearch: _openSearch,
+          onRefresh: _refresh,
           onCategory: _openCategory,
+          brandSubtitle: label == '短剧'
+              ? dramaSiteById(_dramaSiteId).name
+              : label == '影视'
+              ? _filmSiteName
+              : label,
           siteName: label == '短剧'
               ? dramaSiteById(_dramaSiteId).name
               : label == '影视'
@@ -1109,12 +1140,19 @@ class _HomePageState extends ConsumerState<HomePage> {
       }
     }
     if (entries.isNotEmpty) {
-      // 多个卡片流合并成一个网格：首页只保留一个「为你推荐」段落，块与块
-      // 之间的边界对读书的人没有意义。
-      slivers.add(
-        SliverToBoxAdapter(child: HomeSectionHeader(title: _gridTitle(state))),
-      );
-      slivers.add(_gridBody(entries, gridWidth));
+      // 多个卡片流合并成一个网格：推荐页按魔蚁式拆成「热播推荐 / 猜你想看」
+      // 两段（前 6 张热播、其余猜你想看），其它分类仍是一个以分类名命名的
+      // 段落；块与块之间的边界对读书的人没有意义。
+      if (state.tabIndex == 0) {
+        slivers.addAll(_moyiSections(entries, gridWidth));
+      } else {
+        slivers.add(
+          SliverToBoxAdapter(
+            child: HomeSectionHeader(title: _gridTitle(state)),
+          ),
+        );
+        slivers.add(_gridBody(entries, gridWidth));
+      }
       rendered = true;
     }
     if (!rendered) {
@@ -1151,6 +1189,25 @@ class _HomePageState extends ConsumerState<HomePage> {
     final scaler = MediaQuery.textScalerOf(context);
     final titleScale = scaler.scale(15);
     final metaScale = scaler.scale(11);
+    // 推荐页的兜底网格同样走魔蚁式两段（热播推荐 / 猜你想看），
+    // 缓存与普通网格同一套失效条件。
+    if (state.tabIndex == 0) {
+      final cached = _moyiSlivers;
+      if (cached != null &&
+          identical(_gridItems, state.items) &&
+          _gridTabIndex == state.tabIndex &&
+          _gridWidth == gridWidth &&
+          _gridTitleScale == titleScale &&
+          _gridMetaScale == metaScale) {
+        return cached;
+      }
+      _gridItems = state.items;
+      _gridTabIndex = state.tabIndex;
+      _gridWidth = gridWidth;
+      _gridTitleScale = titleScale;
+      _gridMetaScale = metaScale;
+      return _moyiSlivers = _moyiSections(entries, gridWidth);
+    }
     final cached = _gridSliver;
     if (cached != null &&
         identical(_gridItems, state.items) &&
@@ -1201,8 +1258,61 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
+  /// 魔蚁式两段网格（推荐页专用）：「热播推荐」取推荐流前
+  /// [moyiHotSectionCount] 张、段头右端「全部 >」进频道分类页；
+  /// 「猜你想看」取其余，余下不足一张时该段不出现。
+  /// 数据仍是推荐流本身，不编假数据、不换一批乱序。
+  List<Widget> _moyiSections(List<MediaItem> entries, double gridWidth) {
+    final hot = entries.take(moyiHotSectionCount).toList();
+    final rest = entries.skip(moyiHotSectionCount).toList();
+    return [
+      SliverToBoxAdapter(
+        child: MoyiSectionHeader(
+          title: '热播推荐',
+          actionLabel: '全部',
+          onAction: _openCategory,
+        ),
+      ),
+      _moyiGrid(hot, gridWidth),
+      if (rest.isNotEmpty) ...[
+        const SliverToBoxAdapter(
+          child: MoyiSectionHeader(title: '猜你想看'),
+        ),
+        _moyiGrid(rest, gridWidth),
+      ],
+    ];
+  }
+
+  /// 魔蚁式 3 列卡片网格：圆角 + 紫色描边 + 有 HD 才标的角标
+  /// （见 [MoyiMediaCard]），标题叠在封面底部。
+  Widget _moyiGrid(List<MediaItem> entries, double gridWidth) {
+    final cardWidth = homeShelfCardWidth(context, gridWidth);
+    return SliverPadding(
+      padding: const EdgeInsets.symmetric(horizontal: homeGutter),
+      sliver: SliverGrid(
+        gridDelegate: moyiGridDelegate(context, gridWidth),
+        delegate: SliverChildBuilderDelegate((context, index) {
+          final item = entries[index];
+          final key = '${item.kind}:${item.id}';
+          return HomeEntrance(
+            key: ValueKey(key),
+            index: index,
+            // Only the first appearance of an item animates; see HomeEntrance.
+            animate: _entered.add(key),
+            child: MoyiMediaCard(
+              item: item,
+              coverWidth: cardWidth,
+              onTap: () => _openItem(item),
+            ),
+          );
+        }, childCount: entries.length),
+      ),
+    );
+  }
+
+  /// 非推荐页的段落名就是分类名；推荐页不用它，推荐页是魔蚁式
+  /// 「热播推荐 / 猜你想看」两段（见 [_moyiSections]）。
   String _gridTitle(HomeState state) {
-    if (state.tabIndex == 0) return '为你推荐';
     return ref.read(homeProvider.notifier).identityOf(state.tabIndex).name;
   }
 

@@ -41,6 +41,7 @@ import '../widgets/home/home_design.dart';
 import '../widgets/home/home_media_card.dart';
 import '../widgets/home/home_shelf.dart';
 import '../widgets/media_card.dart';
+import '../widgets/series_detail/moyi_detail_theme.dart';
 import 'audio_page.dart';
 import 'author_page.dart';
 import 'cached_book_reader.dart';
@@ -584,6 +585,23 @@ class _DetailPageState extends State<DetailPage> {
     );
   }
 
+  /// 魔蚁主题头项色带：深色主题下头项背后铺一层深紫蓝渐变（顶部魔蚁紫 →
+  /// 画布），与短剧详情的顶部色带同款；浅色 / 墨水屏不铺，深字在紫底上
+  /// 读不清、黑白屏也不该染色。
+  Widget _moyiHeroBand(HomePalette palette, Widget child) {
+    if (!palette.dark || palette.eink) return child;
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [moyiBandTop, palette.canvas],
+        ),
+      ),
+      child: child,
+    );
+  }
+
   /// 手机版正文：hero 之后是简介 / 目录 / 书评 / ID，全部由 mockup 的
   /// 16dp gutter 与 20dp 段落间距串联，不再有卡片。
   Widget _phoneBody(HomePalette palette) => Align(
@@ -606,14 +624,17 @@ class _DetailPageState extends State<DetailPage> {
             ),
             slivers: [
               SliverToBoxAdapter(
-                child: DetailHero(
-                  item: widget.item,
-                  detail: _bookDetail,
-                  onOpenAuthor: _openAuthorAction,
-                  onPlay: _isVideo
-                      ? () => unawaited(_openLastPosition())
-                      : null,
-                  lastChapterTitle: _latestChapterTitle,
+                child: _moyiHeroBand(
+                  palette,
+                  DetailHero(
+                    item: widget.item,
+                    detail: _bookDetail,
+                    onOpenAuthor: _openAuthorAction,
+                    onPlay: _isVideo
+                        ? () => unawaited(_openLastPosition())
+                        : null,
+                    lastChapterTitle: _latestChapterTitle,
+                  ),
                 ),
               ),
               SliverToBoxAdapter(

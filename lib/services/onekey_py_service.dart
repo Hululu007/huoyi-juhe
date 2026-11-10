@@ -53,7 +53,18 @@ class OneKeyPyService {
     final host = _hostOf(url);
     if (host == null) return null;
     return _domainTemplates[host] ??
-        _domainTemplates[host.replaceFirst('www.', '')];
+        _domainTemplates[host.replaceFirst('www.', '')] ??
+        _domainTemplates['www.$host'];
+  }
+
+  /// 模板库 probe 是 "GET https://host/..." 形式的探测描述，不是裸 URL。
+  /// 直接 Uri.parse 拿不到 host（"GET " 前缀使 scheme 非法），建表永远是
+  /// 空表、域名匹配永远命中不了；先用正则抠出 URL 再取 host。
+  static String? _hostOfProbe(String probe) {
+    final match = RegExp(r'https?://([^/:?#\s]+)').firstMatch(probe);
+    final host = match?.group(1)?.toLowerCase();
+    if (host == null || host.isEmpty) return null;
+    return host;
   }
 
   Future<void> _ensureTemplates() async {
@@ -77,7 +88,7 @@ class OneKeyPyService {
             ? detection['probe'] as List? ?? const []
             : const [];
         for (final probe in probes) {
-          final host = _hostOf('$probe');
+          final host = _hostOfProbe('$probe');
           if (host == null || host.contains('{')) continue;
           map.putIfAbsent(host, () => id);
         }
@@ -99,14 +110,21 @@ class OneKeyPyService {
   }
 
   /// 工具 py 落盘到应用支持目录（不注册成站，只供本页调 PyBridge 用）。
+  /// 新版 asset 换了内容也要同步覆写：只在文件不存在时才写，
+  /// 手机上会永远跑旧版工具，新版修了探测/模板也落不下去。
   Future<String> _ensureToolPath() async {
     final directory = await getApplicationSupportDirectory();
     final dir = Directory('${directory.path}/$_toolDirName');
     if (!await dir.exists()) await dir.create(recursive: true);
     final file = File('${dir.path}/$_toolFileName');
-    if (!await file.exists()) {
+    try {
       final text = await rootBundle.loadString(_toolAsset);
-      await file.writeAsString(text);
+      if (!await file.exists() || await file.readAsString() != text) {
+        await file.writeAsString(text);
+      }
+    } catch (_) {
+      // 刷新失败时沿用旧文件，不挡生成；文件根本不存在才往外抛。
+      if (!await file.exists()) rethrow;
     }
     return file.path;
   }

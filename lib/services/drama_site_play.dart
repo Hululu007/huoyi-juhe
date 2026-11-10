@@ -13,11 +13,14 @@ import '../pages/reader_page.dart';
 import '../pages/search_page.dart';
 import '../pages/series_detail_page.dart';
 import '../pages/site_browse_page.dart';
+import '../widgets/adult_entry_gate.dart';
+import 'cultivation.dart';
 import 'drama_playback.dart';
 import 'drama_site_content.dart';
 import 'drama_site_search.dart';
 import 'drama_sites.dart';
 import 'engine_reading_store.dart';
+import 'game_service.dart';
 import 'library_store.dart';
 import 'midnight_gate.dart';
 import 'reader_history.dart';
@@ -355,6 +358,32 @@ Future<void> openDramaSitePlayback(
   int startIndex = 0,
   SeriesDetail? initialDetail,
 }) async {
+  // 影视区看片扣费：只对影视区成人站收（短剧站一律不扣，判据与影视区共用
+  // 同一份短剧判据）。扣费点在进详情页，每部 20 元宝、不分档；
+  // 这里是补扣口：详情页扣过的片子再点播不重复扣（同一把已扣判断），
+  // 绕过详情页直接开播的（比如跨站搜到同名内容直接切过来），在开播
+  // 时补扣同一笔 20 元宝。余额不足播不了，提示差多少、去哪赚元宝。
+  final playSiteEntry = SourceRegistry.instance.customById(siteId);
+  final playSiteName = playSiteEntry?.name.isNotEmpty == true
+      ? playSiteEntry!.name
+      : (allDramaSites.any((site) => site.id == siteId)
+            ? dramaSiteById(siteId).name
+            : siteId);
+  final isFilmSite =
+      !isShortDramaSite(adultSiteIdForUnifiedId(siteId), playSiteName);
+  if (isFilmSite) {
+    final playOutcome = await GameService.instance.tryChargeAdultFilm(
+      siteId,
+      seriesId: seriesId,
+      label: title,
+      source: 'play',
+    );
+    if (!context.mounted) return;
+    if (playOutcome.status == AdultEntryStatus.insufficient) {
+      await showAdultFilmBlockedDialog(context, playOutcome);
+      return;
+    }
+  }
   final client = await SourceRegistry.instance.clientFor(siteId);
   if (!context.mounted) return;
   if (client == null) {
@@ -702,6 +731,29 @@ Future<void> openDramaSiteItem(
       (entry != null &&
           entry.kind != SourceKind.customMaccms &&
           entry.kind != SourceKind.builtinDrama);
+  // 影视区看片扣费：点一部片子进详情页扣 20 元宝（不分档），进站不扣。
+  // 只对影视区成人站收：阅读站（小说/漫画/听书）与短剧站一律不扣。
+  // 同一部片子同一次进入里重复进详情页不再重复扣，换一部再扣 20；
+  // 余额不足 20 就进不了详情页，拦住并提示差多少、去哪赚元宝。
+  if (!isReadingSite) {
+    final filmSiteName = entry?.name.isNotEmpty == true
+        ? entry!.name
+        : (allDramaSites.any((site) => site.id == siteId)
+              ? dramaSiteById(siteId).name
+              : siteId);
+    if (!isShortDramaSite(adultSiteIdForUnifiedId(siteId), filmSiteName)) {
+      final filmOutcome = await GameService.instance.tryChargeAdultFilm(
+        siteId,
+        seriesId: item.id,
+        label: item.title,
+      );
+      if (!context.mounted) return;
+      if (filmOutcome.status == AdultEntryStatus.insufficient) {
+        await showAdultFilmBlockedDialog(context, filmOutcome);
+        return;
+      }
+    }
+  }
   DramaSiteDetail? cachedDetail;
   Future<DramaSiteDetail> loadSiteDetail() async {
     cachedDetail ??= await client.detail(item.id);

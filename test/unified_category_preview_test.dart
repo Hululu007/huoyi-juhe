@@ -99,16 +99,17 @@ void main() {
             openVideoTab: true,
             videoLoader: _fakeSingle,
             unifiedLoader: () async => realData,
+            unifiedClientForSite: (_) => _FakePreviewClient(),
           ),
         ),
       ),
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('热门分类'), findsWidgets);
-    expect(find.text('全部'), findsWidgets);
+    expect(find.text('频道分类'), findsOneWidget);
     expect(find.text('中文字幕'), findsWidgets);
     expect(find.byKey(const ValueKey('unified_mode_all')), findsOneWidget);
+    expect(find.text('预览作品一'), findsWidgets);
     expect(tester.takeException(), isNull);
 
     await _capture(

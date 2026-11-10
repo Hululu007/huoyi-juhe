@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui' show ImageFilter;
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -32,6 +31,7 @@ import '../widgets/series_detail/series_detail_reviews.dart';
 import '../widgets/series_detail/series_detail_theme.dart';
 import '../widgets/series_detail/series_detail_top_bar.dart';
 import '../widgets/series_detail/film_inline_player.dart';
+import '../widgets/series_detail/moyi_detail_theme.dart';
 import 'detail_page.dart' show openBookDetail;
 import 'player_page.dart' show PlayerPage;
 
@@ -155,7 +155,7 @@ class SeriesDetailPage extends StatefulWidget {
   /// `openDramaSiteItem` 进新详情页）。为空时点卡片不做事。
   final void Function(DramaSiteItem item)? onOpenRelatedFilm;
 
-  /// 影视区专属：点毛玻璃详情区分类标签的打开方式（`openDramaSiteItem`
+  /// 影视区专属：点魔蚁详情区分类标签的打开方式（`openDramaSiteItem`
   /// 传，调 `openFilmCategoryTag`：先按标签名匹配本站分类进浏览页，
   /// 匹配不到退站源搜索）。为空时标签只展示、不可点；短剧分支不传，
   /// 短剧头项标签保持原样不动。
@@ -695,11 +695,11 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
                     slivers: [
                       if (_isFilmSite) ...[
                         // 影视区新顺序（照火蚁TV播放详情页）：内联播放器 →
-                        // 毛玻璃详情（标题 / 集数 / 站源 / 加入追剧 / 选集 /
-                        // 简介）→ 本片剧照。播放线路折进「站源」行，不再单
+                        // 魔蚁详情（海报 / 标题 / 集数 / 站源 / 加入追剧 /
+                        // 选集 / 简介）→ 本片剧照。播放线路折进「站源」行，不再单
                         // 独成区；剧评 / 原著是短剧专属，影视区没有。
                         SliverToBoxAdapter(child: _filmPlayer()),
-                        SliverToBoxAdapter(child: _filmGlassDetail()),
+                        SliverToBoxAdapter(child: _filmMoyiDetail()),
                         SliverToBoxAdapter(child: _filmStillsSection()),
                         SliverToBoxAdapter(child: _filmRelatedSection()),
                       ] else ...[
@@ -859,7 +859,7 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
     onBack: () => Navigator.of(context).maybePop(),
     onFullscreen: _openInlineFullscreen,
     onOpenEpisodes: () {
-      // 选集区在毛玻璃详情里；滚到播放器下方一点让它露出来。
+      // 选集区在魔蚁详情里；滚到播放器下方一点让它露出来。
       if (!_scroll.hasClients) return;
       unawaited(
         _scroll.animateTo(
@@ -871,93 +871,140 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
     },
   );
 
-  /// 影视区毛玻璃详情区（照火蚁TV播放详情页）：海报模糊底 + 深色罩，
-  /// 自上而下是标题 / 集数 / 站源 / 加入追剧 / 选集 / 简介。
-  /// 整块强制深色（播放器界面本来就是深色），与应用浅色主题无关；
+  /// 影视区魔蚁详情区（照魔蚁 box 详情页）：背景是本片剧照原图整幅显示，
+  /// **不模糊**（旧毛玻璃的 `ImageFilter.blur` 已拆掉），只盖一层深紫蓝
+  /// 渐变罩保证文字可读；没有剧照时回落到海报原图，仍不模糊。
+  ///
+  /// 自上而下是海报 + 标题 / 集数（金字）/ 站源卡片 / 加入追剧 / 选集 /
+  /// 简介。整块强制深色（播放器界面本来就是深色），与应用浅色主题无关；
   /// 选集与简介两区复用现有组件，靠深色主题取浅色字。
-  Widget _filmGlassDetail() {
+  /// 播放线路不单独成区：线路名折进「站源」卡片（见 [_filmSourceLines]）。
+  Widget _filmMoyiDetail() {
     final cover = ApiClient.instance.absoluteUrl(_coverText);
     final lines = _filmLines();
     final count = _episodes.isNotEmpty
         ? _episodes.length
         : (_detail.episodeCount > 0 ? _detail.episodeCount : 0);
+    // 剧照背景取详情页自带剧照（与「本片剧照」同一来源），没有剧照时
+    // 回落到海报原图。
+    final stills = _filmDetail?.stills ?? const <String>[];
+    final backgroundUrl = stills.isNotEmpty
+        ? ApiClient.instance.absoluteUrl(stills.first)
+        : cover;
     return Theme(
       data: Theme.of(context).copyWith(brightness: Brightness.dark),
-      child: Stack(
-        children: [
-          // 毛玻璃底：海报放大 1.15 倍再模糊，糊边裁在框外。
-          Positioned.fill(
-            child: cover.isEmpty
-                ? const ColoredBox(color: Colors.black87)
-                : Transform.scale(
-                    scale: 1.15,
-                    child: ImageFiltered(
-                      imageFilter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-                      child: CachedNetworkImage(
-                        imageUrl: cover,
-                        fit: BoxFit.cover,
-                        errorWidget: (_, _, _) =>
-                            const ColoredBox(color: Colors.black87),
-                        placeholder: (_, _) =>
-                            const ColoredBox(color: Colors.black87),
-                      ),
-                    ),
-                  ),
-          ),
-          Positioned.fill(
-            child: Container(color: Colors.black.withValues(alpha: 0.55)),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      _titleText,
-                      key: const ValueKey('film-detail-title'),
-                      style: const TextStyle(
-                        fontSize: 17,
-                        height: 1.45,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    // 分类标签（站原字段 category + tags，见 _filmCategories）：
-                    // 标题正下方的横排小标签，照原始版 fqapp 可点，点后按
-                    // 标签筛出本站电影；没数据时整行不占位。
-                    ..._filmCategoryTags(),
-                    if (count > 0)
-                      Text(
-                        '共 $count 集 · 当前第 ${_currentIndex + 1} 集',
-                        key: const ValueKey('film-detail-episode-count'),
-                        style: const TextStyle(
-                          fontSize: 13,
-                          height: 1.5,
-                          color: Colors.white70,
+      child: MoyiDetailBackground(
+        imageUrl: backgroundUrl,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _filmPoster(cover),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _titleText,
+                              key: const ValueKey('film-detail-title'),
+                              style: moyiTitleStyle,
+                            ),
+                            const SizedBox(height: 8),
+                            // 分类标签（站原字段 category + tags，见 _filmCategories）：
+                            // 标题正下方的横排小标签，照原始版 fqapp 可点，点后按
+                            // 标签筛出本站电影；没数据时整行不占位。
+                            ..._filmCategoryTags(),
+                            if (count > 0)
+                              Text(
+                                '共 $count 集 · 当前第 ${_currentIndex + 1} 集',
+                                key: const ValueKey(
+                                  'film-detail-episode-count',
+                                ),
+                                style: moyiGoldLineStyle,
+                              ),
+                          ],
                         ),
                       ),
-                    const SizedBox(height: 4),
-                    ..._filmSourceLines(lines),
-                    const SizedBox(height: 12),
-                    _followButton(),
-                  ],
-                ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  // 站源卡片：圆角卡片 + 紫色描边，线路名在卡片里各占一行。
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    decoration: moyiCardDecoration(radius: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: _filmSourceLines(lines),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _followButton(),
+                ],
               ),
-              // 选集与简介复用现有区（自带左右 16 间距，与上面对齐）。
-              _episodeSection(),
-              _filmIntroSection(),
-            ],
-          ),
-        ],
+            ),
+            // 选集与简介复用现有区（自带左右 16 间距，与上面对齐）。
+            _episodeSection(),
+            _filmIntroSection(),
+          ],
+        ),
       ),
     );
   }
 
-  /// 毛玻璃详情区顶部的分类标签行：站原字段 `category` + `tags`
+  /// 魔蚁详情头项的海报：96×136 圆角 12 + 紫色描边（对照图里卡片的
+  /// 紫色描边）。封面为空时给深紫占位，不拿剧照冒充海报。
+  Widget _filmPoster(String cover) {
+    return Container(
+      key: const ValueKey('film-detail-poster'),
+      width: 96,
+      height: 136,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: moyiPurple.withValues(alpha: 0.55),
+          width: 1,
+        ),
+      ),
+      child: cover.isEmpty
+          ? const ColoredBox(
+              color: Color(0xFF262543),
+              child: Icon(
+                Icons.movie_outlined,
+                color: Colors.white54,
+                size: 32,
+              ),
+            )
+          : CachedNetworkImage(
+              imageUrl: cover,
+              fit: BoxFit.cover,
+              errorWidget: (_, _, _) => const ColoredBox(
+                color: Color(0xFF262543),
+                child: Icon(
+                  Icons.movie_outlined,
+                  color: Colors.white54,
+                  size: 32,
+                ),
+              ),
+              placeholder: (_, _) =>
+                  const ColoredBox(color: Color(0xFF262543)),
+            ),
+    );
+  }
+
+  /// 魔蚁详情区顶部的分类标签行：站原字段 `category` + `tags`
   /// 拆开去重后的横排小标签（`_filmCategories`）。站详情没回来
   /// （标签为空）时整行不占位；回调为空时只展示、不可点。
   List<Widget> _filmCategoryTags() {
@@ -974,7 +1021,7 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
     ];
   }
 
-  /// 一颗分类标签：半透明白底 + 白字胶囊（毛玻璃深色区里可读）。
+  /// 一颗分类标签：紫底 + 紫描边胶囊 + 白字（魔蚁主题深色区里可读）。
   /// 回调在时包一层 InkWell 可点，点后把标签名交给
   /// [onFilmCategoryTap]；回调为空时就是普通展示块。
   Widget _filmCategoryTag(String name) {
@@ -982,8 +1029,12 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
     final chip = Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.16),
+        color: moyiPurple.withValues(alpha: 0.35),
         borderRadius: BorderRadius.circular(99),
+        border: Border.all(
+          color: moyiPurple.withValues(alpha: 0.6),
+          width: 1,
+        ),
       ),
       child: Text(
         name,
@@ -1027,8 +1078,8 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
     return widgets;
   }
 
-  /// 「加入追剧」：就是详情页原来的收藏（写本机书架），换成目标图的
-  /// 浅色药丸样子 + 下拉箭头。点按切换收藏态，箭头只作版式。
+  /// 「加入追剧」：就是详情页原来的收藏（写本机书架），换成魔蚁主题的
+  /// 粉紫渐变按钮 + 白字 + 下拉箭头。点按切换收藏态，箭头只作版式。
   Widget _followButton() {
     return ValueListenableBuilder<int>(
       valueListenable: ShelfStore.instance.listenable,
@@ -1039,47 +1090,19 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
               ? widget.seriesId
               : 'engine:${widget.engineSiteId}:${widget.seriesId}',
         );
-        return Material(
-          color: Colors.transparent,
-          child: InkWell(
-            key: const ValueKey('film-detail-follow'),
-            borderRadius: BorderRadius.circular(12),
-            onTap: _shelfBusy || widget.seriesId.isEmpty ? null : _toggleShelf,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.92),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    saved
-                        ? Icons.bookmark_rounded
-                        : Icons.bookmark_add_outlined,
-                    size: 18,
-                    color: Colors.black87,
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    saved ? '已追剧' : '加入追剧',
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.black87,
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  const Icon(
-                    Icons.keyboard_arrow_down_rounded,
-                    size: 18,
-                    color: Colors.black87,
-                  ),
-                ],
-              ),
-            ),
+        return MoyiGradientButton(
+          key: const ValueKey('film-detail-follow'),
+          label: saved ? '已追剧' : '加入追剧',
+          icon: saved
+              ? Icons.bookmark_rounded
+              : Icons.bookmark_add_outlined,
+          trailing: const Icon(
+            Icons.keyboard_arrow_down_rounded,
+            size: 18,
+            color: Colors.white,
           ),
+          enabled: !_shelfBusy && widget.seriesId.isNotEmpty,
+          onPressed: _toggleShelf,
         );
       },
     );
@@ -1110,8 +1133,17 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
                 final url = ApiClient.instance.absoluteUrl(stills[i]);
                 return GestureDetector(
                   onTap: () => _openStill(url),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(6),
+                  child: Container(
+                    width: 160,
+                    height: 96,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: moyiPurple.withValues(alpha: 0.55),
+                        width: 1,
+                      ),
+                    ),
+                    clipBehavior: Clip.antiAlias,
                     child: CachedNetworkImage(
                       imageUrl: url,
                       width: 160,

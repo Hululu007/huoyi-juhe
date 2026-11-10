@@ -100,9 +100,24 @@ void main() {
   double heroHeight(WidgetTester tester) =>
       tester.getSize(find.byType(HomeHero)).height;
 
+  /// 横滑切分类的拖动起点：必须落在轮播下方（网格区）。轮播 PageView
+  /// 占了首屏中央，横滑从它身上起手会被轮播认领去翻页，分类切不过去
+  /// （与魔蚁同款行为——轮播区域内横滑归轮播）。起点取轮播底部往下
+  /// 60dp，钳在视口内（滚过轮播后它已出屏就取 100）；没有轮播的分类
+  /// 取屏中心往下 250dp。
+  Offset swipeStart(WidgetTester tester) {
+    final hero = find.byKey(const ValueKey('moyi-hero'));
+    if (hero.evaluate().isNotEmpty) {
+      final bottom = tester.getRect(hero).bottom;
+      return Offset(200, (bottom + 60).clamp(100.0, 750.0));
+    }
+    return tester.getCenter(find.byKey(const Key('home_feed'))) +
+        const Offset(0, 250);
+  }
+
   /// 横滑切一个分类，并推进到迎入动画结束。
   Future<void> swipeTab(WidgetTester tester, double dx) async {
-    await tester.drag(find.byKey(const Key('home_feed')), Offset(dx, 0));
+    await tester.dragFrom(swipeStart(tester), Offset(dx, 0));
     for (var frame = 0; frame < 24; frame++) {
       await tester.pump(const Duration(milliseconds: 16));
     }
@@ -120,8 +135,8 @@ void main() {
       find.byKey(const ValueKey('home_category_0')),
     );
 
-    await tester.drag(
-      find.byKey(const Key('home_feed')),
+    await tester.dragFrom(
+      swipeStart(tester),
       const Offset(-260, 0),
     );
     for (var frame = 1; frame <= 20; frame++) {
@@ -156,7 +171,7 @@ void main() {
       reason: '位移层套了重绘边界，钉住的顶栏会被栅格裁掉',
     );
 
-    final gesture = await tester.startGesture(tester.getCenter(feed));
+    final gesture = await tester.startGesture(swipeStart(tester));
     await gesture.moveBy(const Offset(-100, 0));
     await tester.pump();
 

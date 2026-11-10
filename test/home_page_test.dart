@@ -226,11 +226,14 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // 排行榜标题在；卡片流合并进一个「为你推荐」段落，上游的「猜你喜欢」
-    // 这个名字不再出现。
+    // 排行榜标题在；卡片流按魔蚁式拆成「热播推荐 / 猜你想看」两段，
+    // 上游的「猜你喜欢」这个名字不再出现；这里只有两张卡（≤6 张），
+    // 所以只出热播推荐一段，不出猜你想看。
     expect(find.text('排行榜'), findsWidgets);
     expect(find.text('猜你喜欢'), findsNothing);
-    expect(find.text('为你推荐'), findsOneWidget);
+    expect(find.text('为你推荐'), findsNothing);
+    expect(find.text('热播推荐'), findsOneWidget);
+    expect(find.text('猜你想看'), findsNothing);
     // 排行榜预览：前三名戴 TOP 角标，名次来自榜单顺序。
     expect(find.text('TOP 1'), findsWidgets);
     expect(find.text('TOP 2'), findsWidgets);
