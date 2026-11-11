@@ -251,6 +251,11 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   bool _externalPanelOpen = false;
   bool _switchingSeries = false;
 
+  /// chrome 的 seek 栏（带圆点的进度条）当前在屏与否：chrome 在 build
+  /// 里算出、变化时回调进来。常驻进度细条只在它不在屏时显示；
+  /// 初始按「在屏」算，免得首帧闪出两条进度。
+  final ValueNotifier<bool> _chromeSeekBarVisible = ValueNotifier<bool>(true);
+
   /// 选集面板头部用的剧信息（官方 `aa8.xml:7-15`）。
   String _seriesTitle = '';
   String _seriesCover = '';
@@ -1092,6 +1097,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     _danmakuFlight?.cancel();
     _danmakuLoader.dispose();
     _seekHintTimer?.cancel();
+    _chromeSeekBarVisible.dispose();
     _sources.dispose();
     _loadTrace?.finish('disposed');
     ++_loadGeneration;
@@ -2335,6 +2341,10 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
             }
           : null,
       onSeeked: widget.shortSeries ? _onDanmakuSeek : null,
+      // 常驻进度细条的显隐就接这个：seek 栏在屏时细条藏起来，
+      // seek 栏不在屏时细条才出现，两条进度不重叠。
+      onSeekBarVisibilityChanged: (visible) =>
+          _chromeSeekBarVisible.value = visible,
       newPlayerBottomStyle: style.useNewPlayerBottomStyle,
       hasBanner: style.hasBanner,
       padNewBottomStyle: style.padNewBottomStyle,
@@ -2514,16 +2524,24 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
             onRetry: retry,
           ),
         // 常驻进度细条（对照 hongguoTV `PlaybackProgressDisplay`）：
-        // 贴在视频画面底缘，控件 3 秒收起后仍可见；只读不交互。
+        // 贴在视频画面底缘；只在 chrome 的 seek 栏不在屏时显示，seek 栏
+        // 一出来就藏起来——控制里本来就有带圆点的进度条，两条不能同时
+        // 出现。显隐状态由 chrome 的 `onSeekBarVisibilityChanged` 回调
+        // 推进这里，不另起 Timer。
         if (_error == null && !waiting)
           Positioned(
             left: 0,
             right: 0,
             bottom: 0,
             child: IgnorePointer(
-              child: PlayerPersistentProgress(
-                player: _player,
-                duration: _duration,
+              child: ValueListenableBuilder<bool>(
+                valueListenable: _chromeSeekBarVisible,
+                builder: (context, seekBarVisible, _) =>
+                    PlayerPersistentProgress(
+                  player: _player,
+                  duration: _duration,
+                  visible: !seekBarVisible,
+                ),
               ),
             ),
           ),

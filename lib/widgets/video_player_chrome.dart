@@ -243,6 +243,13 @@ class VideoPlayerChrome extends StatefulWidget {
   /// 分屏下半区（竖屏）或右侧栏（横屏）。null = 退回沉浸式整屏。
   final Widget? splitPanel;
 
+  /// chrome 的 seek 栏（带圆点的进度条）在屏与否变化时通知宿主。
+  /// 宿主用它决定常驻进度细条的显隐：seek 栏在屏时细条藏起来，
+  /// seek 栏不在屏时细条才出现，两条进度不重叠。
+  /// 判据不是 `_visible` 一个值：竖屏浏览态下控制收起后信息区还留着
+  /// seek 栏（`bandVisible`），只看 `_visible` 会漏掉这一路。
+  final ValueChanged<bool>? onSeekBarVisibilityChanged;
+
   const VideoPlayerChrome({
     super.key,
     required this.player,
@@ -307,6 +314,7 @@ class VideoPlayerChrome extends StatefulWidget {
     this.openFullScreen = false,
     this.layoutMode = PlayerLayoutMode.immersive,
     this.splitPanel,
+    this.onSeekBarVisibilityChanged,
   });
 
   @override
@@ -365,6 +373,9 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
   /// （`jq3/x$q.onDoubleTap` 的 44dp..屏高-240dp）。
   Offset? _doubleTapDownPosition;
   bool _visible = true;
+
+  /// 上次已通知宿主的 seek 栏显隐（null = 还没通知过，首帧必通知）。
+  bool? _lastNotifiedSeekBarVisible;
   bool _seeking = false;
   bool _resumeAfterSeek = false;
   bool _modalOpen = false;
@@ -2520,6 +2531,27 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
         !_visible &&
         !_seeking &&
         showChrome;
+    // seek 栏（带圆点的进度条）在屏与否：三处渲染点（竖屏 video-seek /
+    // 横屏底条 / 分屏紧凑条）统一读它。常驻细条只在它不在屏时出现。
+    // 竖屏浏览态下 `_visible` 为 false 时 band 还留着 seek 栏，所以判据
+    // 里把 `portraitBrowse && shortSeries` 这一路也算进去，不能只看
+    // `_visible`。值变化时下一帧回调宿主（build 里不直接调，避免
+    // build 期间改父级状态）。
+    final seekBarVisible =
+        showChrome &&
+        _ready &&
+        (_visible ||
+            _seeking ||
+            (!compact &&
+                !landscapeBar &&
+                portraitBrowse &&
+                widget.shortSeries));
+    if (seekBarVisible != _lastNotifiedSeekBarVisible) {
+      _lastNotifiedSeekBarVisible = seekBarVisible;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) widget.onSeekBarVisibilityChanged?.call(seekBarVisible);
+      });
+    }
     // 热评只在信息区可见时出现；新栏采用截图中的无底色信息行。
     final hotBar =
         portraitBrowse &&

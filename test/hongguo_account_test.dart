@@ -1,11 +1,40 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fqapp/services/hongguo_account.dart';
 import 'package:fqapp/services/hongguo_account_sync.dart';
 import 'package:fqapp/services/secure_key_provider.dart';
+import 'package:http/http.dart' as http;
+
+/// 只记请求、不发网络的假 http 客户端，按给定的 JSON 回包。
+class _CapturingClient extends http.BaseClient {
+  _CapturingClient(this.replyJson);
+
+  final Map<String, dynamic> replyJson;
+  http.BaseRequest? lastRequest;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    lastRequest = request;
+    final body = utf8.encode(jsonEncode(replyJson));
+    return http.StreamedResponse(
+      Stream.value(body),
+      200,
+      headers: {'content-type': 'application/json'},
+    );
+  }
+}
+
+Map<String, String> _lowerHeaders(Map<String, String> headers) => {
+  for (final entry in headers.entries) entry.key.toLowerCase(): entry.value,
+};
 
 /// 内存假传输：不发任何网络请求，只按接口约定走状态。
 class _FakeTransport implements HongguoAccountTransport {
   String? sentMobile;
+  int sendAttempts = 0;
+  HongguoAccountError? sendFailure;
   int pollCount = 0;
   int uploadCount = 0;
   final favorites = <HongguoCloudFavorite>[];
@@ -23,6 +52,8 @@ class _FakeTransport implements HongguoAccountTransport {
 
   @override
   Future<HongguoCodeSent> sendPhoneCode(String mobile) async {
+    sendAttempts++;
+    if (sendFailure != null) throw sendFailure!;
     sentMobile = mobile;
     return const HongguoCodeSent(maskedMobile: '+86******23', retrySeconds: 5);
   }
@@ -431,5 +462,88 @@ void main() {
       'data': {'biz_user_id': 'u9', 'user_name': '阿狸'},
     });
     expect(profile.userId, 'u9');
+  });
+
+  test('默认传输已接线：签名默认开启', () {
+    expect(HongguoAccountHttpTransport().signingWired, isTrue);
+  });
+
+  test('发码请求带签名头与设备表，不带 device_id', () async {
+    final client = _CapturingClient({
+      'message': 'success',
+      'data': {
+        'mobile': '+86******23',
+        'mobile_ticket': 'ticket-1',
+        'retry_time': 60,
+      },
+    });
+    final transport = HongguoAccountHttpTransport(client: client);
+    final sent = await transport.sendPhoneCode('13800138000');
+    expect(sent.maskedMobile, '+86******23');
+    expect(sent.retrySeconds, 60);
+    final request = client.lastRequest;
+    expect(request, isNotNull);
+    expect(request!.method, 'POST');
+    expect(request.url.host, 'security.snssdk.com');
+    expect(request.url.path, '/passport/mobile/send_code/v1/');
+    final query = request.url.queryParameters;
+    expect(query['mobile'], '13800138000');
+    expect(query['type'], '24');
+    expect(query['aid'], '8662');
+    expect(query['app_name'], 'novelread');
+    expect(query['version_code'], '73532');
+    expect(query['device_platform'], 'android');
+    expect(query.containsKey('_rticket'), isTrue);
+    expect(query.containsKey('device_id'), isFalse);
+    expect(query.containsKey('iid'), isFalse);
+    final headers = _lowerHeaders(request.headers);
+    for (final name in ['x-gorgon', 'x-medusa', 'x-argus', 'x-khronos']) {
+      expect(headers[name], isNotNull, reason: '缺签名头 $name');
+      expect(headers[name]!.isNotEmpty, isTrue);
+    }
+  });
+
+  test('错误码 7 映射成平台限流并带 code', () async {
+    final client = _CapturingClient({
+      'message': 'fail',
+      'data': {'error_code': 7, 'description': '访问太频繁，请稍后再试'},
+    });
+    final transport = HongguoAccountHttpTransport(client: client);
+    try {
+      await transport.sendPhoneCode('13800138000');
+      fail('错误码 7 应抛错');
+    } on HongguoAccountError catch (e) {
+      expect(e.code, 7);
+      expect(e.message, contains('平台限流'));
+      expect(e.message, contains('60 秒'));
+    }
+  });
+
+  test('限流失败后 60 秒内不能重发', () async {
+    final transport = _FakeTransport()
+      ..sendFailure = HongguoAccountError(
+        '平台限流：请求太频繁，请等 60 秒后再试（错误码 7）',
+        code: 7,
+      );
+    final service = _service(transport);
+    addTearDown(service.dispose);
+    await service.init();
+    try {
+      await service.sendCode(number: '13800138000');
+      fail('限流失败应抛错');
+    } on HongguoAccountError catch (e) {
+      expect(e.message, contains('平台限流'));
+    }
+    expect(transport.sendAttempts, 1);
+    expect(service.codeCooldownSeconds, greaterThan(0));
+    expect(service.statusMessage, contains('平台限流'));
+    // 冷却内再点不发请求。
+    try {
+      await service.sendCode(number: '13800138000');
+      fail('冷却内应抛错');
+    } on HongguoAccountError catch (e) {
+      expect(e.message, contains('后再重发'));
+    }
+    expect(transport.sendAttempts, 1);
   });
 }

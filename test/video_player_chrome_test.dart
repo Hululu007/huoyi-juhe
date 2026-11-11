@@ -2131,6 +2131,34 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     await player.dispose();
   });
+
+  testWidgets(
+    'seek bar visibility is reported so the host can hide the thin bar',
+    (tester) async {
+      // 双进度条修复：常驻细条只在 chrome 的 seek 栏不在屏时显示。
+      // 通用播放器（shortSeries: false）竖屏下 seek 栏跟控件一起收起，
+      // 收起/回来都要回调宿主，宿主据此开关细条。
+      final player = FakeNativePlayer()..isPlaying = true;
+      final reported = <bool>[];
+      await tester.pumpWidget(
+        _app(player, onSeekBarVisibilityChanged: reported.add),
+      );
+      await tester.pump();
+      expect(reported, [true]);
+      // 3 秒收起计时到：控件藏起，seek 栏跟着藏，宿主收到 false。
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pump();
+      expect(reported, [true, false]);
+      // 暂停时控件回到可见，seek 栏回来，宿主收到 true。
+      player.isPlaying = false;
+      player.playingEvents.add(false);
+      await tester.pump();
+      await tester.pump();
+      expect(reported, [true, false, true]);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await player.dispose();
+    },
+  );
 }
 
 class _RateAcknowledgementPlayer extends FakeNativePlayer {
@@ -2180,6 +2208,7 @@ Widget _app(
   VoidCallback? onOpenOfflineCache,
   VoidCallback? onToggleDanmaku,
   ValueChanged<DanmakuSettings>? onDanmakuSettingsChanged,
+  ValueChanged<bool>? onSeekBarVisibilityChanged,
 }) => MaterialApp(
   builder: (context, child) => MediaQuery(
     data: MediaQuery.of(
@@ -2226,6 +2255,7 @@ Widget _app(
       onQualitySelected: qualitySelections?.add,
       onToggleDanmaku: onToggleDanmaku,
       onDanmakuSettingsChanged: onDanmakuSettingsChanged,
+      onSeekBarVisibilityChanged: onSeekBarVisibilityChanged,
       child: const ColoredBox(color: Colors.black),
     ),
   ),

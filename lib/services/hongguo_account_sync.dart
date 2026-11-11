@@ -6,11 +6,11 @@
 ///   完全分开。键按 `<账号 id>:<剧 id>` 命名空间，换号不串号；
 ///   退出登录只清本账号的箱，本机记录原样保留。
 /// - [HongguoAccountHttpTransport]：官方登录/账号接口的请求形状与
-///   返回解析。**签名未接线**：请求签名须用树里已有的红果签名能力
-///   另行接线，本文件只留 [HongguoAccountRequestSigner] 一个注入点，
-///   未注入时请求只带 Cookie 发送，平台很可能拒绝——属待联调项，
-///   页面会如实提示，绝不谎称已通。本文件不含任何设备指纹、
-///   签名常量与密钥材料。
+///   返回解析。**签名已接线**：默认用树里已有的红果签名能力
+///   （hongguo_sign.dart，取流同款）给请求补签名头，设备表用取流
+///   同款取值；[HongguoAccountRequestSigner] 仍是注入点，可换实现。
+///   本文件不含任何设备指纹、签名常量与密钥材料。短信验证码与扫码
+///   流程仍须在用户手机上实测验证。
 /// - [HongguoAccountService]：登录状态机 + 同步 + 退出，供页面与
 ///   播放器组调用。播放器续播只认 [HongguoAccountService.resumeForSeries] /
 ///   [HongguoAccountService.resumeForEpisode] 两个方法。
@@ -27,6 +27,7 @@ import 'package:http/http.dart' as http;
 
 import 'encrypted_hive.dart';
 import 'hongguo_account.dart';
+import 'hongguo_sign.dart';
 import 'secure_key_provider.dart';
 
 // ── 账号命名空间存储 ────────────────────────────────────────────────
@@ -254,7 +255,8 @@ class HongguoAccountCloudStore {
 // ── HTTP 传输 ───────────────────────────────────────────────────────
 
 /// 请求签名注入点：由调用方把树里已有的红果签名能力接进来，
-/// 返回补齐签名后的请求头。未注入时请求只带 Cookie 与基础头发送。
+/// 返回补齐签名后的请求头。默认实现是 [_hongguoAccountSigner]
+/// （hongguo_sign.dart，取流同款），不传即用默认；传了就覆盖。
 typedef HongguoAccountRequestSigner =
     Future<Map<String, String>> Function({
       required Uri url,
@@ -262,24 +264,74 @@ typedef HongguoAccountRequestSigner =
       List<int>? body,
     });
 
+/// 账号请求默认签名：用树里已有的红果签名栈（hongguo_sign.dart，
+/// 取流同款）给请求补签名头；外加取流同款的两个静态头。
+/// query 已在 URL 里，params 不再重复使用。
+Future<Map<String, String>> _hongguoAccountSigner({
+  required Uri url,
+  required Map<String, String> params,
+  List<int>? body,
+}) async {
+  final headers = hongguoPlayerHeaders(
+    url: url.toString(),
+    body: body,
+    now: DateTime.now(),
+    rawQuery: url.query,
+  );
+  headers['Sdk-Version'] = '2';
+  headers['X-XS-From-Web'] = '0';
+  return headers;
+}
+
 /// 官方登录/账号接口的请求形状与返回解析。
 ///
 /// 端点路径与返回字段名取自对照仓库的流程结构；本文件不含设备
 /// 指纹、签名常量与密钥材料，也不保存验证码与任何明文凭据。
-/// 联调状态见 [signingWired]：未接线时登录请求大概率被平台拒绝，
-/// 错误会原样抛给页面显示，不得谎称已通。
+/// 签名默认已接线（[_hongguoAccountSigner]，hongguo_sign 栈）；
+/// 错误会原样抛给页面显示，不得谎称已通，错误码 7 另见 [_describe]。
 class HongguoAccountHttpTransport implements HongguoAccountTransport {
-  HongguoAccountHttpTransport({http.Client? client, this._signer})
-    : _client = client ?? http.Client();
+  HongguoAccountHttpTransport({http.Client? client, HongguoAccountRequestSigner? signer})
+    : _client = client ?? http.Client(),
+      _signer = signer ?? _hongguoAccountSigner;
 
   static const _webBase = 'https://hongguoduanju.com';
   static const _passportBase = 'https://security.snssdk.com';
   static const _apiBase = 'https://api5-normal-sinfonlinea.fqnovel.com';
 
-  /// 树里已有同款取值（hongguo_sign_test.dart 的取流地址同用此 aid），
-  /// 不是从对照仓库新拷的常量。
-  static const _aid = '8662';
-  static const _appName = 'novelread';
+  /// passport 请求的设备表：取流同款取值（hgtv_content 的 _appQuery），
+  /// 不含 device_id/iid——对照仓库实测，passport 的 query 里带
+  /// device_id 会被判 2046；设备靠签名识别，不靠 query。
+  /// 取值是树里已有的那套，不是从对照仓库新拷的常量。
+  static const _passportDeviceParams = <String, String>{
+    'aid': '8662',
+    'app_name': 'novelread',
+    'version_code': '73532',
+    'version_name': '7.3.5.32',
+    'manifest_version_code': '73532',
+    'update_version_code': '73532',
+    'channel': 'update_64',
+    'device_platform': 'android',
+    'os': 'android',
+    'ssmix': 'a',
+    'device_type': '25053RT47C',
+    'device_brand': 'Redmi',
+    'language': 'zh',
+    'os_api': '36',
+    'os_version': '16',
+    'resolution': '1280*2772',
+    'dpi': '520',
+    'ac': 'wifi',
+  };
+
+  /// passport 请求参数：设备表 + 本次请求参数 + 现取的 _rticket。
+  /// 请求参数后合并，同名以本次请求为准。
+  static Map<String, String> _passportParams(Map<String, String> params) {
+    return {
+      ..._passportDeviceParams,
+      ...params,
+      '_rticket': DateTime.now().millisecondsSinceEpoch.toString(),
+    };
+  }
 
   static const _webUa =
       'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 '
@@ -347,12 +399,8 @@ class HongguoAccountHttpTransport implements HongguoAccountTransport {
   }) async {
     final query = Map<String, String>.from(params);
     final url = Uri.parse('$base$path').replace(queryParameters: query);
-    final headers = <String, String>{
-      'User-Agent': _webUa,
-      if (cookie != null && cookie.isNotEmpty) 'Cookie': cookie,
-      ...?extraHeaders,
-      ...await _signedHeaders(url, query),
-    };
+    // 先算 body 再签名：签名要覆盖实际发出的 body，之前先签名后算
+    // body，表单请求的签名里 body 是空的。
     final body = formBody
         ? utf8.encode(
             query.entries
@@ -364,6 +412,12 @@ class HongguoAccountHttpTransport implements HongguoAccountTransport {
                 .join('&'),
           )
         : null;
+    final headers = <String, String>{
+      'User-Agent': _webUa,
+      if (cookie != null && cookie.isNotEmpty) 'Cookie': cookie,
+      ...?extraHeaders,
+      ...await _signedHeaders(url, query, body),
+    };
     if (body != null) {
       headers['Content-Type'] = 'application/x-www-form-urlencoded';
     }
@@ -408,6 +462,11 @@ class HongguoAccountHttpTransport implements HongguoAccountTransport {
   static String _describe(Map<String, dynamic> data) {
     final desc = '${data['description'] ?? ''}';
     final code = data['error_code'];
+    // 错误码 7 是平台限流（发码太频繁）：只转述平台原文，用户既不
+    // 知道等多久，也分不清是平台在限流还是本机问题，这里写清。
+    if (code is num && code.toInt() == 7) {
+      return '平台限流：请求太频繁，请等 60 秒后再试（错误码 7）';
+    }
     if (desc.isEmpty) return '';
     return code is num ? '$desc（错误码 $code）' : desc;
   }
@@ -420,13 +479,11 @@ class HongguoAccountHttpTransport implements HongguoAccountTransport {
     _ticket = '';
     _cookies.clear();
     final reply = _decode(
-      await _postForm(_passportBase, '/passport/mobile/send_code/v1/', {
-        'mobile': mobile,
-        'type': '24',
-        'aid': _aid,
-        'app_name': _appName,
-        'device_platform': 'android',
-      }),
+      await _postForm(
+        _passportBase,
+        '/passport/mobile/send_code/v1/',
+        _passportParams({'mobile': mobile, 'type': '24'}),
+      ),
     );
     if ('${reply['message'] ?? ''}' != 'success') {
       final data = reply['data'] is Map<String, dynamic>
@@ -435,8 +492,13 @@ class HongguoAccountHttpTransport implements HongguoAccountTransport {
       if (data.containsKey('verify_center_decision_conf')) {
         throw HongguoAccountError('平台要求先完成滑块验证，当前登录流程不支持，尚未完成登录。');
       }
+      // 把平台错误码带上：调用方靠它决定要不要限流冷却（错误码 7）。
+      final errorCode = data['error_code'] is num
+          ? (data['error_code'] as num).toInt()
+          : 0;
       throw HongguoAccountError(
         _describe(data).isEmpty ? '验证码没发出去' : _describe(data),
+        code: errorCode == 0 ? null : errorCode,
       );
     }
     final data = reply['data'] is Map<String, dynamic>
@@ -474,12 +536,14 @@ class HongguoAccountHttpTransport implements HongguoAccountTransport {
         'code': code,
         'type': '24',
         'mobile_ticket': _ticket,
-        'aid': _aid,
-        'app_name': _appName,
-        'device_platform': 'android',
       };
       final reply = _decode(
-        await _postForm(_passportBase, path, params, formBody: form),
+        await _postForm(
+          _passportBase,
+          path,
+          _passportParams(params),
+          formBody: form,
+        ),
       );
       if (_cookies.containsKey('sessionid')) break;
       final data = reply['data'] is Map<String, dynamic>
@@ -668,18 +732,19 @@ class HongguoAccountHttpTransport implements HongguoAccountTransport {
     bool gzip = false,
   }) async {
     final url = Uri.parse('$_apiBase$path').replace(queryParameters: params);
+    // 先算最终要发的 body 再签名：签名要覆盖实际发出的字节
+    // （gzip 后），之前签名的请求里 body 是空的。
+    final bodyBytes = body == null ? null : utf8.encode(jsonEncode(body));
+    final List<int>? wireBody = (gzip && bodyBytes != null)
+        ? gzipEncode(bodyBytes)
+        : bodyBytes;
     final headers = <String, String>{
       'User-Agent': _webUa,
       'Accept': 'application/json',
       'Cookie': session.cookie,
-      ...await _signedHeaders(url, params),
+      ...await _signedHeaders(url, params, wireBody),
     };
-    final bodyBytes = body == null
-        ? null
-        : utf8.encode(jsonEncode(body));
-    List<int>? wireBody = bodyBytes;
     if (gzip && bodyBytes != null) {
-      wireBody = gzipEncode(bodyBytes);
       headers['Content-Encoding'] = 'gzip';
     }
     if (wireBody != null) {
@@ -1202,12 +1267,12 @@ class HongguoAccountService extends ChangeNotifier {
     return left > 0 ? left : 0;
   }
 
-  /// 当前传输是否接了请求签名。未接线时登录请求大概率被平台拒绝，
-  /// 页面会如实提示，见 HongguoAccountHttpTransport。
+  /// 当前传输是否接了请求签名。默认 HTTP 传输已接线（hongguo_sign
+  /// 栈），还没发过请求时也是 true；只有测试注入的假传输才 false。
   bool get signingWired {
     final attempt = _attempt;
+    if (attempt == null) return true;
     if (attempt is HongguoAccountHttpTransport) return attempt.signingWired;
-    // 默认传输即 HTTP 传输（未注入签名）。
     return false;
   }
 
@@ -1282,6 +1347,22 @@ class HongguoAccountService extends ChangeNotifier {
 
   // ── 手机号登录（主路） ──
 
+  /// 启动验证码重发倒计时（秒）。成功发码用平台回的 retry_time，
+  /// 限流失败用 60 秒；冷却内按钮禁用、倒计时显示，不再发请求。
+  void _startCodeCooldown(int seconds) {
+    _codeCooldownUntil = DateTime.now().add(
+      Duration(seconds: seconds.clamp(1, 600)),
+    );
+    _codeCooldownTimer?.cancel();
+    _codeCooldownTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) {
+        if (codeCooldownSeconds <= 0) _codeCooldownTimer?.cancel();
+        notifyListeners();
+      },
+    );
+  }
+
   /// 发短信验证码。countryCode 默认 86；号码归一化失败直接抛
   /// [HongguoAccountError]，页面显示其 message 即可。
   Future<HongguoCodeSent> sendCode({
@@ -1303,19 +1384,12 @@ class HongguoAccountService extends ChangeNotifier {
       _attempt = attempt;
       _loginState = HongguoLoginState.codeSent;
       _statusMessage = '验证码已发送至 ${sent.maskedMobile}';
-      _codeCooldownUntil = DateTime.now().add(
-        Duration(seconds: sent.retrySeconds.clamp(1, 600)),
-      );
-      _codeCooldownTimer?.cancel();
-      _codeCooldownTimer = Timer.periodic(
-        const Duration(seconds: 1),
-        (_) {
-          if (codeCooldownSeconds <= 0) _codeCooldownTimer?.cancel();
-          notifyListeners();
-        },
-      );
+      _startCodeCooldown(sent.retrySeconds);
       return sent;
     } on HongguoAccountError catch (e) {
+      // 平台限流（错误码 7）：发码失败也不让立刻重发，否则每次重
+      // 点都再打一次已被限流的接口，只会延长限流。
+      if (e.code == 7) _startCodeCooldown(60);
       _loginState = HongguoLoginState.signedOut;
       _statusMessage = e.message;
       rethrow;
