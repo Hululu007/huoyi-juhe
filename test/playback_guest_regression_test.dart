@@ -5,9 +5,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:fqapp/models/comment_reply.dart';
 import 'package:fqapp/models/media_item.dart';
 import 'package:fqapp/models/playlet_comment.dart';
 import 'package:fqapp/widgets/player/playlet_comment_panel.dart';
+import 'package:fqapp/widgets/player/playlet_reply_panel.dart';
 import 'package:fqapp/services/player_style_config.dart';
 import 'package:fqapp/widgets/video_player_chrome.dart';
 
@@ -63,6 +65,37 @@ void main() {
     expect(find.text('这集好看'), findsOneWidget);
     expect(find.byType(TextField), findsNothing);
     expect(find.text('发布'), findsNothing);
+  });
+
+  // 回复楼同款口径：匿名态不露出可用的回复输入框。
+  testWidgets('anonymous replies expose no unavailable editor', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: PlayletReplyPanel(
+            seriesId: 'series-1',
+            comment: const PlayletComment(id: 'c1', text: '这集好看'),
+            onBack: () {},
+            loader:
+                ({
+                  required commentId,
+                  required count,
+                  required cursor,
+                  String refReplyId = '',
+                }) async => const CommentReplyPage(
+                  replies: [CommentReply(id: 'r1', text: '第一条回复')],
+                  totalCount: 1,
+                ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('第一条回复'), findsOneWidget);
+    expect(find.byType(TextField), findsNothing);
+    expect(find.text('发送'), findsNothing);
   });
 
   testWidgets('disabling the lock config restores controls while locked', (

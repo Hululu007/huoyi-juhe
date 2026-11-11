@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fqapp/models/comment_reply.dart';
 import 'package:fqapp/models/playlet_comment.dart';
+import 'package:fqapp/services/playlet_interaction_posting.dart';
 import 'package:fqapp/widgets/player/playlet_comment_panel.dart';
 import 'package:fqapp/widgets/player/playlet_reply_panel.dart';
 
@@ -27,6 +28,9 @@ void main() {
             seriesId: '123',
             focusCommentId: focusCommentId,
             replyLoader: replies,
+            // 新口径：匿名态不渲染输入框。用例测的是输入框本身的行为，
+            // 故注入已登录的发表层，让输入框在场的前提成立。
+            poster: PlayletInteractionPosting(isSignedIn: () => true),
             loader:
                 ({
                   required sort,
@@ -44,7 +48,7 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('anonymous replies page through the selected comment', (
+  testWidgets('signed-in replies page through the selected comment', (
     tester,
   ) async {
     final calls = <String>[];
@@ -130,7 +134,7 @@ void main() {
   );
 
   testWidgets(
-    'hot comments retain their parent discussion and anonymous replies',
+    'hot comments retain their parent discussion and replies',
     (tester) async {
       final requested = <String>[];
       await pump(
@@ -152,7 +156,7 @@ void main() {
     },
   );
 
-  testWidgets('empty replies have a return path without an editor', (
+  testWidgets('empty replies have a return path', (
     tester,
   ) async {
     await pump(

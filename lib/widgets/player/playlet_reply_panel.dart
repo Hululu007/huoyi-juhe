@@ -253,19 +253,23 @@ class _PlayletReplyPanelState extends State<PlayletReplyPanel> {
             },
           ),
         ),
-        PlayletCommentComposer(
-          hintText: '回复 ${widget.comment.userName}…',
-          loginHint: _poster.loginHint,
-          onSend: (text) async {
-            final result = await _poster.postReply(
-              commentId: widget.comment.id,
-              seriesId: widget.seriesId,
-              text: text,
-            );
-            return result.isOk ? null : result.message;
-          },
-          onSent: (_) => unawaited(_reloadAfterPost()),
-        ),
+        // 未登录匿名态不渲染回复输入框：与评论面板同口径，复用发表层
+        // [_poster.signedIn]（默认实现读红果账号登录态；注入的发表层
+        // 未提供登录探针时视为未知、不拦）。
+        if (_poster.signedIn)
+          PlayletCommentComposer(
+            hintText: '回复 ${widget.comment.userName}…',
+            loginHint: _poster.loginHint,
+            onSend: (text) async {
+              final result = await _poster.postReply(
+                commentId: widget.comment.id,
+                seriesId: widget.seriesId,
+                text: text,
+              );
+              return result.isOk ? null : result.message;
+            },
+            onSent: (_) => unawaited(_reloadAfterPost()),
+          ),
       ],
     );
   }

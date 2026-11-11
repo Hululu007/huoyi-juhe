@@ -322,18 +322,24 @@ class _PlayletCommentPanelState extends State<PlayletCommentPanel> {
         _filters(),
         const Divider(height: 1),
         Expanded(child: _body()),
-        PlayletCommentComposer(
-          hintText: '写下你的评论…',
-          loginHint: _poster.loginHint,
-          onSend: (text) async {
-            final result = await _poster.postComment(
-              seriesId: widget.seriesId,
-              text: text,
-            );
-            return result.isOk ? null : result.message;
-          },
-          onSent: (_) => unawaited(_load(reset: true)),
-        ),
+        // 未登录匿名态不渲染输入框：发评论走红果账号会话，匿名时输入框
+        // 发出去也只会报「请登录」，属于不可用的编辑器。登录态复用
+        // 发表层 [_poster.signedIn]（默认实现读
+        // `HongguoAccountService.instance.signedIn`）；注入的发表层
+        // 未提供登录探针时视为未知、不拦（`signedIn` 默认 true）。
+        if (_poster.signedIn)
+          PlayletCommentComposer(
+            hintText: '写下你的评论…',
+            loginHint: _poster.loginHint,
+            onSend: (text) async {
+              final result = await _poster.postComment(
+                seriesId: widget.seriesId,
+                text: text,
+              );
+              return result.isOk ? null : result.message;
+            },
+            onSent: (_) => unawaited(_load(reset: true)),
+          ),
       ],
     );
     if (widget.embedded) return content;

@@ -12,7 +12,12 @@ import '../widgets/game_battle_stage.dart';
 import '../widgets/series_detail/moyi_detail_theme.dart';
 import '../widgets/game_hero_portrait.dart';
 
-/// 凡人修仙挂机游戏页：全屏 2.5D 俯视战场（见 [GameBattleStage]），
+/// 凡人修仙挂机游戏页：打开先是主页（白发女剑仙 + 云海仙宫，
+/// 见 [_buildHome]），点「进入战斗」切到全屏 2.5D 俯视战场
+/// （见 [GameBattleStage]）；主页技能圆盘点技能也进战场并顺手
+/// 放那一招（走战场现有的施放路径）；战场顶栏有「主页」钮切回来。
+/// 战场常驻挂载（主页时 Offstage 藏起来、不跑自动战斗），切回
+/// 战场不断局，BOSS 血量接着打。
 /// 顶部是人界篇式两排：头像 + 名字 + 境界进度条，右边元宝 /
 /// 静音 / 离开 / 金色“观影”切换钮，第二排是菱形金色功能图标，
 /// 其余功能（商城、背包、任务、爬塔、人物、装备、领取、
@@ -29,6 +34,30 @@ import '../widgets/game_hero_portrait.dart';
 /// 见 [GameSoundService]），进游戏 tab 自动播，切走停；
 /// 打怪音效（剑气、命中、暴击、大招）与音乐同时播，音量
 /// 分开，设置里能分别开关音乐和音效。
+/// 主页技能圆盘四技能 → 树里现有技能（只改显示名与映射，
+/// 不另造一套数值）：
+/// 御剑 → 青元剑诀（飞剑，剑光斜劈）；冰心 → 乾蓝冰焰；
+/// 归元 → 泰阳诀（金罩护体，归元守身）；新月 → 飞轮斩（月轮飞旋）。
+/// 点技能先进战场，再走战场现有的施放路径放那一招。
+const _homeSkillTargets = <({String label, String skillId})>[
+  (label: '御剑', skillId: 'qingyuan'),
+  (label: '归元', skillId: 'taiyang'),
+  (label: '冰心', skillId: 'qianlan'),
+  (label: '新月', skillId: 'feilun'),
+];
+
+/// 主页背景：云海仙宫（与战场同一张干净背景图，无 baked UI）。
+const String _gameHomeBgAsset = 'assets/images/game/battlefield_bg.jpg';
+
+/// 主页白发女剑仙全身像：用户视频帧中段干净带裁出（无顶栏、
+/// 无技能钮、无竖牌、无水印），白蓝道袍、持青色长剑。
+const String _gameHomeHeroineAsset =
+    'assets/images/game/hero_female_home.jpg';
+
+/// 主页头像：同款白发女剑仙正面半身（用户视频帧裁出）。
+const String _gameHomeHeroineBustAsset =
+    'assets/images/game/hero_female_bust.jpg';
+
 class GamePage extends StatefulWidget {
   const GamePage({
     super.key,
@@ -63,6 +92,12 @@ class _GamePageState extends State<GamePage> {
   Timer? _killToastTimer;
   bool _offlineBannerDismissed = false;
 
+  /// 是否在战场（false = 主页）。打开先是主页。
+  bool _inBattle = false;
+
+  /// 主页技能圆盘点过来的手动施放请求（技能 id），战场消费后清回空。
+  final ValueNotifier<String?> _manualCastRequest = ValueNotifier<String?>(null);
+
   GameService get _game => GameService.instance;
 
   @override
@@ -90,6 +125,7 @@ class _GamePageState extends State<GamePage> {
   @override
   void dispose() {
     _killToastTimer?.cancel();
+    _manualCastRequest.dispose();
     unawaited(GameSoundService.instance.stopBgm());
     super.dispose();
   }
@@ -143,6 +179,13 @@ class _GamePageState extends State<GamePage> {
     );
   }
 
+  /// 进战场（主页「进入战斗」钮，或技能圆盘点技能：先切进战场，
+  /// 再由战场消费 [_manualCastRequest] 放那一招）。
+  void _enterBattle({String? skillId}) {
+    setState(() => _inBattle = true);
+    if (skillId != null) _manualCastRequest.value = skillId;
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -172,26 +215,30 @@ class _GamePageState extends State<GamePage> {
         return Stack(
           fit: StackFit.expand,
           children: [
-            // 全屏战场。
-            GameBattleStage(
-              monster: _currentMonster,
-              heroPower: _game.power,
-              heroMaxHp: _heroMaxHp,
-              profession: snapshot.profession,
-              heroName: snapshot.username,
-              heroRealm: realmShort,
-              heroIsFemale:
-                  snapshot.gender == CultivationGender.female,
-              heroXp: snapshot.totalXp,
-              dungeonName: _dungeonName,
-              xpLabel: xpLabel,
-              xpRatio: xpRatio,
-              heroCostume:
-                  cultivationCostumeById(snapshot.costumeId),
-              active: widget.active,
-              onMonsterKilled: _onMonsterKilled,
-              onMinionKilled: _onMinionKilled,
-              onHeroStrike: (_) {},
+            // 全屏战场：常驻挂载，主页时 Offstage 藏起来、不跑
+            // 自动战斗；切回战场不断局，BOSS 血量接着打。
+            Offstage(
+              offstage: !_inBattle,
+              child: GameBattleStage(
+                monster: _currentMonster,
+                heroPower: _game.power,
+                heroMaxHp: _heroMaxHp,
+                profession: snapshot.profession,
+                heroName: snapshot.username,
+                heroRealm: realmShort,
+                heroIsFemale:
+                    snapshot.gender == CultivationGender.female,
+                heroXp: snapshot.totalXp,
+                dungeonName: _dungeonName,
+                xpLabel: xpLabel,
+                xpRatio: xpRatio,
+                heroCostume:
+                    cultivationCostumeById(snapshot.costumeId),
+                active: widget.active && _inBattle,
+                manualCastRequest: _manualCastRequest,
+                onMonsterKilled: _onMonsterKilled,
+                onMinionKilled: _onMinionKilled,
+                onHeroStrike: (_) {},
               onOpenShop: () => _openSheet(context, _ShopSheet()),
               onOpenTasks: () => _openSheet(context, _TasksSheet()),
               onOpenProfile: () => _openSheet(context, _ProfileSheet()),
@@ -201,14 +248,18 @@ class _GamePageState extends State<GamePage> {
                   )),
               onOpenAnnounce: () =>
                   _openSheet(context, _AnnounceSheet()),
+              ),
             ),
-            // 顶部栏（人界篇式，两排）：
+            // 主页（白发女剑仙 + 云海仙宫）。
+            if (!_inBattle) _buildHome(context, snapshot, realmShort),
+            // 顶部栏（人界篇式，两排）：只在战场显示，主页有自己的顶栏。
             // 第一排：左上圆形头像 + 名字 + 境界进度条，
-            // 右边静音 / 离开 / 金色“观影”；
+            // 右边静音 / 离开 / 主页 / 金色“观影”；
             // 第二排：左边元宝，右边一排菱形金色功能图标
             // （人物 / 装备 / 任务 / 爬塔 / 修炼 / 设置，
             // 点开都是原有弹窗）。
-            Positioned(
+            if (_inBattle)
+              Positioned(
               top: MediaQuery.paddingOf(context).top + 6,
               left: 12,
               right: 12,
@@ -301,6 +352,11 @@ class _GamePageState extends State<GamePage> {
                       _TopTextButton(
                         label: '离开',
                         onTap: widget.onExit,
+                      ),
+                      const SizedBox(width: 8),
+                      _TopTextButton(
+                        label: '主页',
+                        onTap: () => setState(() => _inBattle = false),
                       ),
                       const SizedBox(width: 8),
                       _SwitchVideoButton(onTap: widget.onSwitchToVideo),
@@ -444,6 +500,555 @@ class _GamePageState extends State<GamePage> {
           ],
         );
       },
+    );
+  }
+
+  /// 主页：白发女剑仙 + 云海仙宫（照通过的预览图）。
+  ///
+  /// 名字取玩家自建档案名（绝不写死“凌雪瑶”；没建档时快照名
+  /// 为空，显示通用称呼“道友”）；战力 / 等级 / 资源全取玩家
+  /// 真实数值——资源只有树里真实有的货币（元宝、修为），
+  /// 预览里的红宝石 / 紫钻没有对应货币，不编。
+  /// 地图钮接现有主线推图（任务弹窗）；前往 / 活动树里没有
+  /// 对应功能，点后只提示待开放，不编假功能。
+  Widget _buildHome(
+    BuildContext context,
+    CultivationSnapshot snapshot,
+    String realmShort,
+  ) {
+    final game = _game;
+    final size = MediaQuery.sizeOf(context);
+    final topPad = MediaQuery.paddingOf(context).top;
+    final bottomPad = MediaQuery.paddingOf(context).bottom;
+    final nextChapter = game.mapChapterIndex + 1;
+    final chapterStep = nextChapter < gameChapters.length
+        ? '第${nextChapter + 1}章 ${gameChapters[nextChapter].title}'
+        : '已通关全部章节';
+    final name = snapshot.username.isEmpty ? '道友' : snapshot.username;
+    final powerText = game.power >= 10000
+        ? '战力 ${(game.power / 10000).toStringAsFixed(1)}万'
+        : '战力 ${game.power}';
+    final teamNames = gameTeamBots.map((bot) => bot.name).join('、');
+    final heroineWidth = size.width * 0.96;
+    final heroineHeight = heroineWidth * 570 / 600;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // 云海仙宫背景（与战场同一张干净背景图，无 baked UI）。
+        Image.asset(
+          _gameHomeBgAsset,
+          fit: BoxFit.cover,
+          alignment: Alignment.topCenter,
+        ),
+        // 底部渐隐：技能圆盘与队伍条压在上面才看得清。
+        Positioned.fill(
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.transparent,
+                  Colors.transparent,
+                  const Color(0xFF0D0A24).withValues(alpha: 0.55),
+                  const Color(0xFF0D0A24).withValues(alpha: 0.85),
+                ],
+                stops: const [0.0, 0.55, 0.8, 1.0],
+              ),
+            ),
+          ),
+        ),
+        // 白发女剑仙（用户视频帧中段干净带裁出），居中偏下站立。
+        Positioned(
+          top: size.height * 0.13,
+          left: (size.width - heroineWidth) / 2,
+          width: heroineWidth,
+          height: heroineHeight,
+          child: Image.asset(
+            _gameHomeHeroineAsset,
+            fit: BoxFit.cover,
+          ),
+        ),
+        // 顶栏：头像卡（名字 + 战力 + 等级）+ 资源（元宝 / 修为）
+        // + 右边地图钮。
+        Positioned(
+          top: topPad + 8,
+          left: 12,
+          right: 12,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 54,
+                height: 54,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: const Color(0xFFFFD54F),
+                    width: 2,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.4),
+                      blurRadius: 8,
+                    ),
+                  ],
+                ),
+                child: ClipOval(
+                  child: Image.asset(
+                    _gameHomeHeroineBustAsset,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              shadows: [
+                                Shadow(
+                                  color: Colors.black87,
+                                  blurRadius: 4,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          realmShort,
+                          style: const TextStyle(
+                            color: Color(0xFFFFD54F),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '$powerText · 等级 ${snapshot.level}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        shadows: [
+                          Shadow(color: Colors.black87, blurRadius: 4),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        _homeResourcePill(
+                          LucideIcons.coins,
+                          '元宝',
+                          '${game.yuanbao}',
+                        ),
+                        const SizedBox(width: 6),
+                        _homeResourcePill(
+                          LucideIcons.sparkles,
+                          '修为',
+                          '${snapshot.totalXp}',
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              _homeRoundButton(
+                label: '地图',
+                icon: LucideIcons.map,
+                onTap: () => _openSheet(context, _TasksSheet()),
+              ),
+            ],
+          ),
+        ),
+        // 右侧一列：前往 / 活动 + 间隔 +「进入战斗」钮。
+        // 以前「进入战斗」是单独 Positioned(top: 0.26 屏高)，
+        // 在 390x844 下正好盖住「活动」（活动中心落在钮上，
+        // 点不到）；收进同一列后位置自动错开，任何尺寸都不撞。
+        // 前往 / 活动树里没有对应功能，点后提示待开放。
+        Positioned(
+          top: topPad + 96,
+          right: 12,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              _homeRoundButton(
+                label: '前往',
+                icon: LucideIcons.mail,
+                onTap: () => _snack(context, '前往待开放'),
+              ),
+              const SizedBox(height: 10),
+              _homeRoundButton(
+                label: '活动',
+                icon: LucideIcons.gift,
+                onTap: () => _snack(context, '活动待开放'),
+              ),
+              const SizedBox(height: 14),
+              // 「进入战斗」钮（深蓝底）。
+              GestureDetector(
+                onTap: () => _enterBattle(),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1E4A7A),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: const Color(0xFF90CAF9),
+                      width: 1,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.45),
+                        blurRadius: 10,
+                      ),
+                    ],
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(LucideIcons.swords, color: Colors.white, size: 16),
+                      SizedBox(width: 6),
+                      Text(
+                        '进入战斗',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        // 右侧竖牌「主线：寻找灵元草」，副行当前章节名作步骤。
+        // 下限 topPad + 296：上面一列到底约 topPad + 284
+        // （96 + 两钮 62*2 + 间隔 10 + 14 + 战斗钮约 40），
+        // 矮屏上 0.35 屏高会顶进这一列，取大值留 12px 空隙。
+        Positioned(
+          top: math.max(size.height * 0.35, topPad + 296),
+          right: 12,
+          child: _buildMainlinePlaque(chapterStep),
+        ),
+        // 底部技能圆盘 + 四技能。
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: bottomPad + 56,
+          child: _buildHomeSkillDisc(),
+        ),
+        // 底条「队伍招募：组队刷副本」（小队本来就是机器人，
+        // 固定 3 人满员，点后说明，不编招募面板）。
+        Positioned(
+          left: 12,
+          right: 12,
+          bottom: bottomPad + 10,
+          child: GestureDetector(
+            onTap: () => _snack(
+              context,
+              '小队已满员：道友、$teamNames自动组队刷副本',
+            ),
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 9,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.65),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: const Color(0xFFFFD54F).withValues(alpha: 0.5),
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    LucideIcons.users,
+                    color: Color(0xFFFFD54F),
+                    size: 16,
+                  ),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      '队伍招募：组队刷副本',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  const Text(
+                    '已满员',
+                    style: TextStyle(color: Colors.white70, fontSize: 11),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 主页顶栏资源小 pill（图标 + 名字 + 真实数值）。
+  Widget _homeResourcePill(IconData icon, String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: const Color(0xFFFFD54F), size: 13),
+          const SizedBox(width: 4),
+          Text(
+            '$label $value',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 主页右侧圆形带字按钮（地图 / 前往 / 活动）。
+  Widget _homeRoundButton({
+    required String label,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: const Color(0xFF0D3B4C).withValues(alpha: 0.85),
+              border: Border.all(
+                color: const Color(0xFF80DEEA),
+                width: 1.2,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.4),
+                  blurRadius: 8,
+                ),
+              ],
+            ),
+            child: Icon(icon, color: Colors.white, size: 20),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              shadows: [Shadow(color: Colors.black87, blurRadius: 3)],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 右侧竖牌「主线：寻找灵元草」，副行当前章节名作步骤
+  /// （竖排两列：主标题 15 号、章节名 11 号）。
+  Widget _buildMainlinePlaque(String chapterStep) {
+    const mainline = '主线：寻找灵元草';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            const Color(0xFFFFF8E1).withValues(alpha: 0.95),
+            const Color(0xFFFFECB3).withValues(alpha: 0.95),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFF8D6E00), width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.35),
+            blurRadius: 8,
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final ch in mainline.split(''))
+                Text(
+                  ch,
+                  style: const TextStyle(
+                    color: Color(0xFF4E342E),
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    height: 1.35,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(width: 4),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final ch in chapterStep.split(''))
+                Text(
+                  ch,
+                  style: const TextStyle(
+                    color: Color(0xFF6D4C41),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    height: 1.35,
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 底部技能圆盘：中间装饰圆环 + 四技能（御剑左上、归元右上、
+  /// 冰心左下、新月右下）。点技能先进战场再放那一招。
+  /// 技能名与映射以 [_homeSkillTargets] 为准。
+  Widget _buildHomeSkillDisc() {
+    final width = MediaQuery.sizeOf(context).width;
+    Widget placed(String label, double? left, double? right, double? top,
+        double? bottom) {
+      final target =
+          _homeSkillTargets.firstWhere((item) => item.label == label);
+      return Positioned(
+        left: left,
+        right: right,
+        top: top,
+        bottom: bottom,
+        child: _homeSkillButton(target.label, target.skillId),
+      );
+    }
+
+    return SizedBox(
+      height: 190,
+      child: Stack(
+        children: [
+          // 中间装饰圆环（不点按，纯装饰，照预览的罗盘样）。
+          Positioned(
+            left: (width - 110) / 2,
+            top: 40,
+            width: 110,
+            height: 110,
+            child: Container(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: const RadialGradient(
+                  colors: [
+                    Color(0xFF4DD0E1),
+                    Color(0xFF1565C0),
+                    Color(0xFF0D3B4C),
+                  ],
+                  stops: [0.0, 0.6, 1.0],
+                ),
+                border: Border.all(
+                  color: const Color(0xFFFFD54F),
+                  width: 2,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.lightBlueAccent.withValues(alpha: 0.5),
+                    blurRadius: 16,
+                  ),
+                ],
+              ),
+              child: const Icon(
+                LucideIcons.sparkles,
+                color: Colors.white70,
+                size: 28,
+              ),
+            ),
+          ),
+          placed('御剑', width * 0.09, null, 6, null),
+          placed('归元', null, width * 0.09, 6, null),
+          placed('冰心', width * 0.05, null, null, 2),
+          placed('新月', null, width * 0.05, null, 2),
+        ],
+      ),
+    );
+  }
+
+  /// 主页技能圆盘上的一个技能钮（显示名按 [_homeSkillTargets]）。
+  Widget _homeSkillButton(String label, String skillId) {
+    return GestureDetector(
+      onTap: () => _enterBattle(skillId: skillId),
+      child: Container(
+        width: 58,
+        height: 58,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF26C6DA), Color(0xFF1565C0)],
+          ),
+          border: Border.all(color: const Color(0xFFB3E5FC), width: 1.5),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.lightBlueAccent.withValues(alpha: 0.5),
+              blurRadius: 10,
+            ),
+          ],
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+            shadows: [Shadow(color: Colors.black54, blurRadius: 3)],
+          ),
+        ),
+      ),
     );
   }
 

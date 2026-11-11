@@ -64,8 +64,10 @@ void main() {
     testWidgets('a failed send shows the error in the composer', (
       tester,
     ) async {
+      // 新口径：匿名态整个输入条不进树，发送失败的覆盖须在已登录态下做。
+      // 输入框在场、登录提示行不在场，抛错后失败文案仍显示在输入框处。
       final poster = PlayletInteractionPosting(
-        isSignedIn: () => false,
+        isSignedIn: () => true,
         postComment: ({required seriesId, required text}) async {
           throw Exception('network down');
         },
@@ -91,10 +93,10 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      // 未登录先有提示行。
+      // 已登录态没有登录提示行。
       expect(
         find.byKey(const ValueKey('playlet-composer-login-hint')),
-        findsOneWidget,
+        findsNothing,
       );
       await tester.enterText(
         find.byKey(const ValueKey('playlet-composer-field')),

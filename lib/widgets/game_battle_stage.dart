@@ -66,7 +66,8 @@ class BattleStrike {
 /// 界面布局照视频里来：
 /// - 中央金字“自动战斗中…/自动寻路中…”；
 /// - 右上半透明黑面板：副本名、击败 BOSS 0/1、用时；
-/// - 右下横排圆形蓝光符文技能钮 6-7 个（只做冷却展示，自动放）；
+/// - 右下横排圆形蓝光符文技能钮 4 个（剑影分光 / 雷法 / 大庚剑阵 /
+///   万剑归宗，只做冷却展示，自动放）；
 /// - 左下金色竖排书法章节标题 + 红色小印章（地图 + 境界自动换）；
 /// - 底部红命条蓝灵条，最右下角修为进度；
 /// - 右侧中部黑色箭头标签列（和平/状态/药品/目标），下面
@@ -124,6 +125,7 @@ class GameBattleStage extends StatefulWidget {
     required this.onOpenProfile,
     required this.onOpenFunctions,
     required this.onOpenAnnounce,
+    this.manualCastRequest,
   });
 
   /// 当前妖兽（BOSS）。
@@ -190,6 +192,11 @@ class GameBattleStage extends StatefulWidget {
   /// 喇叭 → 打开公告。
   final VoidCallback onOpenAnnounce;
 
+  /// 主页技能圆盘点过来的手动施放请求（技能 id；舞台消费后
+  /// 把值清回空）。主页点技能时先切进战场再由这路施放，走
+  /// 的还是 [_castSkill] 那条现有施放路径，不另造数值。
+  final ValueNotifier<String?>? manualCastRequest;
+
   @override
   State<GameBattleStage> createState() => _GameBattleStageState();
 }
@@ -227,6 +234,14 @@ class _GameBattleStageState extends State<GameBattleStage>
   bool _heroFlash = false;
   bool _monsterDying = false;
   bool _slashArcShowing = false;
+
+  /// 御剑剑光（亮剑光从道友处斜劈向 BOSS）：只做特效，不结算
+  /// 伤害；伤害仍走飞剑法宝命中那路的 [_applyDamage] 与飘字。
+  _BeamSlash? _beamSlash;
+
+  /// 剑光落到 BOSS 身上那一下，怪闪一下（只闪剑光命中这一瞬；
+  /// 普攻命中仍只靠飘字 + 爆裂星光，不加半透明）。
+  bool _monsterFlash = false;
 
   /// 斩弧落点（普攻打小怪时落在那只小怪身上，打 BOSS 时
   /// 落在 BOSS 身上）。
@@ -314,6 +329,7 @@ class _GameBattleStageState extends State<GameBattleStage>
       vsync: this,
       duration: const Duration(seconds: 6),
     )..repeat();
+    widget.manualCastRequest?.addListener(_onManualCastRequest);
     _startSeeking();
     _startTick();
   }
@@ -512,6 +528,8 @@ class _GameBattleStageState extends State<GameBattleStage>
     for (final burst in _bursts) {
       burst.controller.dispose();
     }
+    widget.manualCastRequest?.removeListener(_onManualCastRequest);
+    _beamSlash?.controller.dispose();
     super.dispose();
   }
 
@@ -612,6 +630,8 @@ class _GameBattleStageState extends State<GameBattleStage>
       'taiyang' => _ProjectileKind.lightning,
       _ => _ProjectileKind.sword,
     };
+    // 御剑（青元剑诀）：亮剑光从道友处斜劈向 BOSS。
+    if (skill.id == 'qingyuan') _fireBeamSlash();
     // 出招音效：辟邪神雷与惊蛰十二变走打雷音，其余走合成音
     // （见 [GameSoundService.playSkill]）。
     unawaited(GameSoundService.instance.playSkill(skill.id));
@@ -646,6 +666,76 @@ class _GameBattleStageState extends State<GameBattleStage>
       kind,
       _heroCenter,
       () => _applyDamage(damage, isCrit: isCrit, skillName: skill.name),
+    );
+  }
+
+  /// 主页技能圆盘点过来的手动施放请求：消费掉（清回空），
+  /// 再走 [_manualCast]。
+  void _onManualCastRequest() {
+    final skillId = widget.manualCastRequest?.value;
+    if (skillId == null) return;
+    widget.manualCastRequest?.value = null;
+    _manualCast(skillId);
+  }
+
+  /// 手动施放一招（主页技能圆盘点过来）：冷却与灵力门槛和
+  /// 自动放同一套（惊蛰 20 秒 / 本职业招 6 秒 / 辟邪神雷与
+  /// 乾蓝冰焰 8 秒，灵力要 10 以上），过了门槛就走
+  /// [_castSkill] 那条现有施放路径；没过只给一句提示。
+  void _manualCast(String skillId) {
+    final skill = gameSkillsById(skillId);
+    if (skill == null || _monsterDying || !mounted) return;
+    final now = DateTime.now();
+    if (!_skillReady(skill.id, now)) {
+      _showToast('${skill.name}冷却中');
+      return;
+    }
+    if (_spirit < 10) {
+      _showToast('灵力不足');
+      return;
+    }
+    final cooldown = switch (skill.id) {
+      'jingzhe' => const Duration(seconds: 20),
+      'bixie' || 'qianlan' => const Duration(seconds: 8),
+      _ => const Duration(seconds: 6),
+    };
+    _castSkill(skill, cooldown);
+  }
+
+  /// 御剑剑光：亮剑光从道友处斜劈向目标（默认 BOSS；普攻打小怪
+  /// 时劈向那只小怪）。450ms 伸出再淡出，落点星芒；劈中 BOSS
+  /// 时怪闪一下 + 金闪光。只做特效，不结算伤害。
+  void _fireBeamSlash({Offset? target, bool hitsBoss = true}) {
+    if (!mounted || _arenaSize == Size.zero) return;
+    _beamSlash?.controller.dispose();
+    final controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 450),
+    );
+    final beam = _BeamSlash(
+      from: _heroCenter,
+      to: target ?? _monsterCenter,
+      controller: controller,
+    );
+    setState(() => _beamSlash = beam);
+    // 剑光落到 BOSS 身上时怪闪一下 + 金闪光（约在飞剑法宝
+    // 命中前后脚，不改伤害与飘字那路）；打小怪不闪 BOSS。
+    if (hitsBoss) {
+      Future<void>.delayed(const Duration(milliseconds: 340), () {
+        if (!mounted || _beamSlash != beam) return;
+        setState(() => _monsterFlash = true);
+        _spawnBurst(_BurstKind.goldFlash, _monsterCenter);
+        Future<void>.delayed(const Duration(milliseconds: 180), () {
+          if (mounted) setState(() => _monsterFlash = false);
+        });
+      });
+    }
+    unawaited(
+      controller.forward().then((_) {
+        if (!mounted) return;
+        if (_beamSlash == beam) setState(() => _beamSlash = null);
+        controller.dispose();
+      }),
     );
   }
 
@@ -737,6 +827,11 @@ class _GameBattleStageState extends State<GameBattleStage>
         _ProjectileKind.flame,
       ];
       final kind = kinds[_hitCount % kinds.length];
+      // 普攻飞剑（剑影分光）：亮剑光从道友处斜劈向当前目标
+      // （最近的小怪，没有才打 BOSS；打小怪时 BOSS 不闪）。
+      if (kind == _ProjectileKind.sword) {
+        _fireBeamSlash(target: targetCenter, hitsBoss: minion == null);
+      }
       _launchProjectile(
         kind,
         _heroCenter,
@@ -1284,6 +1379,8 @@ class _GameBattleStageState extends State<GameBattleStage>
                       if (_slashArcShowing) _buildSlashArc(),
                       ..._projectiles.map(_buildProjectile),
                       ..._bursts.map(_buildBurst),
+                      // 御剑剑光（亮剑光从道友处斜劈向 BOSS）。
+                      if (_beamSlash != null) _buildBeamSlash(_beamSlash!),
                       ..._floaters.map(_buildFloater),
                     ],
                   ),
@@ -1309,6 +1406,9 @@ class _GameBattleStageState extends State<GameBattleStage>
                 ),
                 // 右上副本面板：副本名、击败 BOSS 0/1、用时。
                 _buildDungeonPanel(monster),
+                // 顶部 BOSS 血条：名 + 红色血条 + 真实血量，贴在
+                // 游戏顶栏下方，左边这条、右边副本面板，不重叠。
+                _buildBossHpBar(),
                 // 中央金字：自动寻路中… / 自动战斗中…（移到 62% 处，
                 // 避开小队头顶的名牌）。
                 Positioned(
@@ -1463,6 +1563,66 @@ class _GameBattleStageState extends State<GameBattleStage>
     );
   }
 
+  /// 顶部 BOSS 血条：名 + 红色血条 + 真实血量（当前血 / 满血）。
+  /// 贴在游戏顶栏下方：左边这条、右边是副本面板（右 196 起），
+  /// 两条并排不重叠。
+  Widget _buildBossHpBar() {
+    final monster = widget.monster;
+    return Positioned(
+      top: _topPad + 118,
+      left: 12,
+      right: 196,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.6),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '${monster.name} · BOSS',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  '$_monsterHp/${monster.hp}',
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                return _HpBar(
+                  ratio: (_monsterHp / monster.hp).clamp(0.0, 1.0),
+                  width: constraints.maxWidth,
+                  color: const Color(0xFFE53935),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// 道友：头顶小白字“境界+名字”紧贴头顶，脚下有影子。
   /// 名牌栏比立绘宽（96），名字放得下不截断，三人名牌互不压叠。
   Widget _buildHero() {
@@ -1556,6 +1716,7 @@ class _GameBattleStageState extends State<GameBattleStage>
   /// 全幅原图按原比例显示，不裁切、不拉伸、不加半透明：
   /// 受击不再 0.6 闪一下，死时不再 0.25 淡出（只往下沉 20），
   /// 命中反馈只靠飘字 + 爆裂星光，怪全程实实在在站在石台上。
+  /// 只有御剑剑光劈中那一下例外：怪闪一下（见 [_monsterFlash]）。
   Widget _buildBoss(GameMonster monster) {
     final center = _monsterCenter;
     // 首领（蛟 / 蛟王）用墨蛟图，全幅 96×195；普通章节怪
@@ -1578,10 +1739,14 @@ class _GameBattleStageState extends State<GameBattleStage>
               color: const Color(0xFFE53935),
             ),
             const SizedBox(height: 2),
-            _FighterFigure(
-              width: width,
-              height: height,
-              child: GameMonsterArt(monster: monster, width: width),
+            Opacity(
+              // 剑光劈中那一下怪闪一下（平时不受击闪，见上面注释）。
+              opacity: _monsterFlash ? 0.55 : 1.0,
+              child: _FighterFigure(
+                width: width,
+                height: height,
+                child: GameMonsterArt(monster: monster, width: width),
+              ),
             ),
           ],
         ),
@@ -1598,6 +1763,24 @@ class _GameBattleStageState extends State<GameBattleStage>
       width: 116,
       height: 116,
       child: const CustomPaint(painter: _SlashPainter()),
+    );
+  }
+
+  /// 御剑剑光：亮剑光从道友处斜劈向目标，铺满整个战场画。
+  Widget _buildBeamSlash(_BeamSlash beam) {
+    return Positioned.fill(
+      child: AnimatedBuilder(
+        animation: beam.controller,
+        builder: (context, _) {
+          return CustomPaint(
+            painter: _BeamSlashPainter(
+              from: beam.from,
+              to: beam.to,
+              progress: beam.controller.value,
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -1902,36 +2085,31 @@ class _GameBattleStageState extends State<GameBattleStage>
     );
   }
 
-  /// 右下横排圆形蓝光符文技能钮：6-7 个，只做冷却展示，
-  /// 冷却好了自动放，不用手点。
+  /// 右下横排圆形蓝光符文技能钮：4 个，只做冷却展示，
+  /// 冷却好了自动放，不用手点。显示名按用户原型定：
+  /// 剑影分光（普攻飞剑，1.6 秒一剑）、雷法（辟邪神雷）、
+  /// 大庚剑阵、万剑归宗；只改显示名，不动数值与冷却。
+  /// 注意：大庚剑阵 / 万剑归宗是天道本职业招，逍遥与金刚
+  /// 的自动战斗不放这两招，菱形只作冷却展示（一直亮着）。
   Widget _buildSkillDiamonds() {
     final now = DateTime.now();
-    final skills = <({String shortName, double progress})>[];
     // 普攻：1.6 秒一剑。
     final basicElapsed = now.difference(_lastBasicAt).inMilliseconds / 1600;
-    skills.add((shortName: '普攻', progress: basicElapsed.clamp(0.0, 1.0)));
-    for (final skill in gameSkillsForProfession(widget.profession)) {
-      if (skill.profession == '共用') continue;
-      skills.add((
-        shortName: skill.name.substring(0, 2),
-        progress: _skillProgress(skill.id, const Duration(seconds: 6), now),
-      ));
-    }
-    for (final id in ['bixie', 'qianlan']) {
-      final skill = gameSkillsById(id);
-      if (skill == null) continue;
-      skills.add((
-        shortName: skill.name.substring(0, 2),
-        progress: _skillProgress(id, const Duration(seconds: 8), now),
-      ));
-    }
-    final ult = gameSkillsById('jingzhe');
-    if (ult != null) {
-      skills.add((
-        shortName: '惊蛰',
-        progress: _skillProgress(ult.id, const Duration(seconds: 20), now),
-      ));
-    }
+    final skills = <({String shortName, double progress})>[
+      (shortName: '剑影分光', progress: basicElapsed.clamp(0.0, 1.0)),
+      (
+        shortName: '雷法',
+        progress: _skillProgress('bixie', const Duration(seconds: 8), now),
+      ),
+      (
+        shortName: '大庚剑阵',
+        progress: _skillProgress('dageng', const Duration(seconds: 6), now),
+      ),
+      (
+        shortName: '万剑归宗',
+        progress: _skillProgress('wanjian', const Duration(seconds: 6), now),
+      ),
+    ];
     return Positioned(
       right: 10,
       bottom: _bottomPad + 40,
@@ -2044,6 +2222,24 @@ class _Projectile {
   final Offset from;
   final Offset to;
   final double dyOffset;
+}
+
+/// 一道御剑剑光：从施放者斜劈向目标的亮剑光（只做特效）。
+class _BeamSlash {
+  _BeamSlash({
+    required this.from,
+    required this.to,
+    required this.controller,
+  });
+
+  /// 起点（施放者，道友处）。
+  final Offset from;
+
+  /// 终点（BOSS 或当前那只小怪）。
+  final Offset to;
+
+  /// 450ms：前 60% 伸出，后 40% 淡出。
+  final AnimationController controller;
 }
 
 /// 一个飘字（伤害数字）。
@@ -2784,6 +2980,75 @@ class _SlashPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+/// 御剑剑光画法：亮剑光从施放者斜劈向目标——前 60% 沿直线
+/// 快速伸出，后 40% 停在目标身上淡出；三层描边（外层宽而淡
+/// 的青光、中层亮青、内层白芯）+ 尖端拖尾光带 + 落点星芒。
+class _BeamSlashPainter extends CustomPainter {
+  _BeamSlashPainter({
+    required this.from,
+    required this.to,
+    required this.progress,
+  });
+
+  /// 起点（施放者，道友处）。
+  final Offset from;
+
+  /// 终点（BOSS 或当前那只小怪）。
+  final Offset to;
+
+  /// 0..1（伸出 0..0.6，淡出 0.6..1）。
+  final double progress;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final t = progress.clamp(0.0, 1.0);
+    final extend = (t / 0.6).clamp(0.0, 1.0);
+    final fade = t <= 0.6 ? 1.0 : (1 - (t - 0.6) / 0.4).clamp(0.0, 1.0);
+    final delta = to - from;
+    if (delta.distance < 1 || fade <= 0) return;
+    final end = Offset.lerp(from, to, extend)!;
+    // 尖端拖尾光带：比剑光本体短一截、更淡更宽。
+    final tailStart = Offset.lerp(from, to, (extend - 0.25).clamp(0.0, 1.0))!;
+    void stroke(Offset a, Offset b, double width, Color color) {
+      canvas.drawLine(
+        a,
+        b,
+        Paint()
+          ..color = color
+          ..strokeWidth = width
+          ..strokeCap = StrokeCap.round,
+      );
+    }
+
+    stroke(
+      tailStart,
+      end,
+      18,
+      const Color(0xFFB3E5FC).withValues(alpha: 0.25 * fade),
+    );
+    stroke(
+      from,
+      end,
+      10,
+      const Color(0xFF4DD0E1).withValues(alpha: 0.75 * fade),
+    );
+    stroke(from, end, 4, Colors.white.withValues(alpha: 0.95 * fade));
+    // 落点星芒（剑光伸到目标才出现）。
+    if (extend >= 1) {
+      final r = 6 + 14 * fade;
+      final star = Paint()
+        ..color = Colors.white.withValues(alpha: 0.9 * fade)
+        ..strokeWidth = 2.5
+        ..strokeCap = StrokeCap.round;
+      canvas.drawLine(to + Offset(-r, 0), to + Offset(r, 0), star);
+      canvas.drawLine(to + Offset(0, -r), to + Offset(0, r), star);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_BeamSlashPainter old) => old.progress != progress;
 }
 
 /// 辟邪神雷：紫白闪电从天劈下——主电弧 + 3 条分叉电弧，
