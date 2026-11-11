@@ -17,6 +17,7 @@ import '../widgets/mine/mine_top_books.dart';
 import '../widgets/series_detail/moyi_detail_theme.dart';
 import 'cultivation_titles_page.dart';
 import 'detail_page.dart';
+import 'hongguo_login_page.dart';
 import 'settings_page.dart';
 
 /// 我的：首屏直接是阅读统计（今日 / 本周 / 累计 / 连续），下面热力图、
@@ -148,6 +149,8 @@ class _MinePageState extends State<MinePage> {
               child: ListView(
                 padding: EdgeInsets.only(bottom: homeBottomClearance(context)),
                 children: [
+                  const HongguoAccountTile(),
+                  const SizedBox(height: 8),
                   CultivationProfileCard(
                     totalTitles: _totalTitles,
                     onOpenTitles: () => Navigator.push(

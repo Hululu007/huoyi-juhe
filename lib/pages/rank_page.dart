@@ -17,6 +17,7 @@ import '../widgets/home/home_stream_footer.dart';
 import '../widgets/rank/rank_state_view.dart';
 import '../widgets/rank/rank_tabs.dart';
 import 'detail_page.dart';
+import 'hongguo_rank_page.dart';
 
 /// Loads the rank catalogue.
 typedef RankCatalogLoader = Future<RankCatalog> Function();
@@ -264,6 +265,18 @@ class _RankPageState extends State<RankPage> {
               fontWeight: FontWeight.w600,
             ),
           ),
+          actions: [
+            TextButton(
+              key: const Key('rank_hongguo_boards'),
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => const HongguoRankPage(),
+                ),
+              ),
+              child: const Text('红果榜', style: TextStyle(color: Colors.white)),
+            ),
+          ],
         ),
         body: Align(
           alignment: Alignment.topCenter,

@@ -22,8 +22,10 @@ import 'package:flutter_lucide/flutter_lucide.dart';
 import '../../models/book_comment.dart' show formatCount;
 import '../../models/playlet_comment.dart';
 import '../../services/api_client.dart';
+import '../../services/playlet_interaction_posting.dart';
 import '../home/home_design.dart';
 import '../series_detail/moyi_detail_theme.dart';
+import 'playlet_comment_composer.dart';
 import 'playlet_discussion_tile.dart';
 import 'playlet_reply_panel.dart';
 
@@ -47,6 +49,7 @@ class PlayletCommentPanel extends StatefulWidget {
     this.replyLoader,
     this.embedded = false,
     this.onTotalChanged,
+    this.poster,
   });
 
   final String seriesId;
@@ -65,6 +68,10 @@ class PlayletCommentPanel extends StatefulWidget {
   /// 服务端总数变化（首屏加载、加载更多、发评论后刷新）时回传宿主，
   /// 让分屏 Tab 上的「评论 N」与列表总数保持一致。
   final ValueChanged<int>? onTotalChanged;
+
+  /// 发表层：默认走真实接口（`PlayletInteractionPosting.defaults()`），
+  /// 测试注入假实现。详情页、信息流、播放页都不用改调用处就能发评论。
+  final PlayletInteractionPosting? poster;
 
   /// 官方从热评进入评论时带 `hot_comment_id`/`hot_reply_id`
   /// （`SeriesHotCommentView.java:468-559`）。本地等价：用
@@ -85,6 +92,7 @@ class PlayletCommentPanel extends StatefulWidget {
     String focusCommentId = '',
     String focusReplyId = '',
     PlayletReplyPageLoader? replyLoader,
+    PlayletInteractionPosting? poster,
   }) => showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
@@ -99,6 +107,7 @@ class PlayletCommentPanel extends StatefulWidget {
       focusCommentId: focusCommentId,
       focusReplyId: focusReplyId,
       replyLoader: replyLoader,
+      poster: poster,
     ),
   );
 
@@ -126,6 +135,10 @@ class _PlayletCommentPanelState extends State<PlayletCommentPanel> {
   Object? _error;
   int _generation = 0;
   PlayletComment? _replyTarget;
+
+  /// 发表层（默认真实接口）。回复子面板共用同一份，回复发表也走它。
+  late final PlayletInteractionPosting _poster =
+      widget.poster ?? PlayletInteractionPosting.defaults();
 
   @override
   void initState() {
@@ -285,6 +298,7 @@ class _PlayletCommentPanelState extends State<PlayletCommentPanel> {
         seriesId: widget.seriesId,
         comment: replyTarget,
         loader: widget.replyLoader,
+        poster: _poster,
         // 回复型热评定位：父评论正是焦点评论时带上回复 id。
         focusReplyId: replyTarget.id == widget.focusCommentId
             ? widget.focusReplyId
@@ -308,6 +322,18 @@ class _PlayletCommentPanelState extends State<PlayletCommentPanel> {
         _filters(),
         const Divider(height: 1),
         Expanded(child: _body()),
+        PlayletCommentComposer(
+          hintText: '写下你的评论…',
+          loginHint: _poster.loginHint,
+          onSend: (text) async {
+            final result = await _poster.postComment(
+              seriesId: widget.seriesId,
+              text: text,
+            );
+            return result.isOk ? null : result.message;
+          },
+          onSent: (_) => unawaited(_load(reset: true)),
+        ),
       ],
     );
     if (widget.embedded) return content;

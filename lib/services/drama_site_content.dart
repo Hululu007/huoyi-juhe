@@ -103,7 +103,14 @@ class DramaSiteCatalogPage {
   final List<DramaSiteItem> items;
   final bool hasMore;
 
-  const DramaSiteCatalogPage({required this.items, required this.hasMore});
+  /// 该分类页的题材选项（红果 `selectorList`；没有的站为空）。
+  final List<HongguoDramaTopic> topics;
+
+  const DramaSiteCatalogPage({
+    required this.items,
+    required this.hasMore,
+    this.topics = const [],
+  });
 }
 
 /// 蜘蛛本地代理能力：py/jar/js 三个引擎客户端都实现。基类不给默认实现，
@@ -618,6 +625,111 @@ class HgtvMirrorContentClient implements DramaSiteContentClient {
   }
 }
 
+/// 红果题材：分类页 `selectorList` 里的 `selector_item_id` / `show_name`。
+/// 口径与 hongguoTV `DiscoveryParser.info` 一致：id 只认
+/// `[a-z0-9]+(-[a-z0-9]+)*`、名非空且不超过 40 字、去重、上限 128 个。
+class HongguoDramaTopic {
+  const HongguoDramaTopic({required this.id, required this.label});
+
+  final String id;
+  final String label;
+}
+
+/// 红果榜单：hongguoTV `RankBoard` 四榜。`route` 是榜单页路径段，
+/// `key` 是站方 `rankKey`，`loader` 是 router 数据里的榜单节键。
+class HongguoRankBoard {
+  const HongguoRankBoard({
+    required this.id,
+    required this.label,
+    required this.route,
+    required this.key,
+  });
+
+  final String id;
+  final String label;
+  final String route;
+  final String key;
+
+  String get loader => 'rank_$route/page';
+
+  static const List<HongguoRankBoard> all = [
+    HongguoRankBoard(id: 'all', label: '综合', route: 'hot-drama', key: 'hongguo'),
+    HongguoRankBoard(id: 'real', label: '真人剧', route: 'hot-real-drama', key: 'real'),
+    HongguoRankBoard(id: 'comic', label: '漫剧', route: 'hot-comic-drama', key: 'comic'),
+    HongguoRankBoard(id: 'ai', label: 'AI剧', route: 'hot-ai-drama', key: 'ai'),
+  ];
+
+  static HongguoRankBoard byId(String id) =>
+      all.firstWhere((board) => board.id == id, orElse: () => all.first);
+}
+
+/// 红果榜单里的一部：名次与热度照 hongguoTV `RankPosition`
+///（`rank` / `heatText` / `scoreText`·`favoriteText`·`likeText`）。
+class HongguoRankEntry {
+  const HongguoRankEntry({
+    required this.item,
+    this.rank,
+    this.heat = '',
+    this.metrics = '',
+    this.tags = const [],
+  });
+
+  final DramaSiteItem item;
+
+  /// 1 起的名次；站方没给时为空（不编名次）。
+  final int? rank;
+
+  /// 热度文案，如「9320万热度」。
+  final String heat;
+
+  /// 评分/收藏/点赞拼成的文案。
+  final String metrics;
+
+  /// 该条的完整题材 token（至多 5 个），题材筛选只按它匹配，
+  /// 不按标题或简介猜——与 hongguoTV `RankSnapshot.topics` 同口径。
+  final List<String> tags;
+}
+
+/// 一页红果榜单。
+class HongguoRankPageData {
+  const HongguoRankPageData({
+    required this.entries,
+    required this.hasMore,
+    this.updatedText = '',
+    this.totalPages = 1,
+  });
+
+  final List<HongguoRankEntry> entries;
+  final bool hasMore;
+
+  /// 站方榜单更新文案。
+  final String updatedText;
+  final int totalPages;
+
+  /// 题材：各条 tags 的完整 token，按出现次数排——
+  /// 与 hongguoTV `RankSnapshot.topics` 同口径。
+  List<String> get topics {
+    final counts = <String, int>{};
+    for (final entry in entries) {
+      for (final tag in entry.tags) {
+        counts[tag] = (counts[tag] ?? 0) + 1;
+      }
+    }
+    final sorted = counts.entries.toList()
+      ..sort(
+        (a, b) => b.value != a.value
+            ? b.value.compareTo(a.value)
+            : a.key.compareTo(b.key),
+      );
+    return [for (final entry in sorted) entry.key];
+  }
+
+  /// 按题材筛本榜作品，保留原榜名次。
+  List<HongguoRankEntry> filtered(String topic) => topic.isEmpty
+      ? entries
+      : [for (final entry in entries) if (entry.tags.contains(topic)) entry];
+}
+
 /// 红果网页端：与红果镜像同域名同详情页，但分类页取 router 数据的
 /// recommendList，不取卡片 HTML；播放取播放页 video_player_info 的
 /// 地址列表，取不到才退 360p 直链。App 签名线不在此，网页线能播就进。
@@ -626,8 +738,21 @@ class HongguoContentClient implements DramaSiteContentClient {
 
   final http.Client _client;
 
+  /// 搜索联想的匿名会话 id：hongguoTV `ContentRepository` 是进程内随机
+  /// UUID，这里同口径、每客户端实例一个，不入库、不关联账号。
+  final String _suggestionWebId;
+
   HongguoContentClient([http.Client? client])
-    : _client = client ?? http.Client();
+    : _client = client ?? http.Client(),
+      _suggestionWebId = _newWebId();
+
+  static String _newWebId() {
+    final random = math.Random.secure();
+    final raw = List<int>.generate(16, (_) => random.nextInt(256));
+    final hex = raw.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-'
+        '${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}';
+  }
 
   static String routeForCategory(String categoryId) {
     switch (categoryId) {
@@ -655,10 +780,13 @@ class HongguoContentClient implements DramaSiteContentClient {
       }
     }
     final rawList = page['recommendList'];
-    if (rawList is! List) return const [];
+    final list = rawList is List
+        ? rawList
+        : _asMap(page['categoryData'])['recommendList'];
+    if (list is! List) return const [];
     final seen = <String>{};
     final items = <DramaSiteItem>[];
-    for (final raw in rawList) {
+    for (final raw in list) {
       var node = _asMap(raw);
       final video = _asMap(node['video_data']);
       if (video.isNotEmpty) node = video;
@@ -738,6 +866,146 @@ class HongguoContentClient implements DramaSiteContentClient {
     return addresses;
   }
 
+  /// 分类页的题材选项：取 router 数据里第一个带 `selectorList` 的节，
+  /// 与 hongguoTV `DiscoveryParser.info` 同口径校验 id 与名。
+  static List<HongguoDramaTopic> parseTopics(String body) {
+    final data = _extractRouterData(body);
+    if (data == null) return const [];
+    final loader = _asMap(data['loaderData']);
+    final topicId = RegExp(r'^[a-z0-9]+(?:-[a-z0-9]+)*$');
+    for (final entry in loader.entries) {
+      final section = _asMap(entry.value);
+      final selectors = section['selectorList'];
+      if (selectors is! List) continue;
+      final seen = <String>{};
+      final topics = <HongguoDramaTopic>[];
+      for (final group in selectors) {
+        final items = _asMap(group)['items'];
+        if (items is! List) continue;
+        for (final raw in items) {
+          final node = _asMap(raw);
+          final id = _stringOf(node['selector_item_id']);
+          final label = _stringOf(node['show_name']);
+          if (id.isEmpty || id.length > 80 || !topicId.hasMatch(id)) continue;
+          if (label.isEmpty || label.length > 40) continue;
+          if (seen.add(id)) topics.add(HongguoDramaTopic(id: id, label: label));
+          if (topics.length >= 128) return topics;
+        }
+      }
+      if (topics.isNotEmpty) return topics;
+    }
+    return const [];
+  }
+
+  /// 服务端搜索联想：`suggest_list` 的 `name`，空时取
+  /// `display_words` 首项。口径与 hongguoTV
+  /// `ContentRepository.searchSuggestions` 一致（匿名、无签名，
+  /// 拼音匹配由服务端做）。
+  static List<String> parseSuggestions(String body) {
+    dynamic decoded;
+    try {
+      decoded = jsonDecode(body);
+    } catch (_) {
+      return const [];
+    }
+    final rows = _asMap(decoded)['suggest_list'];
+    if (rows is! List) return const [];
+    final out = <String>[];
+    for (final raw in rows) {
+      final node = _asMap(raw);
+      var name = _stringOf(node['name']);
+      if (name.isEmpty) {
+        final words = node['display_words'];
+        if (words is List && words.isNotEmpty) name = _stringOf(words.first);
+      }
+      if (name.isNotEmpty && name.length <= 80 && !out.contains(name)) {
+        out.add(name);
+      }
+      if (out.length >= 8) break;
+    }
+    return out;
+  }
+
+  /// 一页红果榜单：取 router 数据 `rank_<route>/page` 节的 `rankList`
+  /// 与 `pagination`，口径与 hongguoTV `ComicRank.parse` 的 JSON 主路
+  /// 一致。站方渲染兜底（读卡片 HTML）未移植：榜单页以 router 数据为
+  /// 准，拿不到时如实报错，不拿残缺卡片冒充完整榜。
+  static HongguoRankPageData parseRank(
+    String body,
+    String boardRoute,
+    int page,
+  ) {
+    final data = _extractRouterData(body);
+    if (data == null) throw StateError('红果榜单暂不可用');
+    final loader = _asMap(data['loaderData']);
+    final section = _asMap(loader['rank_$boardRoute/page']);
+    if (section.isEmpty) throw StateError('红果榜单暂不可用');
+    if (section['isSuccess'] == false) throw StateError('红果榜单暂不可用');
+    final pagination = _asMap(section['pagination']);
+    final totalPages = _firstInt(pagination, ['totalPages']);
+    final pageNum = pagination['pageNum'];
+    if (totalPages < 1 ||
+        (pageNum != null && _firstInt(pagination, ['pageNum']) != page)) {
+      throw StateError('红果榜单分页异常');
+    }
+    final rawList = section['rankList'];
+    if (rawList is! List) throw StateError('红果榜单格式已变化');
+    final updatedText = _stringOf(section['updatedText']);
+    final seen = <String>{};
+    final entries = <HongguoRankEntry>[];
+    for (final raw in rawList) {
+      final row = _asMap(raw);
+      final id = _stringOf(row['seriesId']).isNotEmpty
+          ? _stringOf(row['seriesId'])
+          : _stringOf(row['id']);
+      final title = _stringOf(row['title']);
+      if (!RegExp(r'^[0-9]{1,30}$').hasMatch(id) ||
+          title.isEmpty ||
+          !seen.add(id)) {
+        continue;
+      }
+      final heat = _stringOf(row['heatText']);
+      final count = _firstInt(row, ['episodeCount']);
+      final episodeVids = row['episodeVids'];
+      final vidCount = episodeVids is List ? episodeVids.length : 0;
+      final total = count > 0 ? count : vidCount;
+      final metrics = [
+        _stringOf(row['scoreText']),
+        _stringOf(row['favoriteText']),
+        _stringOf(row['likeText']),
+      ].where((part) => part.isNotEmpty).join(' · ');
+      final tags = <String>[];
+      final rawTags = row['tags'];
+      if (rawTags is List) {
+        for (final tag in rawTags.take(5)) {
+          final text = _stringOf(tag);
+          if (text.isNotEmpty) tags.add(text);
+        }
+      }
+      final rankValue = _firstInt(row, ['rank']);
+      entries.add(
+        HongguoRankEntry(
+          item: DramaSiteItem(
+            id: id,
+            title: title,
+            cover: _stringOf(row['cover']),
+            remark: total > 0 ? '全$total集' : heat,
+          ),
+          rank: rankValue > 0 ? rankValue : null,
+          heat: heat,
+          metrics: metrics,
+          tags: tags,
+        ),
+      );
+    }
+    return HongguoRankPageData(
+      entries: entries,
+      hasMore: entries.isNotEmpty && page < totalPages.clamp(1, 100),
+      updatedText: updatedText,
+      totalPages: totalPages.clamp(1, 100),
+    );
+  }
+
   static bool _isHttpMedia(String address) {
     final uri = Uri.tryParse(address);
     return uri != null &&
@@ -756,6 +1024,11 @@ class HongguoContentClient implements DramaSiteContentClient {
 
   @override
   Future<DramaSiteCatalogPage> catalog(String categoryId, int page) async {
+    // 「全部」不是真人剧：hongguoTV 首页（`ContentRepository.home`）
+    // 取推荐流 `/category?tab=1&sort_type=1`，此前把它默默映射成
+    // 真人剧是错的。`routeForCategory('all')` 的映射本身不动，
+    // 只是这里不再用它。
+    if (categoryId == 'all') return _homeCatalog(page);
     final route = routeForCategory(categoryId);
     final response = await _client.get(
       Uri.parse(
@@ -773,7 +1046,112 @@ class HongguoContentClient implements DramaSiteContentClient {
     return DramaSiteCatalogPage(
       items: items,
       hasMore: items.length >= 24,
+      topics: parseTopics(response.body),
     );
+  }
+
+  /// 首页推荐流（hongguoTV `ContentRepository.home`）。
+  Future<DramaSiteCatalogPage> _homeCatalog(int page) async {
+    final safePage = page < 1 ? 1 : page;
+    final response = await _client.get(
+      Uri.parse(
+        '$baseUrl/category?tab=1&sort_type=1${safePage > 1 ? '&page=$safePage' : ''}',
+      ),
+      headers: {
+        'Referer': '$baseUrl/',
+        'User-Agent': HgtvMirrorContentClient.userAgent,
+      },
+    );
+    if (response.statusCode != 200) {
+      throw StateError('红果列表 HTTP ${response.statusCode}');
+    }
+    final items = parseCatalog(response.body);
+    return DramaSiteCatalogPage(
+      items: items,
+      hasMore: items.length >= 24,
+      topics: parseTopics(response.body),
+    );
+  }
+
+  /// 分类 + 题材（hongguoTV `ContentRepository.discover`）：
+  /// `/category/<route>/<topic>?page=`，题材为空时与 [catalog] 同路。
+  /// 带题材的多维筛选（主题/设定/背景/排序/受众/时间/状态）走的是
+  /// 带签名的筛选接口，不在本方法里——签名是另一组的活，这里不编。
+  Future<DramaSiteCatalogPage> discover(
+    String categoryId,
+    String topic,
+    int page,
+  ) async {
+    if (topic.isNotEmpty &&
+        !RegExp(r'^[a-z0-9]+(?:-[a-z0-9]+)*$').hasMatch(topic)) {
+      throw StateError('题材参数异常');
+    }
+    if (topic.isEmpty) return catalog(categoryId, page);
+    final route = routeForCategory(categoryId);
+    final response = await _client.get(
+      Uri.parse(
+        '$baseUrl/category/$route/${Uri.encodeComponent(topic)}'
+        '?page=${page < 1 ? 1 : page}',
+      ),
+      headers: {
+        'Referer': '$baseUrl/',
+        'User-Agent': HgtvMirrorContentClient.userAgent,
+      },
+    );
+    if (response.statusCode != 200) {
+      throw StateError('红果列表 HTTP ${response.statusCode}');
+    }
+    final items = parseCatalog(response.body);
+    return DramaSiteCatalogPage(
+      items: items,
+      hasMore: items.length >= 24,
+      topics: parseTopics(response.body),
+    );
+  }
+
+  /// 一页红果榜单（hongguoTV `ContentRepository.rankPage`）：
+  /// `GET /rank/<route>?page=`，无签名。
+  Future<HongguoRankPageData> rankPage(
+    HongguoRankBoard board, {
+    int page = 1,
+  }) async {
+    final safePage = page < 1 ? 1 : page;
+    if (safePage > 100) throw StateError('红果榜单页码异常');
+    final response = await _client.get(
+      Uri.parse('$baseUrl/rank/${board.route}?page=$safePage'),
+      headers: {
+        'Referer': '$baseUrl/',
+        'User-Agent': HgtvMirrorContentClient.userAgent,
+      },
+    );
+    if (response.statusCode != 200) {
+      throw StateError('红果榜单 HTTP ${response.statusCode}');
+    }
+    return parseRank(response.body, board.route, safePage);
+  }
+
+  /// 服务端搜索联想（hongguoTV `ContentRepository.searchSuggestions`）：
+  /// 匿名 GET，无签名；失败回空列表，不挡搜索。
+  Future<List<String>> searchSuggestions(String query) async {
+    final clean = query.trim();
+    if (clean.isEmpty || clean.length > 80) return const [];
+    try {
+      final response = await _client.get(
+        Uri.parse(
+          '$baseUrl/incent_resource/suggestion?app_id=8662'
+          '&web_id=$_suggestionWebId'
+          '&query=${Uri.encodeQueryComponent(clean)}&count=8',
+        ),
+        headers: {
+          'Referer': '$baseUrl/',
+          'User-Agent': HgtvMirrorContentClient.userAgent,
+        },
+      );
+      if (response.statusCode != 200) return const [];
+      return parseSuggestions(response.body);
+    } catch (_) {
+      return const [];
+    }
   }
 
   @override

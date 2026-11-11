@@ -33,9 +33,13 @@ class EquipSynthesizeResult {
   /// 合成出的装备 id（高一档，同部位）。
   final String resultId;
 
+  /// 本次合成补材料花的元宝（差 1 件时自动补才有，正常合成是 0）。
+  final int yuanbaoCost;
+
   const EquipSynthesizeResult({
     required this.consumed,
     required this.resultId,
+    this.yuanbaoCost = 0,
   });
 }
 
@@ -209,6 +213,7 @@ class GameService extends ChangeNotifier with WidgetsBindingObserver {
   static const _refineKey = 'game_refine';
   static const _autoSynthesizeKey = 'game_auto_synthesize';
   static const _autoRefineMaterialKey = 'game_auto_refine_material';
+  static const _autoRecycleKey = 'game_auto_recycle';
   static const _doubleXpUntilKey = 'game_double_xp_until';
   static const _lastSeenKey = 'game_last_seen';
   static const _huntDateKey = 'game_hunt_date';
@@ -273,10 +278,23 @@ class GameService extends ChangeNotifier with WidgetsBindingObserver {
   /// 低级装备（多余件数、七彩除外）补元宝。关了则元宝不够就强化失败。
   bool autoRefineMaterialEnabled = true;
 
+  /// 自动回收开关（默认开）：得装备后自动把背包里多余的装备换
+  /// 成元宝。每（品质、部位）组留 [gameAutoRecycleReserveCount]
+  /// 件当合成材料，已穿戴那件不算、不回收，七彩不回收。
+  /// 关了只手动点“立即回收”才回收。
+  bool autoRecycleEnabled = true;
+
   /// 最近一次自动 / 手动合成的结果（页面用来弹提示，展示后调
   /// [clearSynthesizeResults] 清掉）。
   List<EquipSynthesizeResult> lastSynthesizeResults =
       <EquipSynthesizeResult>[];
+
+  /// 最近一次自动回收换到的装备名（页面用来弹提示，展示后调
+  /// [clearAutoRecycleResults] 清掉）。
+  List<String> lastAutoRecycleNames = <String>[];
+
+  /// 最近一次自动回收换到的元宝总数。
+  int lastAutoRecycleYuanbao = 0;
 
   /// 最近一次强化自动分解补材料的装备名（页面用来弹提示）。
   List<String> lastAutoSalvageNames = <String>[];
@@ -372,6 +390,7 @@ class GameService extends ChangeNotifier with WidgetsBindingObserver {
           sp.getBool(_autoSynthesizeKey) ?? true;
       autoRefineMaterialEnabled =
           sp.getBool(_autoRefineMaterialKey) ?? true;
+      autoRecycleEnabled = sp.getBool(_autoRecycleKey) ?? true;
       doubleXpUntilMillis = sp.getInt(_doubleXpUntilKey) ?? 0;
       totalKills = sp.getInt(_totalKillsKey) ?? 0;
       _adultSpends
@@ -883,12 +902,23 @@ class GameService extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   /// 得一件装备（件数 +1）；自动合成开着时顺手把满 3 件的
-  /// 同品质同部位合成高一档，结果记在 [lastSynthesizeResults] 里。
+  /// 同品质同部位合成高一档，结果记在 [lastSynthesizeResults] 里；
+  /// 自动回收开着时顺手把多余的装备换成元宝（见 [recycleSurplus]）。
   void _addEquip(String equipId) {
     ownedEquip[equipId] = (ownedEquip[equipId] ?? 0) + 1;
     if (autoSynthesizeEnabled) {
       lastSynthesizeResults = synthesizeAll();
     }
+    if (autoRecycleEnabled) {
+      recycleSurplus();
+    }
+  }
+
+  /// 测试用：得一件装备，走自动合成 / 自动回收的正常触发路径
+  /// （打怪、狩猎、推图、爬塔、盲盒得装备都是这条路）。
+  @visibleForTesting
+  void obtainEquipForTest(String equipId) {
+    _addEquip(equipId);
   }
 
   /// 手动立即合成（自动合成关了也能用）：把所有满 3 件的
@@ -954,11 +984,134 @@ class GameService extends ChangeNotifier with WidgetsBindingObserver {
           }
         }
       }
+      // 元宝补材料：自动合成开着时，某（品质、部位）组恰好差 1 件
+      // （已有 2 件）且元宝够补 1 件的价（白 10 / 绿 20 / 蓝 40 /
+      // 紫 80 / 橙 160 / 红 320），花元宝补上完成合成；补完继续
+      // 循环，链式往上合。低级装备补不用另写：上面那轮先把 3 件
+      // 低一级的合成本级（9 白→3 绿→1 蓝就是这么链上来的），
+      // 轮到这里还没满 3 件的，才是低级也没货、只能花元宝补的。
+      // 自动合成关了手动点“立即合成”不花元宝，只合满 3 件的。
+      if (autoSynthesizeEnabled) {
+        for (var qi = 0; qi < GameEquipQuality.values.length - 1; qi++) {
+          final quality = GameEquipQuality.values[qi];
+          final next = GameEquipQuality.values[qi + 1];
+          for (final slot in GameEquipSlot.values) {
+            final sources = gameEquipmentsOf(slot, quality);
+            if (sources.isEmpty) continue;
+            var available = 0;
+            for (final item in sources) {
+              var count = ownedEquip[item.id] ?? 0;
+              if (equipped[slot.name] == item.id) count -= 1;
+              if (count > 0) available += count;
+            }
+            if (available != gameEquipSynthesizeCount - 1) continue;
+            final cost = gameEquipSynthesizeFillCost(quality);
+            if (cost <= 0 || yuanbao < cost) continue;
+            final targets = gameEquipmentsOf(slot, next);
+            if (targets.isEmpty) continue;
+            var need = gameEquipSynthesizeCount - 1;
+            final consumed = <String, int>{};
+            final ordered = sources.toList()
+              ..sort((a, b) {
+                final ca = ownedEquip[a.id] ?? 0;
+                final cb = ownedEquip[b.id] ?? 0;
+                return cb.compareTo(ca);
+              });
+            for (final item in ordered) {
+              if (need <= 0) break;
+              var count = ownedEquip[item.id] ?? 0;
+              if (equipped[slot.name] == item.id) count -= 1;
+              if (count <= 0) continue;
+              final take = count < need ? count : need;
+              ownedEquip[item.id] = (ownedEquip[item.id] ?? 0) - take;
+              if (ownedEquip[item.id] == 0) ownedEquip.remove(item.id);
+              consumed[item.id] = take;
+              need -= take;
+            }
+            if (need > 0) continue;
+            yuanbao -= cost;
+            final unowned = [
+              for (final e in targets) if (!ownsEquip(e.id)) e,
+            ];
+            final pick = (unowned.isNotEmpty ? unowned : targets)[
+                math.Random().nextInt(
+                  (unowned.isNotEmpty ? unowned : targets).length,
+                )];
+            ownedEquip[pick.id] = (ownedEquip[pick.id] ?? 0) + 1;
+            results.add(
+              EquipSynthesizeResult(
+                consumed: consumed,
+                resultId: pick.id,
+                yuanbaoCost: cost,
+              ),
+            );
+            changed = true;
+          }
+        }
+      }
     }
     if (results.isNotEmpty) {
       lastSynthesizeResults = results;
     }
     return results;
+  }
+
+  /// 自动 / 手动回收多余装备换元宝：每（品质、部位）组保留够合
+  /// 一次的料——自动合成开着留 [gameAutoRecycleReserveCount] 件
+  /// （第 3 件到手就自动合了，留 2 件是“差 1 件就满”的储备），
+  /// 自动合成关着留 [gameEquipSynthesizeCount] 件（留一次手动
+  /// 合成的料，免得自动回收把手动合成的料也收走）；超过的才回收。
+  /// 已穿戴那件不算、不回收；七彩不回收（分解价 0、不可分解）。
+  /// 回收费按分解价：白 5 / 绿 10 / 蓝 20 / 紫 40 / 橙 80 / 红 160。
+  /// 返回换到的元宝总数；回收的装备名与元宝记在
+  /// [lastAutoRecycleNames] / [lastAutoRecycleYuanbao] 里，页面弹提示。
+  /// 自动回收关了也能手动调（“立即回收”按钮）。
+  int recycleSurplus() {
+    final reserve = autoSynthesizeEnabled
+        ? gameAutoRecycleReserveCount
+        : gameEquipSynthesizeCount;
+    final recycled = <String>[];
+    var gained = 0;
+    for (final quality in GameEquipQuality.values) {
+      if (quality == GameEquipQuality.rainbow) continue;
+      final value = gameEquipSalvageValue(quality);
+      for (final slot in GameEquipSlot.values) {
+        final sources = gameEquipmentsOf(slot, quality);
+        if (sources.isEmpty) continue;
+        // 每件可回收的件数（已穿戴那件不算）。
+        final extras = <GameEquipment, int>{};
+        var total = 0;
+        for (final item in sources) {
+          var count = ownedEquip[item.id] ?? 0;
+          if (equipped[slot.name] == item.id) count -= 1;
+          if (count > 0) {
+            extras[item] = count;
+            total += count;
+          }
+        }
+        var surplus = total - reserve;
+        if (surplus <= 0) continue;
+        // 件数多的先回收（同一件叠得多的先走）。
+        final ordered = extras.keys.toList()
+          ..sort((a, b) => extras[b]!.compareTo(extras[a]!));
+        for (final item in ordered) {
+          if (surplus <= 0) break;
+          var count = extras[item]!;
+          while (count > 0 && surplus > 0) {
+            ownedEquip[item.id] = (ownedEquip[item.id] ?? 0) - 1;
+            if (ownedEquip[item.id] == 0) ownedEquip.remove(item.id);
+            yuanbao += value;
+            gained += value;
+            recycled.add(item.name);
+            count--;
+            surplus--;
+          }
+        }
+      }
+    }
+    lastAutoRecycleNames = recycled;
+    lastAutoRecycleYuanbao = gained;
+    return gained;
   }
 
   /// 手动分解一件装备（多余件数才能分，已穿戴那件不能分，
@@ -1036,6 +1189,20 @@ class GameService extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> setAutoRefineMaterial(bool value) async {
     autoRefineMaterialEnabled = value;
     await _persist();
+    notifyListeners();
+  }
+
+  /// 自动回收开关。
+  Future<void> setAutoRecycle(bool value) async {
+    autoRecycleEnabled = value;
+    await _persist();
+    notifyListeners();
+  }
+
+  /// 展示完自动回收结果提示后清掉。
+  void clearAutoRecycleResults() {
+    lastAutoRecycleNames = <String>[];
+    lastAutoRecycleYuanbao = 0;
     notifyListeners();
   }
 
@@ -1120,6 +1287,7 @@ class GameService extends ChangeNotifier with WidgetsBindingObserver {
       await sp.setInt(_totalKillsKey, totalKills);
       await sp.setBool(_autoSynthesizeKey, autoSynthesizeEnabled);
       await sp.setBool(_autoRefineMaterialKey, autoRefineMaterialEnabled);
+      await sp.setBool(_autoRecycleKey, autoRecycleEnabled);
       await sp.setStringList(
         _adultSpendsKey,
         [for (final record in _adultSpends) record.encode()],
@@ -1161,7 +1329,10 @@ class GameService extends ChangeNotifier with WidgetsBindingObserver {
     refine = <String, int>{};
     autoSynthesizeEnabled = true;
     autoRefineMaterialEnabled = true;
+    autoRecycleEnabled = true;
     lastSynthesizeResults = <EquipSynthesizeResult>[];
+    lastAutoRecycleNames = <String>[];
+    lastAutoRecycleYuanbao = 0;
     lastAutoSalvageNames = <String>[];
     doubleXpUntilMillis = 0;
     totalKills = 0;
@@ -1183,6 +1354,7 @@ class GameService extends ChangeNotifier with WidgetsBindingObserver {
         _refineKey,
         _autoSynthesizeKey,
         _autoRefineMaterialKey,
+        _autoRecycleKey,
         _doubleXpUntilKey,
         _lastSeenKey,
         _huntDateKey,

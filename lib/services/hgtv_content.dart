@@ -214,7 +214,11 @@ DramaSiteDetail parseHgtvAppDetail(
     }
     indexed.add((
       index: index,
-      episode: DramaSiteEpisode(videoId: videoId, title: '第$index集'),
+      episode: DramaSiteEpisode(
+        videoId: videoId,
+        title: '第$index集',
+        seriesId: seriesId,
+      ),
     ));
   }
   indexed.sort((a, b) => a.index.compareTo(b.index));

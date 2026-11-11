@@ -1093,6 +1093,7 @@ class _InventorySheet extends StatelessWidget {
             .where((row) => row.equip != null)
             .toList();
         final synth = game.lastSynthesizeResults;
+        final recycled = game.lastAutoRecycleNames;
         return Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1123,7 +1124,7 @@ class _InventorySheet extends StatelessWidget {
                   children: [
                     for (final result in synth)
                       Text(
-                        '自动合成：${gameEquipmentById(result.resultId)?.name ?? ''}（${gameEquipQualityName(gameEquipmentById(result.resultId)?.quality ?? GameEquipQuality.white)}）',
+                        '自动合成：${gameEquipmentById(result.resultId)?.name ?? ''}（${gameEquipQualityName(gameEquipmentById(result.resultId)?.quality ?? GameEquipQuality.white)}）${result.yuanbaoCost > 0 ? ' · 补材料花 ${result.yuanbaoCost} 元宝' : ''}',
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 12,
@@ -1138,10 +1139,38 @@ class _InventorySheet extends StatelessWidget {
                   ],
                 ),
               ),
+            if (recycled.isNotEmpty)
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: moyiGold.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '自动回收 ${recycled.length} 件装备（+${game.lastAutoRecycleYuanbao} 元宝）：${recycled.length > 5 ? '${recycled.take(5).join('、')}等' : recycled.join('、')}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    _SheetButton(
+                      label: '知道了',
+                      gold: false,
+                      onTap: () => game.clearAutoRecycleResults(),
+                    ),
+                  ],
+                ),
+              ),
             _SheetRow(
               title: '自动合成：${game.autoSynthesizeEnabled ? '开' : '关'}',
               subtitle:
-                  '3 件同品质同部位自动合成高一档（3 绿→1 蓝，以此类推到七彩）',
+                  '3 件同品质同部位自动合成高一档（3 绿→1 蓝，以此类推到七彩）；差 1 件时自动花元宝补（白 10 / 绿 20 / 蓝 40 / 紫 80 / 橙 160 / 红 320）',
               action: Switch(
                 value: game.autoSynthesizeEnabled,
                 onChanged: (value) async {
@@ -1176,6 +1205,34 @@ class _InventorySheet extends StatelessWidget {
                         gameEquipmentById(r.resultId)?.name ?? '',
                     ].join('、');
                     _snack(context, '合成出：$names');
+                  }
+                },
+              ),
+            ),
+            _SheetRow(
+              title: '自动回收：${game.autoRecycleEnabled ? '开' : '关'}',
+              subtitle:
+                  '多余装备自动换元宝（白 5 / 绿 10 / 蓝 20 / 紫 40 / 橙 80 / 红 160）；每档留够合一次的料、已穿戴的不动、七彩不回收',
+              action: Switch(
+                value: game.autoRecycleEnabled,
+                onChanged: (value) async {
+                  await game.setAutoRecycle(value);
+                },
+              ),
+            ),
+            _SheetRow(
+              title: '立即回收',
+              subtitle: '把背包里多余的装备换成元宝（留够合一次的料）',
+              action: _SheetButton(
+                label: '回收',
+                onTap: () async {
+                  final gained = game.recycleSurplus();
+                  await game.persist();
+                  if (!context.mounted) return;
+                  if (gained <= 0) {
+                    _snack(context, '没有多余的装备可回收');
+                  } else {
+                    _snack(context, '回收得 $gained 元宝');
                   }
                 },
               ),

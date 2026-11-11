@@ -67,6 +67,11 @@ class SearchPage extends StatefulWidget {
   /// 书旗搜索。留空走后端；注入后视为离线，与 [searchLoader] 同一约定。
   final ShuqiSearchLoader? shuqiSearchLoader;
 
+  /// 打开即把焦点落在输入框并弹键盘（电视遥控搜索进页即落在输入框的
+  /// 手机等价做法）。缺省 false：只在红果发现页的搜索入口传 true，
+  /// 其他入口不改行为、不无故弹键盘。
+  final bool autofocus;
+
   const SearchPage({
     super.key,
     this.initialQuery,
@@ -78,6 +83,7 @@ class SearchPage extends StatefulWidget {
     this.shuqiSearchLoader,
     this.initialCategory = SearchCategory.general,
     this.initialSiteIds,
+    this.autofocus = false,
   });
 
   @override
@@ -702,7 +708,7 @@ class _SearchPageState extends State<SearchPage> {
           ),
           child: TextField(
             controller: _ctrl,
-            autofocus: false,
+            autofocus: widget.autofocus,
             textInputAction: TextInputAction.search,
             style: const TextStyle(fontSize: 14, color: Colors.white),
             decoration: InputDecoration(

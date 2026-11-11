@@ -135,6 +135,8 @@ extension _PlayerPagePreload on _PlayerPageState {
   void _updateWarmNext() {
     final player = _player;
     if (player == null || !_canPrefetch(_loadGeneration, player)) return;
+    // 定时停止定在播完本集：下一集不会播，不预热、不占解码器。
+    if (_sleepTimer.stopsAfterCurrentEpisode) return;
     final next = widget.eps[_index + 1];
     if (_warm?.itemId == next.itemId) return;
     final total = player.duration;
@@ -175,6 +177,8 @@ extension _PlayerPagePreload on _PlayerPageState {
   /// upcoming 天然为空。紧挨着的一集另有 [_updateWarmNext] 建预热播放器，
   /// 它取流时会先命中这里已预取好的地址。
   void _prefetchUpcomingSources(int index, List<Chapter> upcoming) {
+    // 定时停止定在播完本集：往后 5 集的地址预取也不发，省一次取流。
+    if (_sleepTimer.stopsAfterCurrentEpisode) return;
     for (var offset = 0; offset < upcoming.length; offset++) {
       final targetIndex = index + 1 + offset;
       final chapter = upcoming[offset];
@@ -311,6 +315,32 @@ extension _PlayerPagePreload on _PlayerPageState {
       if (fallbackVariant(online.variants, avoidVariant) case final variant?) {
         online = online.withVariant(variant);
         height = variant.height > 0 ? variant.height : null;
+      }
+    }
+    // 学到的失败档位：跨启动跳过，不再拿它起播（见 DecoderFallbackPlan）。
+    // 只在「当前正好是坏档位」时换；换不到可试的档位就原样播，
+    // 别把唯一能播的流换没了。
+    String? currentName;
+    for (final variant in online.variants) {
+      if (variant.url == online.url) {
+        currentName = variant.name;
+        break;
+      }
+    }
+    if (currentName != null &&
+        _decoderLessons.fails(
+          DecoderFallbackPlan.lessonKeyForName(currentName),
+          null,
+          null,
+        )) {
+      final next = DecoderFallbackPlan.nextAfterFailure(
+        variants: online.variants,
+        failedName: currentName,
+        lessons: _decoderLessons,
+      );
+      if (next != null) {
+        online = online.withVariant(next);
+        height = next.height > 0 ? next.height : null;
       }
     }
     return (online, height);

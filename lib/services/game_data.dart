@@ -34,6 +34,11 @@ const double gameEquipRefineBonusPerLevel = 0.12;
 /// 合成：几件同品质同部位合成 1 件高一档。
 const int gameEquipSynthesizeCount = 3;
 
+/// 自动回收时每（品质、部位）组保留几件当合成材料：
+/// 3 件才能合成，留 2 件是“差 1 件就满”的储备，下次掉 1 件
+/// 就能合；超过 2 件的才是多余的，自动回收换元宝。
+const int gameAutoRecycleReserveCount = 2;
+
 /// 装备栏位。
 enum GameEquipSlot {
   /// 武器。
@@ -127,6 +132,12 @@ int gameEquipSalvageValue(GameEquipQuality quality) => switch (quality) {
   GameEquipQuality.red => 160,
   GameEquipQuality.rainbow => 0,
 };
+
+/// 合成差 1 件材料时，花元宝补 1 件要多少（分解价 ×2，买比卖贵）：
+/// 白 10、绿 20、蓝 40、紫 80、橙 160、红 320；七彩没有更高档，
+/// 不参与合成，补材料费为 0。
+int gameEquipSynthesizeFillCost(GameEquipQuality quality) =>
+    gameEquipSalvageValue(quality) * 2;
 
 /// 某品质装备从哪来（掉落来源说明）。
 String gameEquipDropSource(GameEquipQuality quality) => switch (quality) {

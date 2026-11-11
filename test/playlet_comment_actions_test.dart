@@ -69,7 +69,7 @@ void main() {
               );
       },
     );
-    expect(find.byType(TextField), findsNothing);
+    expect(find.byKey(const ValueKey('playlet-composer-field')), findsOneWidget);
     // 服务端点赞数是只读内容，点击不会伪造计数或显示登录入口。
     await tester.tap(find.byIcon(Icons.thumb_up_alt_outlined));
     await tester.pump();
@@ -79,7 +79,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(calls, ['c1:']);
     expect(find.text('第一条回复'), findsOneWidget);
-    expect(find.byType(TextField), findsNothing);
+    expect(find.byKey(const ValueKey('playlet-composer-field')), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('playlet-replies-more')));
     await tester.pumpAndSettle();
     expect(calls, ['c1:', 'c1:next']);
@@ -148,7 +148,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(requested, ['c1']);
       expect(find.text('讨论回复'), findsOneWidget);
-      expect(find.byType(TextField), findsNothing);
+      expect(find.byKey(const ValueKey('playlet-composer-field')), findsOneWidget);
     },
   );
 
@@ -163,7 +163,7 @@ void main() {
     await tester.tap(find.text('2 条回复'));
     await tester.pumpAndSettle();
     expect(find.text('暂无回复'), findsOneWidget);
-    expect(find.byType(TextField), findsNothing);
+    expect(find.byKey(const ValueKey('playlet-composer-field')), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('playlet-replies-back')));
     await tester.pumpAndSettle();
     expect(find.text('全部'), findsOneWidget);

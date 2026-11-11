@@ -25,6 +25,7 @@ import 'api_service_page.dart';
 import 'cached_books_page.dart';
 import 'cached_dramas_page.dart';
 import 'cultivation_titles_page.dart';
+import 'hongguo_login_page.dart';
 import 'library_backup_page.dart';
 import 'onekey_py_page.dart';
 import 'settings_category_page.dart';
@@ -118,6 +119,24 @@ class SettingsPage extends StatelessWidget {
               context,
               MaterialPageRoute(
                 builder: (_) => const CultivationTitlesPage(),
+              ),
+            ),
+          ),
+        ],
+      ),
+      SettingsCategory(
+        icon: LucideIcons.user,
+        title: '账号',
+        subtitle: '红果账号登录、云端收藏与续播',
+        items: [
+          SettingsItem(
+            icon: LucideIcons.user,
+            title: '红果账号',
+            subtitle: '手机号登录 / 扫码登录，云端收藏、历史与预约',
+            onTap: (context, _) => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const HongguoLoginPage(),
               ),
             ),
           ),

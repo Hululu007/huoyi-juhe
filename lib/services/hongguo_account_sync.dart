@@ -1,0 +1,1709 @@
+/// 红果账号云端同步服务：账号命名空间存储、HTTP 传输与登录状态机。
+///
+/// 分层说明：
+/// - [HongguoAccountCloudStore]：账号数据专用 Hive 箱，与本机历史
+///   （LibraryStore `history` 箱）与本机书架（ShelfStore `shelf` 箱）
+///   完全分开。键按 `<账号 id>:<剧 id>` 命名空间，换号不串号；
+///   退出登录只清本账号的箱，本机记录原样保留。
+/// - [HongguoAccountHttpTransport]：官方登录/账号接口的请求形状与
+///   返回解析。**签名未接线**：请求签名须用树里已有的红果签名能力
+///   另行接线，本文件只留 [HongguoAccountRequestSigner] 一个注入点，
+///   未注入时请求只带 Cookie 发送，平台很可能拒绝——属待联调项，
+///   页面会如实提示，绝不谎称已通。本文件不含任何设备指纹、
+///   签名常量与密钥材料。
+/// - [HongguoAccountService]：登录状态机 + 同步 + 退出，供页面与
+///   播放器组调用。播放器续播只认 [HongguoAccountService.resumeForSeries] /
+///   [HongguoAccountService.resumeForEpisode] 两个方法。
+library;
+
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:math';
+
+import 'package:flutter/foundation.dart';
+import 'package:hive_ce/hive.dart';
+import 'package:http/http.dart' as http;
+
+import 'encrypted_hive.dart';
+import 'hongguo_account.dart';
+import 'secure_key_provider.dart';
+
+// ── 账号命名空间存储 ────────────────────────────────────────────────
+
+/// 账号数据专用存储。Hive 箱名与本机箱不同，键带账号 id 前缀。
+class HongguoAccountCloudStore {
+  HongguoAccountCloudStore() : _memory = false;
+
+  /// 测试/无平台通道时用的内存后端，与 Hive 后端同一套键规则。
+  HongguoAccountCloudStore.memory() : _memory = true;
+
+  final bool _memory;
+  Box<dynamic>? _favBox;
+  Box<dynamic>? _histBox;
+  Box<dynamic>? _resBox;
+  final Map<String, Map<String, dynamic>> _memFav = {};
+  final Map<String, Map<String, dynamic>> _memHist = {};
+  final Map<String, Map<String, dynamic>> _memRes = {};
+
+  static const favoritesBoxName = 'hongguo_account_favorites';
+  static const historyBoxName = 'hongguo_account_history';
+  static const reservationsBoxName = 'hongguo_account_reservations';
+
+  static String keyFor(String userId, String seriesId) => '$userId:$seriesId';
+
+  bool get isReady => _memory || (_favBox?.isOpen == true);
+
+  Future<void> init() async {
+    if (_memory || isReady) return;
+    _favBox = await EncryptedHive.openBox(Hive, favoritesBoxName);
+    _histBox = await EncryptedHive.openBox(Hive, historyBoxName);
+    _resBox = await EncryptedHive.openBox(Hive, reservationsBoxName);
+  }
+
+  Map<String, dynamic>? _get(
+    Box<dynamic>? box,
+    Map<String, Map<String, dynamic>> mem,
+    String key,
+  ) {
+    if (_memory) return mem[key];
+    final raw = box?.get(key);
+    return raw is Map
+        ? {for (final e in raw.entries) '${e.key}': e.value}
+        : null;
+  }
+
+  Future<void> _put(
+    Box<dynamic>? box,
+    Map<String, Map<String, dynamic>> mem,
+    String key,
+    Map<String, dynamic> value,
+  ) async {
+    if (_memory) {
+      mem[key] = value;
+      return;
+    }
+    await box?.put(key, value);
+  }
+
+  Future<void> _deleteKeys(
+    Box<dynamic>? box,
+    Map<String, Map<String, dynamic>> mem,
+    String userId,
+  ) async {
+    final prefix = '$userId:';
+    if (_memory) {
+      mem.removeWhere((key, _) => key.startsWith(prefix));
+      return;
+    }
+    final doomed = [
+      for (final key in box?.keys ?? const [])
+        if (key.toString().startsWith(prefix)) key,
+    ];
+    await box?.deleteAll(doomed);
+  }
+
+  List<T> _listFor<T>(
+    Box<dynamic>? box,
+    Map<String, Map<String, dynamic>> mem,
+    String userId,
+    T Function(Map<String, dynamic>) fromJson,
+  ) {
+    final prefix = '$userId:';
+    final rows = <Map<String, dynamic>>[];
+    if (_memory) {
+      for (final entry in mem.entries) {
+        if (entry.key.startsWith(prefix)) rows.add(entry.value);
+      }
+    } else {
+      for (final key in box?.keys ?? const []) {
+        if (!key.toString().startsWith(prefix)) continue;
+        final raw = box?.get(key);
+        if (raw is Map) {
+          rows.add({for (final e in raw.entries) '${e.key}': e.value});
+        }
+      }
+    }
+    return rows.map(fromJson).toList();
+  }
+
+  // 收藏：按收藏时间倒序。
+  List<HongguoCloudFavorite> favorites(String userId) {
+    final rows = _listFor(
+      _favBox,
+      _memFav,
+      userId,
+      HongguoCloudFavorite.fromJson,
+    );
+    rows.sort((a, b) => b.collectedAtMs.compareTo(a.collectedAtMs));
+    return rows;
+  }
+
+  Future<void> putFavorites(
+    String userId,
+    List<HongguoCloudFavorite> rows,
+  ) async {
+    await _deleteKeys(_favBox, _memFav, userId);
+    for (final row in rows) {
+      await _put(
+        _favBox,
+        _memFav,
+        keyFor(userId, row.seriesId),
+        row.toJson(),
+      );
+    }
+  }
+
+  // 云端历史：按更新时间倒序。
+  List<HongguoCloudProgress> history(String userId) {
+    final rows = _listFor(
+      _histBox,
+      _memHist,
+      userId,
+      HongguoCloudProgress.fromJson,
+    );
+    rows.sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
+    return rows;
+  }
+
+  Future<void> putHistory(
+    String userId,
+    List<HongguoCloudProgress> rows,
+  ) async {
+    await _deleteKeys(_histBox, _memHist, userId);
+    for (final row in rows) {
+      await _put(
+        _histBox,
+        _memHist,
+        keyFor(userId, row.seriesId),
+        row.toJson(),
+      );
+    }
+  }
+
+  Future<void> upsertProgress(
+    String userId,
+    HongguoCloudProgress row,
+  ) async {
+    await _put(
+      _histBox,
+      _memHist,
+      keyFor(userId, row.seriesId),
+      row.toJson(),
+    );
+  }
+
+  HongguoCloudProgress? progressFor(String userId, String seriesId) =>
+      _get(_histBox, _memHist, keyFor(userId, seriesId)) == null
+      ? null
+      : HongguoCloudProgress.fromJson(
+          _get(_histBox, _memHist, keyFor(userId, seriesId))!,
+        );
+
+  // 预约：已上线/待上线分开取。
+  List<HongguoCloudReservation> reservations(String userId, bool online) {
+    final rows = _listFor(
+      _resBox,
+      _memRes,
+      userId,
+      HongguoCloudReservation.fromJson,
+    );
+    final kept = rows.where((row) => row.online == online).toList();
+    kept.sort((a, b) => b.publishAtMs.compareTo(a.publishAtMs));
+    return kept;
+  }
+
+  Future<void> putReservations(
+    String userId,
+    bool online,
+    List<HongguoCloudReservation> rows,
+  ) async {
+    final prefix = '$userId:';
+    if (_memory) {
+      _memRes.removeWhere(
+        (key, value) =>
+            key.startsWith(prefix) && value['online'] == online,
+      );
+    } else {
+      final doomed = <dynamic>[];
+      for (final key in _resBox?.keys ?? const []) {
+        if (!key.toString().startsWith(prefix)) continue;
+        final raw = _resBox?.get(key);
+        if (raw is Map && raw['online'] == online) doomed.add(key);
+      }
+      await _resBox?.deleteAll(doomed);
+    }
+    for (final row in rows) {
+      await _put(
+        _resBox,
+        _memRes,
+        keyFor(userId, row.seriesId),
+        row.toJson(),
+      );
+    }
+  }
+
+  /// 只清本账号的三个箱。登出后本机历史/书架不受影响。
+  Future<void> clearAccount(String userId) async {
+    await _deleteKeys(_favBox, _memFav, userId);
+    await _deleteKeys(_histBox, _memHist, userId);
+    await _deleteKeys(_resBox, _memRes, userId);
+  }
+}
+
+// ── HTTP 传输 ───────────────────────────────────────────────────────
+
+/// 请求签名注入点：由调用方把树里已有的红果签名能力接进来，
+/// 返回补齐签名后的请求头。未注入时请求只带 Cookie 与基础头发送。
+typedef HongguoAccountRequestSigner =
+    Future<Map<String, String>> Function({
+      required Uri url,
+      required Map<String, String> params,
+      List<int>? body,
+    });
+
+/// 官方登录/账号接口的请求形状与返回解析。
+///
+/// 端点路径与返回字段名取自对照仓库的流程结构；本文件不含设备
+/// 指纹、签名常量与密钥材料，也不保存验证码与任何明文凭据。
+/// 联调状态见 [signingWired]：未接线时登录请求大概率被平台拒绝，
+/// 错误会原样抛给页面显示，不得谎称已通。
+class HongguoAccountHttpTransport implements HongguoAccountTransport {
+  HongguoAccountHttpTransport({http.Client? client, this._signer})
+    : _client = client ?? http.Client();
+
+  static const _webBase = 'https://hongguoduanju.com';
+  static const _passportBase = 'https://security.snssdk.com';
+  static const _apiBase = 'https://api5-normal-sinfonlinea.fqnovel.com';
+
+  /// 树里已有同款取值（hongguo_sign_test.dart 的取流地址同用此 aid），
+  /// 不是从对照仓库新拷的常量。
+  static const _aid = '8662';
+  static const _appName = 'novelread';
+
+  static const _webUa =
+      'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 '
+      '(KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36';
+
+  final http.Client _client;
+  final HongguoAccountRequestSigner? _signer;
+
+  bool get signingWired => _signer != null;
+
+  // 本次登录尝试的设备身份：本机随机生成、仅本次尝试有效，
+  // 不复用任何固定设备指纹；签名接线时再与设备表对齐。
+  final String _deviceId = _randomDigits(19);
+  final String _installId = _randomDigits(19);
+  String _ticket = '';
+  String _mobile = '';
+  String _qrToken = '';
+  final Map<String, String> _cookies = {};
+
+  static String _randomDigits(int length) {
+    final random = Random.secure();
+    return List.generate(
+      length,
+      (i) => i == 0
+          ? (random.nextInt(9) + 1).toString()
+          : random.nextInt(10).toString(),
+    ).join();
+  }
+
+  void _absorbCookies(http.Response response) {
+    final setCookie = response.headers['set-cookie'];
+    if (setCookie == null) return;
+    for (final part in setCookie.split(',')) {
+      final pair = part.split(';').first.trim();
+      final eq = pair.indexOf('=');
+      if (eq <= 0) continue;
+      final name = pair.substring(0, eq).trim();
+      final value = pair.substring(eq + 1).trim();
+      if (name.isNotEmpty && value.isNotEmpty) _cookies[name] = value;
+    }
+    // 多个 Set-Cookie 可能被 http 库合并进一条，上面按逗号切会误伤
+    // Expires 里的逗号；sessionid 本身不含逗号，切分结果仍可用。
+  }
+
+  String get _cookieHeader =>
+      _cookies.entries.map((e) => '${e.key}=${e.value}').join('; ');
+
+  Future<Map<String, String>> _signedHeaders(
+    Uri url,
+    Map<String, String> params, [
+    List<int>? body,
+  ]) async {
+    final signer = _signer;
+    if (signer == null) return {};
+    return signer(url: url, params: params, body: body);
+  }
+
+  Future<http.Response> _postForm(
+    String base,
+    String path,
+    Map<String, String> params, {
+    bool formBody = false,
+    Map<String, String>? extraHeaders,
+    String? cookie,
+  }) async {
+    final query = Map<String, String>.from(params);
+    final url = Uri.parse('$base$path').replace(queryParameters: query);
+    final headers = <String, String>{
+      'User-Agent': _webUa,
+      if (cookie != null && cookie.isNotEmpty) 'Cookie': cookie,
+      ...?extraHeaders,
+      ...await _signedHeaders(url, query),
+    };
+    final body = formBody
+        ? utf8.encode(
+            query.entries
+                .map(
+                  (e) =>
+                      '${Uri.encodeQueryComponent(e.key)}='
+                      '${Uri.encodeQueryComponent(e.value)}',
+                )
+                .join('&'),
+          )
+        : null;
+    if (body != null) {
+      headers['Content-Type'] = 'application/x-www-form-urlencoded';
+    }
+    final response = await _client
+        .post(url, headers: headers, body: body)
+        .timeout(const Duration(seconds: 30));
+    _absorbCookies(response);
+    return response;
+  }
+
+  Future<http.Response> _getJson(
+    String base,
+    String path,
+    Map<String, String> params, {
+    String? cookie,
+  }) async {
+    final url = Uri.parse('$base$path').replace(queryParameters: params);
+    final headers = <String, String>{
+      'User-Agent': _webUa,
+      'Accept': 'application/json',
+      if (cookie != null && cookie.isNotEmpty) 'Cookie': cookie,
+      ...await _signedHeaders(url, params),
+    };
+    final response = await _client
+        .get(url, headers: headers)
+        .timeout(const Duration(seconds: 30));
+    _absorbCookies(response);
+    return response;
+  }
+
+  static Map<String, dynamic> _decode(http.Response response) {
+    if (response.body.isEmpty) {
+      throw HongguoAccountError('账号接口返回空响应，请稍后重试');
+    }
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw HongguoAccountError('账号接口返回格式异常');
+    }
+    return decoded;
+  }
+
+  static String _describe(Map<String, dynamic> data) {
+    final desc = '${data['description'] ?? ''}';
+    final code = data['error_code'];
+    if (desc.isEmpty) return '';
+    return code is num ? '$desc（错误码 $code）' : desc;
+  }
+
+  // ── 手机号登录 ──
+
+  @override
+  Future<HongguoCodeSent> sendPhoneCode(String mobile) async {
+    _mobile = mobile;
+    _ticket = '';
+    _cookies.clear();
+    final reply = _decode(
+      await _postForm(_passportBase, '/passport/mobile/send_code/v1/', {
+        'mobile': mobile,
+        'type': '24',
+        'aid': _aid,
+        'app_name': _appName,
+        'device_platform': 'android',
+      }),
+    );
+    if ('${reply['message'] ?? ''}' != 'success') {
+      final data = reply['data'] is Map<String, dynamic>
+          ? reply['data'] as Map<String, dynamic>
+          : <String, dynamic>{};
+      if (data.containsKey('verify_center_decision_conf')) {
+        throw HongguoAccountError('平台要求先完成滑块验证，当前登录流程不支持，尚未完成登录。');
+      }
+      throw HongguoAccountError(
+        _describe(data).isEmpty ? '验证码没发出去' : _describe(data),
+      );
+    }
+    final data = reply['data'] is Map<String, dynamic>
+        ? reply['data'] as Map<String, dynamic>
+        : <String, dynamic>{};
+    _ticket = '${data['mobile_ticket'] ?? ''}';
+    return HongguoCodeSent(
+      maskedMobile: '${data['mobile'] ?? ''}'.isEmpty
+          ? HongguoPhoneNumber.mask(mobile)
+          : '${data['mobile']}',
+      retrySeconds: data['retry_time'] is num
+          ? (data['retry_time'] as num).toInt()
+          : 60,
+    );
+  }
+
+  @override
+  Future<HongguoAccountSession> verifyPhoneCode(String code) async {
+    if (_mobile.isEmpty) {
+      throw HongguoAccountError('请先发送验证码');
+    }
+    HongguoAccountError? lastFailure;
+    // 主端点在前，已登录校验入口在最后兜底：未登录会话调它固定
+    // 回会话过期，见对照仓库的实测记录。
+    const attempts = [
+      ('/passport/mobile/sms_login/', true),
+      ('/passport/mobile/sms_login_only/', true),
+      ('/passport/mobile/sms_login_continue/', true),
+      ('/passport/mobile/validate_code/v1/', false),
+      ('/passport/mobile/validate_code/v1/', true),
+    ];
+    for (final (path, form) in attempts) {
+      final params = {
+        'mobile': _mobile,
+        'code': code,
+        'type': '24',
+        'mobile_ticket': _ticket,
+        'aid': _aid,
+        'app_name': _appName,
+        'device_platform': 'android',
+      };
+      final reply = _decode(
+        await _postForm(_passportBase, path, params, formBody: form),
+      );
+      if (_cookies.containsKey('sessionid')) break;
+      final data = reply['data'] is Map<String, dynamic>
+          ? reply['data'] as Map<String, dynamic>
+          : <String, dynamic>{};
+      final freshTicket = '${data['mobile_ticket'] ?? ''}';
+      if (freshTicket.isNotEmpty) _ticket = freshTicket;
+      final errorCode = data['error_code'] is num
+          ? (data['error_code'] as num).toInt()
+          : 0;
+      if (errorCode == 0 || errorCode == 1) {
+        if (errorCode == 1) {
+          lastFailure = HongguoAccountError('会话过期，请重新登录（错误码 1）', code: 1);
+        }
+        continue;
+      }
+      if (errorCode == 1203) {
+        _ticket = '';
+        _cookies.clear();
+        throw HongguoAccountError(
+          _describe(data).isEmpty
+              ? '错误次数过多或验证码过期，请重新获取验证码（错误码 1203）'
+              : _describe(data),
+          code: 1203,
+        );
+      }
+      throw HongguoAccountError(
+        _describe(data).isEmpty ? '验证码校验失败（错误码 $errorCode）' : _describe(data),
+        code: errorCode,
+        canRetryCode: errorCode == 1102,
+      );
+    }
+    if (!_cookies.containsKey('sessionid')) {
+      throw lastFailure ?? HongguoAccountError('登录没有成功，平台没有下发登录态');
+    }
+    return HongguoAccountSession(
+      cookie: _cookieHeader,
+      deviceId: _deviceId,
+      installId: _installId,
+      userId: '',
+      nickname: '',
+      savedAtMs: DateTime.now().millisecondsSinceEpoch,
+    );
+  }
+
+  // ── 扫码登录 ──
+
+  @override
+  Future<HongguoQrCode> fetchQrCode() async {
+    final reply = _decode(
+      await _getJson(_webBase, '/passport/web/get_qrcode/', {
+        'aid': '513755',
+        'passport_jssdk_version': '3.4.10',
+        'passport_jssdk_type': 'normal',
+        'account_sdk_source': 'web',
+        'is_from_ttaccountsdk': '1',
+        'language': 'zh',
+        'next': '$_webBase/',
+      }),
+    );
+    if ('${reply['message'] ?? ''}' != 'success') {
+      throw HongguoAccountError('取登录二维码失败，请重试');
+    }
+    final data = reply['data'] is Map<String, dynamic>
+        ? reply['data'] as Map<String, dynamic>
+        : <String, dynamic>{};
+    _qrToken = '${data['token'] ?? ''}';
+    final qrcode = '${data['qrcode'] ?? ''}';
+    final base64Part = qrcode.contains('base64,')
+        ? qrcode.substring(qrcode.indexOf('base64,') + 7)
+        : qrcode;
+    if (_qrToken.isEmpty || base64Part.isEmpty) {
+      throw HongguoAccountError('取登录二维码失败，请重试');
+    }
+    final expire = data['expire_time'];
+    final seconds = expire is num
+        ? expire > 1000000000
+              ? ((expire - DateTime.now().millisecondsSinceEpoch ~/ 1000)
+                      .clamp(0, 600))
+                  .toInt()
+              : expire.clamp(0, 600).toInt()
+        : 180;
+    return HongguoQrCode(
+      imageBytes: base64Decode(base64Part),
+      expiresInSeconds: seconds,
+    );
+  }
+
+  @override
+  Future<HongguoQrPoll> pollQrCode() async {
+    if (_qrToken.isEmpty) throw HongguoAccountError('请先获取二维码');
+    final reply = _decode(
+      await _getJson(_webBase, '/passport/web/check_qrconnect/', {
+        'aid': '513755',
+        'passport_jssdk_version': '3.4.10',
+        'passport_jssdk_type': 'normal',
+        'account_sdk_source': 'web',
+        'is_from_ttaccountsdk': '1',
+        'language': 'zh',
+        'next': '$_webBase/',
+        'token': _qrToken,
+      }),
+    );
+    final data = reply['data'] is Map<String, dynamic>
+        ? reply['data'] as Map<String, dynamic>
+        : <String, dynamic>{};
+    final status = '${data['status'] ?? ''}';
+    if (status == '5' || status == 'expired') return HongguoQrPoll.expired;
+    if (status == '3' || status == 'confirmed') {
+      final redirect = '${data['redirect_url'] ?? ''}';
+      if (redirect.isNotEmpty) await _followConfirmRedirect(redirect);
+      return _hasWebSession() ? HongguoQrPoll.confirmed : HongguoQrPoll.waiting;
+    }
+    return HongguoQrPoll.waiting;
+  }
+
+  /// 只跟官方站内的确认跳转（https + hongguoduanju.com），最多 5 跳。
+  Future<void> _followConfirmRedirect(String value) async {
+    var url = Uri.parse(_webBase).resolve(value);
+    for (var i = 0; i < 5; i++) {
+      if (url.scheme != 'https' || url.host != 'hongguoduanju.com') {
+        throw HongguoAccountError('登录确认跳转到不支持的站点');
+      }
+      final request = http.Request('GET', url);
+      request.headers['User-Agent'] = _webUa;
+      request.headers['Referer'] = '$_webBase/';
+      if (_cookieHeader.isNotEmpty) {
+        request.headers['Cookie'] = _cookieHeader;
+      }
+      final streamed = await _client.send(request).timeout(
+        const Duration(seconds: 30),
+      );
+      final response = await http.Response.fromStream(streamed);
+      _absorbCookies(response);
+      final location = response.headers['location'];
+      if (response.statusCode >= 300 &&
+          response.statusCode < 400 &&
+          location != null) {
+        url = url.resolve(location);
+        continue;
+      }
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw HongguoAccountError('登录确认失败（HTTP ${response.statusCode}）');
+      }
+      return;
+    }
+    throw HongguoAccountError('登录确认跳转次数过多');
+  }
+
+  bool _hasWebSession() =>
+      (_cookies.containsKey('sessionid') ||
+          _cookies.containsKey('sessionid_ss')) &&
+      _cookies.entries.any((e) => e.value.isNotEmpty);
+
+  @override
+  Future<HongguoAccountSession> finishQrLogin() async {
+    if (!_hasWebSession()) {
+      throw HongguoAccountError('官网尚未下发登录态，请先在手机确认登录');
+    }
+    // 调一次账号信息确认会话有效，再交会话。
+    await _getJson(_webBase, '/passport/account/info/v2/', {
+      'aid': '513755',
+      'passport_jssdk_version': '3.4.10',
+      'passport_jssdk_type': 'normal',
+      'account_sdk_source': 'web',
+      'is_from_ttaccountsdk': '1',
+      'language': 'zh',
+    }, cookie: _cookieHeader);
+    return HongguoAccountSession(
+      cookie: _cookieHeader,
+      deviceId: _deviceId,
+      installId: _installId,
+      userId: '',
+      nickname: '',
+      savedAtMs: DateTime.now().millisecondsSinceEpoch,
+    );
+  }
+
+  // ── 账号数据 ──
+
+  Future<Map<String, dynamic>> _accountJson(
+    HongguoAccountSession session,
+    String path, {
+    Map<String, String> params = const {},
+    Map<String, dynamic>? body,
+    bool gzip = false,
+  }) async {
+    final url = Uri.parse('$_apiBase$path').replace(queryParameters: params);
+    final headers = <String, String>{
+      'User-Agent': _webUa,
+      'Accept': 'application/json',
+      'Cookie': session.cookie,
+      ...await _signedHeaders(url, params),
+    };
+    final bodyBytes = body == null
+        ? null
+        : utf8.encode(jsonEncode(body));
+    List<int>? wireBody = bodyBytes;
+    if (gzip && bodyBytes != null) {
+      wireBody = gzipEncode(bodyBytes);
+      headers['Content-Encoding'] = 'gzip';
+    }
+    if (wireBody != null) {
+      headers['Content-Type'] = 'application/json; charset=utf-8';
+    }
+    final response = await (wireBody == null
+            ? _client.get(url, headers: headers)
+            : _client.post(url, headers: headers, body: wireBody))
+        .timeout(const Duration(seconds: 30));
+    final json = _decode(response);
+    if (json['code'] is num && (json['code'] as num) != 0) {
+      throw HongguoAccountError(
+        '账号接口不可用（错误码 ${json['code']}），请重新登录或稍后重试',
+        code: (json['code'] as num).toInt(),
+      );
+    }
+    return json;
+  }
+
+  static List<int> gzipEncode(List<int> input) => gzip.encode(input);
+
+  /// 按顺序取第一个非空字符串字段。
+  static String _pick(Map<String, dynamic> row, List<String> keys) {
+    for (final key in keys) {
+      final value = '${row[key] ?? ''}';
+      if (value.isNotEmpty) return value;
+    }
+    return '';
+  }
+
+  @override
+  Future<HongguoAccountProfile> fetchProfile(
+    HongguoAccountSession session,
+  ) async {
+    final json = await _accountJson(session, '/reading/user/info/v1/');
+    return parseProfileJson(json);
+  }
+
+  /// 账号资料解析：biz_user_id 为空 = 该手机号还没有红果账号资料，
+  /// 与登录链路无关，须提示用户先去官方 App 登录一次。
+  static HongguoAccountProfile parseProfileJson(Map<String, dynamic> json) {
+    final data = json['data'] is Map<String, dynamic>
+        ? json['data'] as Map<String, dynamic>
+        : <String, dynamic>{};
+    final id = '${data['biz_user_id'] ?? ''}';
+    if (id.isEmpty) {
+      throw HongguoAccountError(
+        '该手机号还没有红果账号资料，请先用官方红果 App 登录一次再回来试（或改用扫码）',
+      );
+    }
+    final name = '${data['user_name'] ?? ''}';
+    return HongguoAccountProfile(
+      userId: id,
+      nickname: name.isEmpty ? '红果用户' : name,
+    );
+  }
+
+  @override
+  Future<List<HongguoCloudFavorite>> fetchFavorites(
+    HongguoAccountSession session,
+  ) async {
+    final json = await _accountJson(
+      session,
+      '/reading/bookapi/bookshelf/video/info/v1/',
+    );
+    return parseFavoritesJson(json);
+  }
+
+  static List<HongguoCloudFavorite> parseFavoritesJson(
+    Map<String, dynamic> json,
+  ) {
+    final data = json['data'] is Map<String, dynamic>
+        ? json['data'] as Map<String, dynamic>
+        : null;
+    if (data == null || !data.containsKey('video_shelf_info')) {
+      throw HongguoAccountError('账户收藏列表格式已变化');
+    }
+    final rows = data['video_shelf_info'];
+    if (rows == null) return const [];
+    if (rows is! List) throw HongguoAccountError('账户收藏列表格式已变化');
+    final out = <HongguoCloudFavorite>[];
+    for (final row in rows) {
+      if (row is! Map<String, dynamic>) continue;
+      final video = row['video_data'] is Map<String, dynamic>
+          ? row['video_data'] as Map<String, dynamic>
+          : row;
+      final id = _pick(video, ['series_id']).isEmpty
+          ? _pick(row, ['series_id', 'book_id'])
+          : _pick(video, ['series_id']);
+      final title = _pick(row, ['series_title']).isEmpty
+          ? _pick(video, ['title']).isEmpty
+                ? _pick(row, ['book_name'])
+                : _pick(video, ['title'])
+          : _pick(row, ['series_title']);
+      if (!RegExp(r'^[0-9]{1,30}$').hasMatch(id) || title.isEmpty) continue;
+      final cover = _pick(row, ['series_cover_url']).isEmpty
+          ? _pick(video, ['cover', 'cover_url', 'thumb_url']).isEmpty
+                ? _pick(row, ['thumb_url'])
+                : _pick(video, ['cover', 'cover_url', 'thumb_url'])
+          : _pick(row, ['series_cover_url']);
+      final count = video['episode_cnt'] is num
+          ? (video['episode_cnt'] as num).toInt()
+          : video['episode_count'] is num
+          ? (video['episode_count'] as num).toInt()
+          : row['episode_cnt'] is num
+          ? (row['episode_cnt'] as num).toInt()
+          : 0;
+      final stampRaw = row['collect_time'];
+      final stamp = stampRaw is num ? stampRaw.toInt() : 0;
+      out.add(
+        HongguoCloudFavorite(
+          seriesId: id,
+          title: title,
+          cover: cover,
+          intro: _pick(row, ['series_intro']).isEmpty
+              ? _pick(video, ['video_desc']).isEmpty
+                    ? _pick(row, ['abstract'])
+                    : _pick(video, ['video_desc'])
+              : _pick(row, ['series_intro']),
+          badge: count > 0 ? '全 $count 集' : '',
+          collectedAtMs: stamp > 0 && stamp < 10000000000 ? stamp * 1000 : stamp,
+        ),
+      );
+    }
+    if (rows.isNotEmpty && out.isEmpty) {
+      throw HongguoAccountError('账户收藏条目格式已变化');
+    }
+    final seen = <String>{};
+    final deduped = out.where((e) => seen.add(e.seriesId)).toList();
+    deduped.sort((a, b) => b.collectedAtMs.compareTo(a.collectedAtMs));
+    return deduped;
+  }
+
+  @override
+  Future<void> setFavorite(
+    HongguoAccountSession session,
+    String seriesId,
+    bool add,
+  ) async {
+    if (!RegExp(r'^[0-9]{1,30}$').hasMatch(seriesId)) {
+      throw HongguoAccountError('剧集编号无效');
+    }
+    final entry = <String, dynamic>{
+      'book_id': seriesId,
+      'book_type': 2,
+      'modify_time': DateTime.now().millisecondsSinceEpoch,
+      'video_shelf_operate_type': add ? 0 : 1,
+      if (!add) 'group_name': '',
+    };
+    final body = <String, dynamic>{
+      'is_cancelled': false,
+      'update_bookshelf_video_list': [entry],
+      if (add)
+        'shark_extra': {
+          'enter_from': 'MainFragmentActivity',
+          'previous_page': '',
+          'page_list': 'MainFragmentActivity',
+          'is_active_behavior': 'true',
+          'inactive_type': '0',
+        },
+    };
+    await _accountJson(
+      session,
+      '/reading/bookapi/bookshelf/video/update/v1/',
+      body: body,
+    );
+  }
+
+  @override
+  Future<List<HongguoCloudProgress>> fetchHistory(
+    HongguoAccountSession session,
+  ) async {
+    final json = await _accountJson(
+      session,
+      '/reading/bookapi/read_progress/list/v1/',
+      params: {'book_types': '2', 'limit': '50'},
+    );
+    final rows = json['video_data'] is List
+        ? json['video_data'] as List
+        : (json['data'] is Map<String, dynamic> &&
+                (json['data'] as Map<String, dynamic>)['video_data'] is List
+            ? (json['data'] as Map<String, dynamic>)['video_data'] as List
+            : null);
+    if (rows == null) throw HongguoAccountError('云端历史数据格式已变化');
+    final progress = parseProgressRows(rows);
+    if (progress.isEmpty) return const [];
+    // 补剧名与封面：失败不掩盖已拿到的进度列表。
+    try {
+      final detail = await _accountJson(
+        session,
+        '/reading/bookapi/multi-detail/v1/',
+        params: {
+          'book_id': progress.map((e) => e.seriesId).join(','),
+          'book_type': '2',
+        },
+      );
+      final details = detail['data'];
+      if (details is List) {
+        final byId = <String, Map<String, dynamic>>{};
+        for (final row in details) {
+          if (row is Map<String, dynamic>) {
+            byId['${row['book_id'] ?? ''}'] = row;
+          }
+        }
+        return progress
+            .map(
+              (p) => byId.containsKey(p.seriesId)
+                  ? HongguoCloudProgress(
+                      seriesId: p.seriesId,
+                      episodeId: p.episodeId,
+                      episodeIndex: p.episodeIndex,
+                      positionMs: p.positionMs,
+                      durationMs: p.durationMs,
+                      updatedAtMs: p.updatedAtMs,
+                      title: '${byId[p.seriesId]!['book_name'] ?? ''}',
+                      cover: '${byId[p.seriesId]!['thumb_url'] ?? ''}',
+                      episodeCount: p.episodeCount,
+                    )
+                  : p,
+            )
+            .toList();
+      }
+    } catch (_) {
+      // 剧集资料补不全时仍返回进度本身，标题用剧集 id 占位。
+    }
+    return progress
+        .map(
+          (p) => p.title.isEmpty
+              ? HongguoCloudProgress(
+                  seriesId: p.seriesId,
+                  episodeId: p.episodeId,
+                  episodeIndex: p.episodeIndex,
+                  positionMs: p.positionMs,
+                  durationMs: p.durationMs,
+                  updatedAtMs: p.updatedAtMs,
+                  title: '剧集 ${p.seriesId}',
+                  cover: p.cover,
+                  episodeCount: p.episodeCount,
+                )
+              : p,
+        )
+        .toList();
+  }
+
+  static List<HongguoCloudProgress> parseProgressRows(List<dynamic> rows) {
+    final out = <HongguoCloudProgress>[];
+    for (final row in rows) {
+      if (row is! Map<String, dynamic>) continue;
+      final id = '${row['series_id'] ?? ''}'.isEmpty
+          ? '${row['book_id'] ?? ''}'
+          : '${row['series_id']}';
+      final episode = '${row['vid'] ?? ''}';
+      if (!RegExp(r'^[0-9]{1,30}$').hasMatch(id) ||
+          !RegExp(r'^[0-9]{1,30}$').hasMatch(episode)) {
+        continue;
+      }
+      int stamp = row['last_watch_time'] is num
+          ? (row['last_watch_time'] as num).toInt()
+          : 0;
+      if (stamp > 0 && stamp < 10000000000) stamp *= 1000;
+      out.add(
+        HongguoCloudProgress(
+          seriesId: id,
+          episodeId: episode,
+          episodeIndex: ((row['vid_index'] is num
+                          ? (row['vid_index'] as num).toInt()
+                          : 1) -
+                      1)
+                  .clamp(0, 1 << 30),
+          positionMs: (row['current_play_time'] is num
+                  ? (row['current_play_time'] as num).toInt()
+                  : 0)
+              .clamp(0, 1 << 62),
+          durationMs: (row['current_total_time'] is num
+                  ? (row['current_total_time'] as num).toInt()
+                  : 0)
+              .clamp(0, 1 << 62),
+          updatedAtMs: stamp,
+          episodeCount: row['episode_count'] is num
+              ? (row['episode_count'] as num).toInt()
+              : 0,
+        ),
+      );
+    }
+    final seen = <String>{};
+    final deduped = out.where((e) => seen.add(e.seriesId)).toList();
+    deduped.sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
+    return deduped;
+  }
+
+  @override
+  Future<void> uploadProgress(
+    HongguoAccountSession session,
+    HongguoCloudProgress progress,
+  ) async {
+    if (!RegExp(r'^[0-9]{1,30}$').hasMatch(progress.seriesId) ||
+        !RegExp(r'^[0-9]{1,30}$').hasMatch(progress.episodeId)) {
+      throw HongguoAccountError('剧集编号无效');
+    }
+    final rate = progress.durationMs > 0
+        ? (progress.positionMs / progress.durationMs).clamp(0.0, 1.0).toString()
+        : '0';
+    await _accountJson(
+      session,
+      '/reading/bookapi/read_progress/upload/v1/',
+      body: {
+        'books': [
+          {
+            'book_id': progress.seriesId,
+            'item_id': progress.episodeId,
+            'vid_index': progress.episodeIndex + 1,
+            'current_play_time': progress.positionMs.clamp(0, 1 << 62),
+            'current_total_time': progress.durationMs.clamp(0, 1 << 62),
+            'episode_count': progress.episodeCount,
+            'read_timestamp_ms': progress.updatedAtMs,
+            'book_type': 2,
+            'progress_rate': rate,
+            'player_cumulative_total_duration': progress.positionMs.clamp(
+              0,
+              1 << 62,
+            ),
+          },
+        ],
+        'write_mode': 1,
+      },
+    );
+  }
+
+  @override
+  Future<List<HongguoCloudReservation>> fetchReservations(
+    HongguoAccountSession session,
+    bool online,
+  ) async {
+    final json = await _accountJson(
+      session,
+      '/reading/user/subscribe/list/v0/',
+      params: {
+        'offset': '0',
+        'limit': '20',
+        'is_online': online.toString(),
+        'tab_type': '13',
+        'subscribe_order_type': '0',
+        'swipe_type': '0',
+        'need_calendar_schema': 'false',
+        'subscribe_offset': '0',
+      },
+    );
+    return parseReservationsJson(json, online);
+  }
+
+  static List<HongguoCloudReservation> parseReservationsJson(
+    Map<String, dynamic> json,
+    bool online,
+  ) {
+    final data = json['data'] is Map<String, dynamic>
+        ? json['data'] as Map<String, dynamic>
+        : null;
+    if (data == null || !data.containsKey('subscribe_items')) {
+      throw HongguoAccountError('预约列表格式已变化，请稍后重试');
+    }
+    final rows = data['subscribe_items'];
+    if (rows == null) return const [];
+    if (rows is! List) throw HongguoAccountError('预约列表格式已变化，请稍后重试');
+    final out = <HongguoCloudReservation>[];
+    for (final row in rows) {
+      if (row is! Map<String, dynamic>) continue;
+      final video = row['subscribe_data'] is Map<String, dynamic>
+          ? row['subscribe_data'] as Map<String, dynamic>
+          : row['video_data'] is Map<String, dynamic>
+          ? row['video_data'] as Map<String, dynamic>
+          : row;
+      var seriesId = _pick(video, ['series_id']);
+      if (seriesId.isEmpty) seriesId = _pick(row, ['series_id', 'book_id']);
+      // 未上线条目没有可播剧集 id：用 reservation: 前缀命名空间，
+      // 绝不能当成播放 id。
+      String id;
+      if (RegExp(r'^[0-9]{1,30}$').hasMatch(seriesId)) {
+        id = seriesId;
+      } else if (!online &&
+          identical(video, row) &&
+          RegExp(r'^[0-9]{1,30}$').hasMatch('${row['item_id'] ?? ''}')) {
+        id = 'reservation:${row['item_id']}';
+      } else {
+        continue;
+      }
+      final title = _pick(row, ['series_title']).isEmpty
+          ? _pick(video, ['title']).isEmpty
+                ? _pick(video, ['book_name']).isEmpty
+                      ? _pick(row, ['name'])
+                      : _pick(video, ['book_name'])
+                : _pick(video, ['title'])
+          : _pick(row, ['series_title']);
+      if (title.isEmpty) continue;
+      if (row.containsKey('is_online') &&
+          row['is_online'] is bool &&
+          (row['is_online'] as bool) != online) {
+        continue;
+      }
+      int stamp = row['schedule_publish_time'] is num
+          ? (row['schedule_publish_time'] as num).toInt()
+          : 0;
+      if (stamp > 0 && stamp < 10000000000) stamp *= 1000;
+      out.add(
+        HongguoCloudReservation(
+          seriesId: id,
+          title: title,
+          online: online,
+          cover: _pick(row, ['series_cover_url']).isEmpty
+              ? _pick(video, ['cover', 'cover_url', 'thumb_url'])
+              : _pick(row, ['series_cover_url']),
+          intro: _pick(video, ['video_desc']).isEmpty
+              ? _pick(row, ['abstract']).isEmpty
+                    ? _pick(row, ['item_desc'])
+                    : _pick(row, ['abstract'])
+              : _pick(video, ['video_desc']),
+          publishAtMs: stamp,
+          publishText: '${row['expected_rec_text'] ?? ''}',
+        ),
+      );
+    }
+    if (rows.isNotEmpty && out.isEmpty) {
+      throw HongguoAccountError('预约条目格式已变化，请稍后重试');
+    }
+    final seen = <String>{};
+    return out.where((e) => seen.add(e.seriesId)).toList();
+  }
+
+  @override
+  Future<void> reserve(
+    HongguoAccountSession session,
+    String seriesId, {
+    required bool upcoming,
+  }) async {
+    if (!upcoming || !RegExp(r'^[0-9]{1,19}$').hasMatch(seriesId)) {
+      throw HongguoAccountError('预约编号无效');
+    }
+    final id = int.tryParse(seriesId);
+    if (id == null) throw HongguoAccountError('预约编号无效');
+    await _accountJson(
+      session,
+      '/reading/bookapi/search/uncover_subscribe/v1/',
+      body: {
+        'item_id': id,
+        'item_type': 3,
+        'op_type': 1,
+        'subscribe_source': 0,
+      },
+      gzip: true,
+    );
+  }
+}
+
+// ── 登录状态机与同步服务 ──────────────────────────────────────────────
+
+enum HongguoLoginState {
+  signedOut,
+  sendingCode,
+  codeSent,
+  verifying,
+  fetchingQr,
+  waitingScan,
+  signedIn,
+}
+
+/// 红果账号服务：登录两路、账号收藏/历史/预约同步、退出。
+///
+/// - 登录态只存安全存储（键 hongguo_account_session_v1），不进 Hive；
+/// - 账号数据只进 [HongguoAccountCloudStore] 的三个账号箱，
+///   本机历史（LibraryStore）与本机书架（ShelfStore）一字不动；
+/// - 退出登录只清会话 + 本账号的云端箱，本机记录原样保留。
+/// - 真机短信登录须用户手机配合验证，本文件不虚构“已通”。
+class HongguoAccountService extends ChangeNotifier {
+  HongguoAccountService({
+    HongguoAccountTransport Function()? transportFactory,
+    HongguoAccountCloudStore? cloudStore,
+    SecureKeyStorage? sessionStorage,
+  }) : _transportFactory =
+           transportFactory ?? HongguoAccountHttpTransport.new,
+       _cloudStore = cloudStore ?? HongguoAccountCloudStore(),
+       _sessionStorage = sessionStorage ?? const FlutterSecureKeyStorage();
+
+  static final HongguoAccountService instance = HongguoAccountService();
+
+  /// 安全存储里的会话键。
+  static const sessionStorageKey = 'hongguo_account_session_v1';
+
+  final HongguoAccountTransport Function() _transportFactory;
+  final HongguoAccountCloudStore _cloudStore;
+  final SecureKeyStorage _sessionStorage;
+
+  HongguoAccountTransport? _attempt;
+  HongguoAccountSession? _session;
+  HongguoAccountProfile? _profile;
+
+  HongguoLoginState _loginState = HongguoLoginState.signedOut;
+  bool _busy = false;
+  String _statusMessage = '未登录';
+  HongguoQrCode? _qr;
+  DateTime? _qrExpiresAt;
+  DateTime? _codeCooldownUntil;
+  Timer? _qrPollTimer;
+  Timer? _codeCooldownTimer;
+  int _lastUploadMs = 0;
+  String _lastUploadEpisodeId = '';
+  bool _initialized = false;
+
+  HongguoLoginState get loginState => _loginState;
+  bool get busy => _busy;
+  String get statusMessage => _statusMessage;
+  HongguoAccountProfile? get profile => _profile;
+  bool get signedIn => _session != null && _session!.isUsable;
+  HongguoQrCode? get qr => _qr;
+  DateTime? get qrExpiresAt => _qrExpiresAt;
+
+  /// 验证码重发倒计时（秒），0=可重发。
+  int get codeCooldownSeconds {
+    final until = _codeCooldownUntil;
+    if (until == null) return 0;
+    final left = until.difference(DateTime.now()).inSeconds;
+    return left > 0 ? left : 0;
+  }
+
+  /// 当前传输是否接了请求签名。未接线时登录请求大概率被平台拒绝，
+  /// 页面会如实提示，见 HongguoAccountHttpTransport。
+  bool get signingWired {
+    final attempt = _attempt;
+    if (attempt is HongguoAccountHttpTransport) return attempt.signingWired;
+    // 默认传输即 HTTP 传输（未注入签名）。
+    return false;
+  }
+
+  String? get _userId => _session?.userId.isNotEmpty == true
+      ? _session!.userId
+      : null;
+
+  Future<void> init() async {
+    if (_initialized) return;
+    _initialized = true;
+    await _cloudStore.init();
+    await _restoreSession();
+  }
+
+  Future<void> _restoreSession() async {
+    try {
+      final raw = await _sessionStorage.read(sessionStorageKey);
+      if (raw == null || raw.isEmpty) return;
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) return;
+      final session = HongguoAccountSession.fromJson(decoded);
+      if (!session.isUsable) return;
+      _session = session;
+      _profile = HongguoAccountProfile(
+        userId: session.userId,
+        nickname: session.nickname,
+      );
+      _loginState = HongguoLoginState.signedIn;
+      _statusMessage = '登录态已恢复，正在读取云端记录';
+      notifyListeners();
+      unawaited(refresh());
+    } catch (_) {
+      _statusMessage = '登录态无法读取，请重新登录';
+      notifyListeners();
+    }
+  }
+
+  Future<void> _saveSession(HongguoAccountSession session) async {
+    _session = session;
+    await _sessionStorage.write(
+      sessionStorageKey,
+      jsonEncode(session.toJson()),
+    );
+  }
+
+  Future<void> _acceptSession(
+    HongguoAccountSession session,
+    HongguoAccountTransport attempt,
+  ) async {
+    // 手机号还没有红果账号资料时平台返回空账号：先核对再落盘，
+    // 绝不把空账号当成“已登录”。
+    final profile = await attempt.fetchProfile(session);
+    final usable = HongguoAccountSession(
+      cookie: session.cookie,
+      deviceId: session.deviceId,
+      installId: session.installId,
+      userId: profile.userId,
+      nickname: profile.nickname,
+      savedAtMs: DateTime.now().millisecondsSinceEpoch,
+    );
+    await _saveSession(usable);
+    _profile = profile;
+    _attempt = null;
+    _qr = null;
+    _qrExpiresAt = null;
+    _qrPollTimer?.cancel();
+    _loginState = HongguoLoginState.signedIn;
+    _statusMessage = '已登录 ${profile.nickname}，正在读取云端记录';
+    notifyListeners();
+    await refresh();
+  }
+
+  // ── 手机号登录（主路） ──
+
+  /// 发短信验证码。countryCode 默认 86；号码归一化失败直接抛
+  /// [HongguoAccountError]，页面显示其 message 即可。
+  Future<HongguoCodeSent> sendCode({
+    String countryCode = '86',
+    required String number,
+  }) async {
+    final mobile = HongguoPhoneNumber.format(countryCode, number);
+    if (_busy) throw HongguoAccountError('账号操作进行中，请稍候');
+    if (codeCooldownSeconds > 0) {
+      throw HongguoAccountError('请等 $codeCooldownSeconds 秒后再重发');
+    }
+    _busy = true;
+    _loginState = HongguoLoginState.sendingCode;
+    _statusMessage = '正在发送验证码…';
+    notifyListeners();
+    final attempt = _transportFactory();
+    try {
+      final sent = await attempt.sendPhoneCode(mobile);
+      _attempt = attempt;
+      _loginState = HongguoLoginState.codeSent;
+      _statusMessage = '验证码已发送至 ${sent.maskedMobile}';
+      _codeCooldownUntil = DateTime.now().add(
+        Duration(seconds: sent.retrySeconds.clamp(1, 600)),
+      );
+      _codeCooldownTimer?.cancel();
+      _codeCooldownTimer = Timer.periodic(
+        const Duration(seconds: 1),
+        (_) {
+          if (codeCooldownSeconds <= 0) _codeCooldownTimer?.cancel();
+          notifyListeners();
+        },
+      );
+      return sent;
+    } on HongguoAccountError catch (e) {
+      _loginState = HongguoLoginState.signedOut;
+      _statusMessage = e.message;
+      rethrow;
+    } finally {
+      _busy = false;
+      notifyListeners();
+    }
+  }
+
+  /// 验码登录：4–8 位数字验证码。
+  Future<void> verifyCode(String code) async {
+    final attempt = _attempt;
+    if (attempt == null) {
+      throw HongguoAccountError('请先点「获取验证码」');
+    }
+    if (!RegExp(r'^[0-9]{4,8}$').hasMatch(code.trim())) {
+      throw HongguoAccountError('请输入 4—8 位验证码');
+    }
+    if (_busy) throw HongguoAccountError('账号操作进行中，请稍候');
+    _busy = true;
+    _loginState = HongguoLoginState.verifying;
+    _statusMessage = '正在登录…';
+    notifyListeners();
+    try {
+      final session = await attempt.verifyPhoneCode(code.trim());
+      await _acceptSession(session, attempt);
+    } on HongguoAccountError catch (e) {
+      _statusMessage = e.message;
+      if (!e.canRetryCode) {
+        // 验证码作废（次数过多/过期）：本次尝试丢弃，须重新发码。
+        _attempt = null;
+        _loginState = HongguoLoginState.signedOut;
+      } else {
+        _loginState = HongguoLoginState.codeSent;
+      }
+      rethrow;
+    } finally {
+      _busy = false;
+      notifyListeners();
+    }
+  }
+
+  // ── 扫码登录（备用） ──
+  //
+  // 定法：本机展示二维码，供另一台设备上的红果 App 扫码确认。
+  // 用户只有一台手机时，本机扫不了自己的屏幕，扫码走不通——
+  // 页面会明说这一点，并引导走手机号登录。绝不在本机放一个
+  // “扫一扫”入口假装能用。
+
+  Future<HongguoQrCode> fetchQr() async {
+    if (_busy) throw HongguoAccountError('账号操作进行中，请稍候');
+    _busy = true;
+    _loginState = HongguoLoginState.fetchingQr;
+    _statusMessage = '正在取登录二维码…';
+    notifyListeners();
+    final attempt = _transportFactory();
+    try {
+      final qr = await attempt.fetchQrCode();
+      _attempt = attempt;
+      _qr = qr;
+      _qrExpiresAt = DateTime.now().add(
+        Duration(seconds: qr.expiresInSeconds.clamp(1, 600)),
+      );
+      _loginState = HongguoLoginState.waitingScan;
+      _statusMessage = '等待手机确认扫码登录';
+      _qrPollTimer?.cancel();
+      _qrPollTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+        unawaited(_pollQrOnce());
+      });
+      return qr;
+    } on HongguoAccountError catch (e) {
+      _loginState = HongguoLoginState.signedOut;
+      _statusMessage = e.message;
+      rethrow;
+    } finally {
+      _busy = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> _pollQrOnce() async {
+    final attempt = _attempt;
+    if (attempt == null ||
+        _loginState != HongguoLoginState.waitingScan ||
+        _busy) {
+      return;
+    }
+    final expiresAt = _qrExpiresAt;
+    if (expiresAt != null && DateTime.now().isAfter(expiresAt)) {
+      _qrPollTimer?.cancel();
+      _attempt = null;
+      _qr = null;
+      _loginState = HongguoLoginState.signedOut;
+      _statusMessage = '二维码已过期，请重新扫码';
+      notifyListeners();
+      return;
+    }
+    try {
+      final poll = await attempt.pollQrCode();
+      if (poll == HongguoQrPoll.expired) {
+        _qrPollTimer?.cancel();
+        _attempt = null;
+        _qr = null;
+        _loginState = HongguoLoginState.signedOut;
+        _statusMessage = '二维码已过期，请重新扫码';
+        notifyListeners();
+        return;
+      }
+      if (poll == HongguoQrPoll.confirmed) {
+        _qrPollTimer?.cancel();
+        _busy = true;
+        _statusMessage = '扫码已确认，正在保存登录状态';
+        notifyListeners();
+        try {
+          final session = await attempt.finishQrLogin();
+          await _acceptSession(session, attempt);
+        } finally {
+          _busy = false;
+          notifyListeners();
+        }
+      }
+    } catch (e) {
+      _qrPollTimer?.cancel();
+      _attempt = null;
+      _qr = null;
+      _loginState = HongguoLoginState.signedOut;
+      _statusMessage = e is HongguoAccountError ? e.message : '扫码登录未完成';
+      notifyListeners();
+    }
+  }
+
+  void cancelQr() {
+    _qrPollTimer?.cancel();
+    _attempt = null;
+    _qr = null;
+    if (_loginState == HongguoLoginState.waitingScan ||
+        _loginState == HongguoLoginState.fetchingQr) {
+      _loginState = _session != null
+          ? HongguoLoginState.signedIn
+          : HongguoLoginState.signedOut;
+      _statusMessage = '已取消扫码登录';
+      notifyListeners();
+    }
+  }
+
+  // ── 云端同步 ──
+
+  /// 重读账号资料 + 云端历史 + 收藏 + 预约，写进账号箱。
+  /// 某一类失败不伪装成空列表：失败那类保持旧数据并报信。
+  Future<void> refresh() async {
+    final session = _session;
+    if (session == null) return;
+    if (_busy) return;
+    _busy = true;
+    _statusMessage = '正在读取账号观看历史…';
+    notifyListeners();
+    final attempt = _transportFactory();
+    try {
+      final profile = await attempt.fetchProfile(session);
+      _profile = profile;
+      _session = session.copyWith(nickname: profile.nickname);
+      await _saveSession(_session!);
+      final history = await attempt.fetchHistory(session);
+      await _cloudStore.putHistory(profile.userId, history);
+      try {
+        final favorites = await attempt.fetchFavorites(session);
+        await _cloudStore.putFavorites(profile.userId, favorites);
+      } catch (e) {
+        _statusMessage =
+            '云端历史已读取，收藏读取失败：${e is HongguoAccountError ? e.message : '请稍后重试'}';
+      }
+      for (final online in [true, false]) {
+        try {
+          final rows = await attempt.fetchReservations(session, online);
+          await _cloudStore.putReservations(profile.userId, online, rows);
+        } catch (_) {
+          // 预约某一类失败不掩盖已读到的另一类。
+        }
+      }
+      _statusMessage = '已读取 ${history.length} 部云端观看记录';
+    } on HongguoAccountError catch (e) {
+      _statusMessage = e.message;
+    } finally {
+      _busy = false;
+      notifyListeners();
+    }
+  }
+
+  // ── 收藏（进账号） ──
+
+  List<HongguoCloudFavorite> get accountFavorites {
+    final userId = _userId;
+    if (userId == null) return const [];
+    return _cloudStore.favorites(userId);
+  }
+
+  bool isAccountFavorite(String seriesId) =>
+      accountFavorites.any((e) => e.seriesId == seriesId);
+
+  /// 收藏/取消收藏：写后重读核对，核对不上如实报“未确认”，
+  /// 不报假成功。返回给页面显示的一句话。
+  Future<String> toggleAccountFavorite({
+    required String seriesId,
+    required String title,
+    String cover = '',
+    String intro = '',
+    String badge = '',
+  }) async {
+    final session = _session;
+    if (session == null) return '请先登录红果账号';
+    if (_busy) return '账户收藏正在处理，请稍候';
+    final add = !isAccountFavorite(seriesId);
+    _busy = true;
+    _statusMessage = '正在核对并更新账户收藏…';
+    notifyListeners();
+    final attempt = _transportFactory();
+    try {
+      final before = await attempt.fetchFavorites(session);
+      final already = before.any((e) => e.seriesId == seriesId);
+      if (already == add) {
+        await _cloudStore.putFavorites(session.userId, before);
+        return add ? '这部剧已在账户收藏中，无需重复添加' : '本次读取的账户列表中已没有这部剧，无需重复取消';
+      }
+      await attempt.setFavorite(session, seriesId, add);
+      final after = await attempt.fetchFavorites(session);
+      await _cloudStore.putFavorites(session.userId, after);
+      final confirmed = after.any((e) => e.seriesId == seriesId) == add;
+      if (!confirmed) {
+        return '请求已提交，但账户列表尚未确认生效。请刷新或在手机红果核对，不要连续重复提交。';
+      }
+      return add ? '已加入账户收藏，并已在账户列表确认' : '已取消账户收藏，并已从本次读取的列表移除';
+    } on HongguoAccountError catch (e) {
+      return '收藏操作未确认：${e.message}。请先刷新或在手机核对。';
+    } finally {
+      _busy = false;
+      notifyListeners();
+    }
+  }
+
+  // ── 云端历史 / 续播（给播放器组） ──
+
+  List<HongguoCloudProgress> get cloudHistory {
+    final userId = _userId;
+    if (userId == null) return const [];
+    return _cloudStore.history(userId);
+  }
+
+  /// 播放器续播入口①：按剧查云端续播点。未登录返回 null。
+  /// 返回的是云端记录；与本机记录的合并策略见 mergeCloudProgress，
+  /// 播放器组接的时候按“更新时间新者赢”取用。
+  Future<HongguoCloudResume?> resumeForSeries(String seriesId) async {
+    final userId = _userId;
+    if (userId == null || seriesId.isEmpty) return null;
+    return _cloudStore.progressFor(userId, seriesId);
+  }
+
+  /// 播放器续播入口②：按剧 + 集查云端续播点。集 id 对不上返回 null，
+  /// 调用方此时应走本机记录或从头播。
+  Future<HongguoCloudResume?> resumeForEpisode(
+    String seriesId,
+    String episodeId,
+  ) async {
+    final resume = await resumeForSeries(seriesId);
+    if (resume == null || resume.episodeId != episodeId) return null;
+    return resume;
+  }
+
+  /// 同步读缓存里的云端续播点（不发请求，供列表页直接用）。
+  HongguoCloudResume? cachedResumeForSeries(String seriesId) {
+    final userId = _userId;
+    if (userId == null || seriesId.isEmpty) return null;
+    return _cloudStore.progressFor(userId, seriesId);
+  }
+
+  /// 播放器上报进度：同一集 30 秒内只传一次；先写账号箱，
+  /// 再后台上传。未登录时静默丢弃，不写本机历史（本机历史
+  /// 由播放器自己经 LibraryStore 写，两边不串）。
+  Future<void> reportProgress({
+    required String seriesId,
+    required String episodeId,
+    required int episodeIndex,
+    required int positionMs,
+    required int durationMs,
+    required int episodeCount,
+    String title = '',
+    String cover = '',
+  }) async {
+    final session = _session;
+    final userId = _userId;
+    if (session == null || userId == null) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (episodeId == _lastUploadEpisodeId &&
+        now - _lastUploadMs < 30000) {
+      return;
+    }
+    _lastUploadMs = now;
+    _lastUploadEpisodeId = episodeId;
+    final progress = HongguoCloudProgress(
+      seriesId: seriesId,
+      episodeId: episodeId,
+      episodeIndex: episodeIndex,
+      positionMs: positionMs.clamp(0, 1 << 62),
+      durationMs: durationMs.clamp(0, 1 << 62),
+      updatedAtMs: now,
+      title: title,
+      cover: cover,
+      episodeCount: episodeCount,
+    );
+    await _cloudStore.upsertProgress(userId, progress);
+    notifyListeners();
+    final attempt = _transportFactory();
+    try {
+      await attempt.uploadProgress(session, progress);
+      _statusMessage = '播放进度已上传（请在手机端核对续播）';
+    } catch (e) {
+      _statusMessage =
+          '进度上传失败：${e is HongguoAccountError ? e.message : '请稍后重试'}';
+    }
+    notifyListeners();
+  }
+
+  // ── 预约（进账号） ──
+
+  List<HongguoCloudReservation> reservations({required bool online}) {
+    final userId = _userId;
+    if (userId == null) return const [];
+    return _cloudStore.reservations(userId, online);
+  }
+
+  bool isReserved(String seriesId) =>
+      reservations(online: true).any((e) => e.seriesId == seriesId) ||
+      reservations(online: false).any((e) => e.seriesId == seriesId);
+
+  /// 预约一部待上线作品（upcoming=true 才允许）。写后重读核对，
+  /// 核对不上如实报“未确认”，返回给页面显示的一句话。
+  Future<String> reserveSeries(String seriesId, {required bool upcoming}) async {
+    final session = _session;
+    if (session == null) return '请先登录红果账号';
+    if (!upcoming) return '只有待上线的作品可以预约';
+    if (_busy) return '账号操作进行中，请稍候';
+    if (isReserved(seriesId)) return '该作品已在当前账号的预约列表中';
+    _busy = true;
+    notifyListeners();
+    final attempt = _transportFactory();
+    try {
+      await attempt.reserve(session, seriesId, upcoming: true);
+      final rows = await attempt.fetchReservations(session, false);
+      await _cloudStore.putReservations(session.userId, false, rows);
+      final confirmed = rows.any(
+        (e) => e.seriesId == seriesId || e.seriesId == 'reservation:$seriesId',
+      );
+      return confirmed
+          ? '已加入账号预约'
+          : '红果已接受预约请求，尚未在账号列表确认。请刷新预约状态，或在手机红果核对是否新增。';
+    } on HongguoAccountError catch (e) {
+      return '预约未完成：${e.message}';
+    } finally {
+      _busy = false;
+      notifyListeners();
+    }
+  }
+
+  // ── 退出 ──
+
+  /// 退出登录：清会话 + 本账号的云端箱。本机历史与书架不动，
+  /// 下次登录同一账号会重新拉云端记录。
+  Future<void> logout() async {
+    final userId = _userId;
+    _qrPollTimer?.cancel();
+    _codeCooldownTimer?.cancel();
+    _attempt = null;
+    _qr = null;
+    _session = null;
+    _profile = null;
+    _lastUploadMs = 0;
+    _lastUploadEpisodeId = '';
+    _loginState = HongguoLoginState.signedOut;
+    _statusMessage = '已退出账号，自动同步已停止';
+    notifyListeners();
+    await _sessionStorage.write(sessionStorageKey, '');
+    if (userId != null) await _cloudStore.clearAccount(userId);
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _qrPollTimer?.cancel();
+    _codeCooldownTimer?.cancel();
+    super.dispose();
+  }
+}

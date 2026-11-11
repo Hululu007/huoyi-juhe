@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import '../../models/comment_reply.dart';
 import '../../models/playlet_comment.dart';
 import '../../services/api_client.dart';
+import '../../services/playlet_interaction_posting.dart';
 import '../home/home_design.dart';
+import 'playlet_comment_composer.dart';
 import 'playlet_discussion_tile.dart';
 
 typedef PlayletReplyPageLoader =
@@ -26,12 +28,17 @@ class PlayletReplyPanel extends StatefulWidget {
     this.loader,
     this.focusReplyId = '',
     this.embedded = false,
+    this.poster,
   });
 
   final String seriesId;
   final PlayletComment comment;
   final VoidCallback onBack;
   final PlayletReplyPageLoader? loader;
+
+  /// 发表层：默认走真实接口，测试注入假实现。评论面板会把自己的
+  /// 那份传进来，回复与评论共用同一套登录判定。
+  final PlayletInteractionPosting? poster;
 
   /// 嵌进播放页分屏时隐藏右上角关闭钮（没有可关闭的弹层路由），
   /// 左上的返回箭头仍负责回到评论列表。
@@ -58,6 +65,21 @@ class _PlayletReplyPanelState extends State<PlayletReplyPanel> {
 
   /// 首次加载是否还走定点读；失败后回退普通列表并不再重试定点。
   bool _useFocus = false;
+
+  late final PlayletInteractionPosting _poster =
+      widget.poster ?? PlayletInteractionPosting.defaults();
+
+  /// 发表后重读：清空游标与列表，从首页重新拉（新回复在最前面）。
+  Future<void> _reloadAfterPost() async {
+    if (_loading) return;
+    setState(() {
+      _cursor = '';
+      _replies.clear();
+      _hasMore = true;
+      _error = null;
+    });
+    await _load();
+  }
 
   @override
   void initState() {
@@ -230,6 +252,19 @@ class _PlayletReplyPanelState extends State<PlayletReplyPanel> {
               );
             },
           ),
+        ),
+        PlayletCommentComposer(
+          hintText: '回复 ${widget.comment.userName}…',
+          loginHint: _poster.loginHint,
+          onSend: (text) async {
+            final result = await _poster.postReply(
+              commentId: widget.comment.id,
+              seriesId: widget.seriesId,
+              text: text,
+            );
+            return result.isOk ? null : result.message;
+          },
+          onSent: (_) => unawaited(_reloadAfterPost()),
         ),
       ],
     );

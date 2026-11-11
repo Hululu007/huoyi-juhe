@@ -17,7 +17,11 @@ import 'series_detail_page.dart' show SeriesDetailPage;
 import '../services/api_client.dart';
 import '../services/backend_transport.dart' show BackendRequest;
 import '../services/cultivation.dart';
+import '../services/decoder_compatibility.dart';
+import '../services/hongguo_account_sync.dart';
+import '../services/playback_resume.dart';
 import '../services/player_panel_preferences.dart';
+import '../services/playlet_interaction_posting.dart';
 import '../services/watched_episodes.dart';
 import 'listen_mode_page.dart';
 import '../services/episode_source_cache.dart';
@@ -33,14 +37,22 @@ import '../services/playback_issue.dart';
 import '../services/player_history.dart';
 import '../services/player_layout_preferences.dart';
 import '../services/player_load_diagnostics.dart';
+import '../services/player_display_preferences.dart';
 import '../services/player_preferences.dart';
+import '../services/player_sleep_timer.dart';
 import '../services/player_style_config.dart';
 import '../services/quality_memory.dart';
+import '../services/season_autoplay.dart';
 import '../services/swipe_guide_store.dart';
+import '../widgets/home/home_design.dart';
+import '../widgets/series_detail/moyi_detail_theme.dart';
 import '../widgets/player/playlet_comment_panel.dart';
+import '../widgets/player/playlet_comment_composer.dart';
 import '../widgets/player/playlet_danmaku_layer.dart';
 import '../widgets/player/playlet_danmaku_loader.dart';
 import '../widgets/player/playlet_danmaku_settings.dart';
+import '../widgets/player/player_persistent_progress.dart';
+import '../widgets/player/player_playback_extras_sheet.dart';
 import '../widgets/player/story_player_panel.dart';
 import '../widgets/player/player_feedback.dart';
 import '../widgets/player/player_split_panel.dart';
@@ -109,6 +121,10 @@ class PlayerPage extends StatefulWidget {
   final DramaDownloader? downloader;
   final DramaDownloadStore? store;
 
+  /// 互动发表层的可注入实现（默认走真实接口）。测试注入用，与
+  /// [danmakuFetcher] 同一套缝。
+  final PlayletInteractionPosting? interactionPosting;
+
   const PlayerPage({
     super.key,
     required this.bookId,
@@ -126,6 +142,7 @@ class PlayerPage extends StatefulWidget {
     this.initialSeriesDetail,
     this.danmakuFetcher,
     this.hotCommentsLoader,
+    this.interactionPosting,
     this.shortSeries = false,
     this.cultivationCategory = CultivationCategory.video,
     this.aiGenerated = false,
@@ -242,6 +259,24 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   /// 官方「画面撑满」（SP `is_fill_screen`）。
   bool _fillScreen = false;
 
+  /// 画面模式（对照 hongguoTV `VideoFrameMode`）：适应 / 等比铺满
+  /// 走现有 `is_fill_screen` 通道（见 [_setDisplayMode]）；拉伸铺满
+  /// 待播放器布局接线（`player_display_preferences.dart` 文件头）。
+  PlayerDisplayMode _displayMode = PlayerDisplayMode.fit;
+
+  /// 用户旋转角（对照 hongguoTV `VideoRotation`）：0°/180° 可直接
+  /// 叠加在元数据修正角上；90°/270° 待画面布局接线。
+  int _userRotation = 0;
+
+  /// 定时停止（对照 hongguoTV `SleepTimer`）：进程内有效，不落盘，
+  /// 由 5 秒进度心跳与每集播完事件驱动（见 [_pollSleepTimer]）。
+  final PlayerSleepTimer _sleepTimer = PlayerSleepTimer();
+
+  /// 跨季连播开关（对照 hongguoTV `seasonAutoplay`，默认关）与
+  /// 自动连播（对照 `autoNext`，跨季的另一道门）。
+  bool _seasonAutoplay = false;
+  bool _autoAdvance = true;
+
   /// 官方「默认静音」：**不落盘**，只在进程内（`tm3/b.java:17-20`）。
   bool _defaultMute = PlayerPanelPreferences.defaultMute;
 
@@ -255,6 +290,25 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       generation == _loadGeneration &&
       (player == null || identical(player, _player));
 
+  /// 入页续播点：本机历史与云端记录归并后的结果（见
+  /// [PlaybackResume]）。只在入页那次起播里用，切集后不再参考。
+  PlaybackResumePoint? _entryResumePoint;
+
+  /// 入页云端跳集只做一次：云端点指到别的集时重起一次 [_loadVideo]，
+  /// 避免两边来回跳。
+  bool _entryResumeApplied = false;
+
+  /// 学到的失败档位（跨启动记忆）：起播失败记一条，下次起播直接
+  /// 跳过该档位。见 [DecoderFallbackPlan]。
+  DecoderLessons _decoderLessons = DecoderLessons();
+
+  /// 静默卡死检测（播着、没缓冲、位置 20 秒不动时触发一次降档重建）。
+  final PlaybackStallGuard _stallGuard = PlaybackStallGuard();
+
+  /// 互动发表层（默认真实接口）。
+  PlayletInteractionPosting get _interactionPosting =>
+      widget.interactionPosting ?? PlayletInteractionPosting.defaults();
+
   @override
   void initState() {
     super.initState();
@@ -267,6 +321,14 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     _index = widget.eps.isEmpty
         ? 0
         : widget.startIndex.clamp(0, widget.eps.length - 1);
+    // 入页续播的云端点在下面 [_loadVideo] 的 history 阶段同步读
+    // 登录组的缓存（`cachedResumeForSeries`，不发请求）。注意：
+    // 播放页不主动调账号服务 `init()`——它在测试区打不开加密箱
+    // 会挂起（留一个 pending Timer，测完报「Timer 还在跑」），
+    // 生产上初始化由登录页负责；没初始化时缓存就是空的，本机点兜底。
+    unawaited(DecoderLessonStore.load().then((lessons) {
+      _decoderLessons = lessons;
+    }));
     // 已看集来自持久化记录，**不**从续播下标推断（F07 的核心修正）。
     unawaited(_loadWatched());
     // 「左右滑动可调整进度」每台设备一次（`of3/a`）。只在 store 已初始化时
@@ -296,6 +358,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     unawaited(_loadHotComments());
     unawaited(_loadDanmakuPreference());
     unawaited(_loadDanmakuSettings());
+    unawaited(_loadPlaybackControlPreferences());
     // 进度心跳每秒喂一次调度器：进预取区间补拉下一批、落未覆盖处补数。
     // 不挂在 200ms 进度流上，也不逐帧（上批逐帧滚动只属于渲染层）。
     _danmakuProgressTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -555,6 +618,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
           context,
           seriesId: widget.bookId,
           total: _commentCount,
+          poster: _interactionPosting,
         ),
       ),
     );
@@ -603,6 +667,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
           total: _commentCount,
           focusCommentId: target,
           focusReplyId: isReply ? comment.id : '',
+          poster: _interactionPosting,
         ),
       ),
     );
@@ -615,6 +680,75 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     // 画面撑满的缺省值取决于竖/横屏（`FillScreenDataManager.a()` 的
     // `e.q()` 分支），因此要等 MediaQuery 可用之后才能读。
     unawaited(_loadPanelPreferences());
+  }
+
+  /// 云端续播上报：本机落盘后，顺手把同一条进度报给登录组
+  ///（`HongguoAccountService.reportProgress`，同一集 30 秒内只传一次，
+  /// 未登录静默丢弃）。只报红果短剧：剧集 id 与集 id 都必须是纯数字，
+  /// 否则服务端直接拒收（登录组 `uploadProgress` 的校验）。
+  Future<void> _reportCloudProgress(
+    int index,
+    Map<String, dynamic> entry,
+  ) async {
+    if (!widget.shortSeries) return;
+    final seriesId = widget.bookId;
+    final episodeId = '${entry['episodeId'] ?? ''}';
+    if (!RegExp(r'^[0-9]{1,30}$').hasMatch(seriesId) ||
+        !RegExp(r'^[0-9]{1,30}$').hasMatch(episodeId)) {
+      return;
+    }
+    final position = entry['position'];
+    final duration = entry['duration'];
+    final positionMs = position is num
+        ? (position.toDouble() * 1000).round()
+        : 0;
+    final durationMs = duration is num
+        ? (duration.toDouble() * 1000).round()
+        : 0;
+    try {
+      await HongguoAccountService.instance.reportProgress(
+        seriesId: seriesId,
+        episodeId: episodeId,
+        episodeIndex: index,
+        positionMs: positionMs,
+        durationMs: durationMs,
+        episodeCount: widget.eps.length,
+        title: widget.title,
+        cover: widget.cover,
+      );
+    } catch (_) {
+      // 云端续播是 best-effort：失败只影响另一台设备的续播，
+      // 本机历史已经落盘，不阻塞播放。
+    }
+  }
+
+  /// 解码失败记一条教训：当前档位下次起播直接跳过（跨启动生效）。
+  /// 只有归类为解码失败（`PlaybackIssue.decoding`）时才记，
+  /// 网络/取流失败不记，避免把好的档位误伤。
+  void _recordDecoderLesson() {
+    final name = _currentVariantName();
+    if (name == null || name.isEmpty) return;
+    final key = _decoderLessons.remember(
+      DecoderFallbackPlan.lessonKeyForName(name),
+      null,
+      null,
+    );
+    if (key == null) return;
+    unawaited(DecoderLessonStore.save(_decoderLessons));
+  }
+
+  /// 静默卡死恢复：降一档清晰度重建播放器（位置从刚落盘的本机
+  /// 历史里恢复）。只在播着、没缓冲、位置 20 秒不动时由心跳触发，
+  /// 同一集最多两次（[PlaybackStallGuard] 内计数）。
+  void _recoverFromStall() {
+    if (!mounted || _switchingSeries || _error != null) return;
+    unawaited(
+      _loadVideo(
+        refresh: true,
+        autoplay: _lastAutoplay,
+        avoidVariant: _currentVariantName(),
+      ),
+    );
   }
 
   /// 读取持久化的已看集，并把旧历史记录迁移一次。
@@ -665,16 +799,138 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     final fillScreen = await PlayerPanelPreferences.loadFillScreen(
       portrait: portrait,
     );
+    // 画面模式与撑满开关同一份状态：存过档位就按档位走（等比铺满 =
+    // 撑满开、完整画面 = 撑满关），没存过就按撑满开关推导档位。
+    final savedMode = await PlayerDisplayPreferences.loadMode();
     if (!mounted) return;
     setState(() {
       _fillScreen = fillScreen;
       _defaultMute = PlayerPanelPreferences.defaultMute;
+      if (savedMode != null && savedMode.appliableNow) {
+        _displayMode = savedMode;
+        _fillScreen = savedMode == PlayerDisplayMode.zoom;
+      } else {
+        _displayMode = _fillScreen
+            ? PlayerDisplayMode.zoom
+            : PlayerDisplayMode.fit;
+      }
+    });
+  }
+
+  /// 旋转角、跨季开关与自动连播的落盘值（画面模式在
+  /// [_loadPanelPreferences] 里与撑满开关一起对齐）。
+  Future<void> _loadPlaybackControlPreferences() async {
+    final rotation = await PlayerDisplayPreferences.loadRotation();
+    final seasonAutoplay = await SeasonAutoplayPreference.load();
+    final autoAdvance = await PlayerPreferences.loadAutoAdvance().catchError(
+      (Object _) => true,
+    );
+    if (!mounted) return;
+    setState(() {
+      // 存过的 90°/270° 本次还渲染不了（要 chrome 重新排矩形），
+      // 先按 0° 起播，不让它在 RotatedBox 里把画面拉变形。
+      _userRotation = PlayerRotation.appliableNow(rotation) ? rotation : 0;
+      _seasonAutoplay = seasonAutoplay;
+      _autoAdvance = autoAdvance;
     });
   }
 
   void _setFillScreen(bool enabled) {
-    setState(() => _fillScreen = enabled);
+    setState(() {
+      _fillScreen = enabled;
+      _displayMode = enabled ? PlayerDisplayMode.zoom : PlayerDisplayMode.fit;
+    });
     unawaited(PlayerPanelPreferences.saveFillScreen(enabled));
+    unawaited(PlayerDisplayPreferences.saveMode(_displayMode));
+  }
+
+  /// 画面模式切换：适应 / 等比铺满分别对应撑满关 / 开，走 chrome
+  /// 已有的 `fillScreen` 通道；拉伸铺满接不上布局，弹层里已置灰，
+  /// 这里再拦一道，不让它静默地按等比铺满生效。
+  void _setDisplayMode(PlayerDisplayMode mode) {
+    if (!mode.appliableNow) return;
+    setState(() {
+      _displayMode = mode;
+      _fillScreen = mode == PlayerDisplayMode.zoom;
+    });
+    unawaited(PlayerDisplayPreferences.saveMode(mode));
+    unawaited(PlayerPanelPreferences.saveFillScreen(_fillScreen));
+  }
+
+  /// 旋转角切换：只认 0°/180°（`RotatedBox` 叠加角，不动画面矩形）；
+  /// 90°/270° 待画面布局接线，弹层里已置灰，这里再拦一道。
+  void _setUserRotation(int degrees) {
+    final normalized = PlayerRotation.normalize(degrees);
+    if (!PlayerRotation.appliableNow(normalized)) return;
+    setState(() => _userRotation = normalized);
+    unawaited(PlayerDisplayPreferences.saveRotation(normalized));
+  }
+
+  void _setSeasonAutoplay(bool enabled) {
+    setState(() => _seasonAutoplay = enabled);
+    unawaited(SeasonAutoplayPreference.save(enabled));
+  }
+
+  void _applySleepChoice(PlayerSleepChoice choice) {
+    choice.applyTo(_sleepTimer);
+    setState(() {});
+    if (!mounted) return;
+    PlayerToast.show(
+      context,
+      choice == PlayerSleepChoice.off
+          ? '定时停止已关闭'
+          : '定时停止：${_sleepTimer.label}',
+    );
+  }
+
+  /// 定时停止到期（分钟档）：暂停当前播放并落一次进度。5 秒进度
+  /// 心跳里调用，到期即停，不等下一集；用户手动点播放可恢复，
+  /// 计时器本身已经清掉，不会再拦。
+  void _pollSleepTimer() {
+    if (!_sleepTimer.poll()) return;
+    final player = _player;
+    if (player != null) unawaited(player.pause());
+    if (_floatingOwner case final int owner) {
+      unawaited(NativePlayer.updateFloating(owner: owner, playing: false));
+    }
+    unawaited(_persistProgress());
+    if (!mounted) return;
+    PlayerToast.show(context, '定时停止：已暂停播放');
+  }
+
+  /// 跨季连播的接线点：门禁（跨季开关 + 自动连播 + 末集 + 没被定时
+  /// 拦住）已按对照 `finishSeason` 落位；树里没有「季」模型与下一季
+  /// 数据源，`hasNextSeason` 目前恒为 false，本轮只落门禁与开关，
+  /// 不会误把「相关剧集」当成下一季播。数据源接上后在这里按开关
+  /// 加载下一季第一集。
+  void _maybeContinueToNextSeason() {
+    if (!shouldContinueToNextSeason(
+      seasonAutoplay: _seasonAutoplay,
+      autoAdvance: _autoAdvance,
+      isLastEpisode: true,
+      sleepStopped: false,
+      hasNextSeason: false,
+    )) {
+      return;
+    }
+  }
+
+  /// 播放控制弹层（画面模式 / 旋转 / 定时停止 / 跨季连播）。
+  void _openPlaybackExtras() {
+    unawaited(
+      showPlayerPlaybackExtras(
+        context: context,
+        displayMode: _displayMode,
+        onDisplayModeChanged: _setDisplayMode,
+        rotation: _userRotation,
+        onRotationChanged: _setUserRotation,
+        sleepTimer: _sleepTimer,
+        onSleepChoice: _applySleepChoice,
+        seasonAutoplay: _seasonAutoplay,
+        onSeasonAutoplayChanged: _setSeasonAutoplay,
+        autoAdvance: _autoAdvance,
+      ),
+    );
   }
 
   void _setDefaultMute(bool enabled) {
@@ -873,7 +1129,12 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
         }
       }
     }
-    if (state == AppLifecycleState.detached) unawaited(_stopFloating());
+    if (state == AppLifecycleState.detached) {
+      // 进程要没了：最后再刷一次进度（被杀广播的 FairMemory 兜底
+      // 之外，detached 这里也补一次；写不完也认了）。
+      unawaited(_persistProgress());
+      unawaited(_stopFloating());
+    }
     _updatePrefetch();
   }
 
@@ -1360,6 +1621,37 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       } catch (_) {
         // Local storage is optional for starting a video.
       }
+      // 入页续播：本机 + 云端归并（[PlaybackResume.resolve]），云端读
+      // 登录组的缓存（不发请求、不等 init）。只在云端点赢了、且指到
+      // 别的集时重起一次；本机点指到别的集时沿用旧行为（播 startIndex），
+      // 不跳集。显式入口（startPosition）优先，不跳集。
+      if (!_hasDisplayed &&
+          widget.shortSeries &&
+          widget.startPosition == null) {
+        final cloud = HongguoAccountService.instance.cachedResumeForSeries(
+          widget.bookId,
+        );
+        final point = PlaybackResume.resolve(
+          saved: saved,
+          cloud: cloud,
+          seriesId: widget.bookId,
+          episodes: widget.eps,
+        );
+        if (point != null && point.episodeIndex == index) {
+          _entryResumePoint = point;
+        } else if (point != null &&
+            point.fromCloud &&
+            point.episodeIndex != index &&
+            !_entryResumeApplied) {
+          _entryResumeApplied = true;
+          _entryResumePoint = point;
+          await adopted?.dispose();
+          if (!_current(generation)) return;
+          setState(() => _index = point.episodeIndex);
+          unawaited(_loadVideo(autoplay: autoplay, refresh: refresh));
+          return;
+        }
+      }
       trace.stage('pagingBeforeCreate');
       if (!await _waitForPaging(generation)) {
         await adopted?.dispose();
@@ -1382,18 +1674,31 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       final initialPosition = !_hasDisplayed && index == widget.startIndex
           ? widget.startPosition
           : null;
+      // 入页续播点（本机 + 云端归并）：显式入口（听书回传/调用方
+      // startPosition）优先于它；它只对入页那一集生效。
+      final entryPoint =
+          _entryResumePoint != null && _entryResumePoint!.episodeIndex == index
+          ? _entryResumePoint
+          : null;
       final requestedMs = listenResumeMs >= 0
           ? listenResumeMs.toDouble()
-          : initialPosition?.inMilliseconds.toDouble() ?? savedPosition * 1000;
+          : initialPosition?.inMilliseconds.toDouble() ??
+                (entryPoint != null
+                    ? entryPoint.positionMs.toDouble()
+                    : savedPosition * 1000);
+      final resumeDurationMs = entryPoint != null && entryPoint.durationMs > 0
+          ? entryPoint.durationMs.toDouble()
+          : savedDuration * 1000;
       // 记录已播到末尾的不给起播位置（从头播）；记录没时长时由首个时长事件再校正。
       final startMs =
           (listenResumeMs >= 0 ||
                   initialPosition != null ||
-                  resumeEpisodeIndex(saved, widget.eps) == index) &&
+                  resumeEpisodeIndex(saved, widget.eps) == index ||
+                  (entryPoint != null && entryPoint.positionMs > 0)) &&
               requestedMs.isFinite &&
               requestedMs > 0 &&
               requestedMs < 0x7fffffffffffffff &&
-              (savedDuration <= 0 || requestedMs < savedDuration * 1000)
+              (resumeDurationMs <= 0 || requestedMs < resumeDurationMs)
           ? requestedMs.round()
           : null;
       trace.stage('create');
@@ -1470,6 +1775,23 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
         // A paused episode must not keep re-stamping its history record.
         // 5s 心跳与听书页一致：暂停/切集/退出都另有即时保存，只在这里兜底。
         if (_playing) unawaited(_persistProgress());
+        // 静默卡死：播着、没缓冲、位置 20 秒不动，降一档重建。
+        // 误触发的代价只是一次重建（位置从刚落盘的历史恢复）。
+        if (_playing &&
+            _player != null &&
+            !_player!.buffering &&
+            _hasDisplayed &&
+            _error == null &&
+            _stallGuard.offer(
+              episodeId: widget.eps[_index].itemId,
+              positionMs: _player!.position.inMilliseconds,
+              playing: _playing,
+              buffering: _player!.buffering,
+              now: DateTime.now(),
+            )) {
+          _recoverFromStall();
+        }
+        _pollSleepTimer();
         _updateWarmNext();
       });
     } catch (error) {
@@ -1483,6 +1805,10 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
 
   void _fail(Object error, int generation) {
     if (!_current(generation)) return;
+    // 解码失败记一条教训：当前档位下次起播直接跳过（跨启动生效）。
+    if (PlaybackIssue.fromError(error) == PlaybackIssue.decoding) {
+      _recordDecoderLesson();
+    }
     final errorCode = error is NativePlaybackException ? error.errorCode : null;
     final httpStatusCode = switch (error) {
       NativePlaybackException() => error.httpStatusCode,
@@ -1676,8 +2002,19 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
                 .catchError((Object _) {}),
           );
         }
+        // 定时停止（集数档/分钟档到期）：本集播完即停，不再自动进下一集。
+        // 放在 `_paging` 分支之前：切集手势拖住时也不能把到期的定时带过去。
+        if (_sleepTimer.episodeEnded()) {
+          return;
+        }
         if (_paging) {
           _pendingCompletion = generation;
+          return;
+        }
+        if (_index + 1 >= widget.eps.length) {
+          // 本季最后一集：跨季门禁见 [_maybeContinueToNextSeason]；
+          // 门禁不通过时沿用旧行为（下面 `_selectEpisode` 越界即停）。
+          _maybeContinueToNextSeason();
           return;
         }
         unawaited(_selectEpisode(_index + 1, expectedGeneration: generation));
@@ -1717,6 +2054,9 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     // Capture identity and progress before any await. All writes (including a
     // new episode's history entry) share this queue to preserve their order.
     final history = _historyEntry(index, player);
+    // 云端续播上报（best-effort，不阻塞本机落盘）：登录组 30 秒节流，
+    // 未登录静默丢弃。
+    unawaited(_reportCloudProgress(index, history));
     final seconds =
         _watchTime.elapsedMicroseconds / Duration.microsecondsPerSecond;
     _watchTime.reset();
@@ -1762,7 +2102,146 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     // 时 chrome 与分屏面板一起重建，不依赖路由回弹时的偶然 build。
     return ValueListenableBuilder<PlayerLayoutMode>(
       valueListenable: PlayerLayoutPreferences.mode,
-      builder: (context, layoutMode, _) => _chrome(layoutMode),
+      builder: (context, layoutMode, _) => Stack(
+        fit: StackFit.expand,
+        children: [
+          _chrome(layoutMode),
+          if (!_externalPanelOpen && !_switchingSeries)
+            _playbackExtrasButton(),
+          if (!_externalPanelOpen &&
+              !_switchingSeries &&
+              widget.shortSeries &&
+              _danmakuEnabled)
+            _danmakuSendButton(),
+        ],
+      ),
+    );
+  }
+
+  /// 发弹幕浮钮：挂在左缘、定时钮下方（与③组的播放控制浮钮错开，
+  /// 不碰它）。只在短剧页 + 弹幕开启时出现；点开底部输入条发当前
+  /// 时间点的弹幕，成功后立即插进本地时间轴，不用等服务端回包。
+  Widget _danmakuSendButton() {
+    return Positioned(
+      left: 8,
+      top: 0,
+      bottom: 0,
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // 定时钮 40 高、居中；往下空 56 再放发弹幕钮。
+            const SizedBox(height: 96),
+            Material(
+              color: Colors.black.withValues(alpha: 0.45),
+              shape: const CircleBorder(),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: _openDanmakuComposer,
+                child: const SizedBox(
+                  width: 40,
+                  height: 40,
+                  child: Icon(
+                    Icons.chat_bubble_outline,
+                    color: Colors.white,
+                    size: 22,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openDanmakuComposer() async {
+    if (!widget.shortSeries || widget.eps.isEmpty) return;
+    final player = _player;
+    if (player == null || _error != null) {
+      PlayerToast.show(context, '视频还在加载，稍后再发弹幕');
+      return;
+    }
+    final vid = widget.eps[_index].itemId;
+    final offsetMs = player.position.inMilliseconds;
+    await _withPlayerOverlay(
+      () => showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        backgroundColor: moyiSheetFill,
+        shape: homeSheetShape(HomePalette.of(context), top: 16),
+        builder: (context) => Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.viewInsetsOf(context).bottom,
+          ),
+          child: PlayletCommentComposer(
+            hintText: '发弹幕…（最多 50 字）',
+            maxLength: danmakuMaxLength,
+            loginHint: _interactionPosting.loginHint,
+            onSend: (text) async {
+              final result = await _interactionPosting.postDanmaku(
+                vid: vid,
+                seriesId: widget.bookId,
+                text: text,
+                offsetMs: offsetMs,
+              );
+              return result.isOk ? null : result.message;
+            },
+            onSent: (text) {
+              // 先插本地时间轴：服务端回包要等下次取数，用户自己这条
+              // 立刻就能在画面上看到（id 是本地临时 id，服务端回包
+              // 带真实 id 时可能短暂重一条，下次取数去重后消失）。
+              _danmaku.load(
+                [
+                  PlayletComment(
+                    id: 'local-${DateTime.now().millisecondsSinceEpoch}',
+                    text: text,
+                    offsetMs: offsetMs,
+                    userName: '我',
+                  ),
+                ],
+                focusMs: offsetMs,
+              );
+              Navigator.maybePop(context);
+              PlayerToast.show(context, '弹幕已发送');
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 播放控制浮钮（画面模式 / 旋转 / 定时停止 / 跨季连播）：chrome 的
+  /// 「更多」面板不在本次归属内，入口先挂在左缘中部；定时生效时图标
+  /// 变橙，点开弹层见 `player_playback_extras_sheet.dart`。
+  Widget _playbackExtrasButton() {
+    final sleepActive = _sleepTimer.active;
+    return Positioned(
+      left: 8,
+      top: 0,
+      bottom: 0,
+      child: Center(
+        child: Material(
+          color: Colors.black.withValues(alpha: 0.45),
+          shape: const CircleBorder(),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: _openPlaybackExtras,
+            child: SizedBox(
+              width: 40,
+              height: 40,
+              child: Icon(
+                sleepActive ? Icons.timer : Icons.timer_outlined,
+                color: sleepActive
+                    ? const Color(0xFFFA6725)
+                    : Colors.white,
+                size: 22,
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -2008,7 +2487,10 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       children: [
         if (texture != null)
           RotatedBox(
-            quarterTurns: _player!.videoRotationCorrection ~/ 90,
+            // 用户旋转角叠加在元数据修正角上：只认 0°/180°，90°/270°
+            // 会改画面宽高、要 chrome 重新排矩形，见 _setUserRotation。
+            quarterTurns:
+                (_player!.videoRotationCorrection + _userRotation) ~/ 90 % 4,
             child: isWindowsDesktop
                 ? DesktopPlatform.instance.videoSurface(
                     texture,
@@ -2030,6 +2512,20 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
             key: ValueKey('player-loading-$generation'),
             label: waiting ? '正在加载第 ${_index + 1} 集' : null,
             onRetry: retry,
+          ),
+        // 常驻进度细条（对照 hongguoTV `PlaybackProgressDisplay`）：
+        // 贴在视频画面底缘，控件 3 秒收起后仍可见；只读不交互。
+        if (_error == null && !waiting)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: IgnorePointer(
+              child: PlayerPersistentProgress(
+                player: _player,
+                duration: _duration,
+              ),
+            ),
           ),
       ],
     );

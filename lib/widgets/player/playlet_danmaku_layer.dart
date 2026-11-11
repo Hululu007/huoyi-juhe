@@ -26,6 +26,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../models/playlet_comment.dart';
+import '../../services/danmaku_layout.dart';
 import 'playlet_danmaku_settings.dart';
 
 /// 同时出现在屏幕上的弹幕行距（本地取值；官方行距由
@@ -428,18 +429,37 @@ class _PlayletDanmakuLayerState extends State<PlayletDanmakuLayer>
         final offset = a.offsetMs.compareTo(b.offsetMs);
         return offset == 0 ? a.id.compareTo(b.id) : offset;
       });
-    final busyUntil = List<double>.filled(_tracks, double.negativeInfinity);
     // 官方公式 (横屏?12000:10000)/(DanmakuSpeed×播放器倍速)；倍速已经
     // 在媒体时钟里，这里再除以弹幕速度档。
     final flightMs =
         (widget.landscape ? _flightBaseMsLandscape : _flightBaseMs) /
         widget.settings.speed;
+    // 轨道调度（对照 hongguoTV DanmakuLayout）：轨道满了不再丢弃，
+    // 而是顺延最多 3 秒或与同轨道重叠。
+    // 同文合并不开：两条不同用户的同文弹幕在本层是两条独立气泡，
+    // 合并会改它们的身份与轨道（层测试要求各占各的轨道）。
+    final scheduled = DanmakuLayout.assign(
+      [
+        for (final entry in sorted)
+          DanmakuLayoutItem(
+            id: entry.id,
+            text: entry.text,
+            timeMs: entry.offsetMs,
+          ),
+      ],
+      lanes: _tracks,
+      travelMs: flightMs.round(),
+      merge: false,
+    );
     final flights = <_DanmakuFlight>[];
-    for (final entry in sorted) {
-      final track = busyUntil.indexWhere((until) => until <= entry.offsetMs);
-      if (track < 0) continue;
-      final flight = _DanmakuFlight(entry, track, flightMs);
-      busyUntil[track] = flight.endMs;
+    for (final item in scheduled) {
+      // 合并后的文本（带 ×N）与顺延后的起点都落在新条目上；
+      // 轨道号即 lane，结束时间 = 起点 + 飞行时长。
+      final flight = _DanmakuFlight(
+        PlayletComment(id: item.id, text: item.text, offsetMs: item.startMs),
+        item.lane,
+        flightMs,
+      );
       flights.add(flight);
     }
     _flights = flights;
