@@ -24,6 +24,7 @@ import 'package:fqapp/services/api_client.dart';
 import 'package:fqapp/services/app_theme.dart';
 import 'package:fqapp/services/cultivation.dart';
 import 'package:fqapp/services/desktop_platform.dart';
+import 'package:fqapp/services/game_service.dart';
 import 'package:fqapp/services/drama_channel_preferences.dart';
 import 'package:fqapp/services/library_store.dart';
 import 'package:fqapp/services/player_style_config.dart';
@@ -32,6 +33,7 @@ import 'package:fqapp/services/swipe_guide_store.dart';
 
 import 'package:fqapp/services/digg_store.dart';
 import 'package:fqapp/widgets/tab_swipe_area.dart';
+import 'package:fqapp/widgets/series_detail/moyi_detail_theme.dart';
 import 'package:fqapp/widgets/video_player_chrome.dart';
 import 'support/controlled_player.dart';
 
@@ -175,6 +177,14 @@ class _Seams {
     },
     searchPageBuilder: searchPageBuilder,
   );
+}
+
+/// 有界 pump：RootShell 带永不沉降的循环动画与周期定时器，
+/// pumpAndSettle 永远等不到沉降，改推固定帧数。
+Future<void> _pumpFrames(WidgetTester tester) async {
+  for (var i = 0; i < 5; i++) {
+    await tester.pump(const Duration(milliseconds: 300));
+  }
 }
 
 /// Bounded flushing: never `pumpAndSettle` on a loading indicator.
@@ -363,8 +373,20 @@ void main() {
       expect(dramaItems, isNotEmpty);
       expect(dramaItems.every((item) => item.kind == 'video'), isTrue);
 
-      container.read(homeProvider.notifier).selectTab(5); // 听书 supersedes it.
-      await Future<void>.delayed(Duration.zero);
+      container.read(homeProvider.notifier).selectTab(6); // 听书。
+      // 下标 5 现在是「漫画」，它没有 tabType（tabTypes 里没它），
+      // 只能走搜索兜底、假 searchLoader 回空，items 永远是空的；
+      // 听书在下标 6（tabType=5），假 loader 回 '5-0'，正好钉 id 前缀。
+      // selectTab 同步清 items、异步 load：只等零延时转不够微任务轮次
+      // （实测 100ms 真实延时后听书内容才落地）；有界等到听书内容落地
+      // 再断言（加载失败时循环耗尽，由下面的 isNotEmpty 给出明确失败，
+      // 而不是 items.first 抛 No element）。
+      for (var i = 0;
+          i < 20 && container.read(homeProvider).items.isEmpty;
+          i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+      expect(container.read(homeProvider).items, isNotEmpty);
 
       expect(container.read(dramaProvider).tabIndex, dramaTabIndex);
       expect(container.read(dramaProvider).items, same(dramaItems));
@@ -1091,18 +1113,41 @@ void main() {
     addTearDown(() => tester.pumpWidget(const SizedBox.shrink()));
 
     // 硬门槛：RootShell 未建档时只显示创建人物界面，看不到底部栏；
-    // 先建一个道友档案再泵壳。
-    await CultivationService.instance.createProfile(
-      gender: CultivationGender.male,
-      sect: cultivationSects.first,
-      profession: defaultCultivationProfession,
-    );
+    // 先建一个道友档案再泵壳。裸 await createProfile 会挂死在
+    // FakeAsync 区里（_persist 的链式调用等不到回包），须先设 mock
+    // 再走 tester.runAsync 的真异步区。
+    // 另：同文件前面的用例会触发 GameService tick → CultivationService
+    // 的 _persist 回调挂在 FakeAsync 区里、把 _persistChain 毒掉，
+    // 后面的 createProfile 再走 runAsync 也会排在毒链后面永不返回；
+    // 先 resetForTest 把链与 _loadFuture 清掉再建档。
+    SharedPreferences.setMockInitialValues({});
+    await tester.runAsync(() async {
+      await CultivationService.instance.resetForTest();
+      await CultivationService.instance.createProfile(
+        gender: CultivationGender.male,
+        sect: cultivationSects.first,
+        profession: defaultCultivationProfession,
+      );
+    });
     await tester.pumpWidget(
       _scope(
         child: MaterialApp(home: RootShell(backendStarter: () async {})),
       ),
     );
-    await tester.pumpAndSettle();
+    // RootShell 的 _checkProfile 在 FakeAsync 区里等不到
+    // ensureInitialized 的 continuation，先从真异步区再推一次
+    // （cultivation_gate 同款），随后 pump 才会进主界面。
+    await tester.runAsync(
+      () async => CultivationService.instance.ensureInitialized(),
+    );
+    await _pumpFrames(tester);
+    // RootShell 一挂就起 GameService 的 5 秒挂机计时器：测试结束时还
+    // 挂着会报 Timer 仍挂起；先停掉，后面 25 秒那次 pump 不会再起 tick。
+    GameService.instance.stopTimerForTest();
+    // 默认进游戏 tab（index 0），底部导航在游戏页是藏掉的；点顶栏
+    // 「离开」切到首页 tab 后底部栏才出现（cultivation_gate 同款）。
+    await tester.tap(find.text('离开'));
+    await _pumpFrames(tester);
 
     // Scoped to the bar: the home page's own category strip also has a 短剧 entry.
     Finder navLabel(String label) => find.descendant(
@@ -1121,14 +1166,15 @@ void main() {
     // The destination is lazy: nothing of the 短剧 feed is built before a tap.
     expect(find.byType(DramaPage), findsNothing);
     await tester.tap(navLabel('短剧'));
-    await tester.pumpAndSettle();
+    await _pumpFrames(tester);
     expect(find.byType(DramaPage), findsOneWidget);
     expect(find.byKey(const Key('drama_feed')), findsOneWidget);
     // 用户已移除右侧追剧入口。
     expect(find.text('追剧'), findsNothing);
 
-    // 浅色外观下：推荐是视频流，dock 仍是深色玻璃；切到看剧（浅色页）后
-    // dock 跟着回浅色，不能页面是奶白、dock 还是一条黑的。
+    // 浅色外观下：推荐是视频流，dock 仍是深色玻璃；切到看剧后 dock
+    // 跟魔蚁深紫走（28 轮：staticNavBar 非视频态改 moyiSheetFill，
+    // 不再回浅白），不能页面是奶白、dock 还是一条黑的。
     Color dockColor() {
       final container = tester.widget<Container>(
         find
@@ -1143,16 +1189,19 @@ void main() {
 
     expect(dockColor(), const Color(0xFF161619).withValues(alpha: 0.72));
     await tester.tap(find.text('看剧'));
-    await tester.pumpAndSettle();
-    expect(dockColor(), Colors.white.withValues(alpha: 0.82));
+    await _pumpFrames(tester);
+    expect(dockColor(), moyiSheetFill);
     await tester.tap(find.text('推荐'));
-    await tester.pumpAndSettle();
+    await _pumpFrames(tester);
     expect(dockColor(), const Color(0xFF161619).withValues(alpha: 0.72));
     // The shell mounts its own DramaPage without seams, so its inline session
     // starts a real directory request here. Advance past the client timeout to
     // drain that timer, which would otherwise outlive the test.
     await tester.pump(const Duration(seconds: 25));
     await tester.pump();
+    // _load 若在首停之后才完成、计时器后起，这里再停一次，免得收尾
+    // 报 Timer 仍挂起。
+    GameService.instance.stopTimerForTest();
     expect(tester.takeException(), isNull);
   });
 
@@ -1195,7 +1244,15 @@ void main() {
       );
       await _flush(tester);
       await tester.tap(find.text('最近'));
-      await tester.pumpAndSettle();
+      // 有界等待：最近页带周期定时器，pumpAndSettle 永远等不到沉降，
+      // 且会卡死到连测试自身的 1 分钟超时都打不断（fake 区里同步空转，
+      // 真实时间的超时回调抢不到执行）；推帧直到网格出现或 6 秒上限。
+      for (var i = 0; i < 20; i++) {
+        await tester.pump(const Duration(milliseconds: 300));
+        if (find.byKey(const Key('drama_最近_grid')).evaluate().isNotEmpty) {
+          break;
+        }
+      }
       expect(find.byKey(const Key('drama_最近_grid')), findsOneWidget);
       expect(find.text('全部'), findsOneWidget);
       expect(find.text('已看到第1集'), findsNWidgets(2));
@@ -1714,14 +1771,16 @@ void main() {
     await tester.tap(find.text('看剧'));
     await _flush(tester);
 
-    // 海报格页以前恒为白底黑字，深色主题下整页会刺眼——现在跟随色板。
+    // 海报格页以前恒为白底黑字，深色主题下整页会刺眼——现在全页强制魔蚁深紫
+    // 渐变底（drama_page.dart：Scaffold 透明 + MoyiPageBackground），卡
+    // 片标题取白字；色板画布色 #1E1D38 不再画在 Scaffold 上。
     expect(
       tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor,
-      const Color(0xFF1E1D38),
+      Colors.transparent,
     );
     expect(
       tester.widget<Text>(find.text('8-0 作品')).style?.color,
-      const Color(0xFFF5F1EB),
+      Colors.white,
     );
     expect(tester.takeException(), isNull);
   });

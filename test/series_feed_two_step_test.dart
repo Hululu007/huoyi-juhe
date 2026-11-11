@@ -10,7 +10,13 @@ import 'package:fqapp/services/api_client.dart';
 /// （`cell_id_str`）和 session，卡片本体由 `bookapi/bookmall/cell/change` 返回
 /// （`com/dragon/read/shortvideo/common/c.java`）。这里钉住调用形状。
 ///
-/// 看剧(8)/漫剧(24) 走两段；推荐(16) 有意只走第一段（它的卡是服务端模板卡，
+/// 2026-11-08 新链路：视频 tab 先走 Rust 核心的 plan→cell/change 合并路由
+/// `/recommend/fanqie-feed`（见 `ApiClient.homepagePage` 开头注释），拿到
+/// 就直接用，不再走 tab/v 老路；拿不到才落回老路（第一段 homepage +
+/// 第二段 series-feed）。所以首屏/翻页的调用形状断言钉的是新链路，
+/// 老路只在“新链路失败回退”的用例里断言。
+///
+/// 看剧(8)/漫剧(24) 走两段老路；推荐(16) 有意只走第一段（它的卡是服务端模板卡，
 /// 第二段只会把它变成更多空卡）。
 void main() {
   late List<String> calls;
@@ -119,13 +125,11 @@ void main() {
     ]);
     expect(page.nextOffset, 5);
     expect(page.sessionId, 'flow-0');
-    expect(calls, hasLength(2));
-    expect(calls.first, contains('/recommend/homepage'));
-    expect(calls.last, contains('/recommend/series-feed'));
-    expect(calls.last, contains('cell_id=7294257141911650341'));
-    expect(calls.last, contains('client_template=2'));
-    // 首屏是 ChangeFilter(2)。
-    expect(calls.last, contains('unlimited_selector_change_type=2'));
+    // 新链路：推荐 tab 一次 fanqie-feed 直接拿到模板卡，不再走老路两段。
+    expect(calls, hasLength(1));
+    expect(calls.single, contains('/recommend/fanqie-feed'));
+    expect(calls.single, contains('tab_type=16'));
+    expect(calls.single, contains('offset=0'));
   });
 
   test('翻页只打第二段，用 GetMore 带上游标和 session', () async {
@@ -135,12 +139,11 @@ void main() {
 
     await client.homepagePage(tabType: 8, offset: 5, sessionId: 'flow-0');
 
+    // 新链路：翻页仍只打一次 fanqie-feed，带上 offset 与 session。
     expect(calls, hasLength(1));
-    expect(calls.single, contains('/recommend/series-feed'));
-    expect(calls.single, contains('unlimited_selector_change_type=1'));
+    expect(calls.single, contains('/recommend/fanqie-feed'));
     expect(calls.single, contains('offset=5'));
     expect(calls.single, contains('session_id=flow-0'));
-    expect(calls.single, contains('cell_id=7294257141911650341'));
   });
   test('首屏第二段失败时退回第一段，不抛异常', () async {
     final client = buildClient(withCard: true);
@@ -149,7 +152,10 @@ void main() {
 
     final page = await client.homepagePage(tabType: 8, offset: 0);
 
-    expect(calls, hasLength(2));
+    // 新链路先试 fanqie-feed（失败），再落回老路两段：homepage + series-feed。
+    expect(calls, hasLength(3));
+    expect(calls.first, contains('/recommend/fanqie-feed'));
+    expect(calls[1], contains('/recommend/homepage'));
     expect(calls.last, contains('/recommend/series-feed'));
     expect(page.items.map((item) => item.id), ['333']);
     expect(page.sessionId, 'tab-session');
@@ -169,9 +175,11 @@ void main() {
       sessionId: 'flow-0',
     );
 
-    expect(calls.first, contains('/recommend/series-feed'));
-    expect(calls, hasLength(2));
-    expect(calls.last, contains('/recommend/homepage'));
+    // 新链路先试 fanqie-feed（失败），再落回老路两段：homepage + series-feed。
+    expect(calls.first, contains('/recommend/fanqie-feed'));
+    expect(calls, hasLength(3));
+    expect(calls[1], contains('/recommend/homepage'));
+    expect(calls.last, contains('/recommend/series-feed'));
     // 退回后仍拿到第一段那张卡，调用方不会因为异常而停止翻页。
     expect(page.items.map((item) => item.id), ['333']);
     // 第一段的游标（3）没有前进超过请求的 offset（5），客户端按既有规则丢弃它——
@@ -223,9 +231,15 @@ void main() {
       client.homepagePage(tabType: 8, offset: 0),
       throwsA(isA<ApiException>()),
     );
-    // 第二段一次都没打：书 cell 没进视频流；也不回空白页假装没内容。
-    expect(calls, hasLength(1));
-    expect(calls.single, contains('/recommend/homepage'));
+    // 新链路先试 fanqie-feed，再走第一段 homepage；拿不到短剧 tab 就如实抛错。
+    // 第二段 series-feed 一次都没打：书 cell 没进视频流；也不回空白页假装没内容。
+    expect(calls, hasLength(2));
+    expect(calls.first, contains('/recommend/fanqie-feed'));
+    expect(calls.last, contains('/recommend/homepage'));
+    expect(
+      calls.where((call) => call.contains('/recommend/series-feed')),
+      isEmpty,
+    );
   });
 
   test('所要 tab 自己的 cell 可用（无 data 顶层 cell 时）', () async {
@@ -233,6 +247,14 @@ void main() {
       baseUrl: 'http://backend.invalid',
       client: MockClient((request) async {
         calls.add(request.url.toString());
+        if (request.url.path.endsWith('/recommend/fanqie-feed')) {
+          // 新链路这一次拿不到，老路才跑起来：所要 tab 自己的 cell 归属
+          // 是老路第二段的断言目标，不是新链路的。
+          return http.Response.bytes(
+            utf8.encode(jsonEncode({'code': 101116})),
+            200,
+          );
+        }
         if (request.url.path.endsWith('/recommend/homepage')) {
           return http.Response.bytes(
             utf8.encode(

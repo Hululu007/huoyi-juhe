@@ -6,9 +6,11 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'
-    show FontLoader, MethodCall, MethodChannel;
+    show MethodCall, MethodChannel;
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'preview_test_support.dart';
 import 'package:hive_ce/hive.dart';
 
 import 'package:fqapp/models/media_item.dart';
@@ -383,9 +385,7 @@ void main() {
     );
     Hive.init(directory.path);
     await ShelfStore.instance.init();
-    stillBytes = File(
-      '../moyi_style_preview/still_mock.png',
-    ).readAsBytesSync();
+    stillBytes = resolvePreviewFixture('still_mock.png').readAsBytesSync();
     HttpOverrides.global = MockStillHttpOverrides(stillBytes);
     // CachedNetworkImage 的缓存要写临时目录，测试里 path_provider 没有
     // 真实现，这里把 getTemporaryDirectory 指到本测试的临时目录。
@@ -412,34 +412,8 @@ void main() {
   testWidgets('预览：影视区详情页（魔蚁主题）', (tester) async {
     // 见上：框架的 400-mock 在 setUp 后才生效，这里重设才盖得住。
     HttpOverrides.global = MockStillHttpOverrides(stillBytes);
-    // 载入系统里的 Noto Sans CJK SC（简体中文），否则中文全是方框。
-    // 与 detail_page_preview_test.dart 同款做法。
-    final regularBytes = File(
-      '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
-    ).readAsBytesSync();
-    final boldBytes = File(
-      '/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc',
-    ).readAsBytesSync();
-    final loader = FontLoader('NotoSansCJK')
-      ..addFont(Future.value(ByteData.view(regularBytes.buffer)));
-    await loader.load();
-    final boldLoader = FontLoader('NotoSansCJK')
-      ..addFont(Future.value(ByteData.view(boldBytes.buffer)));
-    await boldLoader.load();
-    // 图标字体：不载入则顶部返回/操作图标与「加入追剧」两侧图标变方框
-    //（频道分类预览同款做法）。
-    final iconBytes = File(
-      '/home/hatch/flutter/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf',
-    ).readAsBytesSync();
-    final iconLoader = FontLoader('MaterialIcons')
-      ..addFont(Future.value(ByteData.view(iconBytes.buffer)));
-    await iconLoader.load();
-    final lucideBytes = File(
-      '/home/hatch/.pub-cache/hosted/pub.dev/flutter_lucide-1.59.0/lib/fonts/lucide.ttf',
-    ).readAsBytesSync();
-    final lucideLoader = FontLoader('packages/flutter_lucide/lucide')
-      ..addFont(Future.value(ByteData.view(lucideBytes.buffer)));
-    await lucideLoader.load();
+    // 字体走共享支撑拿可移植路径（见 preview_test_support.dart）。
+    await loadPreviewFonts(tester, lucide: true);
     tester.view.devicePixelRatio = 1.0;
     tester.view.physicalSize = const Size(390, 1600);
     addTearDown(tester.view.reset);
@@ -533,7 +507,7 @@ void main() {
     await _capture(
       tester,
       const ValueKey<String>('moyi-detail-preview'),
-      '../moyi_style_preview/detail.png',
+      previewOutPath('detail.png'),
     );
   });
 }

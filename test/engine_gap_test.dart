@@ -151,7 +151,10 @@ void main() {
         text,
         contains('$sessionUrl?url=seg0.ts'),
       );
-      expect(text, isNot(contains('127.0.0.1:9978')));
+      // 外壳代理地址必须改写回本会话：断言只盯 `/proxy?url=` 这种原形，
+      // 不能盯主机——本代理优先就占 9978，会话地址本身就是
+      // `127.0.0.1:9978/h/...`，按主机断言永远过不了。
+      expect(text, isNot(contains('/proxy?url=seg0.ts')));
       expect(text, contains('$sessionUrl/seg1.ts'));
 
       final ranged = await http.get(

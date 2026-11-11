@@ -132,10 +132,19 @@ class LocalMediaProxy {
 
   /// 显式停止（设置开关关闭）：正在播的代理流会断一次；会话里记的
   /// 地址都带旧端口，停掉即失效，下次启动重建，不留僵尸地址。
+  /// 正在起服务时先等它起完再关：否则起服务的闭包随后把 _server
+  /// 重新赋值，关完又活过来（测试里 AppBootstrap 异步起服务、
+  /// 体末调 stop() 时正好撞上此竞态）。
   Future<void> stop() async {
+    final starting = _starting;
+    _starting = null;
+    if (starting != null) {
+      try {
+        await starting;
+      } catch (_) {}
+    }
     final server = _server;
     _server = null;
-    _starting = null;
     _sessions.clear();
     _order.clear();
     _playlistSegments.clear();

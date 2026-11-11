@@ -180,12 +180,51 @@ void main() {
     AppLog.instance.install();
     final client = ApiClient(
       baseUrl: 'http://backend.invalid',
-      client: MockClient(
-        (request) async => http.Response.bytes(
-          utf8.encode(jsonEncode({'code': 0, 'data': <String, Object>{}})),
+      client: MockClient((request) async {
+        // homepagePage 的视频 tab 先试 fanqie-feed 新链路：这里让它失败，
+        // 再走老路 homepage；老路第一段给短剧 tab 一张卡，第二段失败后
+        // 退回第一段——空数据会让它诚实抛错（见 homepagePage 注释），
+        // 测不到日志，所以 mock 必须给可用数据。
+        if (request.url.path.endsWith('/recommend/fanqie-feed')) {
+          return http.Response.bytes(
+            utf8.encode(jsonEncode({'code': 101116})),
+            200,
+          );
+        }
+        if (request.url.path.endsWith('/recommend/homepage')) {
+          return http.Response.bytes(
+            utf8.encode(
+              jsonEncode({
+                'code': 0,
+                'data': {
+                  'tab_item': [
+                    {
+                      'tab_type': 8,
+                      'session_id': 'tab-session',
+                      'cell_data': [
+                        {
+                          'video_data': [
+                            {
+                              'series_id': 333,
+                              'video_detail': {'content_type': 1004},
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                  'cell_id_str': '7294257141911650341',
+                },
+              }),
+            ),
+            200,
+          );
+        }
+        return http.Response.bytes(
+          utf8.encode(jsonEncode({'code': 101116})),
           200,
-        ),
-      ),
+        );
+      }),
     );
 
     await client.homepagePage(tabType: 8, offset: 0);

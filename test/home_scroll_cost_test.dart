@@ -10,7 +10,7 @@ import 'package:fqapp/pages/home_page.dart';
 import 'package:fqapp/pages/home_provider.dart';
 import 'package:fqapp/services/api_client.dart';
 import 'package:fqapp/widgets/home/home_design.dart';
-import 'package:fqapp/widgets/home/home_media_card.dart';
+import 'package:fqapp/widgets/home/home_moyi_card.dart';
 
 /// Regression cover for the scroll cost of the home feed.
 ///
@@ -71,11 +71,20 @@ void main() {
   }
 
   int gridColumns(WidgetTester tester) {
-    final grid = tester.widget<SliverGrid>(
-      find.byType(SliverGrid, skipOffstage: false),
-    );
-    return (grid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount)
-        .crossAxisCount;
+    // 魔蚁式两段网格（热播推荐 + 猜你想看）：两段列数一致才算同一几何。
+    final grids = tester
+        .widgetList<SliverGrid>(find.byType(SliverGrid, skipOffstage: false))
+        .toList();
+    expect(grids, isNotEmpty);
+    final counts = grids
+        .map(
+          (grid) =>
+              (grid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount)
+                  .crossAxisCount,
+        )
+        .toSet();
+    expect(counts, hasLength(1));
+    return counts.single;
   }
 
   Map<Key, HomeEntrance> entrances(WidgetTester tester) => {
@@ -93,10 +102,10 @@ void main() {
       findsNothing,
       reason: 'a sliver-scoped measurement rebuilds the grid every frame',
     );
-    expect(find.byType(SliverGrid), findsOneWidget);
+    expect(find.byType(SliverGrid), findsWidgets);
     // The feed hands the cell width down, so cards skip their own measurement.
     final cards = tester
-        .widgetList<HomeMediaCard>(find.byType(HomeMediaCard))
+        .widgetList<MoyiMediaCard>(find.byType(MoyiMediaCard))
         .toList();
     expect(cards, isNotEmpty);
     for (final card in cards) {

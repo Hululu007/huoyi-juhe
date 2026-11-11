@@ -1,11 +1,11 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show FontLoader;
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'preview_test_support.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fqapp/pages/category_page.dart';
@@ -28,26 +28,13 @@ import 'package:fqapp/services/video_category_tags.dart';
 ///
 /// 测试环境默认字体没有中文会出方框，这里先把系统里的
 /// Noto Sans CJK SC 载进来当主题字体，字才能正常显示。
-Future<void> _loadCjkFonts() async {
-  final regularBytes = File(
-    '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
-  ).readAsBytesSync();
-  final boldBytes = File(
-    '/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc',
-  ).readAsBytesSync();
-  final loader = FontLoader('NotoSansCJK')
-    ..addFont(Future.value(ByteData.view(regularBytes.buffer)));
-  await loader.load();
-  final boldLoader = FontLoader('NotoSansCJK')
-    ..addFont(Future.value(ByteData.view(boldBytes.buffer)));
-  await boldLoader.load();
-  final iconBytes = File(
-    '/home/hatch/flutter/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf',
-  ).readAsBytesSync();
-  final iconLoader = FontLoader('MaterialIcons')
-    ..addFont(Future.value(ByteData.view(iconBytes.buffer)));
-  await iconLoader.load();
+Future<void> _loadCjkFonts(WidgetTester tester) async {
+  // 字体走共享支撑拿可移植路径（见 preview_test_support.dart）：
+  // 此前写死的 /home/hatch/flutter/... 与 pub-cache 绝对路径在 CI 机上
+  // 不存在，一跑就报 PathNotFoundException。
+  await loadPreviewFonts(tester);
 }
+
 
 Future<void> _capture(
   WidgetTester tester,
@@ -72,7 +59,7 @@ Future<void> _capture(
 
 void main() {
   testWidgets('预览：统一分类浏览页（真实资产）', (tester) async {
-    await _loadCjkFonts();
+    await _loadCjkFonts(tester);
     SharedPreferences.setMockInitialValues({});
 
     tester.view.devicePixelRatio = 1.0;
@@ -120,7 +107,7 @@ void main() {
   });
 
   testWidgets('预览：统一分类内容汇总', (tester) async {
-    await _loadCjkFonts();
+    await _loadCjkFonts(tester);
     SharedPreferences.setMockInitialValues({});
 
     tester.view.devicePixelRatio = 1.0;

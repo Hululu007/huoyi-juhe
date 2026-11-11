@@ -1855,7 +1855,12 @@ class ApiClient {
       final bodyBytes = r.bodyBytes;
       final result = await Isolate.run(() {
         final payload = _decodeEnvelope(statusCode, bodyBytes);
-        final items = parseMediaItems(payload, kind: 'video');
+        // 漫剧 tab（24）沿用老路口径：kind 强制 'manju'，否则无
+        // genre/tag 的卡会被算成普通 video（与 _seriesFlowPage 同款）。
+        final items = parseMediaItems(
+          payload,
+          kind: tabType == 24 ? 'manju' : 'video',
+        );
         if (items.isEmpty) return null;
         final cells = parseHomeCells(payload);
         int? nextOffset;

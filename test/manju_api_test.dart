@@ -136,8 +136,33 @@ void main() {
   });
 
   test('homepage 24 uses only its own cards, session and pagination', () async {
-    final transport = MockClient(
-      (_) async => http.Response.bytes(
+    final transport = MockClient((request) async {
+      // 新链路 fanqie-feed 只回所要 tab 自己的 feed 形数据（cell_view），
+      // 不回多 tab 首页形——parseMediaItems 会全量扫，不按 tab 切分，
+      // 首页形会把小说卡也算进来。
+      if (request.url.path.endsWith('/recommend/fanqie-feed')) {
+        final tabType = request.url.queryParameters['tab_type'];
+        final feedData = tabType == '24'
+            ? {
+                'cell_view': {
+                  'cell_data': [
+                    {
+                      'video_data': [_video],
+                    },
+                  ],
+                },
+              }
+            : {
+                'cell_view': {
+                  'cell_data': <dynamic>[],
+                },
+              };
+        return http.Response.bytes(
+          utf8.encode(jsonEncode({'code': 0, 'data': feedData})),
+          200,
+        );
+      }
+      return http.Response.bytes(
         utf8.encode(
           jsonEncode({
             'code': 0,
@@ -175,8 +200,8 @@ void main() {
           }),
         ),
         200,
-      ),
-    );
+      );
+    });
     addTearDown(transport.close);
     final api = ApiClient(client: transport);
     final page = await api.homepagePage(tabType: 24);
@@ -190,7 +215,12 @@ void main() {
     expect(novel.items.single.id, 'novel');
     expect(novel.nextOffset, 99);
     expect(novel.sessionId, 'novel-session');
-    expect((await api.homepagePage(tabType: 8)).items, isEmpty);
+    // 上游没给看剧 tab：新链路回空、老路没 cell 也没卡片，按既有口径
+    // 诚实抛错，不出空白页。
+    await expectLater(
+      api.homepagePage(tabType: 8),
+      throwsA(isA<ApiException>()),
+    );
   });
 
   test(

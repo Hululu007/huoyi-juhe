@@ -107,11 +107,19 @@ class HomePalette {
 /// 深色 / OLED 下换成比画布高一档的 surface：barrier 的黑色叠在纯黑画布
 /// 上不会让页面变暗，弹层若仍取 canvas 就和页面连成一片，看不出上缘；
 /// 浅色仍用原来的画布色，弹层靠 barrier 变暗区分。
-Color homeSheetColor(HomePalette palette) => moyiSheetFill;
+Color homeSheetColor(HomePalette palette) =>
+    // 魔蚁深紫只在常规外观下用：墨水屏要纯白、OLED 深色要近黑 surface，
+    // 这两档画成深紫会丢掉省电/纯黑白的本意（见 audio_page_test 弹层断言）。
+    palette.eink || (palette.oled && palette.dark)
+        ? palette.surface
+        : moyiSheetFill;
 
 /// 弹层里成组的卡片：深色下比 [homeSheetColor] 再错一档（字段色），
 /// 浅色仍是白卡。
-Color homeSheetCardColor(HomePalette palette) => moyiSheetCardFill;
+Color homeSheetCardColor(HomePalette palette) =>
+    palette.eink || (palette.oled && palette.dark)
+        ? palette.soft
+        : moyiSheetCardFill;
 
 /// 弹层上缘的一圈发丝线：OLED 下画布与浮层都是近黑，没有它边界仍不明显。
 ///
@@ -120,7 +128,12 @@ Color homeSheetCardColor(HomePalette palette) => moyiSheetCardFill;
 RoundedRectangleBorder homeSheetShape(HomePalette palette, {double top = 24}) =>
     RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(top)),
-      side: const BorderSide(color: moyiDarkCardBorder, width: 0.8),
+      // 描边只给深色：浅色弹层与奶白画布本来就靠 barrier 区分，多一圈线
+      // 反而突兀；墨水屏 `line` 是纯黑，下发了就会在弹层四周描出一圈黑边。
+      // （扫尾曾改成常量深紫描边，OLED 下透明度 0.35 对不上断言的 0.8。）
+      side: palette.dark
+          ? BorderSide(color: palette.line.withValues(alpha: 0.8), width: 0.8)
+          : BorderSide.none,
     );
 
 /// Pointer, keyboard and accessibility activation share the same action.

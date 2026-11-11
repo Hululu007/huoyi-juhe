@@ -114,7 +114,9 @@ void main() {
   });
 
   test('factory routes all core video sites to the core client', () {
-    expect(coreVideoSiteIds.length, 170);
+    // 批量转站后核心只剩 hgdj/hgdj58/hgdjv 3 站（见 coreVideoSiteIds
+    // 注释）；其余 198 站已转内嵌版 py/jar，不再进核心表。
+    expect(coreVideoSiteIds, {'hgdjv', 'hgdj', 'hgdj58'});
     for (final siteId in coreVideoSiteIds) {
       final client = dramaSiteContentClient(siteId);
       expect(client, isA<CoreDramaContentClient>(), reason: siteId);
@@ -138,10 +140,17 @@ void main() {
     }
   });
 
-  test('video zone lists all core video sites', () {
+  test('video zone only lists film core sites, short-drama core sites excluded', () {
+    // 影视区只留影视：3 个核心站全是「黄果短剧」，按短剧判据全被
+    // 摘掉，区表为空；区表只能是核心站表的子集。
     final ids = videoZoneSites().map((site) => site.id).toSet();
-    expect(ids.containsAll(coreVideoSiteIds), isTrue);
-    expect(ids.contains('yaguo'), isTrue);
+    expect(ids, isNot(contains('hgdj')));
+    expect(ids, isNot(contains('hgdj58')));
+    expect(ids, isNot(contains('hgdjv')));
+    expect(ids.every(coreVideoSiteIds.contains), isTrue);
+    // yaguo 不在核心站表里（它走工厂默认分支进核心），也不进影视区表。
+    expect(coreVideoSiteIds.contains('yaguo'), isFalse);
+    expect(ids.contains('yaguo'), isFalse);
   });
 
   test('factory routes the four fixed sites to the core client', () {

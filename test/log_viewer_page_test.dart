@@ -72,17 +72,19 @@ void main() {
     await tester.pumpWidget(const MaterialApp(home: SettingsPage()));
     await tester.pumpAndSettle();
 
+    // 「服务」是最后一个分类，默认 800×600 表面下可能在可视区外，
+    // 直接 tap 会落空（tap 点 y=609 超出表面）：ensureVisible 自动
+    // 沿最近的 Scrollable 把它滚进视野，scrollUntilVisible 配
+    // find.byType(Scrollable).first 会滚错别的 Scrollable。
+    await tester.ensureVisible(find.text('服务'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('服务'));
     await tester.pumpAndSettle();
 
     // The service category opens the local API console; the log entry lives at
     // the bottom of that page, so it has to be scrolled into view first.
     expect(find.byType(ApiServicePage), findsOneWidget);
-    await tester.scrollUntilVisible(
-      find.text('运行日志'),
-      200,
-      scrollable: find.byType(Scrollable).first,
-    );
+    await tester.ensureVisible(find.text('运行日志'));
     await tester.pumpAndSettle();
     expect(find.text('运行日志'), findsOneWidget);
 

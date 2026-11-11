@@ -222,7 +222,8 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('影视'), findsWidgets);
+    // 魔蚁布局：顶栏不再是旧「影视」tab，标题是「频道分类」。
+    expect(find.text('频道分类'), findsOneWidget);
     expect(find.text('熟女'), findsOneWidget);
     await _capture(
       tester,

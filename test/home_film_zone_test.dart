@@ -231,7 +231,14 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.text('影视'), findsOneWidget);
+      // 区头内限定：卡片 kind 标签也是「影视」，不限定会命中两处。
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('film-zone-header')),
+          matching: find.text('影视'),
+        ),
+        findsOneWidget,
+      );
       // 打开就自动取数挂网格，不用点站；池子只留视频站，小说站不进。
       expect(find.text('视频站作品'), findsOneWidget);
       expect(find.text('小说站作品'), findsNothing);

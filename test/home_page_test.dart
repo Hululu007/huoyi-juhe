@@ -10,11 +10,11 @@ import 'package:fqapp/models/media_item.dart';
 import 'package:fqapp/pages/home_page.dart';
 import 'package:fqapp/pages/home_provider.dart';
 import 'package:fqapp/services/api_client.dart';
-import 'package:fqapp/widgets/home/home_design.dart';
 import 'package:fqapp/widgets/home/home_feed_states.dart';
 import 'package:fqapp/widgets/home/home_hero.dart';
 import 'package:fqapp/widgets/home/home_shelf.dart';
 import 'package:fqapp/widgets/home/home_skeleton.dart';
+import 'package:fqapp/widgets/series_detail/moyi_detail_theme.dart';
 
 void main() {
   // 推荐流现会读登记表与午夜门禁（偏好存储）：测试环境须先给空 mock，
@@ -313,10 +313,11 @@ void main() {
     await tester.pumpAndSettle();
 
     // 区块的卡片并进当前分类的书架，标题用分类名，不用区块名。
-    expect(
-      tester.widget<HomeSectionHeader>(find.byType(HomeSectionHeader)).title,
-      '经典',
-    );
+    // PageView 会保留邻页的区块头，取全部标题断言其中含「经典」。
+    final headerTitles = tester
+        .widgetList<HomeSectionHeader>(find.byType(HomeSectionHeader))
+        .map((header) => header.title);
+    expect(headerTitles, contains('经典'));
     expect(find.text('经典必读'), findsNothing);
     expect(find.text('经典书一'), findsWidgets);
     // 旧管线的东西不该出现。
@@ -713,7 +714,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    Color canvasOf() {
+    BoxDecoration tabBarDecoration() {
       final box = tester
           .widgetList<DecoratedBox>(
             find.ancestor(
@@ -722,13 +723,18 @@ void main() {
             ),
           )
           .first;
-      return (box.decoration as BoxDecoration).color!;
+      return box.decoration as BoxDecoration;
     }
 
-    expect(canvasOf(), const HomePalette(false).canvas);
+    // 顶栏写死 dark: true（home_page.dart:571），任何主题下都走
+    // 魔蚁渐变底，color 恒为空——浅色纯色 canvas 的旧断言已过时。
+    expect(tabBarDecoration().color, isNull);
+    expect(tabBarDecoration().gradient, moyiPageGradient);
     mode.value = ThemeMode.dark;
     await tester.pumpAndSettle();
-    expect(canvasOf(), const HomePalette(true).canvas);
+    // 深色下同样是魔蚁渐变底，color 为空、gradient 为 moyiPageGradient。
+    expect(tabBarDecoration().color, isNull);
+    expect(tabBarDecoration().gradient, moyiPageGradient);
     expect(tester.takeException(), isNull);
   });
 

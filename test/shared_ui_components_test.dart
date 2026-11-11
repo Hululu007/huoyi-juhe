@@ -268,7 +268,7 @@ void main() {
     expect(find.text('内容'), findsNothing);
   });
 
-  testWidgets('SettingsGroupCard 单一圆角 + surface/line 描边', (tester) async {
+  testWidgets('SettingsGroupCard 单一圆角 + 魔蚁卡底/描边', (tester) async {
     await tester.pumpWidget(
       _app(
         SizedBox(
@@ -282,7 +282,6 @@ void main() {
         ),
       ),
     );
-    const palette = HomePalette(false);
     final material = tester.widget<Material>(
       find
           .descendant(
@@ -291,16 +290,16 @@ void main() {
           )
           .first,
     );
-    expect(material.color, palette.surface);
+    expect(material.color, moyiDarkCardFill);
     final shape = material.shape! as RoundedRectangleBorder;
-    expect(shape.side.color, palette.line);
+    expect(shape.side.color, moyiDarkCardBorder);
     expect(shape.side.width, 0.6);
     expect(shape.borderRadius, BorderRadius.circular(SettingsGroupCard.radius));
     final divider = tester.widget<Divider>(find.byType(Divider));
     expect(divider.indent, SettingsGroupCard.dividerIndent);
   });
 
-  testWidgets('深色下设置卡片与行跟随 surface / ink', (tester) async {
+  testWidgets('深色下设置卡片与行跟随魔蚁卡底/白字', (tester) async {
     await tester.pumpWidget(
       _app(
         SizedBox(
@@ -310,7 +309,6 @@ void main() {
         theme: AppTheme.createTheme(Brightness.dark),
       ),
     );
-    const palette = HomePalette(true);
     final material = tester.widget<Material>(
       find
           .descendant(
@@ -319,10 +317,10 @@ void main() {
           )
           .first,
     );
-    expect(material.color, palette.surface);
+    expect(material.color, moyiDarkCardFill);
     final shape = material.shape! as RoundedRectangleBorder;
-    expect(shape.side.color, palette.line);
-    expect(tester.widget<Text>(find.text('深色行')).style!.color, palette.ink);
+    expect(shape.side.color, moyiDarkCardBorder);
+    expect(tester.widget<Text>(find.text('深色行')).style!.color, Colors.white);
   });
 
   testWidgets('SettingsRow 无副标题至少 52、有副标题至少 64', (tester) async {
@@ -354,20 +352,20 @@ void main() {
     expect(tester.widget<Text>(find.text('仅标题')).style!.fontSize, 15);
     final subtitle = tester.widget<Text>(find.text('说明文字'));
     expect(subtitle.style!.fontSize, 12.5);
-    expect(subtitle.style!.color, const HomePalette(false).muted);
+    expect(subtitle.style!.color, moyiMutedOnDark);
   });
 
-  testWidgets('SettingsScaffold 画布与 AppBar 同色且无 elevation', (tester) async {
+  testWidgets('SettingsScaffold 透明画布与 AppBar 且无 elevation', (tester) async {
     await tester.pumpWidget(
       const MaterialApp(
         home: SettingsScaffold(title: '设置', body: Text('内容')),
       ),
     );
-    const palette = HomePalette(false);
     final scaffold = tester.widget<Scaffold>(find.byType(Scaffold));
-    expect(scaffold.backgroundColor, palette.canvas);
+    // 透明 Scaffold + 魔蚁渐变底：画布色由 MoyiPageBackground 提供。
+    expect(scaffold.backgroundColor, Colors.transparent);
     final appBar = tester.widget<AppBar>(find.byType(AppBar));
-    expect(appBar.backgroundColor, palette.canvas);
+    expect(appBar.backgroundColor, Colors.transparent);
     expect(appBar.elevation, 0);
     expect(appBar.scrolledUnderElevation, 0);
     expect(appBar.surfaceTintColor, Colors.transparent);

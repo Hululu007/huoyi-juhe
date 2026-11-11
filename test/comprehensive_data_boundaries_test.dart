@@ -8,6 +8,7 @@ import 'package:fqapp/main.dart' as app;
 import 'package:fqapp/services/app_theme.dart';
 import 'package:fqapp/services/chapter_text_formatter.dart';
 import 'package:fqapp/services/library_store.dart';
+import 'package:fqapp/services/local_media_proxy.dart';
 import 'package:fqapp/services/player_style_config.dart';
 import 'package:fqapp/services/digg_store.dart';
 import 'package:fqapp/services/drama_download_store.dart';
@@ -84,6 +85,9 @@ void main() {
           messenger.setMockMethodCallHandler(channel, null);
           themeModeNotifier.value = ThemeMode.system;
           await tester.runAsync(() async {
+            // 体末已在 _verifyInvariants 检查前停过代理；这里再停一次
+            // 只是兜底（体中途失败时检查会跳过，代理不能留到下个测试）。
+            await LocalMediaProxy.instance.stop();
             await Hive.close();
             if (directory.absolute.parent.path != tempRoot.path) {
               throw StateError('Temporary directory escaped its parent');
@@ -109,7 +113,21 @@ void main() {
           (await LibraryStore.instance.historyEntry('kept-book'))?['position'],
           73.5,
         );
+        // AppBootstrap 起了本地媒体代理 HttpServer：它的 2 分钟 idle
+        // 定时器到体末还挂着，_verifyInvariants 会报 Timer 仍挂起。
+        // tearDown 在 invariant 检查之后才跑（已实测：7 个场景本地
+        // 全败，树里原有的 tearDown 里 stop 没起作用），来不及，
+        // 只能在体末显式停掉；stop() 会等正在起的服务先起完再关，
+        // 不留关完又活过来的 server（见 local_media_proxy.dart）。
+        await tester.runAsync(() async {
+          await LocalMediaProxy.instance.stop();
+        });
         expect(tester.takeException(), isNull);
+        // 本地媒体代理的 HttpServer 带 2 分钟 idle 定时器：须在体末、
+        // _verifyInvariants 检查之前停掉——框架先验 timer、后跑
+        // teardown，tearDown 里停已经太晚（且会害下个场景重新绑服务
+        // 再挂一个定时器）。
+        await tester.runAsync(LocalMediaProxy.instance.stop);
       },
     );
   }

@@ -49,13 +49,15 @@ void main() {
       final warm = session.players[1];
       expect(warm.calls, contains('create:https://example.invalid/2.mp4'));
       expect(warm.calls, isNot(contains('play')));
-      expect(session.requests, ['1', '2']);
+      // 11-01 预加载规格：往后 5 集的地址在起播时就取好（3 集只剩 2、3），
+      // 不再是只有下一集；切集时直接用预取好的地址，不再二次取流。
+      expect(session.requests, ['1', '2', '3']);
 
       first.emitCompleted();
       await _flush(tester);
       await _flush(tester);
       expect(session.players, hasLength(2), reason: 'no third player');
-      expect(session.requests, ['1', '2'], reason: 'no second address fetch');
+      expect(session.requests, ['1', '2', '3'], reason: 'no second address fetch');
       expect(first.disposed, isTrue);
       expect(warm.disposed, isFalse);
       expect(warm.calls, contains('play'));
@@ -83,8 +85,8 @@ void main() {
       final third = session.players.last;
       expect(session.players, hasLength(3));
       expect(third.calls, contains('play'));
-      // 预热用过的地址作废了，切过去重新取。
-      expect(session.requests, ['1', '2', '2']);
+      // 预热用过的地址作废了，切过去重新取（3 是起播时预取好的，不重取）。
+      expect(session.requests, ['1', '2', '3', '2']);
     });
 
     testWidgets('a quality switch drops the warm player', (tester) async {

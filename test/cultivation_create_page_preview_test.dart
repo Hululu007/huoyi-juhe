@@ -1,11 +1,11 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show FontLoader;
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'preview_test_support.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fqapp/pages/cultivation_create_page.dart';
@@ -45,30 +45,16 @@ Future<void> _capture(
   });
 }
 
-Future<void> _loadCjkFonts() async {
-  final regularBytes = File(
-    '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
-  ).readAsBytesSync();
-  final boldBytes = File(
-    '/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc',
-  ).readAsBytesSync();
-  final loader = FontLoader('NotoSansCJK')
-    ..addFont(Future.value(ByteData.view(regularBytes.buffer)));
-  await loader.load();
-  final boldLoader = FontLoader('NotoSansCJK')
-    ..addFont(Future.value(ByteData.view(boldBytes.buffer)));
-  await boldLoader.load();
-  // 图标字体：不载的话静音/性别/筛盅/刷新图标在测试图里是方框。
-  final iconBytes = File(
-    '/home/hatch/flutter/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf',
-  ).readAsBytesSync();
-  final iconLoader = FontLoader('MaterialIcons')
-    ..addFont(Future.value(ByteData.view(iconBytes.buffer)));
-  await iconLoader.load();
+Future<void> _loadCjkFonts(WidgetTester tester) async {
+  // 字体走共享支撑拿可移植路径（见 preview_test_support.dart）：
+  // 此前写死的 /home/hatch/flutter/... 与 pub-cache 绝对路径在 CI 机上
+  // 不存在，一跑就报 PathNotFoundException。
+  await loadPreviewFonts(tester);
 }
 
+
 Future<void> _pumpCreatePage(WidgetTester tester) async {
-  await _loadCjkFonts();
+  await _loadCjkFonts(tester);
 
   // 创建页内容比一屏长（职业卡 + 站立大人物 + 性别/名字/宗门/
   // 外观定制 + ID + 开始按钮），用高视口一次拍全，不然 ID/

@@ -1,11 +1,11 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter/services.dart' show FontLoader;
 import 'package:flutter_test/flutter_test.dart';
+
+import 'preview_test_support.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fqapp/pages/api_service_page.dart';
@@ -18,43 +18,17 @@ import 'package:fqapp/services/local_proxy_preferences.dart';
 /// 服务在 runAsync 里真起（真定时器，不卡 FakeAsync 的 pumpAndSettle），
 /// 截图里状态是「运行中 · 端口 9978」与本机地址，即用户手机上将看到的样子。
 /// 测完在 runAsync 里停服务，不留定时器。
-Future<void> _loadCjkFonts() async {
-  final regularBytes = File(
-    '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
-  ).readAsBytesSync();
-  final boldBytes = File(
-    '/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc',
-  ).readAsBytesSync();
-  final loader = FontLoader('NotoSansCJK')
-    ..addFont(Future.value(ByteData.view(regularBytes.buffer)));
-  await loader.load();
-  final boldLoader = FontLoader('NotoSansCJK')
-    ..addFont(Future.value(ByteData.view(boldBytes.buffer)));
-  await boldLoader.load();
-  final iconBytes = File(
-    '/home/hatch/flutter/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf',
-  ).readAsBytesSync();
-  final iconLoader = FontLoader('MaterialIcons')
-    ..addFont(Future.value(ByteData.view(iconBytes.buffer)));
-  await iconLoader.load();
-  // 本页图标是 Lucide（flutter_lucide 包，family 名 lucide），不是 MaterialIcons。
-  // IconData 带 fontPackage，测试里族名要写 packages/<包>/<族> 才找得到。
-  final lucideBytes = File(
-    '/home/hatch/.pub-cache/hosted/pub.dev/flutter_lucide-1.59.0/lib/fonts/lucide.ttf',
-  ).readAsBytesSync();
-  final lucideLoader = FontLoader('packages/flutter_lucide/lucide')
-    ..addFont(Future.value(ByteData.view(lucideBytes.buffer)));
-  await lucideLoader.load();
-  // 地址行用 fontFamily: 'monospace'，测试环境没有等宽字体会出黑块：
-  // 把同一份思源黑体也注册成 monospace。
-  final monoLoader = FontLoader('monospace')
-    ..addFont(Future.value(ByteData.view(regularBytes.buffer)));
-  await monoLoader.load();
+Future<void> _loadCjkFonts(WidgetTester tester) async {
+  // 字体走共享支撑拿可移植路径（见 preview_test_support.dart）：
+  // 此前写死的 /home/hatch/flutter/... 与 pub-cache 绝对路径在 CI 机上
+  // 不存在，一跑就报 PathNotFoundException。
+  await loadPreviewFonts(tester, lucide: true, monospace: true);
 }
+
 
 void main() {
   testWidgets('预览：设置 → 服务 → 本地代理（运行中）', (tester) async {
-    await _loadCjkFonts();
+    await _loadCjkFonts(tester);
     SharedPreferences.setMockInitialValues({});
     LocalProxyPreferences.instance.resetForTest();
     await LocalProxyPreferences.instance.load();

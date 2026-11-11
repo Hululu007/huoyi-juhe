@@ -8,6 +8,7 @@ import 'package:fqapp/pages/search_page.dart';
 import 'package:fqapp/services/search_history_store.dart';
 import 'package:fqapp/widgets/home/home_design.dart';
 import 'package:fqapp/widgets/home/home_media_card.dart';
+import 'package:fqapp/widgets/series_detail/moyi_detail_theme.dart';
 
 /// 方案 A（搜索页两层顶栏）的回归测试。
 ///
@@ -220,7 +221,7 @@ void main() {
     await tester.pumpAndSettle();
 
     final footer = tester.widget<Text>(find.text('没有更多了'));
-    expect(footer.style?.color, const HomePalette(false).muted);
+    expect(footer.style?.color, moyiMutedOnDark);
     expect(footer.style?.color, isNot(const HomePalette(false).body));
   });
 

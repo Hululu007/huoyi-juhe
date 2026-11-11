@@ -5,10 +5,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fqapp/models/home_cell.dart';
 import 'package:fqapp/models/media_item.dart';
 import 'package:fqapp/widgets/home/home_cell_blocks.dart';
-import 'package:fqapp/widgets/home/home_design.dart';
 import 'package:fqapp/widgets/home/home_media_card.dart';
 import 'package:fqapp/widgets/home/home_reading_row.dart';
 import 'package:fqapp/widgets/home/home_shelf.dart';
+import 'package:fqapp/widgets/series_detail/moyi_detail_theme.dart';
 
 /// 首页卡片的版式回归。
 ///
@@ -77,7 +77,7 @@ void main() {
       final meta = tester.widget<Text>(find.text('某作者 · 9.3分'));
       expect(meta.maxLines, 1);
       expect(meta.style!.fontSize, 11);
-      expect(meta.style!.color, const HomePalette(false).muted);
+      expect(meta.style!.color, moyiMutedOnDark);
     });
 
     testWidgets('carries the recommend reason as text, not a coloured chip', (
@@ -104,7 +104,7 @@ void main() {
 
       final tag = tester.widget<Text>(find.text('16个老书虫在看'));
       // 理由退到灰色副标题里，不再用服务端的番茄金配色。
-      expect(tag.style!.color, const HomePalette(false).muted);
+      expect(tag.style!.color, moyiMutedOnDark);
       expect(find.byKey(const Key('home_card_tag')), findsNothing);
     });
 

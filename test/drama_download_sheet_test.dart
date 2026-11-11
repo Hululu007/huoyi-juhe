@@ -13,6 +13,7 @@ import 'package:fqapp/services/drama_download_store.dart';
 import 'package:fqapp/services/drama_downloader.dart';
 import 'package:fqapp/services/episode_source_cache.dart';
 import 'package:fqapp/widgets/home/home_chip.dart';
+import 'package:fqapp/widgets/series_detail/moyi_detail_theme.dart';
 
 import 'support/fakes.dart';
 
@@ -121,13 +122,14 @@ void main() {
     await pumpSheet(tester, theme: AppTheme.createTheme(Brightness.dark));
 
     // 弹层标题和未选中的集数格以前硬编码为纯黑字/6% 黑底，深色下看不见。
+    // 魔蚁深底：标题与集数字一律白字，未选格底用魔蚁卡底。
     expect(
       tester.widget<Text>(find.text('离线缓存 · 测试剧')).style?.color,
-      const Color(0xFFF5F1EB),
+      Colors.white,
     );
     expect(
       tester.widget<Text>(find.text('第 1 集')).style?.color,
-      const Color(0xFFF5F1EB),
+      Colors.white,
     );
     final cell = tester.widget<Container>(
       find.descendant(
@@ -135,7 +137,7 @@ void main() {
         matching: find.byType(Container),
       ),
     );
-    expect((cell.decoration! as BoxDecoration).color, const Color(0xFF232240));
+    expect((cell.decoration! as BoxDecoration).color, moyiDarkCardFill);
   });
 
   testWidgets('点选集 → 下载按钮入队，任务态实时显示', (tester) async {

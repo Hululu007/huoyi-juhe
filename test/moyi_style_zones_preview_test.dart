@@ -2,14 +2,14 @@
 library;
 
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show FontLoader;
 import 'package:flutter/rendering.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'preview_test_support.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fqapp/models/media_item.dart';
@@ -48,36 +48,15 @@ import 'package:fqapp/widgets/series_detail/moyi_detail_theme.dart';
 ///
 /// 封面全空（不联网），卡片走几何占位封面；字体先载 NotoSerifCJK +
 /// MaterialIcons + Lucide，否则中文与图标全是方框。
-const _outDir = '/home/hatch/workspace/moyi_style_preview';
+final String _outDir = previewOutDir().path;
 
-Future<void> _loadFonts() async {
-  final regularBytes = File(
-    '/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc',
-  ).readAsBytesSync();
-  final boldBytes = File(
-    '/usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc',
-  ).readAsBytesSync();
-  final loader = FontLoader('NotoSerifCJK')
-    ..addFont(Future.value(ByteData.view(regularBytes.buffer)));
-  await loader.load();
-  final boldLoader = FontLoader('NotoSerifCJK')
-    ..addFont(Future.value(ByteData.view(boldBytes.buffer)));
-  await boldLoader.load();
-  final iconBytes = File(
-    '/home/hatch/flutter/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf',
-  ).readAsBytesSync();
-  final iconLoader = FontLoader('MaterialIcons')
-    ..addFont(Future.value(ByteData.view(iconBytes.buffer)));
-  await iconLoader.load();
-  final lucideBytes = File(
-    '/home/hatch/.pub-cache/hosted/pub.dev/flutter_lucide-1.59.0/lib/fonts/lucide.ttf',
-  ).readAsBytesSync();
-  final lucideLoader = FontLoader('packages/flutter_lucide/lucide')
-    ..addFont(Future.value(ByteData.view(lucideBytes.buffer)));
-  await lucideLoader.load();
-  // 注意：不要在这里载 NotoColorEmoji——上一版载它之后三个测试全挂在
-  // 字体加载阶段（240 秒超时都跑不完）；🔞 改用下面手绘的「18」角标。
+Future<void> _loadFonts(WidgetTester tester) async {
+  // 字体走共享支撑拿可移植路径（见 preview_test_support.dart）：
+  // 此前写死的 /home/hatch/flutter/... 与 pub-cache 绝对路径在 CI 机上
+  // 不存在，一跑就报 PathNotFoundException。
+  await loadPreviewFonts(tester, serif: true, lucide: true);
 }
+
 
 /// 成人站角标：粉底白字「18」+ 站名（不用 🔞 emoji，测试环境没有
 /// 系统 emoji 字体、NotoSerifCJK 里也没有它，写了就是方框）。
@@ -215,7 +194,7 @@ Widget _zoneShell({
 
 void main() {
   testWidgets('预览：首页换肤（深紫蓝渐变底）', (tester) async {
-    await _loadFonts();
+    await _loadFonts(tester);
     SharedPreferences.setMockInitialValues({});
     tester.view.devicePixelRatio = 1.0;
     tester.view.physicalSize = const Size(390, 1150);
@@ -307,7 +286,7 @@ void main() {
   });
 
   testWidgets('预览：短剧区换肤（深紫蓝渐变底）', (tester) async {
-    await _loadFonts();
+    await _loadFonts(tester);
     SharedPreferences.setMockInitialValues({});
     tester.view.devicePixelRatio = 1.0;
     tester.view.physicalSize = const Size(390, 620);
@@ -393,7 +372,7 @@ void main() {
   });
 
   testWidgets('预览：影视区换肤（深紫蓝渐变底）', (tester) async {
-    await _loadFonts();
+    await _loadFonts(tester);
     SharedPreferences.setMockInitialValues({});
     tester.view.devicePixelRatio = 1.0;
     tester.view.physicalSize = const Size(390, 660);
@@ -499,7 +478,7 @@ void main() {
   });
 
   testWidgets('预览：午夜区换肤（深紫蓝渐变底）', (tester) async {
-    await _loadFonts();
+    await _loadFonts(tester);
     SharedPreferences.setMockInitialValues({});
     tester.view.devicePixelRatio = 1.0;
     tester.view.physicalSize = const Size(390, 1050);
@@ -600,7 +579,7 @@ void main() {
   });
 
   testWidgets('预览：我的页换肤（深紫蓝渐变底）', (tester) async {
-    await _loadFonts();
+    await _loadFonts(tester);
     await _seedProfile();
     tester.view.devicePixelRatio = 1.0;
     tester.view.physicalSize = const Size(390, 900);

@@ -102,8 +102,15 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(filmTab);
     await tester.pumpAndSettle();
-    // 药丸显示当前影视站名（不是短剧站名）。
-    expect(find.text('测试影视'), findsOneWidget);
+    // 药丸显示当前影视站名（不是短剧站名）；药丸内限定，避免与
+    // 另一处同名 11px 副文本重名。
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('home_site_button')),
+        matching: find.text('测试影视'),
+      ),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
     // 点药丸弹出影视站切换器（站表来自影视区统一表）。
     await tester.tap(find.byKey(const Key('home_site_button')));

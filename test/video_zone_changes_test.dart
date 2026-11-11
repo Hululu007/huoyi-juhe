@@ -289,7 +289,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('分类页影视 tab：左栏四组 + 含熟女的热门标签', (tester) async {
+  testWidgets('分类页影视 tab（魔蚁布局）：左栏含四组内容 + 熟女', (tester) async {
     await tester.binding.setSurfaceSize(const Size(400, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
@@ -313,12 +313,14 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('影视'), findsWidgets);
-    expect(find.text('热门标签'), findsWidgets);
-    expect(find.text('主题'), findsWidgets);
-    expect(find.text('角色'), findsWidgets);
-    expect(find.text('情节'), findsWidgets);
+    // 魔蚁布局：顶栏不再是旧「影视」tab，标题是「频道分类」；左栏
+    // 不再分「热门标签/主题/角色/情节」四组头，四组内容直接并进左栏。
+    expect(find.text('频道分类'), findsOneWidget);
+    expect(find.text('本站'), findsOneWidget);
+    expect(find.text('成人短剧'), findsOneWidget);
+    expect(find.text('成人漫剧'), findsOneWidget);
     expect(find.text('熟女'), findsOneWidget);
+    expect(find.text('都市'), findsOneWidget);
     expect(find.text('成人短剧'), findsOneWidget);
     expect(find.text('都市'), findsOneWidget);
   });

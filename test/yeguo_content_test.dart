@@ -118,7 +118,9 @@ void main() {
   });
 
   test('野果注册：dramaSiteContentClient 能拿到客户端', () {
-    expect(dramaSiteContentClient('yeguo'), isA<YeguoContentClient>());
+    // 2026-11-07 迁移后野果走核心客户端（Dart 版 YeguoContentClient
+    // 只作核心失败时的回退），不再直接返回 YeguoContentClient。
+    expect(dramaSiteContentClient('yeguo'), isA<CoreDramaContentClient>());
     expect(dramaSiteContentClient('huangju'), isNotNull);
   });
 }

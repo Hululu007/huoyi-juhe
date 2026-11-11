@@ -248,6 +248,35 @@ void main() {
     late Uri sent;
     final transport = MockClient((request) async {
       sent = request.url;
+      // homepagePage 的视频 tab 先走 fanqie-feed 新链路：空数据会让它
+      // 落回老路再因无 tab/无卡片诚实抛错（见 homepagePage 注释），
+      // 所以这里给新链路一张可用卡片，让它直接返回。
+      if (request.url.path.endsWith('/recommend/fanqie-feed')) {
+        return http.Response.bytes(
+          utf8.encode(
+            jsonEncode({
+              'code': 0,
+              'data': {
+                'next_offset': 3,
+                'session_id': 'feed-session',
+                'cell_view': {
+                  'cell_data': [
+                    {
+                      'video_data': [
+                        {
+                          'series_id': '1',
+                          'video_detail': {'content_type': 1004},
+                        },
+                      ],
+                    },
+                  ],
+                },
+              },
+            }),
+          ),
+          200,
+        );
+      }
       return http.Response('{"code":200,"data":{}}', 200);
     });
     addTearDown(transport.close);

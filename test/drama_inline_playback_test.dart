@@ -836,7 +836,7 @@ void main() {
     expect(sheet.backgroundColor, const Color(0xFF1C1C1C));
     expect(
       tester.widget<Text>(find.text('倍速')).style?.color,
-      const Color(0xCCFFFFFF),
+      Colors.white,
     );
     expect(tester.takeException(), isNull);
   });

@@ -1281,7 +1281,6 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       episode.itemId,
       for (final chapter in upcoming) chapter.itemId,
     });
-    _prefetchUpcomingSources(index, upcoming);
     _progressTimer?.cancel();
     _watchTime.stop();
     unawaited(_persistProgress());
@@ -1330,6 +1329,9 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
         await adopted?.dispose();
         return;
       }
+      // 本集地址拿到手再发往后 5 集的预取：预取先发会抢在当前集前面
+      // （取流顺序变成 2、3、1…），慢接口下还会拖首帧。
+      _prefetchUpcomingSources(index, upcoming);
       _currentSource = source;
       // 取流响应携带的分集方向：目录里没有时由它补上「全屏观看」的判据。
       if (source.vertical case final bool vertical) {

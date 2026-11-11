@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fqapp/services/app_theme.dart';
 import 'package:fqapp/services/short_series_font_scale.dart';
 import 'package:fqapp/widgets/player/playlet_font_scale_sheet.dart';
+import 'package:fqapp/widgets/series_detail/moyi_detail_theme.dart';
 
 void main() {
   testWidgets('深色下字号弹层取浮层底与浅色字', (tester) async {
@@ -27,26 +28,26 @@ void main() {
     await tester.tap(find.text('打开'));
     await tester.pumpAndSettle();
     final sheet = tester.widget<BottomSheet>(find.byType(BottomSheet));
-    expect(sheet.backgroundColor, const Color(0xFF262543));
+    expect(sheet.backgroundColor, moyiSheetFill);
     expect(
       tester.widget<Text>(find.text('字体大小')).style?.color,
-      const Color(0xFFF5F1EB),
+      Colors.white,
     );
-    // 选中档（标准）用 ink，未选中档（大号）用 muted。
+    // 选中档（标准）用白字，未选中档（大号）用魔蚁次级白。
     expect(
       tester.widget<Text>(find.text('标准')).style?.color,
-      const Color(0xFFF5F1EB),
+      Colors.white,
     );
     expect(
       tester.widget<Text>(find.text('大号')).style?.color,
-      const Color(0xFFA7A39E),
+      moyiMutedOnDark,
     );
     expect(
       tester
           .widget<Text>(find.byKey(const ValueKey('player-font-scale-preview')))
           .style
           ?.color,
-      const Color(0xFFF5F1EB),
+      Colors.white,
     );
     expect(tester.takeException(), isNull);
   });

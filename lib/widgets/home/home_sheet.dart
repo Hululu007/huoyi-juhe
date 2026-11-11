@@ -65,7 +65,7 @@ class HomeSheetFrame extends StatelessWidget {
         maxHeight: MediaQuery.sizeOf(context).height * maxHeightFactor,
       ),
       decoration: BoxDecoration(
-        color: moyiSheetFill,
+        color: homeSheetColor(palette),
         borderRadius: const BorderRadius.vertical(top: Radius.circular(radius)),
         // 只描上缘：弹层底边贴着屏幕，画一圈会在手势条上方多一条线。
         border: Border(top: homeSheetShape(palette, top: radius).side),
@@ -106,32 +106,38 @@ class HomeSheetFrame extends StatelessWidget {
     ),
   );
 
-  Widget _header(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(20, 0, 8, 2),
-    child: Row(
-      children: [
-        Expanded(
-          child: Text(
-            title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: titleFontSize,
-              fontWeight: FontWeight.w600,
+  Widget _header(BuildContext context) {
+    // 墨水屏下面板是纯白底，标题与关闭按钮必须用黑字/黑图标；
+    // 常规外观下面板是深紫底，用白字/白图标。
+    final headerColor =
+        HomePalette.of(context).eink ? Colors.black : Colors.white;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 8, 2),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: headerColor,
+                fontSize: titleFontSize,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
-        ),
-        IconButton(
-          key: closeKey,
-          tooltip: closeTooltip,
-          onPressed: onClose ?? () => Navigator.maybePop(context),
-          color: Colors.white,
-          icon: const Icon(LucideIcons.x, size: 20),
-        ),
-      ],
-    ),
-  );
+          IconButton(
+            key: closeKey,
+            tooltip: closeTooltip,
+            onPressed: onClose ?? () => Navigator.maybePop(context),
+            color: headerColor,
+            icon: const Icon(LucideIcons.x, size: 20),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// 以 [HomeSheetFrame] 为基座打开底部弹层。
@@ -154,7 +160,7 @@ Future<T?> showHomeSheet<T>({
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    backgroundColor: moyiSheetFill,
+    backgroundColor: homeSheetColor(palette),
     clipBehavior: Clip.antiAlias,
     shape: homeSheetShape(palette, top: HomeSheetFrame.radius),
     builder: (sheetContext) => HomeSheetFrame(

@@ -205,6 +205,10 @@ class _GameBattleStageState extends State<GameBattleStage>
   Timer? _tickTimer;
   Timer? _bannerTimer;
   Timer? _toastTimer;
+  // 寻路 1.4 秒收尾定时器：原来是裸 Future.delayed，dispose 时
+  // 取消不掉，widget 测试体末 _verifyInvariants 报 Timer 仍挂起；
+  // 改存 Timer，dispose 与重寻路时都取消。
+  Timer? _seekTimer;
   DateTime _fightStart = DateTime.now();
   DateTime _lastBasicAt = DateTime.fromMillisecondsSinceEpoch(0);
 
@@ -487,6 +491,7 @@ class _GameBattleStageState extends State<GameBattleStage>
     _tickTimer?.cancel();
     _bannerTimer?.cancel();
     _toastTimer?.cancel();
+    _seekTimer?.cancel();
     for (final timer in _minionRespawnTimers.values) {
       timer.cancel();
     }
@@ -515,7 +520,8 @@ class _GameBattleStageState extends State<GameBattleStage>
     _seeking = true;
     final token = ++_seekToken;
     _seek.forward(from: 0);
-    Future<void>.delayed(const Duration(milliseconds: 1400), () {
+    _seekTimer?.cancel();
+    _seekTimer = Timer(const Duration(milliseconds: 1400), () {
       if (mounted && token == _seekToken) {
         setState(() => _seeking = false);
       }

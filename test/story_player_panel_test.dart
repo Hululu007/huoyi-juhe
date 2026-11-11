@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fqapp/models/media_item.dart';
 import 'package:fqapp/services/app_theme.dart';
+import 'package:fqapp/widgets/series_detail/moyi_detail_theme.dart';
 import 'package:fqapp/widgets/video_player_chrome.dart';
 
 import 'support/fakes.dart';
@@ -140,13 +141,10 @@ void main() {
         find.descendant(of: _episode(3), matching: find.byType(Lottie)),
         findsOneWidget,
       );
-      // 已看集灰字 #66000000（`r0.java:224-235`）。
-      expect(tileText(1).style?.color, const Color(0x66000000));
-      // 未看普通集：浅色皮肤 normal_light（colors.xml:3293）
-      // = skin_color_black_light = #FF000000。深肤变体 …_normal_dark
-      // = #CCFFFFFF 配的是官方深色面板；本面板固定白底，取深肤值会让
-      // 白字落在浅灰格上（2026-09-27 真机截图复现过）。
-      expect(tileText(10).style?.color, const Color(0xFF000000));
+      // 已看集灰字用魔蚁次级白（`_episodeTextColor` watched 档）。
+      expect(tileText(1).style?.color, moyiMutedOnDark);
+      // 未看普通集：面板恒为深紫，普通集字色一律白。
+      expect(tileText(10).style?.color, Colors.white);
       expect(tester.takeException(), isNull);
     },
   );
@@ -158,23 +156,23 @@ void main() {
       watched: {1},
     );
     await openEpisodes(tester);
-    // 面板不再强制白底：取浮层色（深色非 OLED = surface）。
+    // 面板恒为深紫魔蚁底（无墨水屏分支）：取 moyiSheetFill。
     final panel = tester.widget<Material>(
       find.byKey(const ValueKey('story-panel')),
     );
-    expect(panel.color, const Color(0xFF262543));
+    expect(panel.color, moyiSheetFill);
     Text tileText(int index) => tester.widget<Text>(
       find.descendant(of: _episode(index), matching: find.byType(Text)).first,
     );
-    // 当前集仍用品牌橙；普通集换色板 ink；已看集用 muted。
+    // 当前集仍用品牌橙；普通集字色白；已看集用魔蚁次级白。
     expect(tileText(0).style?.color, const Color(0xFFFA6725));
-    expect(tileText(10).style?.color, const Color(0xFFF5F1EB));
-    expect(tileText(1).style?.color, const Color(0xFFA7A39E));
-    // 普通格底在深色面板上换成亮 overlay（#08000000 会看不见）。
+    expect(tileText(10).style?.color, Colors.white);
+    expect(tileText(1).style?.color, moyiMutedOnDark);
+    // 普通格底一律魔蚁卡底。
     expect(
       find.byWidgetPredicate(
         (widget) =>
-            widget is Material && widget.color == const Color(0x14FFFFFF),
+            widget is Material && widget.color == moyiDarkCardFill,
       ),
       findsWidgets,
     );

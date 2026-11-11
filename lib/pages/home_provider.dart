@@ -613,8 +613,18 @@ class HomeNotifier extends Notifier<HomeState> {
         // Every snapshot card counts as seen (the client-side equivalent of
         // the official `filterIds` request parameter): a fresh response that
         // still contains them is deduplicated away on append.
+        //
+        // The fetched items come back through `_forceKind`, relabelled to
+        // this tab's kind before `_applyFetched` dedupes them — so the seen
+        // set must also carry the tab-kind key, not only the snapshot's own
+        // kind. Otherwise a card whose snapshot kind differs from the tab
+        // kind (e.g. a video card resumed on the 听书 tab) is appended a
+        // second time when the fresh page still contains it.
+        final tabKind = identityOf(tabIndex).kind;
         for (final item in snapshot.items) {
-          if (item.id.isNotEmpty) feed.seen.add('${item.kind}:${item.id}');
+          if (item.id.isEmpty) continue;
+          feed.seen.add('${item.kind}:${item.id}');
+          feed.seen.add('$tabKind:${item.id}');
         }
       }
       if (snapshot.cells.isNotEmpty) {

@@ -1,11 +1,11 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show FontLoader;
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'preview_test_support.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fqapp/pages/cultivation_titles_page.dart';
@@ -22,27 +22,13 @@ import 'package:fqapp/widgets/mine/cultivation_profile_card.dart';
 ///
 /// 测试环境默认字体没有中文会出方框，这里先把系统里的
 /// Noto Sans CJK SC 载进来当主题字体，字才能正常显示。
-Future<void> _loadCjkFonts() async {
-  final regularBytes = File(
-    '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
-  ).readAsBytesSync();
-  final boldBytes = File(
-    '/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc',
-  ).readAsBytesSync();
-  final loader = FontLoader('NotoSansCJK')
-    ..addFont(Future.value(ByteData.view(regularBytes.buffer)));
-  await loader.load();
-  final boldLoader = FontLoader('NotoSansCJK')
-    ..addFont(Future.value(ByteData.view(boldBytes.buffer)));
-  await boldLoader.load();
-  // 图标字体：不载的话标题图标/改名铅笔/称号排行箭头在测试图里是方框。
-  final iconBytes = File(
-    '/home/hatch/flutter/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf',
-  ).readAsBytesSync();
-  final iconLoader = FontLoader('MaterialIcons')
-    ..addFont(Future.value(ByteData.view(iconBytes.buffer)));
-  await iconLoader.load();
+Future<void> _loadCjkFonts(WidgetTester tester) async {
+  // 字体走共享支撑拿可移植路径（见 preview_test_support.dart）：
+  // 此前写死的 /home/hatch/flutter/... 与 pub-cache 绝对路径在 CI 机上
+  // 不存在，一跑就报 PathNotFoundException。
+  await loadPreviewFonts(tester);
 }
+
 
 /// 建一份档案：黄枫谷、天道、青色道袍；小说 20 分钟、漫画 10 分钟、
 /// 听书 5 分钟、影视 10 分钟、短剧 2 集，共 1950 修为（结丹期 中期）。
@@ -91,7 +77,7 @@ Future<void> _capture(
 
 void main() {
   testWidgets('预览：我的页道友档案卡', (tester) async {
-    await _loadCjkFonts();
+    await _loadCjkFonts(tester);
 
     tester.view.devicePixelRatio = 1.0;
     tester.view.physicalSize = const Size(390, 844);
@@ -141,7 +127,7 @@ void main() {
   });
 
   testWidgets('预览：我的页道友档案卡（女）', (tester) async {
-    await _loadCjkFonts();
+    await _loadCjkFonts(tester);
 
     tester.view.devicePixelRatio = 1.0;
     tester.view.physicalSize = const Size(390, 844);

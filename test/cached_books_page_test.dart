@@ -10,7 +10,7 @@ import 'package:fqapp/pages/cached_books_page.dart';
 import 'package:fqapp/pages/reader_page.dart';
 import 'package:fqapp/services/app_theme.dart';
 import 'package:fqapp/services/chapter_cache_store.dart';
-import 'package:fqapp/widgets/home/home_design.dart';
+import 'package:fqapp/widgets/series_detail/moyi_detail_theme.dart';
 import 'package:fqapp/widgets/settings/settings_widgets.dart';
 
 import 'support/fakes.dart';
@@ -73,7 +73,7 @@ void main() {
           )
           .first,
     );
-    expect(surface.color, const HomePalette(true, oled: true).surface);
+    expect(surface.color, moyiDarkCardFill);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 

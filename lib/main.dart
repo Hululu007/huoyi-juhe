@@ -747,15 +747,21 @@ class _RootShellState extends State<RootShell>
               ),
             ),
             if (error != null)
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 4,
-                ),
-                child: Text(
-                  error,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 12, color: Colors.red),
+              // 报错可能很长（测试里 80 行）：直接放 Column 会溢出；
+              // 用剩余高度滚动，长报错可滚着看，不顶掉下面的主界面。
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 4,
+                    ),
+                    child: Text(
+                      error,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 12, color: Colors.red),
+                    ),
+                  ),
                 ),
               ),
             Expanded(child: shell),

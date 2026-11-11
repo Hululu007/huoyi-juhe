@@ -3,13 +3,13 @@ library;
 
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter/services.dart' show FontLoader;
 import 'package:flutter_test/flutter_test.dart';
+
+import 'preview_test_support.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fqapp/pages/onekey_py_page.dart';
@@ -28,34 +28,15 @@ import 'package:fqapp/pages/source_management_page.dart';
 /// 所以图里“生成并导入”金按钮与开关金色与真机一致。
 /// 两张 PNG 出到 ~/workspace/moyi_style_preview/（source_management /
 /// onekey_py）。
-const _outDir = '/home/hatch/workspace/moyi_style_preview';
+final String _outDir = previewOutDir().path;
 
-Future<void> _loadFonts() async {
-  final regularBytes = File(
-    '/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc',
-  ).readAsBytesSync();
-  final boldBytes = File(
-    '/usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc',
-  ).readAsBytesSync();
-  final loader = FontLoader('NotoSerifCJK')
-    ..addFont(Future.value(ByteData.view(regularBytes.buffer)));
-  await loader.load();
-  final boldLoader = FontLoader('NotoSerifCJK')
-    ..addFont(Future.value(ByteData.view(boldBytes.buffer)));
-  await boldLoader.load();
-  final iconBytes = File(
-    '/home/hatch/flutter/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf',
-  ).readAsBytesSync();
-  final iconLoader = FontLoader('MaterialIcons')
-    ..addFont(Future.value(ByteData.view(iconBytes.buffer)));
-  await iconLoader.load();
-  final lucideBytes = File(
-    '/home/hatch/.pub-cache/hosted/pub.dev/flutter_lucide-1.59.0/lib/fonts/lucide.ttf',
-  ).readAsBytesSync();
-  final lucideLoader = FontLoader('packages/flutter_lucide/lucide')
-    ..addFont(Future.value(ByteData.view(lucideBytes.buffer)));
-  await lucideLoader.load();
+Future<void> _loadFonts(WidgetTester tester) async {
+  // 字体走共享支撑拿可移植路径（见 preview_test_support.dart）：
+  // 此前写死的 /home/hatch/flutter/... 与 pub-cache 绝对路径在 CI 机上
+  // 不存在，一跑就报 PathNotFoundException。
+  await loadPreviewFonts(tester, serif: true, lucide: true);
 }
+
 
 Future<void> _capture(
   WidgetTester tester,
@@ -91,7 +72,7 @@ void main() {
   testWidgets('预览：站源管理页换肤（深紫蓝渐变底 + 深紫卡行 + 金开关）', (
     tester,
   ) async {
-    await _loadFonts();
+    await _loadFonts(tester);
     SharedPreferences.setMockInitialValues({
       'juhe_custom_sources': jsonEncode([
         {
@@ -162,7 +143,7 @@ void main() {
   testWidgets('预览：一键写PY页换肤（深紫蓝渐变底 + 深紫输入框 + 金按钮）', (
     tester,
   ) async {
-    await _loadFonts();
+    await _loadFonts(tester);
     SharedPreferences.setMockInitialValues({});
     tester.view.devicePixelRatio = 1.0;
     tester.view.physicalSize = const Size(390, 844);

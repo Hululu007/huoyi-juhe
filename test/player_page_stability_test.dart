@@ -348,7 +348,8 @@ void main() {
       await _choose(tester, 3);
       second.complete(_source('2'));
       await _flush(tester);
-      expect(session.requests, ['1', '2', '4']);
+      // 切到第 4 集时往后 5 集窗口（5）也已取好。
+      expect(session.requests, ['1', '2', '4', '5']);
       expect(session.players, hasLength(2));
       expect(_chrome(tester).playingIndex, 3);
       expect(session.store.entry?['episodeId'], '4');
@@ -366,7 +367,8 @@ void main() {
       await gesture.moveBy(const Offset(0, -70));
       await _flush(tester);
       session.players.single.emitCompleted();
-      expect(session.requests, ['1']);
+      // 拖动中不切集；但 5 集窗口的地址在起播时已取好。
+      expect(session.requests, ['1', '2', '3', '4', '5']);
       await gesture.cancel();
       // Let the page spring settle, then flush native stream cancellation when
       // automatic advance starts. Loading can keep pumpAndSettle animating.
@@ -378,7 +380,7 @@ void main() {
         await tester.pump(const Duration(milliseconds: 250));
         await _flush(tester);
       }
-      expect(session.requests, ['1', '2']);
+      expect(session.requests, ['1', '2', '3', '4', '5']);
       expect(_chrome(tester).playingIndex, 1);
       expect(session.players.last.isPlaying, true);
     },
@@ -392,12 +394,13 @@ void main() {
       for (final index in [-1, 0, 5]) {
         await _choose(tester, index);
       }
-      expect(session.requests, ['1']);
+      // 越界/重选本集都不重取；5 集窗口的地址在起播时已取好。
+      expect(session.requests, ['1', '2', '3', '4', '5']);
       await _choose(tester, 4);
       session.players.last.emitCompleted();
       session.players.last.emitCompleted();
       await _flush(tester);
-      expect(session.requests, ['1', '5']);
+      expect(session.requests, ['1', '2', '3', '4', '5']);
       expect(_chrome(tester).playingIndex, 4);
       expect(session.players, hasLength(2));
     },

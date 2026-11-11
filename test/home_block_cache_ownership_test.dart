@@ -17,6 +17,8 @@ import 'package:fqapp/services/home_feed_cache.dart';
 /// 列表实例的重建（任何一次 `copyWith`，比如翻页标志翻转）就命中缓存，把
 /// 上一个分类建好的「排行榜 + 猜你喜欢」原样交回去 —— 表现就是「听书第二次
 /// 加载变成推荐/小说」。
+/// 有界 pump：听书页带永不沉降的轮播/轮换定时器，pumpAndSettle
+/// 永远等不到沉降，改推固定帧数（见体内的有界等待循环）。
 void main() {
   setUp(() => HomeFeedCache.hiveReady = false);
   tearDown(() => HomeFeedCache.hiveReady = false);
@@ -112,9 +114,16 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('推荐书'), findsWidgets);
 
-    // 切到听书：337 没有渲染器，必须落到卡片网格。
-    await tester.tap(find.byKey(const ValueKey('home_category_5')));
-    await tester.pumpAndSettle();
+    // 切到听书：337 没有渲染器，必须落到卡片网格。听书在本地表下标 6
+    // （tabType=5）；下标 5 现在是「漫画」，它没有 tabType，只能走
+    // 搜索兜底、假 searchLoader 回空，听书卡永远出不来。
+    await tester.tap(find.byKey(const ValueKey('home_category_6')));
+    // 有界等待：轮播定时器永不沉降，不能用 pumpAndSettle；推帧直到
+    // 听书卡出现或到 6 秒上限（切 tab 的翻页动画 + 异步加载链要多帧）。
+    for (var i = 0; i < 20; i++) {
+      await tester.pump(const Duration(milliseconds: 300));
+      if (find.text('听书卡').evaluate().isNotEmpty) break;
+    }
     expect(find.text('听书卡'), findsWidgets);
     expect(find.text('推荐书'), findsNothing);
 

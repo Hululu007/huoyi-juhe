@@ -261,7 +261,10 @@ class SettingsSectionHeader extends StatelessWidget {
 
 /// 设置页开关：换肤后统一深底配色。
 ///
-/// * 选中 track = 魔蚁紫 [moyiPurple]、thumb 白；未选中 track = 白 12%。
+/// * 常规：选中 track = 魔蚁紫 [moyiPurple]、thumb 白；未选中 track = 白 12%。
+/// * 墨水屏：纯黑白（提交 46d023a 的分支，扫尾误删后恢复）——选中黑 track /
+///   白 thumb，未选中白 track / 黑 thumb + 黑描边，两种状态在灰度上完全
+///   分开，不依赖 Material 的 tonal 色。
 class SettingsSwitch extends StatelessWidget {
   const SettingsSwitch({
     super.key,
@@ -276,18 +279,31 @@ class SettingsSwitch extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final eink = HomePalette.of(context).eink;
     return Semantics(
       label: semanticLabel,
       child: Switch(
         value: value,
         onChanged: onChanged,
-        thumbColor: const WidgetStatePropertyAll(Colors.white),
-        trackColor: WidgetStateProperty.resolveWith(
-          (states) => states.contains(WidgetState.selected)
-              ? moyiPurple
-              : Colors.white.withValues(alpha: 0.12),
+        thumbColor: WidgetStateProperty.resolveWith(
+          (states) => eink
+              ? (states.contains(WidgetState.selected)
+                    ? Colors.white
+                    : Colors.black)
+              : Colors.white,
         ),
-        trackOutlineColor: const WidgetStatePropertyAll(Colors.transparent),
+        trackColor: WidgetStateProperty.resolveWith(
+          (states) => eink
+              ? (states.contains(WidgetState.selected)
+                    ? Colors.black
+                    : Colors.white)
+              : (states.contains(WidgetState.selected)
+                    ? moyiPurple
+                    : Colors.white.withValues(alpha: 0.12)),
+        ),
+        trackOutlineColor: WidgetStateProperty.resolveWith(
+          (states) => eink ? Colors.black : Colors.transparent,
+        ),
       ),
     );
   }
@@ -295,6 +311,10 @@ class SettingsSwitch extends StatelessWidget {
 
 /// 设置页确认框：取消 + 确认（破坏性操作确认键用书架同款删除红）。
 ///
+/// 墨水屏下删除红不进入主题（纯黑白要求），改用 [HomePalette.ink] 黑字
+/// 并给按钮加 1dp 黑描边：`secondaryContainer` 与对话框底色都是白色，
+/// 没有描边按钮边界会和对话框融为一体（提交 46d023a 的分支，扫尾误删后
+/// 恢复；对话框底仍取 [moyiSheetFill]，墨水屏深紫底是否保留未定、不动）。
 /// 对话框底取共享 [moyiSheetFill]。返回 true 仅当用户点了确认；点遮罩 /
 /// 返回键关闭按取消处理。
 Future<bool> showSettingsConfirmDialog({
@@ -308,6 +328,7 @@ Future<bool> showSettingsConfirmDialog({
   final confirmed = await showDialog<bool>(
     context: context,
     builder: (dialogContext) {
+      final palette = HomePalette.of(dialogContext);
       return AlertDialog(
         backgroundColor: moyiSheetFill,
         title: Text(title, style: const TextStyle(color: Colors.white)),
@@ -324,7 +345,12 @@ Future<bool> showSettingsConfirmDialog({
             onPressed: () => Navigator.pop(dialogContext, true),
             style: destructive
                 ? FilledButton.styleFrom(
-                    foregroundColor: ShelfTokens.deleteRed,
+                    foregroundColor: palette.eink
+                        ? palette.ink
+                        : ShelfTokens.deleteRed,
+                    side: palette.eink
+                        ? const BorderSide(color: Colors.black)
+                        : null,
                   )
                 : null,
             child: Text(confirmLabel),

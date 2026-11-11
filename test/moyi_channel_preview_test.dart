@@ -1,11 +1,11 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show FontLoader;
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'preview_test_support.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fqapp/pages/category_page.dart';
@@ -25,34 +25,13 @@ import 'package:fqapp/services/video_category_tags.dart';
 ///
 /// 测试环境默认字体没有中文会出方框，这里把系统里的
 /// Noto Serif CJK SC 与 Lucide 图标字体载进来当主题字体。
-Future<void> _loadFonts() async {
-  final regularBytes = File(
-    '/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc',
-  ).readAsBytesSync();
-  final boldBytes = File(
-    '/usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc',
-  ).readAsBytesSync();
-  final loader = FontLoader('NotoSerifCJK')
-    ..addFont(Future.value(ByteData.view(regularBytes.buffer)));
-  await loader.load();
-  final boldLoader = FontLoader('NotoSerifCJK')
-    ..addFont(Future.value(ByteData.view(boldBytes.buffer)));
-  await boldLoader.load();
-  final iconBytes = File(
-    '/home/hatch/flutter/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf',
-  ).readAsBytesSync();
-  final iconLoader = FontLoader('MaterialIcons')
-    ..addFont(Future.value(ByteData.view(iconBytes.buffer)));
-  await iconLoader.load();
-  final lucideBytes = File(
-    '/home/hatch/.pub-cache/hosted/pub.dev/flutter_lucide-1.59.0/lib/fonts/lucide.ttf',
-  ).readAsBytesSync();
-  // 包字体在测试里按 packages/<包名>/<族名> 注册，直接用 'lucide' 载不进来，
-  // 图标会变方框。
-  final lucideLoader = FontLoader('packages/flutter_lucide/lucide')
-    ..addFont(Future.value(ByteData.view(lucideBytes.buffer)));
-  await lucideLoader.load();
+Future<void> _loadFonts(WidgetTester tester) async {
+  // 字体走共享支撑拿可移植路径（见 preview_test_support.dart）：
+  // 此前写死的 /home/hatch/flutter/... 与 pub-cache 绝对路径在 CI 机上
+  // 不存在，一跑就报 PathNotFoundException。
+  await loadPreviewFonts(tester, serif: true, lucide: true);
 }
+
 
 Future<void> _capture(
   WidgetTester tester,
@@ -119,7 +98,7 @@ UnifiedVideoCategories _previewUnified() => parseUnifiedVideoCategories('''
 
 void main() {
   testWidgets('预览：魔蚁风频道分类页', (tester) async {
-    await _loadFonts();
+    await _loadFonts(tester);
     SharedPreferences.setMockInitialValues({});
 
     tester.view.devicePixelRatio = 1.0;
@@ -197,7 +176,7 @@ void main() {
     await _capture(
       tester,
       const ValueKey<String>('moyi-channel-preview'),
-      '/home/hatch/workspace/moyi_style_preview/channel.png',
+      previewOutPath('channel.png'),
     );
   });
 }

@@ -4,7 +4,6 @@ library;
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -14,9 +13,13 @@ import 'package:fqapp/pages/home_page.dart';
 import 'package:fqapp/pages/home_provider.dart';
 import 'package:fqapp/services/api_client.dart';
 
+import 'preview_test_support.dart';
+
 /// 魔蚁式首页的真机预览：用假数据 pump 真的 [HomePage]（品牌行 +
-/// 大轮播 + 热播推荐 / 猜你想看两段），FontLoader 加载本机思源宋体 CJK
-/// 后渲染成真 PNG（test/goldens/moyi_home_preview.png，再拷到
+/// 大轮播 + 热播推荐 / 猜你想看两段），字体走共享支撑
+/// （preview_test_support.dart：思源宋体 CJK + MaterialIcons +
+/// Lucide，runAsync 里做真 IO）后渲染成真 PNG
+/// （test/goldens/moyi_home_preview.png，再拷到
 /// ~/workspace/moyi_style_preview/home.png）。
 ///
 /// 只在有中文字体的机器上跑：字体文件不在就跳过，不让这张图拖垮
@@ -29,37 +32,18 @@ void main() {
     const regular =
         '/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc';
     const bold = '/usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc';
-    if (!await File(regular).exists() || !await File(bold).exists()) {
+    // 同步查存在：旧写法用 await File().exists()，真 IO 落在
+    // FakeAsync 区里等不到回包，测试直接挂死到 10 分钟超时。
+    if (!File(regular).existsSync() || !File(bold).existsSync()) {
       markTestSkipped('本机没有 NotoSerifCJK 字体，跳过预览图渲染');
       return;
     }
-    final loader = FontLoader('PreviewFont');
-    for (final path in [regular, bold]) {
-      loader.addFont(
-        File(path).readAsBytes().then((bytes) => ByteData.view(bytes.buffer)),
-      );
-    }
-    await loader.load();
-    // ignore: avoid_print
-    print('MOYI_PREVIEW preview font loaded');
-    // 图标字体：不载入则顶栏搜索/刷新与轮播「马上看」播放图标变方框
-    //（频道分类预览同款做法）。
-    final iconBytes = File(
-      '/home/hatch/flutter/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf',
-    ).readAsBytesSync();
-    final iconLoader = FontLoader('MaterialIcons')
-      ..addFont(Future.value(ByteData.view(iconBytes.buffer)));
-    await iconLoader.load();
-    // ignore: avoid_print
-    print('MOYI_PREVIEW material icons loaded');
-    final lucideBytes = File(
-      '/home/hatch/.pub-cache/hosted/pub.dev/flutter_lucide-1.59.0/lib/fonts/lucide.ttf',
-    ).readAsBytesSync();
-    final lucideLoader = FontLoader('packages/flutter_lucide/lucide')
-      ..addFont(Future.value(ByteData.view(lucideBytes.buffer)));
-    await lucideLoader.load();
-    // ignore: avoid_print
-    print('MOYI_PREVIEW lucide loaded');
+    // 字体走共享支撑（runAsync 里做真 IO）：旧写法三处全是本机
+    // 写死路径（/home/hatch/flutter/.../MaterialIcons-Regular.otf、
+    // /home/hatch/.pub-cache/.../flutter_lucide-1.59.0/...），CI 机
+    // 上不存在；且直接 await FontLoader.load() 在 FakeAsync 区里
+    // 挂死，是 CI 上 10 分钟超时的根因。
+    await loadPreviewFonts(tester, serif: true, lucide: true);
     // ignore: avoid_print
     print('MOYI_PREVIEW fonts loaded');
 
@@ -112,7 +96,9 @@ void main() {
         ],
         child: MaterialApp(
           theme: ThemeData(
-            fontFamily: 'PreviewFont',
+            // 与 loadPreviewFonts(serif: true) 载入的字体族同名
+            // （旧写法把同一批字载成 'PreviewFont'）。
+            fontFamily: 'NotoSerifCJK',
             brightness: Brightness.dark,
           ),
           home: const HomePage(),
@@ -130,8 +116,26 @@ void main() {
 
     expect(find.text('凡人修仙观影传'), findsOneWidget);
     expect(find.text('热播推荐'), findsOneWidget);
+    // 「猜你想看」在两段网格后半段：844 高画布下它在首屏外，
+    // CustomScrollView 懒加载还没建出，直接断言必是 0 个；
+    // 先滚进视口再断言，断言完滚回顶部再比金图。
+    // scrollable 必须显式指 CustomScrollView：页里不止一个
+    // Scrollable（轮播 PageView 也是），默认 find.byType(Scrollable)
+    // 会因「太多元素」炸掉。
+    await tester.scrollUntilVisible(
+      find.text('猜你想看'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.text('猜你想看'), findsOneWidget);
-    expect(find.text('马上看'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('凡人修仙观影传'),
+      -300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pump();
+    // 轮播 PageView 会同时建出相邻两页，「马上看」出现 2 次，只断存在。
+    expect(find.text('马上看'), findsWidgets);
     await expectLater(
       find.byType(HomePage),
       matchesGoldenFile('goldens/moyi_home_preview.png'),

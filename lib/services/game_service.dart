@@ -1133,6 +1133,17 @@ class GameService extends ChangeNotifier with WidgetsBindingObserver {
     return run;
   }
 
+  /// 测试用：只停掉 5 秒挂机计时器，不动 _loadFuture 与存档。
+  /// widget 测试里 RootShell 一挂就起表，测试结束时表还挂着会报
+  /// “A Timer is still pending”；pumpAndSettle 前不停表也永远等不到
+  /// 安静。resetForTest 也会停表，但它还会清存档、把 _loadFuture 置
+  /// 空（下次 ensureInitialized 会重载、重起表），不适合只停表。
+  @visibleForTesting
+  void stopTimerForTest() {
+    _timer?.cancel();
+    _timer = null;
+  }
+
   /// 测试用：清掉内存与落盘的游戏数据。
   @visibleForTesting
   Future<void> resetForTest() async {

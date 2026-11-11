@@ -713,6 +713,14 @@ void main() {
         }
         final readerStore = MemoryReaderStore(entry: saved);
         var connectivityChecks = 0;
+        // 首页入口：「继续阅读」行在内容区首位，但它前面还有 hero、分类条、
+        // 轮播与影视区，默认 800×600 视口下它落在缓存范围之外、根本不会
+        // 被构建，ensureVisible 找不到它（探针实测：向下滚 2000px 后
+        // 才出现）。用高画布让整页一次建成，行本身的功能不断言位置。
+        if (entry == '首页') {
+          await tester.binding.setSurfaceSize(const Size(400, 2600));
+          addTearDown(() => tester.binding.setSurfaceSize(null));
+        }
         await tester.pumpWidget(
           entry == '书架'
               ? _app(

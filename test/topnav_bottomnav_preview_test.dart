@@ -2,14 +2,14 @@
 library;
 
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show FontLoader;
 import 'package:flutter/rendering.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'preview_test_support.dart';
 
 import 'package:fqapp/widgets/home/home_design.dart';
 import 'package:fqapp/widgets/home/home_tab_bar.dart';
@@ -39,34 +39,15 @@ import 'package:fqapp/widgets/series_detail/moyi_detail_theme.dart';
 /// find.text 断言兜底——选中白字、未选中 moyiMutedOnDark（白 55%），
 /// 在魔蚁渐变底上都可读；图中选中项下的金色短线也看得到，证明条带
 /// 布局与选中态都在深底上正常渲染。
-const _outDir = '/home/hatch/workspace/moyi_style_preview';
+final String _outDir = previewOutDir().path;
 
-Future<void> _loadFonts() async {
-  final regularBytes = File(
-    '/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc',
-  ).readAsBytesSync();
-  final boldBytes = File(
-    '/usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc',
-  ).readAsBytesSync();
-  final loader = FontLoader('NotoSerifCJK')
-    ..addFont(Future.value(ByteData.view(regularBytes.buffer)));
-  await loader.load();
-  final boldLoader = FontLoader('NotoSerifCJK')
-    ..addFont(Future.value(ByteData.view(boldBytes.buffer)));
-  await boldLoader.load();
-  final iconBytes = File(
-    '/home/hatch/flutter/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf',
-  ).readAsBytesSync();
-  final iconLoader = FontLoader('MaterialIcons')
-    ..addFont(Future.value(ByteData.view(iconBytes.buffer)));
-  await iconLoader.load();
-  final lucideBytes = File(
-    '/home/hatch/.pub-cache/hosted/pub.dev/flutter_lucide-1.59.0/lib/fonts/lucide.ttf',
-  ).readAsBytesSync();
-  final lucideLoader = FontLoader('packages/flutter_lucide/lucide')
-    ..addFont(Future.value(ByteData.view(lucideBytes.buffer)));
-  await lucideLoader.load();
+Future<void> _loadFonts(WidgetTester tester) async {
+  // 字体走共享支撑拿可移植路径（见 preview_test_support.dart）：
+  // 此前写死的 /home/hatch/flutter/... 与 pub-cache 绝对路径在 CI 机上
+  // 不存在，一跑就报 PathNotFoundException。
+  await loadPreviewFonts(tester, serif: true, lucide: true);
 }
+
 
 Future<void> _capture(
   WidgetTester tester,
@@ -207,7 +188,7 @@ void main() {
   });
 
   testWidgets('预览：顶栏 + 底部导航（深紫底、白字、金色选中）', (tester) async {
-    await _loadFonts();
+    await _loadFonts(tester);
     tester.view.devicePixelRatio = 1.0;
     tester.view.physicalSize = const Size(390, 844);
     addTearDown(tester.view.reset);

@@ -93,9 +93,10 @@ void main() {
     // 太乙的称号是占位，标「待起名」。
     expect(find.text('待起名'), findsOneWidget);
     final taiyiRow = find.byKey(const ValueKey('cultivation_title_row_12'));
+    // 前三特效称号用描边 + 渐变 + 流光三层叠字，同一称号出现 3 次。
     expect(
       find.descendant(of: taiyiRow, matching: find.text('待补充·前三称号之三')),
-      findsOneWidget,
+      findsNWidgets(3),
     );
     expect(
       find.descendant(of: taiyiRow, matching: find.text('待起名')),
@@ -105,7 +106,7 @@ void main() {
     final daozuRow = find.byKey(const ValueKey('cultivation_title_row_14'));
     expect(
       find.descendant(of: daozuRow, matching: find.text('唯我独尊')),
-      findsOneWidget,
+      findsNWidgets(3),
     );
     expect(
       find.descendant(of: daozuRow, matching: find.text('1')),
@@ -115,7 +116,7 @@ void main() {
     final daluoRow = find.byKey(const ValueKey('cultivation_title_row_13'));
     expect(
       find.descendant(of: daluoRow, matching: find.text('超凡入化')),
-      findsOneWidget,
+      findsNWidgets(3),
     );
     expect(
       find.descendant(of: daluoRow, matching: find.text('2')),

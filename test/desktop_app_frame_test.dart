@@ -20,7 +20,8 @@ void main() {
     expect(find.byKey(const Key('desktop-search')), findsOneWidget);
 
     // 短剧分区自带搜索入口：壳层全局搜索隐藏，只留一处搜索。
-    desktopTab.value = 1;
+    // 短剧是 desktopTab 下标 2（0 首页、1 阅读/书架、2 短剧）。
+    desktopTab.value = 2;
     await tester.pump();
     expect(find.byKey(const Key('desktop-search')), findsNothing);
     expect(find.text('火蚁聚合'), findsOneWidget);

@@ -137,23 +137,25 @@ void main() {
   );
 
   testWidgets(
-    'prefetch waits for first frame and fetches just one address without a player',
+    // 11-01 预加载规格：起播时就把往后 5 集的地址都取好（本集先取、再取
+    // 往后 5 集），不再等首帧、也不再只取下一集；预取只取地址、不建播放器。
+    'prefetch fetches the next five addresses at load without a player',
     (tester) async {
       final session = _Session();
       await _mount(tester, session);
       await tester.pump(const Duration(seconds: 2));
       await _flush(tester);
-      expect(session.requests, ['1']);
+      expect(session.requests, ['1', '2', '3', '4', '5']);
       session.players.single.emitFirstFrame();
       await _flush(tester);
       await tester.pump(const Duration(milliseconds: 600));
-      expect(session.requests, ['1']);
+      expect(session.requests, ['1', '2', '3', '4', '5']);
       await tester.pump(const Duration(milliseconds: 200));
       await _flush(tester);
-      expect(session.requests, ['1', '2']);
+      expect(session.requests, ['1', '2', '3', '4', '5']);
       await tester.pump(const Duration(seconds: 5));
       await _flush(tester);
-      expect(session.requests, ['1', '2']);
+      expect(session.requests, ['1', '2', '3', '4', '5']);
       expect(session.players, hasLength(1));
       expect(session.players.single.isPlaying, true);
       expect(session.store.entry?['episodeId'], '1');
@@ -168,7 +170,15 @@ void main() {
         Completer<Map<String, dynamic>>(),
       ];
       final session = _Session(
-        loader: (chapter) => sources[int.parse(chapter.itemId) - 1].future,
+        // 预取窗口是往后 5 集：3、4、5 也会来取流，用现成地址应答，
+        // 不然 RangeError 会让预取静默失败（旧版 loader 只有 2 个槽）。
+        loader: (chapter) {
+          final index = int.parse(chapter.itemId) - 1;
+          if (index >= sources.length) {
+            return Future.value(_source(chapter.itemId));
+          }
+          return sources[index].future;
+        },
       );
       await _mount(tester, session);
       session.elapsed = const Duration(milliseconds: 350);
@@ -189,7 +199,7 @@ void main() {
       session.players.last.emitFirstFrame();
       await _flush(tester);
       expect(session.players, hasLength(2));
-      expect(session.requests, ['1', '2']);
+      expect(session.requests, ['1', '2', '3', '4', '5']);
       final sample = session.samples.last;
       expect(sample.episode, 2);
       expect(sample.source, 'prefetchHit');
@@ -234,7 +244,10 @@ void main() {
       var attempts = 0;
       final session = _Session(
         loader: (chapter) {
-          if (chapter.itemId == '2' && attempts++ == 0) {
+          // 2 号预取要连败两次才测得到“切过去时重新取”：起播时的 5 集
+          // 窗口取一次、首帧后 750ms 的预取巡检又补一次，两次都败，
+          // 切过去才走现取；只败一次会被巡检的补取先治好。
+          if (chapter.itemId == '2' && attempts++ < 2) {
             return Future.error(StateError('speculative source failed'));
           }
           return Future.value(_source(chapter.itemId));
@@ -250,7 +263,9 @@ void main() {
       await _choose(tester, 1);
       session.players.last.emitFirstFrame();
       await _flush(tester);
-      expect(session.requests, ['1', '2', '2']);
+      // 起播时 3、4、5 已随 5 集窗口预取好；2 号预取连败两次（窗口+巡检），
+      // 切过去时现取一次。
+      expect(session.requests, ['1', '2', '3', '4', '5', '2', '2']);
       expect(session.samples.last.source, 'network');
       expect(session.players.last.isPlaying, true);
     },
@@ -285,7 +300,9 @@ void main() {
         if (displayed) await tester.tap(find.text('重试'));
         await tester.pump(const Duration(milliseconds: 350));
         await _flush(tester);
-        expect(session.requests, ['1', '2', '2']);
+        // 起播时 3、4、5 已随 5 集窗口预取好；缓存的 2 号地址坏了，
+        // 重试时重新取一次。
+        expect(session.requests, ['1', '2', '3', '4', '5', '2']);
         expect(
           session.players.last.position,
           displayed ? const Duration(seconds: 13) : Duration.zero,
@@ -301,7 +318,9 @@ void main() {
 
   for (final interruption in ['background', 'pause', 'buffering', 'paging']) {
     testWidgets(
-      '$interruption cancels delayed prefetch until playback is eligible again',
+      // 11-01 预加载规格：5 集窗口在起播时已取好，不再是首帧后 750ms 才
+      // 发的延迟预取；这里只验中断期间不再多取、恢复后也不重复取。
+      '$interruption adds no extra prefetch while playback is ineligible',
       (tester) async {
         final session = _Session();
         await _mount(tester, session);
@@ -324,7 +343,7 @@ void main() {
         await _flush(tester);
         await tester.pump(const Duration(seconds: 2));
         await _flush(tester);
-        expect(session.requests, ['1']);
+        expect(session.requests, ['1', '2', '3', '4', '5']);
         switch (interruption) {
           case 'background':
             tester.binding.handleAppLifecycleStateChanged(
@@ -340,7 +359,7 @@ void main() {
         await _flush(tester);
         await tester.pump(const Duration(seconds: 1));
         await _flush(tester);
-        expect(session.requests, ['1', '2']);
+        expect(session.requests, ['1', '2', '3', '4', '5']);
         expect(session.players, hasLength(1));
       },
     );
@@ -363,18 +382,20 @@ void main() {
       session.players.last.emitFirstFrame();
       await _flush(tester);
       await tester.pump(const Duration(seconds: 1));
+      // 4、5 排在还没完成的 2 号预取后面：预取是串行的，2 号没回来
+      // 之前 4、5 不发；等 2 号回来才轮到它们。
       expect(session.requests, ['1', '2', '3']);
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
       second.complete(_source('2'));
       await _flush(tester);
       await tester.pump(const Duration(seconds: 1));
-      expect(session.requests, ['1', '2', '3']);
+      expect(session.requests, ['1', '2', '3', '4', '5']);
       expect(session.players, hasLength(2));
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await _flush(tester);
       await tester.pump(const Duration(seconds: 1));
       await _flush(tester);
-      expect(session.requests, ['1', '2', '3', '4']);
+      expect(session.requests, ['1', '2', '3', '4', '5']);
       expect(_chrome(tester).playingIndex, 2);
       expect(session.players.last.isPlaying, true);
     },
@@ -399,7 +420,8 @@ void main() {
     await _flush(tester);
     session.players.last.emitFirstFrame();
     await _flush(tester);
-    expect(session.requests, ['1', '2', '4']);
+    // 切到第 4 集时往后 5 集窗口（5）也已取好。
+    expect(session.requests, ['1', '2', '4', '5']);
     expect(session.players, hasLength(2));
     expect(
       session.players.last.calls.first,
@@ -432,7 +454,8 @@ void main() {
       expect(session.players.single.disposed, true);
       await tester.pumpWidget(session.app());
       await _flush(tester);
-      expect(session.requests, ['1', '2', '1']);
+      // 重进后本集重取、往后 5 集窗口（2、3、4、5）重新预取。
+      expect(session.requests, ['1', '2', '1', '2', '3', '4', '5']);
       expect(session.players, hasLength(2));
     },
   );

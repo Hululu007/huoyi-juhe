@@ -13,6 +13,14 @@ import 'package:fqapp/services/library_store.dart';
 import 'package:fqapp/services/shelf_store.dart';
 import 'package:fqapp/widgets/lazy_indexed_stack.dart';
 
+/// 有界 pump：MinePage 带永不沉降的循环动画（档案卡 5 秒放技能、呼吸），
+/// 一旦挂载 pumpAndSettle 就永远等不到沉降，改推固定帧数。
+Future<void> _pumpFrames(WidgetTester tester) async {
+  for (var i = 0; i < 5; i++) {
+    await tester.pump(const Duration(milliseconds: 300));
+  }
+}
+
 void main() {
   late Directory directory;
   final store = LibraryStore.instance;
@@ -54,9 +62,9 @@ void main() {
     );
     await tester.pumpAndSettle();
     index.value = 1;
-    await tester.pumpAndSettle();
+    await _pumpFrames(tester);
     index.value = 2;
-    await tester.pumpAndSettle();
+    await _pumpFrames(tester);
     final builds = _recordBuilds();
     for (var update = 0; update < 10; update++) {
       await _saveProgress(tester, update);
@@ -81,13 +89,13 @@ void main() {
       );
     });
     index.value = 0;
-    await tester.pumpAndSettle();
+    await _pumpFrames(tester);
     expect(find.text('书架暂无书籍'), findsOneWidget);
     await tester.tap(find.text('漫画'));
-    await tester.pumpAndSettle();
+    await _pumpFrames(tester);
     expect(find.text('暗处加的漫画'), findsWidgets);
     index.value = 1;
-    await tester.pumpAndSettle();
+    await _pumpFrames(tester);
     expect(find.text('10分钟'), findsWidgets);
     await _showRankedBook(tester, '最新记录 9');
     expect(tester.takeException(), isNull);
@@ -102,7 +110,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(navigatorKey: navigator, home: const MinePage()),
     );
-    await tester.pumpAndSettle();
+    await _pumpFrames(tester);
     await _saveProgress(tester, 0);
     unawaited(
       navigator.currentState!.push<void>(
@@ -123,7 +131,7 @@ void main() {
     debugOnRebuildDirtyWidget = null;
     expect(builds, isEmpty);
     navigator.currentState!.pop();
-    await tester.pumpAndSettle();
+    await _pumpFrames(tester);
     expect(find.text('2分钟'), findsWidgets);
     await _showRankedBook(tester, '最新记录 1');
     expect(tester.takeException(), isNull);
