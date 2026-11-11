@@ -37,7 +37,6 @@ CATS = [
 ]
 
 _JAR = http.cookiejar.CookieJar()
-_OPENER = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(_JAR))
 
 
 def _ctx():
@@ -47,6 +46,9 @@ def _ctx():
     return ctx
 
 
+_OPENER = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(_JAR), urllib.request.HTTPSHandler(context=_ctx()))
+
+
 def _http(url, headers=None, timeout=30):
     h = {'User-Agent': UA, 'Accept': 'application/json', 'Referer': HOST + '/zh-hans/'}
     if headers:
@@ -54,7 +56,7 @@ def _http(url, headers=None, timeout=30):
     for _ in range(3):
         try:
             req = urllib.request.Request(url, headers=h)
-            with _OPENER.open(req, timeout=timeout, context=_ctx()) as resp:
+            with _OPENER.open(req, timeout=timeout) as resp:
                 raw = resp.read()
                 enc = (resp.headers.get('Content-Encoding') or '').lower()
                 if enc == 'gzip' or raw[:2] == b'\x1f\x8b':

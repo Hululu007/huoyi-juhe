@@ -244,6 +244,7 @@ class Spider(BaseSpider):
                     req = urllib.request.Request(api, headers={
                         "User-Agent": self.ua,
                         "Referer": page,
+                        "X-Requested-With": "XMLHttpRequest",
                     })
                     with urllib.request.urlopen(req, timeout=20) as r:
                         data = json.loads(r.read().decode("utf-8", "ignore"))

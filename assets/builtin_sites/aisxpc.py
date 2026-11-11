@@ -251,6 +251,32 @@ def _parse_player_data(html):
     return url, frm
 
 
+def _hg_play(mid, mep, page_url):
+    api = _CUR_BASE[0] + '/huangguo.php?ac=play&id=%s&ep=%s&_=%d' % (mid, mep, int(time.time() * 1000))
+    hdr = {'User-Agent': UA, 'Referer': page_url, 'X-Requested-With': 'XMLHttpRequest'}
+    if _requests is not None:
+        try:
+            sess = _requests.Session()
+            sess.headers.update({'User-Agent': UA})
+            sess.get(page_url, headers={'Referer': page_url}, timeout=25)
+            resp = sess.get(api, headers=hdr, timeout=25)
+            cookie = '; '.join('%s=%s' % (c.name, c.value) for c in sess.cookies)
+            return resp.text, cookie
+        except Exception:
+            return '', ''
+    try:
+        import http.cookiejar
+        jar = http.cookiejar.CookieJar()
+        opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+        opener.open(urllib.request.Request(page_url, headers={'User-Agent': UA, 'Referer': page_url}), timeout=25)
+        with opener.open(urllib.request.Request(api, headers=hdr), timeout=25, context=CTX) as resp:
+            body = resp.read().decode('utf-8', 'replace')
+        cookie = '; '.join('%s=%s' % (c.name, c.value) for c in jar)
+        return body, cookie
+    except Exception:
+        return '', ''
+
+
 def _norm_id(ids):
     if isinstance(ids, (list, tuple)):
         return str(ids[0]) if ids else ''
@@ -432,8 +458,7 @@ class Spider(BaseSpider):
         mep = mep.strip()
         if frm != 'huangguo' or not mid or not mep:
             return {'parse': 0, 'playUrl': '', 'url': '', 'header': {}}
-        api = '/huangguo.php?ac=play&id=%s&ep=%s' % (mid, mep)
-        body = _fetch(api, referer=page_url)
+        body, cookie = _hg_play(mid, mep, page_url)
         if not body:
             return {'parse': 0, 'playUrl': '', 'url': '', 'header': {}}
         try:
@@ -443,9 +468,14 @@ class Spider(BaseSpider):
         if data.get('code') != 1:
             return {'parse': 0, 'playUrl': '', 'url': '', 'header': {}}
         proxy = str(data.get('url') or '').strip()
-        if not proxy.startswith('/hgmedia.php?e='):
+        if proxy.startswith('/hgmedia.php?e=') or proxy.startswith('/huangguo.php?ac=media&t='):
+            full = _CUR_BASE[0] + proxy
+        elif proxy.startswith('http'):
+            full = proxy
+        else:
             return {'parse': 0, 'playUrl': '', 'url': '', 'header': {}}
-        full = _CUR_BASE[0] + proxy
+        if cookie:
+            header['Cookie'] = cookie
         return {'parse': 0, 'playUrl': full, 'url': full, 'header': header}
 
     def localProxy(self, param):

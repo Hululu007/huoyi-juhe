@@ -70,6 +70,10 @@ class _HongguoLoginPageState extends State<HongguoLoginPage> {
       _snack('验证码已发送至 ${sent.maskedMobile}，请打开本机短信查看');
     } on HongguoAccountError catch (e) {
       _snack(e.message);
+    } catch (_) {
+      // 服务层已把已知异常转成 HongguoAccountError，这里只是兜底：
+      // 任何漏网的异常也要给一句提示，不能点了按钮没反应。
+      _snack('发送失败，请稍后重试');
     }
   }
 
@@ -78,6 +82,8 @@ class _HongguoLoginPageState extends State<HongguoLoginPage> {
       await _service.verifyCode(_codeController.text);
     } on HongguoAccountError catch (e) {
       _snack(e.message);
+    } catch (_) {
+      _snack('登录失败，请稍后重试');
     }
   }
 
@@ -86,6 +92,8 @@ class _HongguoLoginPageState extends State<HongguoLoginPage> {
       await _service.fetchQr();
     } on HongguoAccountError catch (e) {
       _snack(e.message);
+    } catch (_) {
+      _snack('取二维码失败，请稍后重试');
     }
   }
 

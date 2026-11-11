@@ -111,6 +111,18 @@ void main() {
     for (var i = 0; i < 2; i++) {
       final query = queries[i];
       expect(query['aid'], '8662');
+      expect(query['version_code'], '74332');
+      expect(query['version_name'], '7.4.3.32');
+      expect(query['manifest_version_code'], '74332');
+      expect(query['update_version_code'], '74332');
+      expect(query['host_abi'], 'arm64-v8a');
+      expect(query['dragon_device_type'], 'phone');
+      expect(query['pv_player'], '74332');
+      expect(query['compliance_status'], '0');
+      expect(query['need_personal_recommend'], '1');
+      expect(query['player_so_load'], '1');
+      expect(query['is_android_pad_screen'], '0');
+      expect(query['cdid'], query['device_id']);
       expect(RegExp(r'^\d{19}$').hasMatch(query['device_id'] ?? ''), isTrue);
       expect(RegExp(r'^\d{19}$').hasMatch(query['iid'] ?? ''), isTrue);
       expect(RegExp(r'^\d+$').hasMatch(query['_rticket'] ?? ''), isTrue);

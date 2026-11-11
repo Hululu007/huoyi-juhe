@@ -268,7 +268,7 @@ class Spider(BaseSpider):
             if n in seen:
                 continue
             seen.add(n)
-            name = m.group(3).strip() or '第%s集' % n
+            name = _unescape(m.group(3)).strip() or '第%s集' % n
             eps.append('%s$dj69:%s%s' % (name, base, m.group(1)))
         if not eps:
             eps = ['第1集$dj69:%s/vodplay/%s-1-1.html' % (base, nid)]

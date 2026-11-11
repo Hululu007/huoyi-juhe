@@ -162,7 +162,7 @@ pub fn phoenix_player_headers() -> Vec<(String, String)> {
     vec![
         (
             "User-Agent".to_string(),
-            "com.phoenix.read/71332 (Linux; U; Android 16; zh_CN; 25053RT47C; Build/BP2A.250605.031.A3; Cronet/TTNetVersion:04657795 2026-01-23 QuicVersion:c67e9834 2025-09-08)".to_string(),
+            "com.phoenix.read/74332 (Linux; U; Android 16; zh_CN; 25053RT47C; Build/BP2A.250605.031.A3; Cronet/TTNetVersion:04657795 2026-01-23 QuicVersion:c67e9834 2025-09-08)".to_string(),
         ),
         (
             "Accept".to_string(),
@@ -177,7 +177,7 @@ pub fn phoenix_player_headers() -> Vec<(String, String)> {
 pub fn phoenix_player_url() -> String {
     format!(
         "{HOST_FQNOVELB}/novel/player/multi_video_model/v1/?iid={{install_id}}\
-&device_id={{device_id}}&ac=wifi&channel=update_64&aid=8662&app_name=novelread&version_code=71332&version_name=7.1.3.32&device_platform=android&os=android&ssmix=a&device_type=25053RT47C&device_brand=Redmi&language=zh&os_api=36&os_version=16&manifest_version_code=71332&resolution=1280*2772&dpi=520&update_version_code=71332&host_abi=arm64-v8a&dragon_device_type=phone&pv_player=71332&compliance_status=0&need_personal_recommend=1&player_so_load=1&is_android_pad_screen=0"
+&device_id={{device_id}}&ac=wifi&channel=update_64&aid=8662&app_name=novelread&version_code=74332&version_name=7.4.3.32&device_platform=android&os=android&ssmix=a&device_type=25053RT47C&device_brand=Redmi&language=zh&os_api=36&os_version=16&manifest_version_code=74332&resolution=1280*2772&dpi=520&update_version_code=74332&host_abi=arm64-v8a&dragon_device_type=phone&pv_player=74332&compliance_status=0&need_personal_recommend=1&player_so_load=1&is_android_pad_screen=0&cdid={{cdid}}"
     )
 }
 

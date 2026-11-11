@@ -8,22 +8,36 @@ import 'package:fqapp/services/secure_key_provider.dart';
 import 'package:http/http.dart' as http;
 
 /// 只记请求、不发网络的假 http 客户端，按给定的 JSON 回包。
+/// [statusCode]/[rawBody] 用于模拟服务端非 200 与非 JSON 回包。
 class _CapturingClient extends http.BaseClient {
-  _CapturingClient(this.replyJson);
+  _CapturingClient(this.replyJson, {this.statusCode = 200, this.rawBody});
 
   final Map<String, dynamic> replyJson;
+  final int statusCode;
+  final String? rawBody;
   http.BaseRequest? lastRequest;
 
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
     lastRequest = request;
-    final body = utf8.encode(jsonEncode(replyJson));
+    final body = utf8.encode(rawBody ?? jsonEncode(replyJson));
     return http.StreamedResponse(
       Stream.value(body),
-      200,
+      statusCode,
       headers: {'content-type': 'application/json'},
     );
   }
+}
+
+/// 一调就抛指定异常的假客户端，用于模拟超时/断网。
+class _ThrowingClient extends http.BaseClient {
+  _ThrowingClient(this.error);
+
+  final Object error;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async =>
+      throw error;
 }
 
 Map<String, String> _lowerHeaders(Map<String, String> headers) => {
@@ -34,7 +48,11 @@ Map<String, String> _lowerHeaders(Map<String, String> headers) => {
 class _FakeTransport implements HongguoAccountTransport {
   String? sentMobile;
   int sendAttempts = 0;
+  int verifyCalls = 0;
   HongguoAccountError? sendFailure;
+  HongguoAccountError? profileFailure;
+  Object? profileGenericFailure;
+  Object? historyGenericFailure;
   int pollCount = 0;
   int uploadCount = 0;
   final favorites = <HongguoCloudFavorite>[];
@@ -60,6 +78,7 @@ class _FakeTransport implements HongguoAccountTransport {
 
   @override
   Future<HongguoAccountSession> verifyPhoneCode(String code) async {
+    verifyCalls++;
     if (code == '000000') {
       throw HongguoAccountError('错误次数过多或验证码过期，请重新获取验证码', code: 1203);
     }
@@ -91,8 +110,11 @@ class _FakeTransport implements HongguoAccountTransport {
   @override
   Future<HongguoAccountProfile> fetchProfile(
     HongguoAccountSession session,
-  ) async =>
-      const HongguoAccountProfile(userId: 'u1', nickname: '测试用户');
+  ) async {
+    if (profileGenericFailure != null) throw profileGenericFailure!;
+    if (profileFailure != null) throw profileFailure!;
+    return const HongguoAccountProfile(userId: 'u1', nickname: '测试用户');
+  }
 
   @override
   Future<List<HongguoCloudFavorite>> fetchFavorites(
@@ -117,7 +139,10 @@ class _FakeTransport implements HongguoAccountTransport {
   @override
   Future<List<HongguoCloudProgress>> fetchHistory(
     HongguoAccountSession session,
-  ) async => const [];
+  ) async {
+    if (historyGenericFailure != null) throw historyGenericFailure!;
+    return const [];
+  }
 
   @override
   Future<void> uploadProgress(
@@ -491,7 +516,8 @@ void main() {
     expect(query['type'], '24');
     expect(query['aid'], '8662');
     expect(query['app_name'], 'novelread');
-    expect(query['version_code'], '73532');
+    expect(query['version_code'], '74332');
+    expect(query['version_name'], '7.4.3.32');
     expect(query['device_platform'], 'android');
     expect(query.containsKey('_rticket'), isTrue);
     expect(query.containsKey('device_id'), isFalse);
@@ -545,5 +571,191 @@ void main() {
       expect(e.message, contains('后再重发'));
     }
     expect(transport.sendAttempts, 1);
+  });
+
+  test('资料核对请求带全套通用 query 与会话设备号，不再空 query', () async {
+    final client = _CapturingClient({
+      'code': 0,
+      'data': {'biz_user_id': 'u9', 'user_name': '阿狸'},
+    });
+    final transport = HongguoAccountHttpTransport(client: client);
+    const session = HongguoAccountSession(
+      cookie: 'sessionid=fake',
+      deviceId: 'd1',
+      installId: 'i1',
+      userId: '',
+      nickname: '',
+      savedAtMs: 1000,
+    );
+    final profile = await transport.fetchProfile(session);
+    expect(profile.userId, 'u9');
+    final request = client.lastRequest;
+    expect(request, isNotNull);
+    expect(request!.url.host, 'api5-normal-sinfonlinea.fqnovel.com');
+    expect(request.url.path, '/reading/user/info/v1/');
+    final query = request.url.queryParameters;
+    // 100103 的根因：之前这里一个参数都不带，连 aid 都没有。
+    expect(query['aid'], '8662');
+    expect(query['app_name'], 'novelread');
+    expect(query['version_code'], '74332');
+    expect(query['version_name'], '7.4.3.32');
+    expect(query['device_id'], 'd1');
+    expect(query['iid'], 'i1');
+    expect(query['cdid'], 'd1');
+    expect(query.containsKey('_rticket'), isTrue);
+    final headers = _lowerHeaders(request.headers);
+    for (final name in ['x-gorgon', 'x-medusa', 'x-argus', 'x-khronos']) {
+      expect(headers[name], isNotNull, reason: '缺签名头 $name');
+      expect(headers[name]!.isNotEmpty, isTrue);
+    }
+  });
+
+  test('100103 带上服务端原话，不再只剩自己拼的含糊话', () async {
+    final client = _CapturingClient({
+      'code': 100103,
+      'message': '参数无效',
+      'data': null,
+    });
+    final transport = HongguoAccountHttpTransport(client: client);
+    const session = HongguoAccountSession(
+      cookie: 'sessionid=fake',
+      deviceId: 'd1',
+      installId: 'i1',
+      userId: '',
+      nickname: '',
+      savedAtMs: 1000,
+    );
+    try {
+      await transport.fetchProfile(session);
+      fail('100103 应抛错');
+    } on HongguoAccountError catch (e) {
+      expect(e.code, 100103);
+      expect(e.message, contains('参数无效'));
+      expect(e.message, contains('100103'));
+    }
+  });
+
+  test('资料接口非 JSON 回包转成可显示的格式异常', () async {
+    final client = _CapturingClient(
+      {},
+      rawBody: '<html>Just a moment</html>',
+    );
+    final transport = HongguoAccountHttpTransport(client: client);
+    const session = HongguoAccountSession(
+      cookie: 'sessionid=fake',
+      deviceId: 'd1',
+      installId: 'i1',
+      userId: '',
+      nickname: '',
+      savedAtMs: 1000,
+    );
+    await expectLater(
+      () => transport.fetchProfile(session),
+      throwsA(
+        isA<HongguoAccountError>().having(
+          (e) => e.message,
+          'message',
+          contains('格式异常'),
+        ),
+      ),
+    );
+  });
+
+  test('资料接口非 200 报 HTTP 码，不对着错误页做 JSON 解析', () async {
+    final client = _CapturingClient({}, statusCode: 500);
+    final transport = HongguoAccountHttpTransport(client: client);
+    const session = HongguoAccountSession(
+      cookie: 'sessionid=fake',
+      deviceId: 'd1',
+      installId: 'i1',
+      userId: '',
+      nickname: '',
+      savedAtMs: 1000,
+    );
+    await expectLater(
+      () => transport.fetchProfile(session),
+      throwsA(
+        isA<HongguoAccountError>().having(
+          (e) => e.message,
+          'message',
+          contains('HTTP 500'),
+        ),
+      ),
+    );
+  });
+
+  test('发码超时转成可显示的超时提示，不穿原始异常', () async {
+    final transport = HongguoAccountHttpTransport(
+      client: _ThrowingClient(TimeoutException('超时', const Duration(seconds: 30))),
+    );
+    await expectLater(
+      () => transport.sendPhoneCode('13800138000'),
+      throwsA(
+        isA<HongguoAccountError>().having(
+          (e) => e.message,
+          'message',
+          contains('请求超时'),
+        ),
+      ),
+    );
+  });
+
+  test('资料核对失败（100103）后点登录直接重试，不重打验码', () async {
+    final transport = _FakeTransport()
+      ..profileFailure = HongguoAccountError(
+        '参数无效（错误码 100103）',
+        code: 100103,
+      );
+    final service = _service(transport);
+    addTearDown(service.dispose);
+    await service.init();
+    await service.sendCode(number: '13800138000');
+    await expectLater(
+      () => service.verifyCode('123456'),
+      throwsA(isA<HongguoAccountError>()),
+    );
+    // 验码已成功，只卡在资料核对：状态回 codeSent，不丢本次尝试。
+    expect(service.loginState, HongguoLoginState.codeSent);
+    expect(service.signedIn, isFalse);
+    expect(service.statusMessage, contains('100103'));
+    expect(transport.verifyCalls, 1);
+
+    // 服务端修好后（这里模拟参数补齐后通了），再点登录直接过，
+    // 不再重打验码接口、不用重发短信。
+    transport.profileFailure = null;
+    await service.verifyCode('123456');
+    expect(transport.verifyCalls, 1);
+    expect(service.signedIn, isTrue);
+    expect(service.profile?.userId, 'u1');
+  });
+
+  test('资料核对抛非账号异常也不卡在“正在登录…”', () async {
+    final transport = _FakeTransport()
+      ..profileGenericFailure = StateError('落盘失败');
+    final service = _service(transport);
+    addTearDown(service.dispose);
+    await service.init();
+    await service.sendCode(number: '13800138000');
+    await expectLater(
+      () => service.verifyCode('123456'),
+      throwsA(isA<HongguoAccountError>()),
+    );
+    expect(service.loginState, HongguoLoginState.codeSent);
+    expect(service.statusMessage, contains('登录失败'));
+    transport.profileGenericFailure = null;
+    await service.verifyCode('123456');
+    expect(service.signedIn, isTrue);
+  });
+
+  test('登录后刷新里历史读取抛通用异常不掀翻已登录态', () async {
+    final transport = _FakeTransport()
+      ..historyGenericFailure = StateError('历史接口炸了');
+    final service = _service(transport);
+    addTearDown(service.dispose);
+    await service.init();
+    await service.sendCode(number: '13800138000');
+    await service.verifyCode('123456');
+    expect(service.signedIn, isTrue);
+    expect(service.statusMessage, contains('读取失败'));
   });
 }

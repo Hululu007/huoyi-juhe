@@ -1197,6 +1197,35 @@ class HongguoContentClient implements DramaSiteContentClient {
         }
       } catch (_) {}
     }
+    // 播放页已不再带 video_player_info（站方改版：loaderData 里只有
+    // protectedPlayback/publicVideoSeo，实测 2026-11-11 各集的
+    // video_player_info 恒为空），直接退 360p 公开 mp4 会播到 10 秒
+    // 预告片就停。先走备用接口 fallback-play-info 拿正片 main_url
+    //（与 HgtvMirrorContentClient.playSource 同路，匿名可取全长，
+    // 实测第 1/2/3/5 集 112~172 秒），360p 只留作最后一档兜底。
+    try {
+      final response = await _client.post(
+        Uri.parse('$baseUrl/api/video/protected/fallback-play-info?aid=8662'),
+        headers: {
+          'Referer': '$baseUrl/player',
+          'Content-Type': 'application/json; charset=utf-8',
+          'User-Agent': HgtvMirrorContentClient.userAgent,
+        },
+        body: jsonEncode({'item_id': episode.videoId}),
+      );
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        final mainUrl = _stringOf(_asMap(decoded)['main_url']);
+        if (mainUrl.isNotEmpty) {
+          return DramaPlaySource(
+            url: mainUrl,
+            variants: [
+              DramaPlayVariant(name: '360P', url: direct360, height: 360),
+            ],
+          );
+        }
+      }
+    } catch (_) {}
     return DramaPlaySource(url: direct360);
   }
 

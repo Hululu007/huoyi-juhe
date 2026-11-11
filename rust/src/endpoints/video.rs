@@ -219,14 +219,23 @@ fn handle_video<'a>(ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResult
 async fn fetch_phoenix_video_model(ctx: &Ctx, video_id: &str) -> ApiResult<Vec<u8>> {
     let post_body = serde_json::to_vec(&json!({
         "biz_param": {
-            "detail_page_version": 0,
-            "device_level": 3,
-            "disable_digg_stat": false,
-            "need_all_video_definition": true,
-            "need_mp4_align": false,
-            "use_os_player": false,
-            "use_server_dns": false,
             "video_platform": 1024,
+            "need_all_video_definition": true,
+            "use_os_player": false,
+            "video_id_type": 0,
+            "from_video_id": "",
+            "device_level": 3,
+            "source": 4,
+            "need_mp4_align": false,
+            "image_shrink_datas_str": "",
+            "screen_width_px": "1080",
+            "item_map": {},
+            "caller_scene": "0",
+            "detail_page_version": 0,
+            "use_server_dns": false,
+            "use_server_dns_scene": "0",
+            "expire_strategy": "0",
+            "disable_digg_stat": false,
         },
         "mixed_video_id_map": {
             "1004": [video_id],
@@ -1036,7 +1045,7 @@ fn handle_video_detail<'a>(ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, Ap
         let body = video_detail_body(
             &series_id,
             int_default(&params.get_str("video_id_type"), 1),
-            int_default(&params.get_str("source"), 5),
+            int_default(&params.get_str("source"), 4),
             platform,
             has_platform,
         )?;
@@ -1095,6 +1104,16 @@ fn video_detail_body(
     biz_param.insert("source".to_string(), json!(source));
     biz_param.insert("use_os_player".to_string(), json!(false));
     biz_param.insert("video_id_type".to_string(), json!(video_id_type));
+    biz_param.insert("from_video_id".to_string(), json!(""));
+    biz_param.insert("image_shrink_datas_str".to_string(), json!(""));
+    biz_param.insert("screen_width_px".to_string(), json!("1080"));
+    biz_param.insert("item_map".to_string(), json!({}));
+    biz_param.insert("caller_scene".to_string(), json!("0"));
+    biz_param.insert("detail_page_version".to_string(), json!(0));
+    biz_param.insert("use_server_dns".to_string(), json!(false));
+    biz_param.insert("use_server_dns_scene".to_string(), json!("0"));
+    biz_param.insert("expire_strategy".to_string(), json!("0"));
+    biz_param.insert("disable_digg_stat".to_string(), json!(false));
     if has_platform {
         biz_param.insert("video_platform".to_string(), json!(video_platform));
     }

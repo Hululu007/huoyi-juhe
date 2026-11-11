@@ -302,13 +302,16 @@ class HongguoAccountHttpTransport implements HongguoAccountTransport {
   /// 不含 device_id/iid——对照仓库实测，passport 的 query 里带
   /// device_id 会被判 2046；设备靠签名识别，不靠 query。
   /// 取值是树里已有的那套，不是从对照仓库新拷的常量。
+  /// 版本已对齐 7.4.3.32：签名栈（hongguo_sign.dart 字段 7）与取流
+  /// 路（hgtv_content._appQuery、Rust params_74332）都是 74332，
+  /// 这里再留 73532 会让签名与 query 各说一个版本。
   static const _passportDeviceParams = <String, String>{
     'aid': '8662',
     'app_name': 'novelread',
-    'version_code': '73532',
-    'version_name': '7.3.5.32',
-    'manifest_version_code': '73532',
-    'update_version_code': '73532',
+    'version_code': '74332',
+    'version_name': '7.4.3.32',
+    'manifest_version_code': '74332',
+    'update_version_code': '74332',
     'channel': 'update_64',
     'device_platform': 'android',
     'os': 'android',
@@ -421,9 +424,12 @@ class HongguoAccountHttpTransport implements HongguoAccountTransport {
     if (body != null) {
       headers['Content-Type'] = 'application/x-www-form-urlencoded';
     }
-    final response = await _client
-        .post(url, headers: headers, body: body)
-        .timeout(const Duration(seconds: 30));
+    final response = await _guard(
+      () => _client.post(url, headers: headers, body: body).timeout(
+        const Duration(seconds: 30),
+      ),
+    );
+    _checkStatus(response);
     _absorbCookies(response);
     return response;
   }
@@ -441,20 +447,59 @@ class HongguoAccountHttpTransport implements HongguoAccountTransport {
       if (cookie != null && cookie.isNotEmpty) 'Cookie': cookie,
       ...await _signedHeaders(url, params),
     };
-    final response = await _client
-        .get(url, headers: headers)
-        .timeout(const Duration(seconds: 30));
+    final response = await _guard(
+      () => _client.get(url, headers: headers).timeout(
+        const Duration(seconds: 30),
+      ),
+    );
+    _checkStatus(response);
     _absorbCookies(response);
     return response;
+  }
+
+  /// 网络层异常一律转成 [HongguoAccountError]：服务层与页面只认这
+  /// 一种异常。未转的 Timeout/ClientException/FormatException 会
+  /// 穿过 sendCode/verifyCode 的 catch，让页面卡在“正在发送/登录…”
+  /// 且无任何提示——用户只看到登入不了。
+  static Future<T> _guard<T>(Future<T> Function() run) async {
+    try {
+      return await run();
+    } on HongguoAccountError {
+      rethrow;
+    } on TimeoutException {
+      throw HongguoAccountError('请求超时，请检查网络后重试');
+    } on http.ClientException {
+      throw HongguoAccountError('网络连接失败，请检查网络后重试');
+    } on SocketException {
+      throw HongguoAccountError('网络连接失败，请检查网络后重试');
+    } on FormatException {
+      throw HongguoAccountError('账号接口返回格式异常，请稍后重试');
+    }
+  }
+
+  /// 非 200 先报 HTTP 码：否则 _decode 会对着错误页（如限流/盾页
+  /// 的 HTML）抛 FormatException，用户看到的只是“格式异常”。
+  static void _checkStatus(http.Response response) {
+    if (response.statusCode != 200) {
+      throw HongguoAccountError(
+        '账号接口返回 HTTP ${response.statusCode}，请稍后重试',
+      );
+    }
   }
 
   static Map<String, dynamic> _decode(http.Response response) {
     if (response.body.isEmpty) {
       throw HongguoAccountError('账号接口返回空响应，请稍后重试');
     }
-    final decoded = jsonDecode(response.body);
-    if (decoded is! Map<String, dynamic>) {
-      throw HongguoAccountError('账号接口返回格式异常');
+    final Map<String, dynamic> decoded;
+    try {
+      final parsed = jsonDecode(response.body);
+      if (parsed is! Map<String, dynamic>) {
+        throw HongguoAccountError('账号接口返回格式异常');
+      }
+      decoded = parsed;
+    } on FormatException {
+      throw HongguoAccountError('账号接口返回格式异常，请稍后重试');
     }
     return decoded;
   }
@@ -493,11 +538,17 @@ class HongguoAccountHttpTransport implements HongguoAccountTransport {
         throw HongguoAccountError('平台要求先完成滑块验证，当前登录流程不支持，尚未完成登录。');
       }
       // 把平台错误码带上：调用方靠它决定要不要限流冷却（错误码 7）。
+      // 错误码也可能放顶层不在 data 里，顶层也看一眼。
       final errorCode = data['error_code'] is num
           ? (data['error_code'] as num).toInt()
+          : reply['error_code'] is num
+          ? (reply['error_code'] as num).toInt()
           : 0;
+      final described = _describe(data).isEmpty
+          ? _describe(reply)
+          : _describe(data);
       throw HongguoAccountError(
-        _describe(data).isEmpty ? '验证码没发出去' : _describe(data),
+        described.isEmpty ? '验证码没发出去' : described,
         code: errorCode == 0 ? null : errorCode,
       );
     }
@@ -521,6 +572,9 @@ class HongguoAccountHttpTransport implements HongguoAccountTransport {
       throw HongguoAccountError('请先发送验证码');
     }
     HongguoAccountError? lastFailure;
+    // 5 个端点都没下发 sessionid 时，别只剩一句含糊话：把最后一个
+    // 有内容的平台原话带上，方便定位到底是哪个端点、哪句拒绝。
+    String lastNote = '';
     // 主端点在前，已登录校验入口在最后兜底：未登录会话调它固定
     // 回会话过期，见对照仓库的实测记录。
     const attempts = [
@@ -554,6 +608,10 @@ class HongguoAccountHttpTransport implements HongguoAccountTransport {
       final errorCode = data['error_code'] is num
           ? (data['error_code'] as num).toInt()
           : 0;
+      final note = _describe(data).isEmpty
+          ? '${reply['message'] ?? ''}'
+          : _describe(data);
+      if (note.isNotEmpty && note != 'success') lastNote = note;
       if (errorCode == 0 || errorCode == 1) {
         if (errorCode == 1) {
           lastFailure = HongguoAccountError('会话过期，请重新登录（错误码 1）', code: 1);
@@ -577,7 +635,12 @@ class HongguoAccountHttpTransport implements HongguoAccountTransport {
       );
     }
     if (!_cookies.containsKey('sessionid')) {
-      throw lastFailure ?? HongguoAccountError('登录没有成功，平台没有下发登录态');
+      throw lastFailure ??
+          HongguoAccountError(
+            lastNote.isEmpty
+                ? '登录没有成功，平台没有下发登录态'
+                : '登录没有成功，平台没有下发登录态（$lastNote）',
+          );
     }
     return HongguoAccountSession(
       cookie: _cookieHeader,
@@ -673,8 +736,10 @@ class HongguoAccountHttpTransport implements HongguoAccountTransport {
       if (_cookieHeader.isNotEmpty) {
         request.headers['Cookie'] = _cookieHeader;
       }
-      final streamed = await _client.send(request).timeout(
-        const Duration(seconds: 30),
+      final streamed = await _guard(
+        () => _client.send(request).timeout(
+          const Duration(seconds: 30),
+        ),
       );
       final response = await http.Response.fromStream(streamed);
       _absorbCookies(response);
@@ -724,6 +789,34 @@ class HongguoAccountHttpTransport implements HongguoAccountTransport {
 
   // ── 账号数据 ──
 
+  /// 账号接口通用 query：官方 App 接口的固定应用/设备表，与取流
+  /// 路（hgtv_content._appQuery、Rust params_74332）同款。
+  ///
+  /// 根因：之前 _accountJson 一个参数都不带，/reading/user/info/v1/
+  /// 这类接口直接回 100103（api5 体系的“参数无效”码，公开资料里
+  /// bookshelf/check 不带参数就是这个码）。设备身份取 session 里
+  /// 持久化的那份（本次登录换到的），刷新沿用同一份，不用每次新建
+  /// 传输的随机号。passport 的 2046 忌讳只针对 passport 域名，
+  /// fqnovel 的 api5 接口取流路本来就带 device_id/iid。
+  static Map<String, String> _accountParams(
+    HongguoAccountSession session,
+  ) {
+    return {
+      ..._passportDeviceParams,
+      'device_id': session.deviceId,
+      'iid': session.installId,
+      'cdid': session.deviceId,
+      'host_abi': 'arm64-v8a',
+      'dragon_device_type': 'phone',
+      'pv_player': '74332',
+      'compliance_status': '0',
+      'need_personal_recommend': '1',
+      'player_so_load': '1',
+      'is_android_pad_screen': '0',
+      '_rticket': DateTime.now().millisecondsSinceEpoch.toString(),
+    };
+  }
+
   Future<Map<String, dynamic>> _accountJson(
     HongguoAccountSession session,
     String path, {
@@ -731,7 +824,11 @@ class HongguoAccountHttpTransport implements HongguoAccountTransport {
     Map<String, dynamic>? body,
     bool gzip = false,
   }) async {
-    final url = Uri.parse('$_apiBase$path').replace(queryParameters: params);
+    // 调用方参数在后，同名以调用方为准。
+    final queryParams = {..._accountParams(session), ...params};
+    final url = Uri.parse('$_apiBase$path').replace(
+      queryParameters: queryParams,
+    );
     // 先算最终要发的 body 再签名：签名要覆盖实际发出的字节
     // （gzip 后），之前签名的请求里 body 是空的。
     final bodyBytes = body == null ? null : utf8.encode(jsonEncode(body));
@@ -742,7 +839,7 @@ class HongguoAccountHttpTransport implements HongguoAccountTransport {
       'User-Agent': _webUa,
       'Accept': 'application/json',
       'Cookie': session.cookie,
-      ...await _signedHeaders(url, params, wireBody),
+      ...await _signedHeaders(url, queryParams, wireBody),
     };
     if (gzip && bodyBytes != null) {
       headers['Content-Encoding'] = 'gzip';
@@ -750,15 +847,24 @@ class HongguoAccountHttpTransport implements HongguoAccountTransport {
     if (wireBody != null) {
       headers['Content-Type'] = 'application/json; charset=utf-8';
     }
-    final response = await (wireBody == null
-            ? _client.get(url, headers: headers)
-            : _client.post(url, headers: headers, body: wireBody))
-        .timeout(const Duration(seconds: 30));
+    final response = await _guard(
+      () => (wireBody == null
+              ? _client.get(url, headers: headers)
+              : _client.post(url, headers: headers, body: wireBody))
+          .timeout(const Duration(seconds: 30)),
+    );
+    _checkStatus(response);
     final json = _decode(response);
     if (json['code'] is num && (json['code'] as num) != 0) {
+      final code = (json['code'] as num).toInt();
+      // 服务端原话别丢：之前只取 code 自己拼“账号接口不可用”，
+      // 平台真正的拒绝原因（比如参数名）用户永远看不到。
+      final serverMessage = _pick(json, ['message', 'msg', 'description']);
       throw HongguoAccountError(
-        '账号接口不可用（错误码 ${json['code']}），请重新登录或稍后重试',
-        code: (json['code'] as num).toInt(),
+        serverMessage.isEmpty
+            ? '账号接口不可用（错误码 $code），请重新登录或稍后重试'
+            : '$serverMessage（错误码 $code）',
+        code: code,
       );
     }
     return json;
@@ -1239,6 +1345,11 @@ class HongguoAccountService extends ChangeNotifier {
   HongguoAccountSession? _session;
   HongguoAccountProfile? _profile;
 
+  /// 验码已换到、但资料核对还没过的会话：验码成功后 fetchProfile
+  /// 失败（如 100103）时留着它，点登录可直接重试核对，不用重发
+  /// 短信、重输新码。发码/扫码/退出会清掉它（换了新的尝试）。
+  HongguoAccountSession? _pendingVerifiedSession;
+
   HongguoLoginState _loginState = HongguoLoginState.signedOut;
   bool _busy = false;
   String _statusMessage = '未登录';
@@ -1311,11 +1422,23 @@ class HongguoAccountService extends ChangeNotifier {
   }
 
   Future<void> _saveSession(HongguoAccountSession session) async {
-    _session = session;
+    // 先写盘再赋值：写盘失败时内存里不留一个“已登录但下次启动
+    // 就丢”的会话，调用方才能按未登录重试。
     await _sessionStorage.write(
       sessionStorageKey,
       jsonEncode(session.toJson()),
     );
+    _session = session;
+  }
+
+  /// 非账号异常的通用提示（落盘/存储等）：不把异常原文（含路径、
+  /// 平台细节）直接甩给用户，只给一句能看懂的话。
+  static String _genericMessage(Object e) {
+    if (e is TimeoutException) return '请求超时，请检查网络后重试';
+    if (e is http.ClientException || e is SocketException) {
+      return '网络连接失败，请检查网络后重试';
+    }
+    return '登录失败，请稍后重试';
   }
 
   Future<void> _acceptSession(
@@ -1342,7 +1465,7 @@ class HongguoAccountService extends ChangeNotifier {
     _loginState = HongguoLoginState.signedIn;
     _statusMessage = '已登录 ${profile.nickname}，正在读取云端记录';
     notifyListeners();
-    await refresh();
+    await refresh(force: true);
   }
 
   // ── 手机号登录（主路） ──
@@ -1382,6 +1505,7 @@ class HongguoAccountService extends ChangeNotifier {
     try {
       final sent = await attempt.sendPhoneCode(mobile);
       _attempt = attempt;
+      _pendingVerifiedSession = null;
       _loginState = HongguoLoginState.codeSent;
       _statusMessage = '验证码已发送至 ${sent.maskedMobile}';
       _startCodeCooldown(sent.retrySeconds);
@@ -1393,6 +1517,13 @@ class HongguoAccountService extends ChangeNotifier {
       _loginState = HongguoLoginState.signedOut;
       _statusMessage = e.message;
       rethrow;
+    } catch (e) {
+      // 传输层之外的异常（如构造传输失败）：同样落一句可显示的话，
+      // 不让页面卡在“正在发送验证码…”且无提示。
+      final message = _genericMessage(e);
+      _loginState = HongguoLoginState.signedOut;
+      _statusMessage = message;
+      throw HongguoAccountError(message);
     } finally {
       _busy = false;
       notifyListeners();
@@ -1413,19 +1544,44 @@ class HongguoAccountService extends ChangeNotifier {
     _loginState = HongguoLoginState.verifying;
     _statusMessage = '正在登录…';
     notifyListeners();
+    HongguoAccountSession? verified;
     try {
-      final session = await attempt.verifyPhoneCode(code.trim());
-      await _acceptSession(session, attempt);
+      // 已验过的会话直接重试资料核对，不再重打验码接口：上次失败
+      // 在 fetchProfile（100103 那类），验证码本身已经用过了，
+      // 再打一次验码接口只会报码已用/码错误。
+      verified = _pendingVerifiedSession ??
+          await attempt.verifyPhoneCode(code.trim());
+      await _acceptSession(verified, attempt);
+      _pendingVerifiedSession = null;
     } on HongguoAccountError catch (e) {
       _statusMessage = e.message;
-      if (!e.canRetryCode) {
+      if (verified != null) {
+        // 验码已换到会话，失败在后面的资料核对/落盘：保留本次尝试，
+        // 点登录可直接重试核对，不用重新发码。
+        _pendingVerifiedSession = verified;
+        _loginState = HongguoLoginState.codeSent;
+      } else if (!e.canRetryCode) {
         // 验证码作废（次数过多/过期）：本次尝试丢弃，须重新发码。
         _attempt = null;
+        _pendingVerifiedSession = null;
         _loginState = HongguoLoginState.signedOut;
       } else {
         _loginState = HongguoLoginState.codeSent;
       }
       rethrow;
+    } catch (e) {
+      // 非账号异常（落盘/存储等）：同样别卡在“正在登录…”。
+      final message = _genericMessage(e);
+      _statusMessage = message;
+      if (verified != null) {
+        _pendingVerifiedSession = verified;
+        _loginState = HongguoLoginState.codeSent;
+      } else {
+        _attempt = null;
+        _pendingVerifiedSession = null;
+        _loginState = HongguoLoginState.signedOut;
+      }
+      throw HongguoAccountError(message);
     } finally {
       _busy = false;
       notifyListeners();
@@ -1449,6 +1605,7 @@ class HongguoAccountService extends ChangeNotifier {
     try {
       final qr = await attempt.fetchQrCode();
       _attempt = attempt;
+      _pendingVerifiedSession = null;
       _qr = qr;
       _qrExpiresAt = DateTime.now().add(
         Duration(seconds: qr.expiresInSeconds.clamp(1, 600)),
@@ -1464,6 +1621,11 @@ class HongguoAccountService extends ChangeNotifier {
       _loginState = HongguoLoginState.signedOut;
       _statusMessage = e.message;
       rethrow;
+    } catch (e) {
+      final message = _genericMessage(e);
+      _loginState = HongguoLoginState.signedOut;
+      _statusMessage = message;
+      throw HongguoAccountError(message);
     } finally {
       _busy = false;
       notifyListeners();
@@ -1524,6 +1686,7 @@ class HongguoAccountService extends ChangeNotifier {
   void cancelQr() {
     _qrPollTimer?.cancel();
     _attempt = null;
+    _pendingVerifiedSession = null;
     _qr = null;
     if (_loginState == HongguoLoginState.waitingScan ||
         _loginState == HongguoLoginState.fetchingQr) {
@@ -1539,10 +1702,14 @@ class HongguoAccountService extends ChangeNotifier {
 
   /// 重读账号资料 + 云端历史 + 收藏 + 预约，写进账号箱。
   /// 某一类失败不伪装成空列表：失败那类保持旧数据并报信。
-  Future<void> refresh() async {
+  /// [force]：登录刚成功时 _acceptSession 调的那次——verifyCode
+  /// 全程占着 _busy，不带 force 的话这里开头就 return，登录后
+  /// 云端记录永远不会自动拉取，页面上“正在读取云端记录”是假话，
+  /// 得用户手动点刷新才有数据。
+  Future<void> refresh({bool force = false}) async {
     final session = _session;
     if (session == null) return;
-    if (_busy) return;
+    if (_busy && !force) return;
     _busy = true;
     _statusMessage = '正在读取账号观看历史…';
     notifyListeners();
@@ -1572,6 +1739,10 @@ class HongguoAccountService extends ChangeNotifier {
       _statusMessage = '已读取 ${history.length} 部云端观看记录';
     } on HongguoAccountError catch (e) {
       _statusMessage = e.message;
+    } catch (_) {
+      // 登录已成的刷新失败不能把已登录态掀翻：只报一句，不抛错，
+      // 否则 _acceptSession 里 refresh 一抛，验码成功也显示失败。
+      _statusMessage = '云端记录读取失败，请稍后重试';
     } finally {
       _busy = false;
       notifyListeners();
@@ -1761,6 +1932,7 @@ class HongguoAccountService extends ChangeNotifier {
     _qrPollTimer?.cancel();
     _codeCooldownTimer?.cancel();
     _attempt = null;
+    _pendingVerifiedSession = null;
     _qr = null;
     _session = null;
     _profile = null;

@@ -1462,7 +1462,7 @@ String hongguoPlayerArgus(
   bytesField(4, utf8.encode('8662'));
   bytesField(5, utf8.encode(deviceId));
   bytesField(6, utf8.encode('1611921764'));
-  bytesField(7, utf8.encode('7.3.5.32'));
+  bytesField(7, utf8.encode('7.4.3.32'));
   bytesField(8, utf8.encode('v04.07.01-ml-android'));
   varint(9, 135135744);
   bytesField(10, List<int>.filled(8, 0));

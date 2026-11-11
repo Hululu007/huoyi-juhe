@@ -282,6 +282,8 @@ class Spider(BaseSpider):
 
     def playerContent(self, flag, id, vipFlags=None):
         raw = _norm_id(id)
+        if '$' in raw:
+            raw = raw.split('$', 1)[1].strip()
         if raw.startswith('hduanju:'):
             raw = raw[len('hduanju:'):]
         header = {'User-Agent': UA, 'Referer': BASE + '/'}

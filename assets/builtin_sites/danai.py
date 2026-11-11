@@ -500,6 +500,8 @@ class Spider(BaseSpider):
 
     def playerContent(self, flag, id, vipFlags=None):
         raw = _norm_id(id)
+        if '$' in raw:
+            raw = raw.split('$', 1)[1]
         if raw.startswith('danai:'):
             raw = raw[6:]
         url = _fix_url(raw)

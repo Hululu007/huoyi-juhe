@@ -20,6 +20,13 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+try:
+    import requests
+    _HAS_REQ = True
+except Exception:
+    requests = None
+    _HAS_REQ = False
+
 BASE = 'https://hpkspvynq.buzz'
 UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 
@@ -41,7 +48,6 @@ CATS = [
 ]
 
 _JAR = http.cookiejar.CookieJar()
-_OPENER = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(_JAR))
 
 
 def _ctx():
@@ -51,10 +57,17 @@ def _ctx():
     return ctx
 
 
+_OPENER = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(_JAR), urllib.request.HTTPSHandler(context=_ctx()))
+
+
 def _fetch_once(url, timeout=30):
     h = {'User-Agent': UA}
+    if _HAS_REQ:
+        r = requests.get(url, headers=h, timeout=timeout)
+        if r.status_code == 200 and r.text and r.text.strip():
+            return r.text
     req = urllib.request.Request(url, headers=h)
-    with _OPENER.open(req, timeout=timeout, context=_ctx()) as resp:
+    with _OPENER.open(req, timeout=timeout) as resp:
         raw = resp.read()
         enc = (resp.headers.get('Content-Encoding') or '').lower()
         if enc == 'gzip' or raw[:2] == b'\x1f\x8b':
@@ -75,6 +88,15 @@ def _get(url, timeout=30):
                 return e.read().decode('utf-8', 'ignore')
             except http.client.IncompleteRead as ie:
                 return ie.partial.decode('utf-8', 'ignore')
+        except http.client.IncompleteRead as e:
+            try:
+                txt = e.partial.decode('utf-8', 'ignore')
+            except Exception:
+                txt = ''
+            if txt.strip():
+                return txt
+            last = 'IncompleteRead'
+            time.sleep(2)
         except Exception as e:
             last = str(e)
             time.sleep(2)
@@ -107,7 +129,7 @@ def _norm_pg(pg):
 
 
 def _parse_cards(html):
-    card_re = re.compile(r"(?s)<a href='/video/info/(\d+)\.html'[^>]*title=\"([^\"]+)\"[^>]*>.*?<img[^>]*src=\"([^\"]+)\"")
+    card_re = re.compile(r"(?s)<a[^>]*href='/video/info/(\d+)\.html'[^>]*title=\"([^\"]+)\"[^>]*>.*?<img[^>]*src=\"([^\"]+)\"")
     out = []
     seen = set()
     for m in card_re.finditer(html or ''):

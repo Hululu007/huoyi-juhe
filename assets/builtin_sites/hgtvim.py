@@ -20,6 +20,11 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+try:
+    import requests as _requests
+except Exception:
+    _requests = None
+
 HOST = 'https://hgtv.im'
 UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
 
@@ -59,6 +64,14 @@ def _http(url, headers=None, timeout=30):
     h = {'User-Agent': UA, 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'}
     if headers:
         h.update(headers)
+    if _requests is not None:
+        for _ in range(3):
+            try:
+                resp = _requests.get(url, headers=h, timeout=timeout)
+                if resp.status_code == 200 and resp.text:
+                    return resp.text, resp.url
+            except Exception:
+                pass
     for _ in range(3):
         try:
             req = urllib.request.Request(url, headers=h)

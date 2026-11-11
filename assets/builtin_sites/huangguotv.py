@@ -20,6 +20,11 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+try:
+    import requests as _requests
+except Exception:
+    _requests = None
+
 HOST = 'https://huangguotv.com'
 MEDIA = 'https://media.huangguotv.com'
 UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
@@ -48,6 +53,14 @@ def _get(url, headers=None, timeout=30):
     h = {'User-Agent': UA, 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', 'Referer': HOST + '/'}
     if headers:
         h.update(headers)
+    if _requests is not None:
+        for _ in range(3):
+            try:
+                resp = _requests.get(url, headers=h, timeout=timeout)
+                if resp.status_code == 200 and resp.text:
+                    return resp.text
+            except Exception:
+                pass
     for _ in range(3):
         try:
             req = urllib.request.Request(url, headers=h)
@@ -140,6 +153,9 @@ def _meta_name(html, name):
     return after[s:s + e] if e >= 0 else ''
 
 
+_DETAIL_CACHE = {}
+
+
 def _parse_cards(html):
     out = []
     for block in (html or '').split('<article class="seo-fallback-card"')[1:]:
@@ -157,6 +173,7 @@ def _parse_cards(html):
             continue
         cover = _attr(block, 'src')
         remark = _tag_text(block, 'span')
+        _DETAIL_CACHE[vid] = (title, cover, remark)
         out.append({'vod_id': vid, 'vod_name': title, 'vod_pic': cover, 'vod_remarks': remark})
     return out
 
@@ -242,7 +259,38 @@ class Spider(BaseSpider):
         if not title:
             title = _clean_title(_tag_text(html, 'title'))
         if not title:
-            return {'list': []}
+            cached = _DETAIL_CACHE.get(nid)
+            if not cached:
+                return {'list': []}
+            title, cover, remark = cached
+            total = 1
+            mtotal = re.search(r'(\d+)\s*集', remark or '')
+            if mtotal:
+                try:
+                    total = int(mtotal.group(1))
+                except Exception:
+                    total = 1
+            if total < 1:
+                total = 1
+            if total > 200:
+                total = 200
+            play_url = '#'.join('第%d集$%s:%d' % (n, nid, n) for n in range(1, total + 1))
+            return {'list': [{
+                'vod_id': nid,
+                'vod_name': title,
+                'vod_pic': cover,
+                'vod_actor': '',
+                'vod_director': '',
+                'vod_remarks': remark,
+                'vod_year': '',
+                'vod_area': '',
+                'vod_content': '',
+                'type_name': '',
+                'vod_tag': '',
+                'vod_play_from': '在线播放',
+                'vod_play_url': play_url,
+                'stills': [],
+            }]}
         cover = _og(html, 'og:image')
         desc = _meta_name(html, 'description') or _og(html, 'og:description')
         eps = []

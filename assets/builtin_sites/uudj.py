@@ -278,7 +278,7 @@ class Spider(BaseSpider):
             if nid in seen:
                 continue
             seen.add(nid)
-            name = m.group(3).strip()
+            name = _unescape(m.group(3)).strip()
             if not name:
                 name = '第%s集' % nid
             eps.append('%s$%s%s' % (name, base, m.group(1)))

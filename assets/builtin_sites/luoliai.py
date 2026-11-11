@@ -389,6 +389,59 @@ def _page_origin(url):
     return url
 
 
+def _parse_play_page(url):
+    m = re.search(r'/shipin/(\d+)-[^/]+/(\d+)/', url or '')
+    if m:
+        return m.group(1), m.group(2)
+    m = re.search(r'/shipin/(\d+)-[^/]+/?$', url or '')
+    if m:
+        return m.group(1), '1'
+    return None, None
+
+
+def _post_playback(origin, vid, ep, referer):
+    url = '%s/api/videos/%s/episodes/%s/playback' % (origin, vid, ep)
+    h = {'User-Agent': UA, 'Referer': referer, 'Content-Type': 'application/json'}
+    body = ''
+    for _ in range(2):
+        if _HAS_REQ:
+            try:
+                r = requests.post(url, headers=h, data=b'{}', timeout=25)
+                if r.status_code == 200 and r.text:
+                    body = r.text
+                    break
+            except Exception:
+                pass
+        try:
+            req = urllib.request.Request(url, data=b'{}', headers=h, method='POST')
+            with urllib.request.urlopen(req, timeout=25, context=_ctx()) as resp:
+                body = resp.read().decode('utf-8', 'replace')
+                break
+        except Exception:
+            pass
+        time.sleep(1)
+    if not body:
+        return '', {}
+    try:
+        obj = json.loads(body)
+    except Exception:
+        return '', {}
+    data = obj.get('data') if isinstance(obj, dict) else None
+    if not isinstance(data, dict):
+        return '', {}
+    streams = data.get('streams') or {}
+    m3u8 = streams.get('main') or streams.get('preview') or ''
+    if not isinstance(m3u8, str) or not m3u8.startswith('http'):
+        return '', {}
+    hdr = {'User-Agent': UA, 'Referer': referer}
+    cdn = data.get('cdn') or {}
+    if cdn.get('m3u8Enabled') and cdn.get('authKey') and cdn.get('authValue'):
+        hdr[cdn['authKey']] = cdn['authValue']
+        if cdn.get('app'):
+            hdr['x-cdn-app'] = cdn['app']
+    return m3u8, hdr
+
+
 class Spider(BaseSpider):
     def getName(self):
         return '萝莉AI短剧'
@@ -487,9 +540,17 @@ class Spider(BaseSpider):
     def playerContent(self, flag, id, vipFlags=None):
         raw = _norm_id(id)
         header = {'User-Agent': UA}
+        if '$' in raw:
+            raw = raw.split('$', 1)[1].strip()
         if not raw.startswith('http'):
             return {'parse': 0, 'playUrl': '', 'url': '', 'header': header}
-        page_url = raw.split('$')[-1].strip()
+        page_url = raw
+        vid, ep = _parse_play_page(page_url)
+        if vid:
+            origin = _page_origin(page_url)
+            m3u8, hdr = _post_playback(origin, vid, ep, page_url)
+            if m3u8:
+                return {'parse': 0, 'playUrl': m3u8, 'url': m3u8, 'header': hdr}
         html = _http_get(page_url)
         if not html:
             return {'parse': 0, 'playUrl': '', 'url': '', 'header': header}

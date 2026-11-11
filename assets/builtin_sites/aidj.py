@@ -37,13 +37,23 @@ CTX.verify_mode = ssl.CERT_NONE
 CACHE = {}
 CATS_TTL = 3600
 _CUR_BASE = [BASE]
+_SESSION = [None]
+
+
+def _get_session():
+    if _SESSION[0] is None and _requests is not None:
+        try:
+            _SESSION[0] = _requests.Session()
+        except Exception:
+            _SESSION[0] = None
+    return _SESSION[0]
 
 
 def _now():
     return time.time()
 
 
-def _http_get(url, referer=None, timeout=25):
+def _http_get(url, referer=None, timeout=25, extra_headers=None):
     hdr = {
         'User-Agent': UA,
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -53,9 +63,19 @@ def _http_get(url, referer=None, timeout=25):
     }
     if referer:
         hdr['Referer'] = referer
+    if extra_headers:
+        hdr.update(extra_headers)
     for attempt in range(3):
         text = None
-        if _requests is not None:
+        sess = _get_session()
+        if sess is not None:
+            try:
+                resp = sess.get(url, headers=hdr, timeout=timeout)
+                if resp.status_code == 200:
+                    text = resp.content.decode('utf-8', 'replace')
+            except Exception:
+                text = None
+        if text is None and _requests is not None:
             try:
                 resp = _requests.get(url, headers=hdr, timeout=timeout)
                 if resp.status_code == 200:
@@ -87,9 +107,9 @@ def _http_get(url, referer=None, timeout=25):
     return None
 
 
-def _fetch(path, referer=None):
+def _fetch(path, referer=None, extra_headers=None):
     base = _CUR_BASE[0]
-    return _http_get(base + path, referer=referer or (base + '/network/'))
+    return _http_get(base + path, referer=referer or (base + '/network/'), extra_headers=extra_headers)
 
 
 def _unescape(s):
@@ -368,7 +388,7 @@ class Spider(BaseSpider):
         if frm != 'huangguo' or not mid or not mep:
             return {'parse': 0, 'playUrl': '', 'url': '', 'header': {}}
         api = '/huangguo.php?ac=play&id=%s&ep=%s' % (mid, mep)
-        body = _fetch(api, referer=page_url)
+        body = _fetch(api, referer=page_url, extra_headers={'X-Requested-With': 'XMLHttpRequest'})
         if not body:
             return {'parse': 0, 'playUrl': '', 'url': '', 'header': {}}
         try:
@@ -378,7 +398,7 @@ class Spider(BaseSpider):
         if data.get('code') != 1:
             return {'parse': 0, 'playUrl': '', 'url': '', 'header': {}}
         proxy = str(data.get('url') or '').strip()
-        if not proxy.startswith('/hgmedia.php?e='):
+        if not (proxy.startswith('/hgmedia.php?e=') or proxy.startswith('/huangguo.php?ac=media')):
             return {'parse': 0, 'playUrl': '', 'url': '', 'header': {}}
         full = _CUR_BASE[0] + proxy
         return {'parse': 0, 'playUrl': full, 'url': full, 'header': header}

@@ -11,7 +11,7 @@ import 'hongguo_sign.dart';
 const String _hgtvAppBase = 'https://api5-normal-sinfonlineb.fqnovel.com';
 const String _hgtvWebBase = 'https://hongguoduanju.com';
 const String _hgtvAppUserAgent =
-    'com.phoenix.read/73532 (Linux; U; Android 16; zh_CN; 25053RT47C; '
+    'com.phoenix.read/74332 (Linux; U; Android 16; zh_CN; 25053RT47C; '
     'Build/BP2A.250605.031.A3; Cronet/TTNetVersion:04657795 2026-01-23 '
     'QuicVersion:c67e9834 2025-09-08)';
 
@@ -278,10 +278,10 @@ class HgtvContentClient implements DramaSiteContentClient {
     return {
       'aid': '8662',
       'app_name': 'novelread',
-      'version_code': '73532',
-      'version_name': '7.3.5.32',
-      'manifest_version_code': '73532',
-      'update_version_code': '73532',
+      'version_code': '74332',
+      'version_name': '7.4.3.32',
+      'manifest_version_code': '74332',
+      'update_version_code': '74332',
       'channel': 'update_64',
       'device_platform': 'android',
       'os': 'android',
@@ -296,6 +296,14 @@ class HgtvContentClient implements DramaSiteContentClient {
       'ac': 'wifi',
       'device_id': _deviceId,
       'iid': _installId,
+      'host_abi': 'arm64-v8a',
+      'dragon_device_type': 'phone',
+      'pv_player': '74332',
+      'compliance_status': '0',
+      'need_personal_recommend': '1',
+      'player_so_load': '1',
+      'is_android_pad_screen': '0',
+      'cdid': _deviceId,
     };
   }
 

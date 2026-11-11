@@ -1,4 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:fqapp/services/drama_site_content.dart';
 
 void main() {
@@ -51,6 +55,57 @@ void main() {
       'https://example.test/v1080.mp4',
       'https://example.test/v720.mp4',
     ]);
+  });
+
+  test('红果取流：播放页无 video_player_info 时走 fallback-play-info 拿正片，不退 10 秒 360p 预告', () async {
+    // 站方改版后播放页只有 protectedPlayback，没有 video_player_info；
+    // 旧代码直接退 /video/public/{vid}/360p.mp4，那是 10 秒预告片。
+    const playerBody =
+        '<html><script>window._ROUTER_DATA = {"loaderData":{"player_(series_id)/(vid)/page":{"protectedPlayback":true,"publicVideoSeo":{"available":true,"durationSeconds":112.407}}}};</script></html>';
+    final client = HongguoContentClient(
+      MockClient((request) async {
+        if (request.url.path.contains('fallback-play-info')) {
+          expect(request.method, 'POST');
+          expect(
+            jsonDecode(request.body)['item_id'],
+            '7703410922106145816',
+          );
+          return http.Response(
+            '{"main_url":"https://example.test/full-112s.mp4"}',
+            200,
+          );
+        }
+        return http.Response(playerBody, 200);
+      }),
+    );
+    final source = await client.playSource(
+      const DramaSiteEpisode(
+        videoId: '7703410922106145816',
+        title: '第1集',
+        seriesId: '7703408432757361688',
+      ),
+    );
+    expect(source.url, 'https://example.test/full-112s.mp4');
+    expect(source.variants.map((v) => v.url).toList(), [
+      'https://hongguoduanju.com/video/public/7703410922106145816/360p.mp4',
+    ]);
+  });
+
+  test('红果取流：备用接口也失败时才退 360p 直链', () async {
+    final client = HongguoContentClient(
+      MockClient((_) async => http.Response('<html></html>', 200)),
+    );
+    final source = await client.playSource(
+      const DramaSiteEpisode(
+        videoId: '999',
+        title: '第1集',
+        seriesId: '123',
+      ),
+    );
+    expect(
+      source.url,
+      'https://hongguoduanju.com/video/public/999/360p.mp4',
+    );
   });
 
   test('饭果列表与详情解析：搜索结果成卡片，详情分集直链成播放地址', () {

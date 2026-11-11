@@ -3232,10 +3232,10 @@ fn sixgod(
 /// py _hg_register_device（3892 行起）：向 log.snssdk.com 注册设备，
 /// 成功返回下发的 (device_id_str, install_id_str)；两者须全数字且非
 /// "0"，否则回 None；任何异常（网络、非 200、字段缺）都回 None。
-/// 注册头按 py 原文固定值（app_version 7.3.5.32、package
+/// 注册头按 py 原文固定值（app_version 7.4.3.32、package
 /// com.phoenix.read、aid 8662 等），openudid 为 16 位随机 hex，
 /// clientudid/cdid/req_id 为 uuid4。
-const REGISTER_UA: &str = "com.phoenix.read/73532 (Linux; U; Android 16; zh_CN; 25053RT47C; Build/BP2A.250605.031.A3; Cronet/TTNetVersion:04657795 2026-01-23 QuicVersion:c67e9834 2025-09-08)";
+const REGISTER_UA: &str = "com.phoenix.read/74332 (Linux; U; Android 16; zh_CN; 25053RT47C; Build/BP2A.250605.031.A3; Cronet/TTNetVersion:04657795 2026-01-23 QuicVersion:c67e9834 2025-09-08)";
 
 fn uuid4_str() -> String {
     let a = next_u64();
@@ -3285,10 +3285,10 @@ async fn hg_register_device() -> Option<(String, String)> {
     let header = json!({
         "display_name": "红果免费短剧",
         "aid": 8662,
-        "app_version": "7.3.5.32",
-        "version_code": 73532,
-        "manifest_version_code": 73532,
-        "update_version_code": 73532,
+        "app_version": "7.4.3.32",
+        "version_code": 74332,
+        "manifest_version_code": 74332,
+        "update_version_code": 74332,
         "channel": "update_64",
         "package": "com.phoenix.read",
         "app_language": "zh",
