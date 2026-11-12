@@ -15,6 +15,7 @@ import '../services/drama_site_search.dart';
 import '../services/drama_sites.dart';
 import '../services/desktop_platform.dart';
 import '../services/search_history_store.dart';
+import '../services/source_registry.dart';
 import '../services/user_facing_error.dart';
 import '../widgets/series_detail/moyi_detail_theme.dart';
 import '../widgets/home/home_media_card.dart';
@@ -107,6 +108,13 @@ class _SearchPageState extends State<SearchPage> {
   List<DramaSiteSearchResult> _siteResults = const [];
   bool _siteLoading = false;
   String _siteQuery = '';
+
+  /// 全局搜索（综合 / 分类型页签下的站源结果）：按页签缓存，换词清掉。
+  /// 与「站源」页签的 [_siteResults] 分开：那页签只搜站表站，这里搜
+  /// 全部内置站 + 核心阅读站（见 searchAllSites）。
+  Map<int, List<DramaSiteSearchResult>> _globalResultsByTab = {};
+  Set<int> _globalLoadingTabs = {};
+  String _globalQuery = '';
   String _query = '';
   String? _idQuery;
   int _tabIndex = 0;
@@ -370,6 +378,9 @@ class _SearchPageState extends State<SearchPage> {
       _siteResults = const [];
       _siteQuery = '';
       _siteLoading = false;
+      _globalResultsByTab = {};
+      _globalLoadingTabs = {};
+      _globalQuery = '';
       _suggestions = const [];
       // 书旗 id 是另一套命名空间，按 id 直查不适用。
       _idQuery = (_shuqiSource || asKeyword) ? null : mediaIdFromSearch(query);
@@ -506,6 +517,9 @@ class _SearchPageState extends State<SearchPage> {
       _idQuery = null;
       _draft = '';
       _suggestions = const [];
+      _globalResultsByTab = {};
+      _globalLoadingTabs = {};
+      _globalQuery = '';
       _feeds = [for (final _ in _categories) _SearchFeed()];
     });
   }
@@ -565,6 +579,79 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   // Note: 分类来源、游标与请求隔离见 .agents/notes/implemented/bug-fix/2026-09-10-search-categories.md
+  List<DramaSiteSearchResult> get _globalResultsForTab =>
+      _globalResultsByTab[_tabIndex] ?? const [];
+  bool get _globalLoadingForTab => _globalLoadingTabs.contains(_tabIndex);
+
+  /// 页签对应的全局搜索范围：综合不过滤；小说 / 漫画 / 听书按类型；
+  /// 短剧 / 漫剧按视频站 + 短剧判据（站侧没有漫剧细分，与短剧同一池）。
+  ({Set<ContentType>? types, bool shortDramaOnly}) _globalScopeFor(
+    SearchCategory category,
+  ) {
+    switch (category) {
+      case SearchCategory.general:
+        return (types: null, shortDramaOnly: false);
+      case SearchCategory.book:
+        return (types: {ContentType.novel}, shortDramaOnly: false);
+      case SearchCategory.video:
+      case SearchCategory.manju:
+        return (
+          types: {ContentType.video, ContentType.mixed},
+          shortDramaOnly: true,
+        );
+      case SearchCategory.manga:
+        return (types: {ContentType.comic}, shortDramaOnly: false);
+      case SearchCategory.audio:
+        return (types: {ContentType.audio}, shortDramaOnly: false);
+      case SearchCategory.sites:
+        return (types: null, shortDramaOnly: false);
+    }
+  }
+
+  /// 综合 / 分类型页签下的全局站源搜索：与番茄后端搜索并行跑，按页签
+  /// 缓存（换页签不重搜、换词重搜）；单站失败不影响整批（服务层保证）。
+  Future<void> _ensureGlobalSearch() async {
+    if (_shuqiSource || _query.isEmpty || _idQuery != null) return;
+    final tabIndex = _tabIndex;
+    if (_categories[tabIndex] == SearchCategory.sites) return;
+    final query = _query;
+    final needsReset = _globalQuery != query;
+    if (!needsReset &&
+        (_globalResultsByTab.containsKey(tabIndex) ||
+            _globalLoadingTabs.contains(tabIndex))) {
+      return;
+    }
+    final generation = _requestGeneration;
+    setState(() {
+      if (needsReset) {
+        _globalResultsByTab = {};
+        _globalLoadingTabs = {};
+        _globalQuery = query;
+      }
+      _globalLoadingTabs = {..._globalLoadingTabs, tabIndex};
+    });
+    final scope = _globalScopeFor(_categories[tabIndex]);
+    final results = await searchAllSites(
+      query,
+      types: scope.types,
+      shortDramaOnly: scope.shortDramaOnly,
+      siteIds: widget.initialSiteIds,
+    );
+    if (!mounted) return;
+    if (generation != _requestGeneration) {
+      // 过期请求不写结果，但要把加载标记清掉：切来源会换 generation 而
+      // 查询不变，不清的话该页签会被 loading 守卫永久拦住、再也搜不出。
+      setState(() {
+        _globalLoadingTabs = {..._globalLoadingTabs}..remove(tabIndex);
+      });
+      return;
+    }
+    setState(() {
+      _globalResultsByTab = {..._globalResultsByTab, tabIndex: results};
+      _globalLoadingTabs = {..._globalLoadingTabs}..remove(tabIndex);
+    });
+  }
+
   Future<void> _loadSiteSearch() async {
     if (_query.isEmpty || _siteLoading || _siteQuery == _query) return;
     final generation = _requestGeneration;
@@ -587,6 +674,10 @@ class _SearchPageState extends State<SearchPage> {
       return _loadSiteSearch();
     }
     if (_idQuery != null) return _loadId(_idQuery!);
+    // 全局站源搜索与番茄后端搜索并行：覆盖 _search / _selectTab /
+    // _selectSource / _loadMore 全部入口；分页重复调 _loadTab 时缓存
+    // 命中不再重跑（见 _ensureGlobalSearch 的守卫）。
+    unawaited(_ensureGlobalSearch());
     final feed = _feeds[index];
     if (_query.isEmpty || feed.loading || (feed.initialized && !feed.hasMore)) {
       return;
@@ -798,13 +889,17 @@ class _SearchPageState extends State<SearchPage> {
     if (_categories[_tabIndex] == SearchCategory.sites) {
       return _siteResultsView(context);
     }
-    if (!feed.initialized && feed.loading) {
+    // 全局站源结果与番茄结果并列：站源有结果 / 加载中时，不再只按番茄
+    // 的空态 / 失败态收尾，站源区照常展示（失败壳的重试脚仍在 _resultItems 里）。
+    final showGlobal =
+        _globalResultsForTab.isNotEmpty || _globalLoadingForTab;
+    if (!feed.initialized && feed.loading && !showGlobal) {
       return _resultsShell(
         context,
         const Center(child: CircularProgressIndicator()),
       );
     }
-    if (!feed.initialized && feed.error != null) {
+    if (!feed.initialized && feed.error != null && !showGlobal) {
       return _resultsShell(
         context,
         Center(
@@ -825,7 +920,7 @@ class _SearchPageState extends State<SearchPage> {
       );
     }
     final items = feed.items.where(_matchesScore).toList(growable: false);
-    if (items.isEmpty) {
+    if (items.isEmpty && !showGlobal) {
       return _resultsShell(
         context,
         Center(
@@ -1022,6 +1117,7 @@ class _SearchPageState extends State<SearchPage> {
                       }, childCount: items.length),
                     ),
             ),
+            ..._globalSectionSlivers(context, width),
             if (_idQuery == null)
               SliverToBoxAdapter(child: _paginationFooter(context, feed)),
           ],
@@ -1029,6 +1125,114 @@ class _SearchPageState extends State<SearchPage> {
       },
     );
   }
+
+  /// 综合 / 分类型页签下的「全部站点」区：番茄网格之下、分页脚之上。
+  /// 加载中显示一行提示；有结果按站分组、组头标站名 + 类型 + 部数；
+  /// 搜完没结果就不出这个区（不跟番茄空态抢话）。
+  List<Widget> _globalSectionSlivers(BuildContext context, double width) {
+    final results = _globalResultsForTab;
+    if (_globalLoadingForTab && results.isEmpty) {
+      return [
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(homeGutter, 20, homeGutter, 8),
+            child: Row(
+              children: [
+                const SizedBox.square(
+                  dimension: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: moyiMutedOnDark,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Text(
+                  '正在搜索全部站点…',
+                  style: TextStyle(fontSize: 13, color: moyiMutedOnDark),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ];
+    }
+    if (results.isEmpty) return const [];
+    return [
+      SliverToBoxAdapter(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(homeGutter, 20, homeGutter, 4),
+          child: Text(
+            '全部站点 · ${results.length} 个站有结果',
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+            ),
+          ),
+        ),
+      ),
+      for (final group in results)
+        SliverMainAxisGroup(
+          slivers: [
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  homeGutter,
+                  12,
+                  homeGutter,
+                  8,
+                ),
+                child: Text(
+                  '${group.siteName} · ${globalSearchTypeLabel(group.contentType)} · ${group.items.length} 部',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ),
+            SliverPadding(
+              padding: const EdgeInsets.symmetric(horizontal: homeGutter),
+              sliver: SliverGrid(
+                gridDelegate: homeShelfDelegate(context, width),
+                delegate: SliverChildBuilderDelegate((context, i) {
+                  final item = group.items[i];
+                  return HomeMediaCard(
+                    item: MediaItem(
+                      id: item.id,
+                      title: item.title,
+                      cover: item.cover,
+                      author: '',
+                      badge: '',
+                      ep: item.remark,
+                      kind: _globalCardKind(group),
+                    ),
+                    coverWidth: homeShelfCardWidth(context, width),
+                    onTap: () => openDramaSiteItem(
+                      context,
+                      group.siteId,
+                      item,
+                      readingCore: group.readingCore,
+                    ),
+                  );
+                }, childCount: group.items.length),
+              ),
+            ),
+          ],
+        ),
+    ];
+  }
+
+  /// 全局搜索卡片 kind：阅读站按内容类型（小说 / 漫画 / 听书），视频站
+  /// 沿用站源视图的短剧 / 影视判据。
+  String _globalCardKind(DramaSiteSearchResult group) =>
+      switch (group.contentType) {
+        ContentType.novel => 'book',
+        ContentType.comic => 'manga',
+        ContentType.audio => 'audio',
+        _ => videoCardKindForSite(group.siteId, group.siteName),
+      };
 
   Widget _resultRow(BuildContext context, MediaItem item) {
     return Material(

@@ -712,9 +712,15 @@ Future<void> openFilmCategoryTag(
 Future<void> openDramaSiteItem(
   BuildContext context,
   String siteId,
-  DramaSiteItem item,
-) async {
-  final client = await SourceRegistry.instance.clientFor(siteId);
+  DramaSiteItem item, {
+  /// 核心阅读站的结果：客户端走阅读工厂，不走登记表解析——`hongguo`
+  /// 这个 id 视频站与听书站撞名，登记表解析会抢先拿到视频客户端。
+  bool readingCore = false,
+}) async {
+  final client = readingCore
+      ? (readingSiteContentClient(siteId) ??
+            await SourceRegistry.instance.clientFor(siteId))
+      : await SourceRegistry.instance.clientFor(siteId);
   if (!context.mounted) return;
   if (client == null) return;
   final entry = SourceRegistry.instance.customById(siteId);
