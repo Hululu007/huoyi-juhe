@@ -348,8 +348,7 @@ Future<List<DramaSiteSearchResult>> searchGlobalTargets(
     }),
   );
   return [
-    for (final result in results)
-      if (result != null) result,
+    for (final result in results) ?result,
   ];
 }
 

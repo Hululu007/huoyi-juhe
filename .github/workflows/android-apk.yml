@@ -6,7 +6,8 @@ on:
     # 打 tag 也出包：tag 推送不走 paths 过滤（native-crypto 在
     # v1.0.117 tag 推送时已跑过一次可作证），branches/tags 是 OR 关系，
     # 所以加 tags 后推 v* 就会触发一次完整构建，APK 在 Artifacts 里，
-    # 不用建 Release 也能拿到安装包。
+    # 并且 tag 构建还会把签名 APK 挂到该 tag 的 Release 上（不用登录
+    # 就能下载的发布页，见 apk job 末尾的 Release 步骤）。
     tags: ['v*']
     # 这个列表曾经在 push 和 pull_request 下各抄一份，加一条路径要改两处，
     # 漏一处就会变成「PR 跑、master 不跑」。现在只有一个定义，PR 直接引用。
@@ -83,6 +84,11 @@ jobs:
   apk:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    permissions:
+      # The tag Release step at the end of this job creates a Release and
+      # uploads assets; the workflow-level default is read-only, so this
+      # job overrides it. The dart-gate job keeps the read-only default.
+      contents: write
     defaults:
       run:
         shell: bash
@@ -588,6 +594,36 @@ jobs:
             app/build/ci-artifacts/verification/arm64-v8a/*.sha256
             app/build/ci-artifacts/verification/arm64-v8a/*.log
 
+      # Tag builds publish a no-login download page: the verified, signed
+      # APK is attached to the tag's GitHub Release, which anyone can
+      # download without signing in. Branch/PR builds skip this step
+      # entirely, and an unsigned build never publishes (the signing
+      # guard below), so a fork's tag build cannot ship a package that
+      # looks like a formal release.
+      - name: Publish the signed APK to the tag's Release
+        if: github.ref_type == 'tag' && steps.signing.outputs.has_release_signing == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          release_dir="$RUNNER_TEMP/release-assets"
+          mkdir -p "$release_dir"
+          apk_name="huoyi-juhe-${GITHUB_REF_NAME}-arm64.apk"
+          cp "build/ci-artifacts/app-arm64-v8a-release.apk" "$release_dir/$apk_name"
+          cp build/ci-artifacts/build-info.txt "$release_dir/"
+          (cd "$release_dir" && sha256sum "$apk_name" > "$apk_name.sha256")
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            # Re-run of a tag build: the Release already exists, refresh
+            # its assets instead of failing on a duplicate create.
+            gh release upload "$GITHUB_REF_NAME" --clobber \
+              "$release_dir/$apk_name" "$release_dir/$apk_name.sha256" \
+              "$release_dir/build-info.txt"
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --title "凡人修仙观影传 ${GITHUB_REF_NAME}" \
+              --notes "App commit: $GITHUB_SHA. Release signer SHA-256: $RELEASE_SIGNER_SHA256. 与前轮同一签名，可覆盖安装。" \
+              "$release_dir/$apk_name" "$release_dir/$apk_name.sha256" \
+              "$release_dir/build-info.txt"
+          fi
 
       - name: Retain diagnostics if a build or APK check fails
         if: failure()
