@@ -53,6 +53,12 @@ class _AudioPlaybackController extends ChangeNotifier
   // 小米公平运行内存 KILL 广播的刷盘注销函数，见 reader_page.dart。
   VoidCallback? _unregisterFairMemoryFlush;
   bool _appActive = true;
+
+  /// 灵动岛胶囊是否已发出去显示（原生侧视图状态的 Dart 侧镜像）。
+  bool _capsuleVisible = false;
+
+  /// 本次后台会话里悬浮窗权限已确认拿不到：不再重复查权限，回前台清掉。
+  bool _capsuleUnavailable = false;
   bool _loading = true;
   bool _wantPlay = true;
   bool _completed = false;
@@ -213,6 +219,9 @@ class _AudioPlaybackController extends ChangeNotifier
     unawaited(AudioPreferences.instance.load());
     AudioPreferences.instance.backgroundPlayback.addListener(
       _preferencesChanged,
+    );
+    AudioPreferences.instance.audioCapsule.addListener(
+      _capsulePreferenceChanged,
     );
     _history = AudioHistory(request.historyStore ?? LibraryStore.instance);
     final lifecycle = WidgetsBinding.instance.lifecycleState;
@@ -413,6 +422,20 @@ class _AudioPlaybackController extends ChangeNotifier
         speed: _rate,
       ),
     );
+    if (_capsuleVisible) {
+      // 胶囊已在屏上：播放/暂停/切章/拖动时同步胶囊内容与图标。
+      unawaited(
+        NativePlayer.updateAudioCapsule(
+          title: _title,
+          episode: _chapters[_index].title,
+          coverUrl: _cover,
+          playing: isPlaying,
+        ),
+      );
+    } else if (!_appActive) {
+      // 后台播着但胶囊没出来（切后台瞬间正好在缓冲/加载）：状态一变就补。
+      unawaited(_maybeShowAudioCapsule());
+    }
   }
 
   void _handleRemoteAction(String action) {
@@ -430,6 +453,11 @@ class _AudioPlaybackController extends ChangeNotifier
         } else {
           unawaited(close());
         }
+      case 'capsuleTap':
+        // 胶囊点按：原生侧已撤掉视图并拉起应用，这里只收起 Dart 侧的
+        // 胶囊态；不动播放、不导航（回前台的 resumed 回调也会调一次
+        // hide，幂等）。
+        _capsuleVisible = false;
     }
   }
 
@@ -453,7 +481,67 @@ class _AudioPlaybackController extends ChangeNotifier
     if (!_appActive && !AudioPreferences.instance.backgroundPlayback.value) {
       unawaited(_pauseForOtherMedia());
     }
+    if (!AudioPreferences.instance.backgroundPlayback.value) {
+      // 后台开关关了，前台服务跟着停，胶囊随服务一起没；Dart 侧旗子也收掉。
+      _hideAudioCapsule();
+    }
     _syncForeground();
+  }
+
+  void _capsulePreferenceChanged() {
+    if (_closed) return;
+    if (!AudioPreferences.instance.audioCapsule.value) {
+      _hideAudioCapsule();
+    } else {
+      _capsuleUnavailable = false;
+      if (!_appActive) unawaited(_maybeShowAudioCapsule());
+    }
+  }
+
+  /// 切后台且听书在播时显示灵动岛胶囊。条件镜像视频悬浮窗的 `_canFloat`：
+  /// 胶囊开关开 + 后台开关开 + 真在播 + 无错误 + 悬浮窗权限。权限拿不到
+  /// 时静默跳过（诚实降级：通知栏 + 锁屏媒体卡照常），不弹系统设置。
+  Future<void> _maybeShowAudioCapsule() async {
+    if (_closed ||
+        _capsuleVisible ||
+        _capsuleUnavailable ||
+        _appActive ||
+        _index < 0 ||
+        _index >= _chapters.length) {
+      return;
+    }
+    if (!AudioPreferences.instance.audioCapsule.value ||
+        !AudioPreferences.instance.backgroundPlayback.value) {
+      return;
+    }
+    if (!_wantPlay || _completed || _loading || _error != null) return;
+    final player = _player;
+    if (player == null || !player.playing) return;
+    // 先占位：hidden 与 paused 会连着到，避免两次权限查询与两次 show。
+    _capsuleVisible = true;
+    final granted = await NativePlayer.canDrawOverlays();
+    if (_closed || _appActive || !granted) {
+      _capsuleVisible = false;
+      if (!granted && !_closed && !_appActive) _capsuleUnavailable = true;
+      return;
+    }
+    // 权限查询期间状态可能已变（通知栏暂停、切章）：按最新状态再判一次。
+    if (!_wantPlay || _completed || _error != null) {
+      _capsuleVisible = false;
+      return;
+    }
+    await NativePlayer.showAudioCapsule(
+      title: _title,
+      episode: _chapters[_index].title,
+      coverUrl: _cover,
+      playing: true,
+    );
+  }
+
+  void _hideAudioCapsule() {
+    if (!_capsuleVisible) return;
+    _capsuleVisible = false;
+    unawaited(NativePlayer.hideAudioCapsule());
   }
 
   @override
@@ -468,6 +556,16 @@ class _AudioPlaybackController extends ChangeNotifier
         unawaited(_pauseForOtherMedia());
         unawaited(NativePlayer.stopListenForeground());
       }
+    }
+    // 灵动岛胶囊：确认切后台（hidden/paused）才显示，回前台收起。
+    // inactive 不做事：前台服务在播时已常驻，不存在视频悬浮窗那种
+    // “后台启动前台服务被拒”的窗口，视图创建本身也很轻，不必预启动。
+    if (state == AppLifecycleState.resumed) {
+      _capsuleUnavailable = false;
+      _hideAudioCapsule();
+    } else if (state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused) {
+      unawaited(_maybeShowAudioCapsule());
     }
     _syncListenClock();
     if (!_closed) _update(() {});
@@ -1538,6 +1636,10 @@ class _AudioPlaybackController extends ChangeNotifier
     AudioPreferences.instance.backgroundPlayback.removeListener(
       _preferencesChanged,
     );
+    AudioPreferences.instance.audioCapsule.removeListener(
+      _capsulePreferenceChanged,
+    );
+    _hideAudioCapsule();
     NativePlayer.clearRemoteCommandHandler();
     ListeningSession.instance.clear();
     final saved = _persistProgress().catchError((Object _) {});

@@ -531,6 +531,55 @@ class NativePlayer {
     }
   }
 
+  /// 灵动岛胶囊：切后台且听书在播时显示的系统悬浮胶囊（封面 + 标题 +
+  /// 播放/暂停 + 关闭）。视图由已常驻的 ListenKeepAliveService 持有，不新
+  /// 建服务；调用方发 show 前先查悬浮窗权限，拿不到就不发（诚实降级，
+  /// 只留通知栏控制）。与 [startListenForeground] 同款 best-effort、无
+  /// timeout：调用点在生命周期回调里，平台无响应时绝不能拖住。
+  static Future<void> showAudioCapsule({
+    required String title,
+    required String episode,
+    String coverUrl = '',
+    bool playing = true,
+  }) async {
+    try {
+      await _channel.invokeMethod<void>('showAudioCapsule', {
+        'title': title,
+        'episode': episode,
+        'coverUrl': coverUrl,
+        'playing': playing,
+      });
+    } catch (_) {
+      // Best effort when channel/platform is unavailable or testing.
+    }
+  }
+
+  static Future<void> hideAudioCapsule() async {
+    try {
+      await _channel.invokeMethod<void>('hideAudioCapsule');
+    } catch (_) {
+      // Best effort when channel/platform is unavailable or testing.
+    }
+  }
+
+  static Future<void> updateAudioCapsule({
+    required String title,
+    required String episode,
+    String coverUrl = '',
+    bool playing = true,
+  }) async {
+    try {
+      await _channel.invokeMethod<void>('updateAudioCapsule', {
+        'title': title,
+        'episode': episode,
+        'coverUrl': coverUrl,
+        'playing': playing,
+      });
+    } catch (_) {
+      // Best effort when channel/platform is unavailable or testing.
+    }
+  }
+
   /// 悬浮窗权限：Android 需要用户在系统设置里允许“显示在其他应用的上层”。
   static Future<bool> canDrawOverlays() async {
     try {

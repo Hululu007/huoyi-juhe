@@ -36,6 +36,32 @@ void main() {
     expect(AudioPreferences.instance.backgroundPlayback.value, false);
   });
 
+  test('defaults to audio capsule enabled', () async {
+    expect(AudioPreferences.instance.audioCapsule.value, true);
+    await AudioPreferences.instance.load();
+    expect(AudioPreferences.instance.audioCapsule.value, true);
+  });
+
+  test('loads saved audio capsule preference when false', () async {
+    SharedPreferences.setMockInitialValues({
+      'audio_capsule_enabled': false,
+    });
+    await AudioPreferences.instance.load();
+    expect(AudioPreferences.instance.audioCapsule.value, false);
+  });
+
+  test('saves and persists audio capsule preference', () async {
+    await AudioPreferences.instance.setAudioCapsule(false);
+    expect(AudioPreferences.instance.audioCapsule.value, false);
+
+    final sp = await SharedPreferences.getInstance();
+    expect(sp.getBool('audio_capsule_enabled'), false);
+
+    AudioPreferences.instance.resetForTest();
+    await AudioPreferences.instance.load();
+    expect(AudioPreferences.instance.audioCapsule.value, false);
+  });
+
   // issue #170：1.0.133 把听书默认变速引擎改成 WSOLA（FFmpeg atempo 移植）
   // 后，部分设备一直停在「缓冲中」且没有任何声音；1.0.121 正常。默认先退回
   // 内建 Sonic（1.0.121 的行为），WSOLA 只作为设置里的可选项。

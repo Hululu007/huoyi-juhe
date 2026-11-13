@@ -17,6 +17,7 @@ class AudioPreferences {
   static final AudioPreferences instance = AudioPreferences._();
 
   static const _backgroundPlaybackKey = 'audio_background_playback_enabled';
+  static const _audioCapsuleKey = 'audio_capsule_enabled';
   static const _rateEngineKey = 'audio_rate_engine';
 
   /// 听书入口的默认引擎（[ListenEngine]）。
@@ -36,6 +37,12 @@ class AudioPreferences {
   /// 开启：切到后台或锁屏时继续播放，由 Android 前台保活服务常驻通知栏与提供控制卡片；
   /// 关闭：切到后台或锁屏时自动暂停播放并移除前台通知。
   final ValueNotifier<bool> backgroundPlayback = ValueNotifier<bool>(true);
+
+  /// 切后台且听书在播时是否显示灵动岛悬浮胶囊（默认 true）。
+  /// 开启且拿到悬浮窗权限时，切后台后桌面上出现胶囊（封面 + 标题 +
+  /// 播放/暂停 + 关闭），点胶囊回听书页，回前台自动收起；权限拿不到
+  /// 时只有通知栏控制，播放不受影响。
+  final ValueNotifier<bool> audioCapsule = ValueNotifier<bool>(true);
 
   /// 听书入口的默认引擎，默认智能朗读。
   ///
@@ -74,6 +81,7 @@ class AudioPreferences {
     try {
       final sp = await SharedPreferences.getInstance();
       backgroundPlayback.value = sp.getBool(_backgroundPlaybackKey) ?? true;
+      audioCapsule.value = sp.getBool(_audioCapsuleKey) ?? true;
       rateEngine.value = AudioRateEngine.fromName(sp.getString(_rateEngineKey));
       rateLocked = sp.getBool(_rateLockedKey) ?? false;
       sleepAtChapterEnd = sp.getBool(_sleepAtChapterEndKey) ?? false;
@@ -90,6 +98,7 @@ class AudioPreferences {
   void resetForTest() {
     _loaded = false;
     backgroundPlayback.value = true;
+    audioCapsule.value = true;
     rateEngine.value = AudioRateEngine.builtIn;
     rateLocked = false;
     sleepAtChapterEnd = false;
@@ -166,6 +175,16 @@ class AudioPreferences {
     try {
       final sp = await SharedPreferences.getInstance();
       await sp.setBool(_backgroundPlaybackKey, value);
+    } catch (_) {
+      // 忽略持久化失败
+    }
+  }
+
+  Future<void> setAudioCapsule(bool value) async {
+    audioCapsule.value = value;
+    try {
+      final sp = await SharedPreferences.getInstance();
+      await sp.setBool(_audioCapsuleKey, value);
     } catch (_) {
       // 忽略持久化失败
     }

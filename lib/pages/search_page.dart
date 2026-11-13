@@ -631,12 +631,24 @@ class _SearchPageState extends State<SearchPage> {
       _globalLoadingTabs = {..._globalLoadingTabs, tabIndex};
     });
     final scope = _globalScopeFor(_categories[tabIndex]);
-    final results = await searchAllSites(
-      query,
-      types: scope.types,
-      shortDramaOnly: scope.shortDramaOnly,
-      siteIds: widget.initialSiteIds,
-    );
+    // 整体预算 60 秒：单站预算是 50 秒（见 searchGlobalTargets），整体
+    // 封顶必须比它宽松，不截正常结果；但 searchAllSites 里本地库合并
+    // 那段没有单站超时兜底——真机上 Hive 一旦卡住、测试假环境里异步
+    // 文件操作永不落定（CRIT-014），这句 await 会永远挂在这里，加载
+    // 标记清不掉、「正在搜索全部站点」转圈转到天荒地老、pumpAndSettle
+    // 跟着超时。超时 / 报错都按空结果处理，番茄结果不受影响；加载
+    // 标记在下面的 setState 里一定清掉，不留永久转圈。
+    List<DramaSiteSearchResult> results;
+    try {
+      results = await searchAllSites(
+        query,
+        types: scope.types,
+        shortDramaOnly: scope.shortDramaOnly,
+        siteIds: widget.initialSiteIds,
+      ).timeout(const Duration(seconds: 60));
+    } catch (_) {
+      results = const [];
+    }
     if (!mounted) return;
     if (generation != _requestGeneration) {
       // 过期请求不写结果，但要把加载标记清掉：切来源会换 generation 而
@@ -656,11 +668,25 @@ class _SearchPageState extends State<SearchPage> {
     if (_query.isEmpty || _siteLoading || _siteQuery == _query) return;
     final generation = _requestGeneration;
     setState(() => _siteLoading = true);
-    final results = await searchAllDramaSites(
-      _query,
-      siteIds: widget.initialSiteIds,
-    );
-    if (!mounted || generation != _requestGeneration) return;
+    // 与 _ensureGlobalSearch 同款封顶：searchAllDramaSites 末尾的本地库合并
+    // 没有整体超时兜底，测试假环境里异步文件操作永不落定（CRIT-014），
+    // 真机上 Hive 卡住或抛错时 _siteLoading 同样清不掉、站源页签被守卫
+    // 永久拦住。超时 / 报错按空结果处理，加载标记一定清掉。
+    List<DramaSiteSearchResult> results;
+    try {
+      results = await searchAllDramaSites(
+        _query,
+        siteIds: widget.initialSiteIds,
+      ).timeout(const Duration(seconds: 60));
+    } catch (_) {
+      results = const [];
+    }
+    if (!mounted) return;
+    if (generation != _requestGeneration) {
+      // 过期请求不写结果，但要把加载标记清掉，否则站源页签再也搜不出。
+      setState(() => _siteLoading = false);
+      return;
+    }
     setState(() {
       _siteResults = results;
       _siteQuery = _query;

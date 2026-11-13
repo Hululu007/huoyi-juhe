@@ -1,5 +1,6 @@
 package com.fanrenxiuxianguanyingchuan
 
+import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -10,6 +11,8 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.PixelFormat
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -17,7 +20,16 @@ import android.os.Looper
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
+import android.text.TextUtils
 import android.util.Log
+import android.view.Gravity
+import android.view.MotionEvent
+import android.view.View
+import android.view.WindowManager
+import android.widget.ImageButton
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.media.app.NotificationCompat.MediaStyle
@@ -25,6 +37,7 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
+import kotlin.math.abs
 
 // androidx.media:media 1.7.0 把这三个类只发在 android.support.v4.media 下
 // （androidx/media/session/ 里只有 MediaButtonReceiver）。写成 androidx.media.session
@@ -38,6 +51,11 @@ import java.util.concurrent.Executors
  * 2. 常驻媒体通知卡片：展示当前书名/剧名与章节名，提供「上一章/集」、「播放/暂停」、
  *    「下一章/集」、「关闭」控制。
  * 3. 点击通知主体或系统媒体卡片快速拉起应用回到播放页。
+ * 4. 灵动岛胶囊：切后台且听书在播时在桌面上显示悬浮胶囊（封面 + 标题 +
+ *    播放/暂停 + 关闭），可拖动贴边，点胶囊主体回应用。胶囊只是往
+ *    WindowManager 加一个视图，复用本服务的前台身份，不新建服务——服务
+ *    在播时已在前台，所以不受 Android 12+ 后台启动前台服务的禁令限制。
+ *    悬浮窗权限拿不到时不显示胶囊，通知栏与锁屏媒体卡照常（诚实降级）。
  *
  * Note: 通知走 MediaStyle + MediaSessionCompat，不是普通通知——普通通知在 Android 12+
  * 折叠态不显示动作按钮，也不会进系统媒体卡片 / 锁屏媒体控制 / 耳机按键路由。
@@ -70,10 +88,21 @@ class ListenKeepAliveService : Service() {
     private var durationMs: Long = 0L
     private var speed: Float = 1f
 
+    /** 灵动岛胶囊的悬浮窗状态：视图只在切后台且听书在播时加上，回前台先藏起。 */
+    private var capsuleWindowManager: WindowManager? = null
+    private var capsuleParams: WindowManager.LayoutParams? = null
+    private var capsuleView: LinearLayout? = null
+    private var capsuleCoverView: ImageView? = null
+    private var capsuleTitleView: TextView? = null
+    private var capsulePlayPauseButton: ImageButton? = null
+    private var capsuleAdded: Boolean = false
+    private var capsuleEdgeAnimator: android.animation.ValueAnimator? = null
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
+        activeService = this
         createNotificationChannel()
     }
 
@@ -83,6 +112,8 @@ class ListenKeepAliveService : Service() {
     }
 
     override fun onDestroy() {
+        if (activeService === this) activeService = null
+        removeCapsuleView()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE)
         } else {
@@ -169,6 +200,8 @@ class ListenKeepAliveService : Service() {
         // 封面是异步的：当前这一张还在路上时先用应用图标顶上，取到之后再刷一遍
         // 通知（官方 `dn2/i.java` 的 `FMPlayerSDK.updateNotification` 是同一做法）。
         ensureCover(coverUrl)
+        // 胶囊在屏上时跟通知一起刷（标题/播放态）；没胶囊时是空操作。
+        refreshCapsuleView()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ServiceCompat.startForeground(
@@ -308,6 +341,8 @@ class ListenKeepAliveService : Service() {
             buildNotification(currentTitle, currentEpisode, isPlaying, hasPrev, hasNext)
         )
         syncPlaybackState(isPlaying, positionMs, durationMs, speed)
+        // 封面刚取到时胶囊的大图也要换同一张；没胶囊时是空操作。
+        refreshCapsuleView()
     }
 
     /** 下载 + 解码封面。失败一律返回 null，调用方按「没有封面」处理。 */
@@ -427,6 +462,307 @@ class ListenKeepAliveService : Service() {
         )
     }
 
+    // ── 灵动岛胶囊 ──────────────────────────────────────────────────────
+
+    /**
+     * 显示胶囊：先吃 extras 里带来的最新状态，再把视图加进 WindowManager。
+     *
+     * 与视频悬浮窗互斥：已有悬浮窗播放会话时不显示；反过来，视频悬浮窗
+     * 启动时会主动把胶囊藏掉（见 NativePlayerPlugin 的 startFloating）。
+     */
+    private fun showCapsuleView(extras: Map<String, Any?>) {
+        if (NativePlayerPlugin.desiredFloatingOwner() != null) return
+        readCapsuleExtras(extras)
+        if (capsuleView == null) createCapsuleView()
+        val view = capsuleView ?: return
+        val lp = capsuleParams ?: return
+        if (!capsuleAdded) {
+            try {
+                capsuleWindowManager?.addView(view, lp)
+                capsuleAdded = true
+            } catch (error: Throwable) {
+                // 卓易通容器可能拦截悬浮窗：撤掉并记日志，不崩、不影响播放。
+                Log.w(TAG, "audio capsule addView failed", error)
+                removeCapsuleView()
+                return
+            }
+        }
+        refreshCapsuleView()
+        view.visibility = View.VISIBLE
+    }
+
+    /** 胶囊内容同步：标题/章节/封面/播放态。视图不存在时是空操作。 */
+    private fun updateCapsuleView(extras: Map<String, Any?>) {
+        readCapsuleExtras(extras)
+        refreshCapsuleView()
+    }
+
+    /** 藏起胶囊（视图留在 WindowManager 里，下次显示不用重建）。 */
+    private fun hideCapsuleView() {
+        capsuleView?.visibility = View.GONE
+    }
+
+    /** 彻底撤掉胶囊视图（服务销毁时调用）。 */
+    private fun removeCapsuleView() {
+        capsuleEdgeAnimator?.cancel()
+        capsuleEdgeAnimator = null
+        try {
+            if (capsuleAdded && capsuleView != null) {
+                capsuleWindowManager?.removeView(capsuleView)
+            }
+        } catch (_: IllegalArgumentException) {
+            // 视图已被 WindowManager 撤掉，无剩余归属。
+        } catch (error: Throwable) {
+            Log.w(TAG, "audio capsule remove failed", error)
+        }
+        capsuleAdded = false
+        capsuleView = null
+        capsuleParams = null
+        capsuleWindowManager = null
+        capsuleCoverView = null
+        capsuleTitleView = null
+        capsulePlayPauseButton = null
+    }
+
+    /** 吃掉 Dart 侧带来的状态（与前台同步 intent 共用同一套 extra 键名）。 */
+    private fun readCapsuleExtras(extras: Map<String, Any?>) {
+        (extras[EXTRA_TITLE] as? String)?.takeIf { it.isNotBlank() }?.let {
+            currentTitle = it
+        }
+        (extras[EXTRA_EPISODE] as? String)?.let { currentEpisode = it }
+        (extras[EXTRA_PLAYING] as? Boolean)?.let { isPlaying = it }
+        (extras[EXTRA_COVER_URL] as? String)?.let {
+            if (it != currentCoverUrl) {
+                currentCoverUrl = it
+                ensureCover(it)
+            }
+        }
+    }
+
+    /**
+     * 建胶囊视图：圆角深色横条，封面 + 一行标题 + 播放/暂停 + 关闭。
+     * 只建不加：等 Dart 确认切后台后再由 showCapsuleView 加进 WindowManager。
+     */
+    private fun createCapsuleView() {
+        val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        capsuleWindowManager = wm
+        val metrics = resources.displayMetrics
+        val density = metrics.density
+        val screenWidth = metrics.widthPixels
+        val capsuleWidth = (screenWidth * 0.78f).toInt()
+        val coverSize = (36 * density).toInt()
+        val buttonSize = (36 * density).toInt()
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(
+                (10 * density).toInt(),
+                (6 * density).toInt(),
+                (10 * density).toInt(),
+                (6 * density).toInt()
+            )
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 28 * density
+                setColor(0xE6000000.toInt())
+            }
+        }
+        val cover = ImageView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(coverSize, coverSize)
+            scaleType = ImageView.ScaleType.CENTER_CROP
+        }
+        capsuleCoverView = cover
+        row.addView(cover)
+        val title = TextView(this).apply {
+            setTextColor(0xFFFFFFFF.toInt())
+            textSize = 13f
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            layoutParams = LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1f
+            ).apply {
+                marginStart = (8 * density).toInt()
+                marginEnd = (4 * density).toInt()
+            }
+        }
+        capsuleTitleView = title
+        row.addView(title)
+        val playPause = ImageButton(this).apply {
+            layoutParams = LinearLayout.LayoutParams(buttonSize, buttonSize)
+            setImageResource(
+                if (isPlaying) android.R.drawable.ic_media_pause
+                else android.R.drawable.ic_media_play
+            )
+            setBackgroundColor(0x00000000)
+            setOnClickListener {
+                NativePlayerPlugin.dispatchNotificationAction(ACTION_NAME_PLAY_PAUSE)
+            }
+        }
+        capsulePlayPauseButton = playPause
+        row.addView(playPause)
+        val close = ImageButton(this).apply {
+            layoutParams = LinearLayout.LayoutParams(buttonSize, buttonSize)
+            setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
+            setBackgroundColor(0x00000000)
+            setOnClickListener {
+                // 与通知栏关闭钮同一条路：先撤胶囊，再发 stop、停服务。
+                hideCapsuleView()
+                NativePlayerPlugin.dispatchNotificationAction(ACTION_NAME_STOP)
+                stopSelf()
+            }
+        }
+        row.addView(close)
+
+        row.setOnTouchListener(CapsuleTouchListener(row))
+        val layoutParams = WindowManager.LayoutParams(
+            capsuleWidth,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            } else {
+                @Suppress("DEPRECATION")
+                WindowManager.LayoutParams.TYPE_PHONE
+            },
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.START or Gravity.TOP
+            x = (screenWidth - capsuleWidth) / 2
+            y = (24 * density).toInt()
+        }
+        capsuleParams = layoutParams
+        capsuleView = row
+    }
+
+    /** 按当前状态刷胶囊内容（标题/图标/封面）；视图不存在时是空操作。 */
+    private fun refreshCapsuleView() {
+        val titleView = capsuleTitleView ?: return
+        titleView.text = if (currentEpisode.isNotBlank()) {
+            "$currentTitle · $currentEpisode"
+        } else {
+            currentTitle
+        }
+        capsulePlayPauseButton?.setImageResource(
+            if (isPlaying) android.R.drawable.ic_media_pause
+            else android.R.drawable.ic_media_play
+        )
+        // 封面复用通知大图同一张 Bitmap；没封面时把位置收掉，不留空框。
+        val cover = coverCache.value
+        if (cover != null) {
+            capsuleCoverView?.setImageBitmap(cover)
+            capsuleCoverView?.visibility = View.VISIBLE
+        } else {
+            capsuleCoverView?.setImageBitmap(null)
+            capsuleCoverView?.visibility = View.GONE
+        }
+    }
+
+    /** 点胶囊主体：撤掉胶囊、拉起应用、告诉 Dart 收起胶囊态。 */
+    private fun onCapsuleTap() {
+        hideCapsuleView()
+        bringAppToFront()
+        NativePlayerPlugin.dispatchNotificationAction(ACTION_NAME_CAPSULE_TAP)
+    }
+
+    /** 拉起主界面（与视频悬浮窗的 bringAppToFront 同款 launch intent）。 */
+    private fun bringAppToFront() {
+        val launch = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        } ?: return
+        try {
+            startActivity(launch)
+        } catch (_: Throwable) {
+        }
+    }
+
+    /**
+     * 胶囊拖动与点按：照抄 FloatingVideoService 的 FloatingTouchListener
+     * （拖动超 20px 算拖动，松手贴边；否则算点按，回应用）。按钮区域的
+     * 触摸先被按钮自己吃掉，不会落到这里。
+     */
+    private inner class CapsuleTouchListener(private val view: View) : View.OnTouchListener {
+        private var initialTouchX = 0f
+        private var initialTouchY = 0f
+        private var initialX = 0
+        private var initialY = 0
+        private var isClick = true
+
+        @SuppressLint("ClickableViewAccessibility")
+        override fun onTouch(v: View, event: MotionEvent): Boolean {
+            if (capsuleView !== view) return false
+            val lp = capsuleParams ?: return false
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    isClick = true
+                    initialTouchX = event.rawX
+                    initialTouchY = event.rawY
+                    initialX = lp.x
+                    initialY = lp.y
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val deltaX = event.rawX - initialTouchX
+                    val deltaY = event.rawY - initialTouchY
+                    if (abs(deltaX) > 20 || abs(deltaY) > 20) {
+                        isClick = false
+                        lp.x = (initialX + deltaX).toInt()
+                        lp.y = (initialY + deltaY).toInt()
+                        updateCapsulePosition()
+                    }
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (isClick) {
+                        onCapsuleTap()
+                    } else {
+                        snapCapsuleToEdge()
+                    }
+                }
+            }
+            return true
+        }
+    }
+
+    private fun updateCapsulePosition() {
+        val view = capsuleView ?: return
+        val lp = capsuleParams ?: return
+        if (!capsuleAdded) return
+        try {
+            capsuleWindowManager?.updateViewLayout(view, lp)
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun snapCapsuleToEdge() {
+        val lp = capsuleParams ?: return
+        val view = capsuleView ?: return
+        val screenWidth = resources.displayMetrics.widthPixels
+        val screenHeight = resources.displayMetrics.heightPixels
+        val targetX = if (lp.x + view.width / 2 > screenWidth / 2) {
+            screenWidth - view.width - 16
+        } else {
+            16
+        }
+        val targetY = lp.y.coerceIn(16, (screenHeight - view.height - 16).coerceAtLeast(16))
+        val startX = lp.x
+        val startY = lp.y
+        capsuleEdgeAnimator?.cancel()
+        val animator = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 180
+            addUpdateListener { animation ->
+                if (capsuleView !== view) return@addUpdateListener
+                val t = animation.animatedValue as Float
+                lp.x = (startX + (targetX - startX) * t).toInt()
+                lp.y = (startY + (targetY - startY) * t).toInt()
+                updateCapsulePosition()
+            }
+        }
+        capsuleEdgeAnimator = animator
+        animator.start()
+    }
+
     companion object {
         const val CHANNEL_ID = "listen_playback"
         const val NOTIFICATION_ID = 47
@@ -464,5 +800,34 @@ class ListenKeepAliveService : Service() {
         private const val ACTION_NAME_PREV = "prev"
         private const val ACTION_NAME_NEXT = "next"
         private const val ACTION_NAME_STOP = "stop"
+
+        /** 胶囊点按：Dart 侧只收起胶囊态，不动播放、不导航。 */
+        private const val ACTION_NAME_CAPSULE_TAP = "capsuleTap"
+
+        private var activeService: ListenKeepAliveService? = null
+        private val capsuleHandler = Handler(Looper.getMainLooper())
+
+        /**
+         * 胶囊命令入口（NativePlayerPlugin 的 show/hide/updateAudioCapsule
+         * 调这里）：直接发给已常驻的服务实例，不走 startService——切后台
+         * 后再发 intent 会撞上后台启动服务的限制，而服务实例调用没有这个
+         * 问题（与 FloatingVideoService.show/update 同款模式）。
+         */
+        fun showCapsule(extras: Map<String, Any?>) {
+            onCapsuleMain { activeService?.showCapsuleView(extras) }
+        }
+
+        fun hideCapsule() {
+            onCapsuleMain { activeService?.hideCapsuleView() }
+        }
+
+        fun updateCapsule(extras: Map<String, Any?>) {
+            onCapsuleMain { activeService?.updateCapsuleView(extras) }
+        }
+
+        private fun onCapsuleMain(action: () -> Unit) {
+            if (Looper.myLooper() == Looper.getMainLooper()) action()
+            else capsuleHandler.post { action() }
+        }
     }
 }

@@ -84,6 +84,7 @@ class SettingsPage extends StatelessWidget {
         subtitle: '后台播放、通知栏控制与系统朗读',
         items: [
           _backgroundAudioItem(),
+          if (!isWindowsDesktop) _audioCapsuleItem(),
           if (!isWindowsDesktop) _audioRateEngineItem(),
           SettingsItem(
             icon: LucideIcons.mic,
@@ -873,6 +874,45 @@ class SettingsPage extends StatelessWidget {
       unawaited(AudioPreferences.instance.setBackgroundPlayback(!current));
     },
   );
+
+  /// 切后台且听书在播时在桌面显示灵动岛胶囊（封面 + 标题 + 播放/暂停
+  /// + 关闭），点胶囊回听书页，回前台自动收起；悬浮窗权限拿不到时
+  /// 只有通知栏控制。开启流程照抄视频悬浮窗开关：无权限先打开系统
+  /// 设置让用户授予，授予后回来再点一次。
+  SettingsItem _audioCapsuleItem() => SettingsItem(
+    icon: LucideIcons.audio_lines,
+    title: '后台灵动岛胶囊',
+    subtitle: '切到后台且听书在播时在桌面显示悬浮胶囊，需要悬浮窗权限',
+    trailingBuilder: (context) => ValueListenableBuilder<bool>(
+      valueListenable: AudioPreferences.instance.audioCapsule,
+      builder: (context, value, _) => SettingsSwitch(
+        value: value,
+        semanticLabel: '后台灵动岛胶囊',
+        onChanged: (enabled) => unawaited(_setAudioCapsule(context, enabled)),
+      ),
+    ),
+    onTap: (context, setState) {
+      final current = AudioPreferences.instance.audioCapsule.value;
+      unawaited(_setAudioCapsule(context, !current));
+    },
+  );
+
+  Future<void> _setAudioCapsule(BuildContext context, bool enabled) async {
+    if (!enabled) {
+      await AudioPreferences.instance.setAudioCapsule(false);
+      return;
+    }
+    if (await NativePlayer.canDrawOverlays()) {
+      await AudioPreferences.instance.setAudioCapsule(true);
+      return;
+    }
+    await NativePlayer.requestOverlayPermission();
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('请在系统设置中允许“显示在其他应用的上层”，然后回来再开启')),
+      );
+    }
+  }
 
   /// 听书倍速的变速实现（issue #129）：默认交给系统混音器，高倍速下明显
   /// 没那么「电音」；内建 Sonic 作为厂商实现异常时的回退档。

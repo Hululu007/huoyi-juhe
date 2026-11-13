@@ -657,6 +657,24 @@ class NativePlayerPlugin internal constructor(
                 result.success(null)
             }
 
+            // 灵动岛胶囊：视图由已常驻的 ListenKeepAliveService 持有，这里只
+            // 把命令转给服务实例（不发 intent，避开后台启动服务的限制）。
+            // Dart 侧已在发 show 前查过悬浮窗权限；服务不在时调用是空操作。
+            "showAudioCapsule" -> {
+                ListenKeepAliveService.showCapsule(capsuleExtras(call))
+                result.success(null)
+            }
+
+            "hideAudioCapsule" -> {
+                ListenKeepAliveService.hideCapsule()
+                result.success(null)
+            }
+
+            "updateAudioCapsule" -> {
+                ListenKeepAliveService.updateCapsule(capsuleExtras(call))
+                result.success(null)
+            }
+
             "canDrawOverlays" -> {
                 val context = activity ?: flutterBinding.applicationContext
                 result.success(
@@ -718,6 +736,8 @@ class NativePlayerPlugin internal constructor(
                     floatingExtras(call).filterValues { it != null }.toMutableMap())
                 currentFloating = allocation
                 floatingAllocation = allocation
+                // 与听书胶囊互斥：视频悬浮窗会话一成立，胶囊就藏掉。
+                ListenKeepAliveService.hideCapsule()
                 try {
                     if (current != null) {
                         retiredFloatingOwner = maxOf(retiredFloatingOwner, current.owner)
@@ -1109,6 +1129,13 @@ class NativePlayerPlugin internal constructor(
         FloatingVideoService.EXTRA_SPEED to call.argument<Number>("speed")?.toFloat(),
         FloatingVideoService.EXTRA_VIDEO_WIDTH to call.argument<Number>("videoWidth")?.toInt(),
         FloatingVideoService.EXTRA_VIDEO_HEIGHT to call.argument<Number>("videoHeight")?.toInt()
+    )
+
+    private fun capsuleExtras(call: MethodCall): Map<String, Any?> = mapOf(
+        ListenKeepAliveService.EXTRA_TITLE to call.argument<String>("title"),
+        ListenKeepAliveService.EXTRA_EPISODE to call.argument<String>("episode"),
+        ListenKeepAliveService.EXTRA_COVER_URL to call.argument<String>("coverUrl"),
+        ListenKeepAliveService.EXTRA_PLAYING to call.argument<Boolean>("playing")
     )
 
     private fun attachFloatingSurface(allocation: FloatingAllocation, surfaceId: Long, surface: android.view.Surface) {

@@ -73,6 +73,7 @@ dependencies:
   smtc_windows: ^1.1.0
   ffi: ^2.1.4
   audioplayers: ^6.8.1
+  share_plus: ^10.1.0
 dev_dependencies:
   integration_test:
     sdk: flutter
@@ -122,6 +123,7 @@ flutter:
     # 数据到了再接，不阻塞分类。
     - assets/unified_video_categories.json
     - assets/py_tools/yijianxiepy.py
+    - assets/py_tools/universal_spider_template.py
     - assets/images/app_logo.webp
     - assets/images/bubble/
     # 评论/回复正文的官方表情（`emoji_config.json` 的 53 个令牌），

@@ -15,6 +15,7 @@ import 'category_page.dart';
 import 'local_library_page.dart';
 import 'mine_page.dart';
 import 'source_management_page.dart';
+import 'web_scrape_page.dart';
 
 /// 影视页选站规则：只列用户自己导入的站，预置的内置站不列。
 /// 新用户打开影视区是空白的，按空态提示去站源管理添加或导入。
@@ -496,6 +497,16 @@ class _VideoPageState extends State<VideoPage> {
               onPressed: _videoZoneId == null ? null : _openVideoCategoryPage,
               style: TextButton.styleFrom(foregroundColor: Colors.white),
               child: const Text('分类'),
+            ),
+            IconButton(
+              icon: const Icon(Icons.travel_explore_rounded),
+              tooltip: '网页爬取',
+              onPressed: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const WebScrapePage()),
+                );
+              },
             ),
             IconButton(
               icon: const Icon(Icons.video_library),
