@@ -191,8 +191,8 @@ async fn live_phoenix_raw_probe() {
     // body. Probe the two raw POSTs directly to see which endpoint returns
     // empty (upstream/egress) and which returns JSON.
     use fqapi_core::endpoints::base::{
-        dragon_read_json_headers, phoenix_player_headers, phoenix_player_url, Upstream,
-        UpstreamMode, UpstreamRequestSpec,
+        dragon_read_json_headers, video_detail_headers, video_detail_url, Upstream, UpstreamMode,
+        UpstreamRequestSpec,
     };
     let dir = TempDir::new("fanqie-phoenix-probe");
     let srv = build_server(&dir, None, &[], &[], &pool_json(1)).await;
@@ -216,9 +216,9 @@ async fn live_phoenix_raw_probe() {
     match Upstream::new(srv.ctx.up.clone())
         .raw(&UpstreamRequestSpec {
             mode: UpstreamMode::DeviceSigned,
-            raw_url: Some(phoenix_player_url()),
+            raw_url: Some(video_detail_url()),
             body: Some(phoenix_body),
-            headers: phoenix_player_headers(),
+            headers: video_detail_headers(),
             ..Default::default()
         })
         .await

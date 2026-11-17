@@ -2,6 +2,7 @@
 //! series detail and episode-list endpoints.
 
 use std::collections::{HashMap, HashSet};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Duration;
@@ -15,8 +16,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::time::Instant;
 
 use crate::endpoints::base::{
-    dragon_batch_player_headers, dragon_batch_player_url, dragon_read_json_headers,
-    phoenix_player_headers, phoenix_player_url, Upstream, UpstreamMode, UpstreamRequestSpec,
+    video_detail_headers, video_detail_url, Upstream, UpstreamMode, UpstreamRequestSpec,
     UA_ANDROID_BROWSER, UA_WINDOWS_BROWSER,
 };
 use crate::endpoints::util::{default_val, go_query_escape, int_default, user_agent_headers};
@@ -35,32 +35,20 @@ const SPADE_CONSTANTS: [u8; 64] = [
 const FALLBACK_USER_AGENT: &str = "com.xs.fm/632 (Linux; U; Android 15; zh_CN; 23049RAD8C; Build/AQ3A.250226.002; Cronet/TTNetVersion:fc4cebd3 2024-12-10 QuicVersion:d9628e3d 2024-10-11)";
 
 const VIDEO_FETCH_BUDGET: Duration = Duration::from_secs(12);
-const VIDEO_AUXILIARY_BUDGET: Duration = Duration::from_secs(8);
 const VIDEO_RESOLUTION_BUDGET: Duration = Duration::from_secs(14);
 const VIDEO_RESOLUTION_RESERVE: Duration = Duration::from_secs(2);
 const VIDEO_WORK_BUDGET: Duration = Duration::from_secs(18);
 const VIDEO_VARIANT_BUDGET: Duration = Duration::from_secs(4);
 const VIDEO_RESPONSE_RESERVE: Duration = Duration::from_secs(1);
-const VIDEO_SOURCE_RETRY_DELAYS: [Duration; 2] = [Duration::from_secs(1), Duration::from_secs(2)];
-const VIDEO_RETRY_MIN_BUDGET: Duration = Duration::from_millis(250);
-const VIDEO_DEVICE_ROTATION_BUDGET: Duration = Duration::from_secs(6);
-const VIDEO_DEVICE_RETRY_RESERVE: Duration = Duration::from_secs(2);
-const VIDEO_DEVICE_SETTLE: Duration = Duration::from_millis(500);
+static STREAM_TRACE_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-fn retry_has_budget(at: Instant, deadline: Instant) -> bool {
-    at + VIDEO_RETRY_MIN_BUDGET < deadline
-}
+const V5_PLAYER_URL: &str =
+    "https://api5-normal-sinfonlinea.fqnovel.com/novel/player/multi_video_model/player/v1";
 
-/// The shortplay video_model URL from fetchShortplayVideoModel.
-const SHORTPLAY_VIDEO_MODEL_URL: &str = "https://api3-normal-sinfonlinea.fqnovel.com/novel/player/video_model/v1/?iid={install_id}&device_id={device_id}&aid=1967&app_name=novelapp&version_code=72132&version_name=7.2.1.32&device_platform=android&device_brand=Xiaomi&os_version=13&cdid={cdid}";
-
-/// Reading directory endpoint, copied from directory.go so pseries can fall
-/// back to it (the Rust directory endpoint is not wired into this crate yet).
+/// Reading directory endpoint used as the primary pseries directory source.
 const DIRECTORY_READING_URL: &str =
     "https://api5-normal-sinfonlineb.fqnovel.com/reading/bookapi/directory/all_items/v?";
 const DIRECTORY_READING_QUERY_SUFFIX: &str = "&book_info_md5=&need_version=true&device_id={device_id}&ac=wifi&channel=xiaomi_1967_64&aid=1967&app_name=novelapp&version_code=65132&version_name=6.5.1.32&device_platform=android&os=android&ssmix=a&device_type=FRD-AL10&device_brand=honor&language=zh&os_api=28&os_version=9&manifest_version_code=65132&resolution=1080*1920&dpi=480&update_version_code=65132&pv_player=65132&=&need_personal_recommend=1&player_so_load=1&is_android_pad_screen=0&host_abi=arm64-v8a&dragon_device_type=phone&rom_version=FRD-AL10+8.0.0.556%28C00%29&compliance_status=0";
-
-const VIDEO_DETAIL_PATH: &str = "/novel/player/video_detail/v1/";
 
 type CacheLocks = HashMap<PathBuf, Weak<tokio::sync::Mutex<()>>>;
 static VIDEO_CACHE_LOCKS: Lazy<Mutex<CacheLocks>> = Lazy::new(|| Mutex::new(HashMap::new()));
@@ -95,129 +83,44 @@ impl VideoSourceResolution {
 struct ParsedVideoResponse {
     root: Value,
     models: Vec<Map<String, Value>>,
+    requested_video_id: Option<String>,
 }
 
 impl ParsedVideoResponse {
-    fn parse(raw: &[u8]) -> ApiResult<Self> {
+    fn parse(raw: &[u8], requested_video_id: Option<&str>) -> ApiResult<Self> {
         let root: Value = serde_json::from_slice(raw)
             .map_err(|e| ApiError::Internal(format!("parse upstream json: {e}")))?;
         let models = root
             .get("data")
             .and_then(Value::as_object)
-            .map(|data| video_models(data).collect())
+            .map(|data| video_models(data, requested_video_id))
             .unwrap_or_default();
-        Ok(Self { root, models })
+        Ok(Self {
+            root,
+            models,
+            requested_video_id: requested_video_id.map(str::to_string),
+        })
     }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum StreamVideoSource {
-    Shortplay,
-    DragonBatch,
-    Phoenix,
-}
-
-impl StreamVideoSource {
-    fn name(self) -> &'static str {
-        match self {
-            Self::Shortplay => "shortplay",
-            Self::DragonBatch => "dragon-batch",
-            Self::Phoenix => "phoenix",
-        }
-    }
-
-    fn deadline(self, fetch_deadline: Instant, auxiliary_deadline: Instant) -> Instant {
-        match self {
-            Self::DragonBatch => auxiliary_deadline,
-            Self::Shortplay | Self::Phoenix => fetch_deadline,
-        }
-    }
-
-    async fn fetch(
-        self,
-        ctx: &Ctx,
-        video_id: &str,
-        pin_device: &str,
-    ) -> ApiResult<(Vec<u8>, String)> {
-        match self {
-            Self::Shortplay => fetch_shortplay_video_model(ctx, video_id, pin_device).await,
-            Self::DragonBatch => fetch_dragon_batch_video_model(ctx, video_id, pin_device).await,
-            Self::Phoenix => fetch_phoenix_video_model_with_device(ctx, video_id, pin_device).await,
-        }
-    }
-}
-
-struct FetchedVideoSource {
-    source: StreamVideoSource,
-    device_id: Option<String>,
-    empty_playback: bool,
-    parsed: Option<ParsedVideoResponse>,
-    retryable: bool,
-}
-
-impl FetchedVideoSource {
-    fn remember_empty_device(&self, devices: &mut HashSet<String>) {
-        if self.empty_playback {
-            if let Some(device_id) = &self.device_id {
-                devices.insert(device_id.clone());
-            }
-        }
-    }
-}
-
-fn empty_playback_devices(sources: &[FetchedVideoSource]) -> HashSet<String> {
-    let mut devices = HashSet::new();
-    for source in sources {
-        source.remember_empty_device(&mut devices);
-    }
-    devices
-}
-
-async fn quarantine_empty_playback_devices(ctx: &Ctx, video_id: &str, devices: &HashSet<String>) {
-    let mut quarantined = 0;
-    for device_id in devices {
-        if ctx.pool.quarantine(device_id).await {
-            quarantined += 1;
-        }
-    }
-    if quarantined > 0 {
-        log::warn!(
-            "video {video_id}: quarantined {quarantined} device(s) after empty playback response"
-        );
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum DirectVideoSourceStatus {
-    Missing,
-    CodecRejected,
-    NotFound,
 }
 
 enum FallbackResolution {
     Found(String, Vec<u8>),
     CodecRejected,
-    NotFound { retryable: bool, conclusive: bool },
+    NotFound,
+    Inconclusive,
 }
 
-struct StreamVideoResolution {
-    resolution: VideoSourceResolution,
-    resolved_source: Option<StreamVideoSource>,
-}
-
-impl StreamVideoResolution {
-    fn found(source: StreamVideoSource, url: String, key: Vec<u8>) -> Self {
-        Self {
-            resolution: VideoSourceResolution::Found(url, key),
-            resolved_source: Some(source),
-        }
-    }
-}
+/// Request-local fallback bodies; failed or empty responses are never inserted.
+type FallbackBodyCache = Arc<Mutex<HashMap<String, Arc<Map<String, Value>>>>>;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum FallbackFetchFailure {
     Retryable,
     Permanent,
+}
+
+fn new_fallback_body_cache() -> FallbackBodyCache {
+    Arc::new(Mutex::new(HashMap::new()))
 }
 
 // ---------------------------------------------------------------------------
@@ -232,12 +135,8 @@ fn handle_video<'a>(ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResult
         }
 
         let stream_mode = params.get_str("mode") == "stream";
-        // 短剧 stream 仍以 shortplay 模型选流，但清晰度列表要合并官方接口：
-        // 顶档（1080p）只出现在 phoenix 模型的 `fallback_api` 列表里，而两路
-        // 接口的编码分布并不相同——shortplay 各档是 h265，phoenix 的低档是解不
-        // 了的 bytevc2（实测 2026-10-12 同一集对拍）。2026-11-14 的 HAR 又
-        // 增加了 aid=1967 的批量接口；三路互不依赖，并发发出，任何一路失败
-        // 都不能取消其余已经返回的结果。
+        let source_trace_id =
+            STREAM_TRACE_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
         let work_started = Instant::now();
         let work_budget = crate::upstream::budget::remaining()
             .map(|left| left.saturating_sub(VIDEO_RESPONSE_RESERVE))
@@ -252,207 +151,36 @@ fn handle_video<'a>(ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResult
         let work_deadline = work_started + work_budget;
         let fetch_deadline = work_started + fetch_budget;
         let resolution_deadline = work_started + resolution_budget;
-        let (bodies, resolved) = if stream_mode {
-            // The three official sources are independent. A zero-length body
-            // from one (the observed failure: HTTP 200 + empty JSON body) must
-            // not cancel the others, so this is `join!`, never `try_join!`.
-            let auxiliary_deadline = work_started + VIDEO_AUXILIARY_BUDGET.min(fetch_budget);
-            let mut sources =
-                fetch_stream_video_sources(ctx, &video_id, fetch_deadline, auxiliary_deadline)
-                    .await;
-            let mut empty_device_ids = empty_playback_devices(&sources);
-
-            let mut stream_resolution =
-                resolve_stream_video_sources(ctx, &video_id, &mut sources, resolution_deadline)
-                    .await;
-            for (retry_index, retry_delay) in VIDEO_SOURCE_RETRY_DELAYS.into_iter().enumerate() {
-                let has_legacy_raw = parsed_stream_bodies(&sources)
-                    .iter()
-                    .any(|body| legacy_raw_response_has_playable_url(body));
-                if matches!(
-                    &stream_resolution.resolution,
-                    VideoSourceResolution::Found(_, _)
-                ) || has_legacy_raw
-                {
-                    break;
-                }
-                let mut retry_at = Instant::now() + retry_delay;
-                let retryable: Vec<_> = sources
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(index, fetched)| {
-                        let deadline = fetched
-                            .source
-                            .deadline(fetch_deadline, auxiliary_deadline)
-                            .min(resolution_deadline);
-                        (fetched.retryable && retry_has_budget(retry_at, deadline)).then_some((
-                            index,
-                            fetched.source,
-                            deadline,
-                        ))
-                    })
-                    .collect();
-                if retryable.is_empty() {
-                    break;
-                }
-                let mut replacement_device_id = String::new();
-                if let Some((source, device_id, deadline)) =
-                    retryable.iter().find_map(|(index, _, deadline)| {
-                        let fetched = &sources[*index];
-                        if fetched.empty_playback {
-                            fetched
-                                .device_id
-                                .as_deref()
-                                .map(|device_id| (fetched.source, device_id, *deadline))
-                        } else {
-                            None
-                        }
-                    })
-                {
-                    let now = Instant::now();
-                    let rotation_budget = deadline
-                        .saturating_duration_since(now)
-                        .saturating_sub(VIDEO_DEVICE_RETRY_RESERVE)
-                        .min(VIDEO_DEVICE_ROTATION_BUDGET);
-                    if rotation_budget >= VIDEO_RETRY_MIN_BUDGET {
-                        log::warn!(
-                            "video {video_id}: empty playback model from {}; rotating device before retry attempt={}",
-                            source.name(),
-                            retry_index + 1
-                        );
-                        match tokio::time::timeout_at(
-                            now + rotation_budget,
-                            ctx.pool.replace_failed(device_id),
-                        )
-                        .await
-                        {
-                            Ok(Ok(device)) => {
-                                replacement_device_id = device.device_id;
-                                retry_at = retry_at.max(Instant::now() + VIDEO_DEVICE_SETTLE);
-                                log::info!(
-                                    "video {video_id}: replacement device ready for retry attempt={}",
-                                    retry_index + 1
-                                );
-                            }
-                            Ok(Err(_)) => {
-                                log::warn!(
-                                    "video {video_id}: replacement device registration failed"
-                                );
-                            }
-                            Err(_) => {
-                                log::warn!(
-                                    "video {video_id}: replacement device registration deadline exceeded"
-                                );
-                            }
-                        }
-                    }
-                }
-                tokio::time::sleep_until(retry_at).await;
-                let now = Instant::now();
-                let retryable: Vec<_> = retryable
-                    .into_iter()
-                    .filter(|(_, _, deadline)| retry_has_budget(now, *deadline))
-                    .collect();
-                if retryable.is_empty() {
-                    log::warn!(
-                        "video {video_id}: source retry skipped; insufficient deadline remaining"
-                    );
-                    break;
-                }
-                let source_names = retryable
-                    .iter()
-                    .map(|(_, source, _)| source.name())
-                    .collect::<Vec<_>>()
-                    .join(",");
-                log::warn!(
-                    "video {video_id}: no playable stream resolved; retrying sources={source_names} attempt={}",
-                    retry_index + 1
-                );
-                let video_id_ref = video_id.as_str();
-                let pin_device = replacement_device_id.as_str();
-                let retries = retryable
-                    .into_iter()
-                    .map(|(index, source, deadline)| async move {
-                        (
-                            index,
-                            fetch_stream_video_source(
-                                source,
-                                ctx,
-                                video_id_ref,
-                                deadline,
-                                pin_device,
-                            )
-                            .await,
-                        )
-                    });
-                for (index, fetched) in futures::future::join_all(retries).await {
-                    fetched.remember_empty_device(&mut empty_device_ids);
-                    sources[index] = fetched;
-                }
-                stream_resolution =
-                    resolve_stream_video_sources(ctx, &video_id, &mut sources, resolution_deadline)
-                        .await;
-                if matches!(
-                    &stream_resolution.resolution,
-                    VideoSourceResolution::Found(_, _)
-                ) {
-                    let recovered_source = stream_resolution
-                        .resolved_source
-                        .map(StreamVideoSource::name)
-                        .unwrap_or("unknown");
-                    log::info!(
-                        "video {video_id}: playable stream recovered after retry; source={recovered_source}"
-                    );
-                    break;
-                }
-            }
-
-            quarantine_empty_playback_devices(ctx, &video_id, &empty_device_ids).await;
-            let bodies = sources
-                .into_iter()
-                .filter_map(|source| source.parsed)
-                .collect::<Vec<_>>();
-            if bodies.is_empty() {
-                return Err(ApiError::Internal("视频取流失败，请稍后重试".to_string()));
-            }
-
-            (bodies, stream_resolution.resolution)
-        } else {
-            let parsed = fetch_parsed_video_response(
-                "phoenix",
-                &video_id,
-                fetch_deadline,
-                fetch_phoenix_video_model(ctx, &video_id),
-            )
-            .await
-            .ok_or_else(|| ApiError::Internal("视频取流失败，请稍后重试".to_string()))?;
-            let resolved = resolve_video_source_until(
-                ctx,
-                &video_id,
-                StreamVideoSource::Phoenix,
-                &parsed,
-                resolution_deadline,
-            )
-            .await;
-            (vec![parsed], resolved)
-        };
+        let parsed = fetch_parsed_video_response("v5", &video_id, fetch_deadline, async {
+            fetch_v5_video_model(ctx, &video_id).await
+        })
+        .await
+        .ok_or_else(|| ApiError::Internal("视频取流失败，请稍后重试".to_string()))?;
+        let fallback_bodies = new_fallback_body_cache();
+        let resolved = resolve_video_source_until(
+            ctx,
+            &video_id,
+            "v5",
+            &parsed,
+            &fallback_bodies,
+            resolution_deadline,
+        )
+        .await;
 
         // 官方 `wp3/o1.java:301-347` 的 `isSupportShowLandIcon` 按服务端
         // `vertical` 决定竖屏剧集是否给「全屏观看」（竖屏不给）。该字段随
         // 每集的 `VideoInfo.vertical` 下发，合成的取流响应原先把它丢了；
         // 这里透传出去，缺字段时为 null（Dart 侧保持旧行为，见 player_page）。
-        let vertical = bodies
-            .iter()
-            .find_map(|body| episode_vertical_value(&body.root));
+        let vertical = episode_vertical_value(&parsed.root, Some(&video_id));
 
-        if matches!(resolved, VideoSourceResolution::NotFound) {
-            if let Some(raw) = bodies
-                .iter()
-                .find(|body| legacy_raw_response_has_playable_url(body))
-                .map(|body| body.root.clone())
-            {
-                return Ok(raw);
-            }
+        if matches!(resolved, VideoSourceResolution::NotFound)
+            && legacy_raw_response_has_playable_url(&parsed)
+        {
+            log::info!(
+                "stream trace request={source_trace_id} event=final mode={} selected_source=v5 bodies=1 quality_count=0 result=legacy_raw",
+                if stream_mode { "stream" } else { "single" },
+            );
+            return Ok(parsed.root);
         }
 
         let (video_url, content_key) = match resolved {
@@ -465,12 +193,45 @@ fn handle_video<'a>(ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResult
             }
         };
         let variant_deadline = (Instant::now() + variant_budget).min(work_deadline);
-        let variants = extract_stream_variants(ctx, &video_id, &bodies, variant_deadline).await;
+        let variants = extract_stream_variants(
+            ctx,
+            &video_id,
+            &parsed,
+            &fallback_bodies,
+            &video_url,
+            source_trace_id,
+            variant_deadline,
+        )
+        .await;
+        let primary_in_variants = variants
+            .iter()
+            .any(|variant| variant.get("url").and_then(Value::as_str) == Some(video_url.as_str()));
+        let quality_trace = variants
+            .iter()
+            .filter_map(|variant| {
+                Some(format!(
+                    "{}:{}",
+                    variant.get("name")?.as_str()?,
+                    variant.get("quality_height")?.as_i64()?
+                ))
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        log::info!(
+            "stream trace request={source_trace_id} event=final mode={} selected_source=v5 bodies=1 fallback_bodies={} quality_count={} qualities=[{quality_trace}] primary_in_variants={primary_in_variants}",
+            if stream_mode { "stream" } else { "single" },
+            fallback_bodies
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .len(),
+            variants.len(),
+        );
 
         let source = json!({
             "video_url": video_url,
             "key_hex": hex::encode(&content_key),
             "video_id": video_id,
+            "source_trace_id": source_trace_id,
             // 分集方向（官方 `VideoInfo.vertical`）：缺字段时 null，客户端
             // 据此保持旧行为（显示「全屏观看」）。
             "vertical": vertical,
@@ -488,6 +249,7 @@ fn handle_video<'a>(ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResult
                 Ok(json!({
                     "video_url": local_path,
                     "video_id": video_id,
+                    "source_trace_id": source_trace_id,
                     "vertical": vertical,
                     "video_info": {
                         "data": {
@@ -505,59 +267,39 @@ fn handle_video<'a>(ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResult
     })
 }
 
-fn multi_video_model_body(video_id: &str) -> ApiResult<Vec<u8>> {
-    serde_json::to_vec(&json!({
+fn v5_playback_body(video_id: &str) -> ApiResult<Vec<u8>> {
+    let plain = serde_json::to_vec(&json!({
         "biz_param": {
-            "video_platform": 1024,
-            "need_all_video_definition": true,
-            "use_os_player": false,
-            "video_id_type": 0,
-            "from_video_id": "",
-            "device_level": 3,
-            "source": 4,
-            "need_mp4_align": false,
-            "image_shrink_datas_str": "",
-            "screen_width_px": "1080",
-            "item_map": {},
-            "caller_scene": "0",
             "detail_page_version": 0,
-            "use_server_dns": false,
-            "use_server_dns_scene": "0",
-            "expire_strategy": "0",
+            "device_level": 1,
             "disable_digg_stat": false,
+            "disable_video_relate_book": false,
+            "need_all_video_definition": true,
+            "need_mp4_align": false,
+            "use_os_player": false,
+            "use_server_dns": false,
+            "video_platform": 1024,
         },
         "mixed_video_id_map": {
             "1004": [video_id],
         },
+        "dr_scene": "player",
     }))
-    .map_err(|e| ApiError::Internal(format!("marshal multi_video_model body: {e}")))
+    .map_err(|e| ApiError::Internal(format!("marshal v5 playback body: {e}")))?;
+    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    encoder
+        .write_all(&plain)
+        .map_err(|e| ApiError::Internal(format!("gzip v5 playback body: {e}")))?;
+    encoder
+        .finish()
+        .map_err(|e| ApiError::Internal(format!("gzip v5 playback body: {e}")))
 }
 
-/// Queries the phoenix multi_video_model endpoint.
-async fn fetch_phoenix_video_model(ctx: &Ctx, video_id: &str) -> ApiResult<Vec<u8>> {
-    fetch_phoenix_video_model_with_device(ctx, video_id, "")
-        .await
-        .map(|(raw, _)| raw)
-}
-
-async fn fetch_phoenix_video_model_with_device(
-    ctx: &Ctx,
-    video_id: &str,
-    pin_device: &str,
-) -> ApiResult<(Vec<u8>, String)> {
-    let post_body = multi_video_model_body(video_id)?;
+async fn fetch_v5_video_model(ctx: &Ctx, video_id: &str) -> ApiResult<Vec<u8>> {
+    let body = v5_playback_body(video_id)?;
     Upstream::new(ctx.up.clone())
-        .raw_with_device(&UpstreamRequestSpec {
-            mode: UpstreamMode::DeviceSigned,
-            raw_url: Some(phoenix_player_url()),
-            body: Some(post_body),
-            headers: phoenix_player_headers(),
-            playback_sign: true,
-            pin_device: pin_device.to_string(),
-            ..Default::default()
-        })
+        .v5_playback(V5_PLAYER_URL, &body)
         .await
-        .map(|(raw, device)| (raw, device.device_id))
 }
 
 async fn fetch_parsed_video_response(
@@ -580,7 +322,11 @@ async fn fetch_parsed_video_response(
             return None;
         }
     };
-    let parsed = match ParsedVideoResponse::parse(&raw) {
+    if raw.is_empty() {
+        log::warn!("video {video_id}: {source} empty response body; body_len=0");
+        return None;
+    }
+    let parsed = match ParsedVideoResponse::parse(&raw, Some(video_id)) {
         Ok(parsed) => parsed,
         Err(error) => {
             log::warn!(
@@ -597,257 +343,18 @@ async fn fetch_parsed_video_response(
         );
         return None;
     }
-    if !video_data_is_usable(&parsed.root) {
+    if parsed.models.is_empty()
+        && !parsed
+            .root
+            .get("data")
+            .is_some_and(|data| has_compatible_playable_url(data, 0))
+    {
         log::warn!(
             "video {video_id}: {source} body has no video payload: {}",
             body_envelope(&parsed.root)
         );
     }
     Some(parsed)
-}
-
-async fn fetch_stream_video_sources(
-    ctx: &Ctx,
-    video_id: &str,
-    fetch_deadline: Instant,
-    auxiliary_deadline: Instant,
-) -> Vec<FetchedVideoSource> {
-    let shortplay = fetch_stream_video_source(
-        StreamVideoSource::Shortplay,
-        ctx,
-        video_id,
-        fetch_deadline,
-        "",
-    );
-    let batch = fetch_stream_video_source(
-        StreamVideoSource::DragonBatch,
-        ctx,
-        video_id,
-        auxiliary_deadline,
-        "",
-    );
-    let phoenix = fetch_stream_video_source(
-        StreamVideoSource::Phoenix,
-        ctx,
-        video_id,
-        fetch_deadline,
-        "",
-    );
-    let (shortplay, batch, phoenix) = tokio::join!(shortplay, batch, phoenix);
-    vec![shortplay, batch, phoenix]
-}
-
-async fn fetch_stream_video_source(
-    source: StreamVideoSource,
-    ctx: &Ctx,
-    video_id: &str,
-    deadline: Instant,
-    pin_device: &str,
-) -> FetchedVideoSource {
-    let source_name = source.name();
-    let (raw, device_id) =
-        match tokio::time::timeout_at(deadline, source.fetch(ctx, video_id, pin_device)).await {
-            Ok(Ok(response)) => response,
-            Ok(Err(error)) => {
-                log::warn!(
-                    "video {video_id}: {source_name} request failed: {}",
-                    error.message()
-                );
-                return FetchedVideoSource {
-                    source,
-                    device_id: None,
-                    empty_playback: false,
-                    parsed: None,
-                    retryable: true,
-                };
-            }
-            Err(_) => {
-                log::warn!("video {video_id}: {source_name} request deadline exceeded");
-                return FetchedVideoSource {
-                    source,
-                    device_id: None,
-                    empty_playback: false,
-                    parsed: None,
-                    retryable: true,
-                };
-            }
-        };
-    if !pin_device.is_empty() {
-        log::info!(
-            "video {video_id}: {source_name} recovery device matched={}",
-            device_id == pin_device
-        );
-    }
-    if raw.is_empty() {
-        log::warn!("video {video_id}: {source_name} empty response body; body_len=0");
-        return FetchedVideoSource {
-            source,
-            device_id: Some(device_id),
-            empty_playback: true,
-            parsed: None,
-            retryable: true,
-        };
-    }
-    let parsed = match ParsedVideoResponse::parse(&raw) {
-        Ok(parsed) => parsed,
-        Err(error) => {
-            log::warn!(
-                "video {video_id}: {source_name} response unusable: {}; body_len={}",
-                error.message(),
-                raw.len()
-            );
-            return FetchedVideoSource {
-                source,
-                device_id: Some(device_id),
-                empty_playback: false,
-                parsed: None,
-                retryable: true,
-            };
-        }
-    };
-    if upstream_response_is_failure(&parsed.root) {
-        log::warn!(
-            "video {video_id}: {source_name} business rejection: {}",
-            body_envelope(&parsed.root)
-        );
-        return FetchedVideoSource {
-            source,
-            device_id: Some(device_id),
-            empty_playback: false,
-            parsed: None,
-            retryable: false,
-        };
-    }
-    let empty_playback = !video_data_is_usable(&parsed.root);
-    if empty_playback {
-        log::warn!(
-            "video {video_id}: {source_name} body has no video payload: {}",
-            body_envelope(&parsed.root)
-        );
-    }
-    FetchedVideoSource {
-        source,
-        device_id: Some(device_id),
-        empty_playback,
-        parsed: Some(parsed),
-        retryable: false,
-    }
-}
-
-fn parsed_stream_bodies(sources: &[FetchedVideoSource]) -> Vec<&ParsedVideoResponse> {
-    sources
-        .iter()
-        .filter_map(|fetched| fetched.parsed.as_ref())
-        .collect()
-}
-
-async fn resolve_stream_video_sources(
-    ctx: &Ctx,
-    video_id: &str,
-    sources: &mut [FetchedVideoSource],
-    deadline: Instant,
-) -> StreamVideoResolution {
-    let mut direct_statuses = Vec::with_capacity(sources.len());
-    for fetched in sources.iter() {
-        let status = match fetched.parsed.as_ref() {
-            None => DirectVideoSourceStatus::Missing,
-            Some(parsed) => match resolve_video_source_direct(parsed) {
-                VideoSourceResolution::Found(url, key) => {
-                    return StreamVideoResolution::found(fetched.source, url, key);
-                }
-                VideoSourceResolution::CodecRejected => DirectVideoSourceStatus::CodecRejected,
-                VideoSourceResolution::NotFound => DirectVideoSourceStatus::NotFound,
-            },
-        };
-        direct_statuses.push(status);
-    }
-
-    let mut all_codecs_rejected = sources.iter().all(|source| source.parsed.is_some());
-    for (index, fetched) in sources.iter_mut().enumerate() {
-        let Some(parsed) = fetched.parsed.as_ref() else {
-            continue;
-        };
-        let fallback =
-            resolve_video_source_fallback_status(ctx, video_id, fetched.source, parsed, deadline)
-                .await;
-        let no_payload = !video_data_is_usable(&parsed.root);
-        match fallback {
-            FallbackResolution::Found(url, key) => {
-                return StreamVideoResolution::found(fetched.source, url, key);
-            }
-            FallbackResolution::CodecRejected => {
-                fetched.retryable = false;
-            }
-            FallbackResolution::NotFound {
-                retryable,
-                conclusive,
-            } => {
-                if retryable || !conclusive {
-                    fetched.retryable = retryable;
-                    all_codecs_rejected = false;
-                    continue;
-                }
-                match direct_statuses[index] {
-                    DirectVideoSourceStatus::CodecRejected => {
-                        fetched.retryable = false;
-                    }
-                    DirectVideoSourceStatus::NotFound | DirectVideoSourceStatus::Missing => {
-                        fetched.retryable = no_payload;
-                        all_codecs_rejected = false;
-                    }
-                }
-            }
-        }
-    }
-
-    let resolution = if all_codecs_rejected {
-        VideoSourceResolution::CodecRejected
-    } else {
-        VideoSourceResolution::NotFound
-    };
-    StreamVideoResolution {
-        resolution,
-        resolved_source: None,
-    }
-}
-
-fn video_data_is_usable(root: &Value) -> bool {
-    let Some(data) = root
-        .get("data")
-        .and_then(Value::as_object)
-        .filter(|data| !data.is_empty())
-    else {
-        return false;
-    };
-    video_models(data).any(|model| video_model_has_candidate(&model))
-        || root
-            .get("data")
-            .is_some_and(|data| has_compatible_playable_url(data, 0))
-}
-
-fn video_model_has_candidate(model: &Map<String, Value>) -> bool {
-    if !fallback_api_url(model).is_empty() {
-        return true;
-    }
-    match model.get("video_list") {
-        Some(Value::Object(list)) => list.values().any(video_entry_has_candidate),
-        Some(Value::Array(list)) => list.iter().any(video_entry_has_candidate),
-        _ => false,
-    }
-}
-
-fn video_entry_has_candidate(entry: &Value) -> bool {
-    let Some(info) = entry.as_object() else {
-        return false;
-    };
-    video_quality_score(info).is_some()
-        && ["main_url", "backup_url", "backup_url_1", "play_url"]
-            .iter()
-            .any(|key| {
-                info.get(*key)
-                    .and_then(Value::as_str)
-                    .is_some_and(|url| !url.is_empty())
-            })
 }
 
 fn upstream_response_is_failure(root: &Value) -> bool {
@@ -885,10 +392,9 @@ fn upstream_code_is_failure(value: Option<&Value>) -> bool {
 fn legacy_raw_response_has_playable_url(parsed: &ParsedVideoResponse) -> bool {
     if !parsed.models.is_empty()
         || upstream_response_is_failure(&parsed.root)
-        || parsed
-            .root
-            .get("data")
-            .is_some_and(|data| contains_known_video_shape(data, 0))
+        || parsed.root.get("data").is_some_and(|data| {
+            data.get("1004").is_some_and(Value::is_object) || contains_known_video_shape(data, 0)
+        })
     {
         return false;
     }
@@ -963,73 +469,10 @@ fn playable_url_text(url: &str) -> bool {
     url.starts_with("http://") || url.starts_with("https://") || url.starts_with("/src/")
 }
 
-/// Queries the `aid=1967/novelapp` batch endpoint from the 2026-11-14 HAR.
-async fn fetch_dragon_batch_video_model(
-    ctx: &Ctx,
-    video_id: &str,
-    pin_device: &str,
-) -> ApiResult<(Vec<u8>, String)> {
-    let post_body = multi_video_model_body(video_id)?;
-    let mut url = dragon_batch_player_url();
-    url.push_str("&_rticket=");
-    url.push_str(&crate::timeutil::now_millis().to_string());
-    Upstream::new(ctx.up.clone())
-        .raw_with_device(&UpstreamRequestSpec {
-            mode: UpstreamMode::DeviceSigned,
-            raw_url: Some(url),
-            body: Some(post_body),
-            headers: dragon_batch_player_headers(),
-            playback_sign: true,
-            pin_device: pin_device.to_string(),
-            ..Default::default()
-        })
-        .await
-        .map(|(raw, device)| (raw, device.device_id))
-}
-
-/// Queries the shortplay-style video_model endpoint used for short drama ids.
-async fn fetch_shortplay_video_model(
-    ctx: &Ctx,
-    video_id: &str,
-    pin_device: &str,
-) -> ApiResult<(Vec<u8>, String)> {
-    let post_body = serde_json::to_vec(&json!({
-        "video_id": video_id,
-        "content_type": 1004,
-        "biz_param": {
-            "detail_page_version": 0,
-            "device_level": 3,
-            "disable_digg_stat": false,
-            "disable_video_relate_book": false,
-            "from_video_id": "",
-            "need_all_video_definition": true,
-            "need_mp4_align": false,
-            "source": 4,
-            "use_os_player": false,
-            "use_server_dns": false,
-            "video_platform": 3,
-        },
-    }))
-    .map_err(|e| ApiError::Internal(format!("marshal shortplay video body: {e}")))?;
-
-    Upstream::new(ctx.up.clone())
-        .raw_with_device(&UpstreamRequestSpec {
-            mode: UpstreamMode::DeviceSigned,
-            raw_url: Some(SHORTPLAY_VIDEO_MODEL_URL.to_string()),
-            body: Some(post_body),
-            headers: dragon_read_json_headers(),
-            playback_sign: true,
-            pin_device: pin_device.to_string(),
-            ..Default::default()
-        })
-        .await
-        .map(|(raw, device)| (raw, device.device_id))
-}
-
 /// Parses the multi_video_model response and extracts the best quality MP4 URL.
 #[cfg(test)]
 fn extract_video_url(raw: &[u8]) -> VideoSourceResolution {
-    let Ok(parsed) = ParsedVideoResponse::parse(raw) else {
+    let Ok(parsed) = ParsedVideoResponse::parse(raw, None) else {
         return VideoSourceResolution::NotFound;
     };
     extract_parsed_video_url(&parsed)
@@ -1040,7 +483,7 @@ fn extract_parsed_video_url(parsed: &ParsedVideoResponse) -> VideoSourceResoluti
         return VideoSourceResolution::NotFound;
     };
 
-    let direct = extract_video_info_list_map_url(data);
+    let direct = extract_video_info_list_map_url(data, parsed.requested_video_id.as_deref());
     if direct.is_terminal() {
         return direct;
     }
@@ -1054,23 +497,26 @@ fn extract_parsed_video_url(parsed: &ParsedVideoResponse) -> VideoSourceResoluti
     VideoSourceResolution::NotFound
 }
 
-fn extract_video_info_list_map_url(data: &Map<String, Value>) -> VideoSourceResolution {
+fn extract_video_info_list_map_url(
+    data: &Map<String, Value>,
+    requested_video_id: Option<&str>,
+) -> VideoSourceResolution {
     let Some(video_map) = data.get("video_info_list_map").and_then(|v| v.as_object()) else {
         return VideoSourceResolution::NotFound;
     };
 
-    let mut video_list: Option<&Vec<Value>> = None;
-    for v in video_map.values() {
-        if let Some(arr) = v.as_array() {
-            if !arr.is_empty() {
-                video_list = Some(arr);
-                break;
-            }
-        }
-    }
+    let video_list = match requested_video_id.filter(|id| !id.is_empty()) {
+        Some(video_id) => video_map.get(video_id).and_then(Value::as_array),
+        None => video_map
+            .values()
+            .find_map(|value| value.as_array().filter(|entries| !entries.is_empty())),
+    };
     let Some(video_list) = video_list else {
         return VideoSourceResolution::NotFound;
     };
+    if video_list.is_empty() {
+        return VideoSourceResolution::NotFound;
+    }
     let Some(video_info) = video_list[0].as_object() else {
         return VideoSourceResolution::NotFound;
     };
@@ -1088,8 +534,31 @@ fn extract_video_info_list_map_url(data: &Map<String, Value>) -> VideoSourceReso
 /// (`wp3/o1.java:301-347`, data copied from `EpisodeInfo.vertical` in
 /// `th3/e.java:95`). `None` means the response carried no field at all — the
 /// caller then leaves the client's old behaviour alone.
-fn episode_vertical_value(resp: &Value) -> Option<bool> {
+fn episode_vertical_value(resp: &Value, requested_video_id: Option<&str>) -> Option<bool> {
     let data = resp.get("data")?.as_object()?;
+    if let Some(video_id) = requested_video_id.filter(|id| !id.is_empty()) {
+        if let Some(group) = data.get("1004").and_then(Value::as_object) {
+            return group
+                .get(video_id)
+                .and_then(Value::as_object)
+                .and_then(|entry| entry.get("vertical"))
+                .and_then(vertical_flag);
+        }
+        if let Some(entry) = data.get(video_id).and_then(Value::as_object) {
+            return entry.get("vertical").and_then(vertical_flag);
+        }
+        if let Some(entries) = data
+            .get("video_info_list_map")
+            .and_then(Value::as_object)
+            .and_then(|map| map.get(video_id))
+            .and_then(Value::as_array)
+        {
+            return entries
+                .iter()
+                .find_map(|entry| entry.get("vertical").and_then(vertical_flag));
+        }
+        return None;
+    }
     if let Some(found) = data.get("vertical").and_then(vertical_flag) {
         return Some(found);
     }
@@ -1116,7 +585,7 @@ fn episode_vertical_value(resp: &Value) -> Option<bool> {
 
 #[cfg(test)]
 fn episode_vertical(raw: &[u8]) -> Option<bool> {
-    episode_vertical_value(&serde_json::from_slice::<Value>(raw).ok()?)
+    episode_vertical_value(&serde_json::from_slice::<Value>(raw).ok()?, None)
 }
 
 /// Lenient `vertical` decoding: upstream may send bool, 0/1, or "true"/"1".
@@ -1162,13 +631,14 @@ fn resolve_video_source_direct(parsed: &ParsedVideoResponse) -> VideoSourceResol
 async fn resolve_video_source_fallback_status(
     ctx: &Ctx,
     video_id: &str,
-    source: StreamVideoSource,
+    source: &str,
     parsed: &ParsedVideoResponse,
+    fallback_bodies: Option<&FallbackBodyCache>,
     deadline: Instant,
 ) -> FallbackResolution {
     let mut codec_rejected = false;
-    let mut retryable = false;
     let mut conclusive = true;
+    let mut attempted_fallback = false;
     for model in &parsed.models {
         if !video_model_encrypted(model) {
             continue;
@@ -1177,29 +647,39 @@ async fn resolve_video_source_fallback_status(
         if fallback_url.is_empty() {
             continue;
         }
-        if Instant::now() >= deadline {
-            retryable = true;
+        attempted_fallback = true;
+        let cached = fallback_bodies.and_then(|cache| {
+            let cache = cache.lock().unwrap_or_else(|error| error.into_inner());
+            cache.get(&fallback_url).cloned()
+        });
+        if cached.is_none() && Instant::now() >= deadline {
             conclusive = false;
             break;
         }
-        match fetch_fallback_video_info(ctx, video_id, source.name(), &fallback_url, deadline).await
-        {
-            Ok(fallback_data) => match extract_fallback_video_source(&fallback_data) {
+        let fallback_result = match cached {
+            Some(fallback_data) => Ok(fallback_data),
+            None => fetch_fallback_video_info(ctx, video_id, source, &fallback_url, deadline)
+                .await
+                .map(Arc::new),
+        };
+        match fallback_result {
+            Ok(fallback_data) => match extract_fallback_video_source(fallback_data.as_ref()) {
                 VideoSourceResolution::Found(url, key) => {
+                    if let Some(cache) = fallback_bodies {
+                        let mut cache = cache.lock().unwrap_or_else(|error| error.into_inner());
+                        cache
+                            .entry(fallback_url)
+                            .or_insert_with(|| fallback_data.clone());
+                    }
                     return FallbackResolution::Found(url, key);
                 }
                 VideoSourceResolution::CodecRejected => codec_rejected = true,
-                VideoSourceResolution::NotFound => retryable = true,
+                VideoSourceResolution::NotFound => conclusive = false,
             },
-            Err(failure) => {
-                conclusive = false;
-                if failure == FallbackFetchFailure::Retryable {
-                    retryable = true;
-                }
-            }
+            Err(_) => conclusive = false,
         }
     }
-    if !codec_rejected {
+    if !codec_rejected && !attempted_fallback {
         match extract_parsed_video_url(parsed) {
             VideoSourceResolution::Found(url, key) => {
                 return FallbackResolution::Found(url, key);
@@ -1208,13 +688,12 @@ async fn resolve_video_source_fallback_status(
             VideoSourceResolution::NotFound => {}
         }
     }
-    if codec_rejected && conclusive && !retryable {
+    if !conclusive {
+        FallbackResolution::Inconclusive
+    } else if codec_rejected {
         FallbackResolution::CodecRejected
     } else {
-        FallbackResolution::NotFound {
-            retryable,
-            conclusive,
-        }
+        FallbackResolution::NotFound
     }
 }
 
@@ -1225,24 +704,30 @@ fn model_needs_fallback(model: &Map<String, Value>) -> bool {
 async fn resolve_video_source_until(
     ctx: &Ctx,
     video_id: &str,
-    source: StreamVideoSource,
+    source: &str,
     parsed: &ParsedVideoResponse,
+    fallback_bodies: &FallbackBodyCache,
     deadline: Instant,
 ) -> VideoSourceResolution {
     let direct = resolve_video_source_direct(parsed);
     if matches!(direct, VideoSourceResolution::Found(_, _)) {
         return direct;
     }
-    match resolve_video_source_fallback_status(ctx, video_id, source, parsed, deadline).await {
+    match resolve_video_source_fallback_status(
+        ctx,
+        video_id,
+        source,
+        parsed,
+        Some(fallback_bodies),
+        deadline,
+    )
+    .await
+    {
         FallbackResolution::Found(url, key) => VideoSourceResolution::Found(url, key),
         FallbackResolution::CodecRejected => VideoSourceResolution::CodecRejected,
-        FallbackResolution::NotFound {
-            retryable,
-            conclusive,
-        } => {
-            if retryable || !conclusive {
-                VideoSourceResolution::NotFound
-            } else if matches!(direct, VideoSourceResolution::CodecRejected) {
+        FallbackResolution::Inconclusive => VideoSourceResolution::NotFound,
+        FallbackResolution::NotFound => {
+            if matches!(direct, VideoSourceResolution::CodecRejected) {
                 VideoSourceResolution::CodecRejected
             } else {
                 VideoSourceResolution::NotFound
@@ -1252,19 +737,24 @@ async fn resolve_video_source_until(
 }
 
 fn extract_shortplay_video_model_source(model: &Map<String, Value>) -> VideoSourceResolution {
-    let Some(video_list) = model.get("video_list").and_then(|v| v.as_object()) else {
-        return VideoSourceResolution::NotFound;
-    };
     let key_seed = model
         .get("key_seed")
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
         .and_then(|s| audio_b64_decode(s).ok());
-
-    select_video_source(video_list.values(), |info| {
-        // Missing keys may prevent resolution, but must not hide a codec rejection.
-        decrypt_variant_entry(info, key_seed.as_deref())
-    })
+    let encrypted_without_seed = video_model_encrypted(model) && key_seed.is_none();
+    let resolve = |info: &Map<String, Value>| {
+        if encrypted_without_seed {
+            None
+        } else {
+            decrypt_variant_entry(info, key_seed.as_deref())
+        }
+    };
+    match model.get("video_list") {
+        Some(Value::Object(video_list)) => select_video_source(video_list.values(), resolve),
+        Some(Value::Array(video_list)) => select_video_source(video_list.iter(), resolve),
+        _ => VideoSourceResolution::NotFound,
+    }
 }
 
 /// Decrypts one `video_list` entry into a playable (url, content key) pair.
@@ -1354,44 +844,68 @@ fn variant_display_name(height: i64) -> String {
     }
 }
 
-/// Every playable variant across the given response bodies, best-quality first
+/// Every playable variant in the v5 model, best-quality first
 /// (official panel lists resolutions high→low,
 /// `ShortSeriesMorePanelDialogV2$d$C0025d.a()` with `CollectionsKt.reversed`).
 /// The bytevc2 gate applies unchanged: rejected codecs never become variants.
 ///
-/// Each body's `video_list` and its `fallback_api` list are merged, and several
-/// bodies are merged together, because no single list is complete and they are
-/// not interchangeable: 实测 2026-10-12 同一集对拍——shortplay 模型的自身列表到
-/// 720P 为止（各档 h265），phoenix 模型的 fallback 才有 1080p（低档是解不了的
-/// bytevc2）。只看一份会静默少档。Returns `[]` when no body yields a variant —
-/// the client then hides the quality row entirely (official `oi3/k.P()` gate).
+/// The model's own `video_list` and `fallback_api` list are merged. Returns
+/// `[]` when neither yields a playable variant; the client then hides the
+/// quality row (official `oi3/k.P()` gate).
 async fn extract_stream_variants(
     ctx: &Ctx,
     video_id: &str,
-    bodies: &[ParsedVideoResponse],
+    parsed: &ParsedVideoResponse,
+    fallback_bodies: &FallbackBodyCache,
+    primary_url: &str,
+    source_trace_id: u64,
     deadline: Instant,
 ) -> Vec<Value> {
+    let trace_started = Instant::now();
     let mut scored = Vec::new();
-    for body in bodies {
-        for model in &body.models {
-            // NOTE: 不用 video_model_encrypted() 做前置——它只认数组形状的
-            // video_list；实测漫剧（series 7686494169098898456）的 video_list 是
-            // object 且未标 encrypt，但每档照常带 spade_a/kid，选流门照常适用。
-            scored.extend(variant_rows_scored_any(
-                model.get("video_list"),
-                model
-                    .get("key_seed")
-                    .and_then(|v| v.as_str())
-                    .filter(|s| !s.is_empty())
-                    .and_then(|s| audio_b64_decode(s).ok()),
-            ));
-            if Instant::now() < deadline {
-                scored.extend(
-                    fallback_variant_rows(ctx, video_id, "variants", model, deadline).await,
-                );
-            }
+    let mut fallback_requests = Vec::new();
+    let mut seen_fallback_urls = HashSet::new();
+    let mut local_tiers = 0;
+    let mut fallback_models = 0;
+    for (model_id, model) in parsed.models.iter().enumerate() {
+        // NOTE: 不用 video_model_encrypted() 做前置——它只认数组形状的
+        // video_list；实测漫剧（series 7686494169098898456）的 video_list 是
+        // object 且未标 encrypt，但每档照常带 spade_a/kid，选流门照常适用。
+        let rows = variant_rows_scored_any(
+            model.get("video_list"),
+            model
+                .get("key_seed")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .and_then(|s| audio_b64_decode(s).ok()),
+        );
+        local_tiers += playable_variant_tier_count(&rows);
+        scored.extend(rows);
+        let fallback_url = fallback_api_url(model);
+        if !fallback_url.is_empty() && seen_fallback_urls.insert(fallback_url) {
+            fallback_models += 1;
+            let fallback_cache = fallback_bodies.clone();
+            fallback_requests.push(Box::pin(async move {
+                let (rows, from_cache) =
+                    fallback_variant_rows(ctx, video_id, "v5", model, &fallback_cache, deadline)
+                        .await;
+                (model_id, from_cache, rows)
+            }));
         }
     }
+    log::info!(
+        "stream trace request={source_trace_id} source=v5 event=variants_body elapsed_ms={} playable_tiers={local_tiers} fallback_models={fallback_models}",
+        trace_started.elapsed().as_millis(),
+    );
+    for (model_id, from_cache, rows) in futures::future::join_all(fallback_requests).await {
+        log::info!(
+            "stream trace request={source_trace_id} source=v5 model={model_id} event=variants_fallback elapsed_ms={} from_cache={from_cache} playable_tiers={}",
+            trace_started.elapsed().as_millis(),
+            playable_variant_tier_count(&rows),
+        );
+        scored.extend(rows);
+    }
+    prioritize_primary_variant(&mut scored, primary_url);
     merge_variant_rows(scored)
 }
 
@@ -1402,12 +916,23 @@ async fn fallback_variant_rows(
     video_id: &str,
     source: &str,
     model: &Map<String, Value>,
+    cache: &FallbackBodyCache,
     deadline: Instant,
-) -> Vec<(i64, Value)> {
+) -> (Vec<(i64, Value)>, bool) {
     let fallback_url = fallback_api_url(model);
-    if fallback_url.is_empty() || Instant::now() >= deadline {
+    if fallback_url.is_empty() {
         // 多数模型本来就没有这一条，不是异常。
-        return Vec::new();
+        return (Vec::new(), false);
+    }
+    let cached = {
+        let cache = cache.lock().unwrap_or_else(|error| error.into_inner());
+        cache.get(&fallback_url).cloned()
+    };
+    if let Some(fallback_data) = cached {
+        return (fallback_rows_from_body(fallback_data.as_ref()), true);
+    }
+    if Instant::now() >= deadline {
+        return (Vec::new(), false);
     }
     let fallback_data =
         match fetch_fallback_video_info(ctx, video_id, source, &fallback_url, deadline).await {
@@ -1417,9 +942,21 @@ async fn fallback_variant_rows(
                 log::warn!(
                     "video {video_id}: {source} fallback_api fetch failed (quality tiers lost)"
                 );
-                return Vec::new();
+                return (Vec::new(), false);
             }
         };
+    let fallback_data = Arc::new(fallback_data);
+    let rows = fallback_rows_from_body(fallback_data.as_ref());
+    if playable_variant_tier_count(&rows) > 0 {
+        let mut cache = cache.lock().unwrap_or_else(|error| error.into_inner());
+        cache
+            .entry(fallback_url)
+            .or_insert_with(|| fallback_data.clone());
+    }
+    (rows, false)
+}
+
+fn fallback_rows_from_body(fallback_data: &Map<String, Value>) -> Vec<(i64, Value)> {
     let list = fallback_data
         .get("video_info")
         .and_then(|v| v.get("data"))
@@ -1433,23 +970,57 @@ async fn fallback_variant_rows(
     variant_rows_scored_any(list, key_seed)
 }
 
-/// Ranks rows best-first and keeps one row per resolution. A resolution offered
-/// by several lists renders once, and the list that came first wins — so the
-/// tier the player actually selected stays in the list and the panel keeps
-/// highlighting it (the panel matches the current tier by URL). Rows without a
-/// resolution carry no label and are dropped.
+fn playable_variant_tier_count(rows: &[(i64, Value)]) -> usize {
+    rows.iter()
+        .filter(|(_, row)| {
+            row.get("name")
+                .and_then(Value::as_str)
+                .is_some_and(|name| !name.is_empty())
+        })
+        .count()
+}
+
+fn prioritize_primary_variant(scored: &mut Vec<(i64, Value)>, primary_url: &str) {
+    let Some(index) = scored
+        .iter()
+        .position(|(_, row)| row.get("url").and_then(Value::as_str) == Some(primary_url))
+    else {
+        return;
+    };
+    let primary = scored.remove(index);
+    scored.insert(0, primary);
+}
+
+/// Ranks rows best-first and keeps one row per resolution and URL. A row that
+/// passes both checks claims both keys; rejected aliases must not consume a key
+/// needed by a later real stream. The panel matches the current tier by URL, so
+/// duplicate URLs would highlight multiple rows.
 fn merge_variant_rows(scored: Vec<(i64, Value)>) -> Vec<Value> {
-    let mut seen: HashSet<String> = HashSet::new();
+    let mut seen_names: HashSet<String> = HashSet::new();
+    let mut seen_urls: HashSet<String> = HashSet::new();
     let mut out: Vec<(i64, Value)> = Vec::with_capacity(scored.len());
     for (score, row) in scored {
-        let name = row
+        let Some(name) = row
             .get("name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        if name.is_empty() || !seen.insert(name) {
+            .and_then(Value::as_str)
+            .filter(|name| !name.is_empty())
+        else {
+            continue;
+        };
+        let Some(url) = row
+            .get("url")
+            .and_then(Value::as_str)
+            .filter(|url| !url.is_empty())
+        else {
+            continue;
+        };
+        let name = name.to_string();
+        let url = url.to_string();
+        if seen_names.contains(&name) || seen_urls.contains(&url) {
             continue;
         }
+        seen_names.insert(name);
+        seen_urls.insert(url);
         out.push((score, row));
     }
     out.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
@@ -1560,11 +1131,11 @@ fn variant_rows_from_entries(
     let mut rows: Vec<(i64, Value)> = entries
         .into_iter()
         .filter_map(|(slot, info)| {
-            let w = int64_from_any(info.get("vwidth").unwrap_or(&Value::Null));
-            let h = int64_from_any(info.get("vheight").unwrap_or(&Value::Null));
+            let w = video_quality_metric(info, &["vwidth"]);
+            let h = video_quality_metric(info, &["vheight"]);
             // 档位语义按**短边**：竖屏剧 1280×720 是 720P 而非 2K
-            // （官方 Resolution 枚举同样以短边为准）。
-            let short_edge = if w > 0 && h > 0 { w.min(h) } else { w.max(h) };
+            // （官方 Resolution 枚举同样以短边为准）。缺任一边时不能宣称画质。
+            let short_edge = if w > 0 && h > 0 { w.min(h) } else { 0 };
             let name = variant_display_name(short_edge);
             // 编码门丢 bytevc2 是**预期行为**（`CRIT-004`：该编码没有解码器），不打点。
             let score = video_quality_score(info)?;
@@ -1580,6 +1151,7 @@ fn variant_rows_from_entries(
                     "name": name,
                     "width": w,
                     "height": h,
+                    "quality_height": short_edge,
                     "url": url,
                     "key_hex": hex::encode(&key),
                 }),
@@ -1600,11 +1172,60 @@ pub(crate) fn decode_video_model_str(s: &str) -> Option<Map<String, Value>> {
     }
 }
 
-fn video_models(data: &Map<String, Value>) -> impl Iterator<Item = Map<String, Value>> + '_ {
+fn model_from_video_entry(entry: &Map<String, Value>) -> Option<Map<String, Value>> {
+    entry
+        .get("video_model")
+        .and_then(decode_video_model)
+        .or_else(|| entry.contains_key("video_list").then(|| entry.clone()))
+}
+
+/// Resolves the requested episode first, then falls back to the legacy
+/// response shapes used by audio and older video endpoints.
+fn video_models(
+    data: &Map<String, Value>,
+    requested_video_id: Option<&str>,
+) -> Vec<Map<String, Value>> {
+    if let Some(video_id) = requested_video_id.filter(|id| !id.is_empty()) {
+        if let Some(group) = data.get("1004").and_then(Value::as_object) {
+            return group
+                .get(video_id)
+                .and_then(Value::as_object)
+                .and_then(model_from_video_entry)
+                .into_iter()
+                .collect();
+        }
+        if let Some(model) = data
+            .get(video_id)
+            .and_then(Value::as_object)
+            .and_then(model_from_video_entry)
+        {
+            return vec![model];
+        }
+        for group in data.values().filter_map(Value::as_object) {
+            if let Some(model) = group
+                .get(video_id)
+                .and_then(Value::as_object)
+                .and_then(model_from_video_entry)
+            {
+                return vec![model];
+            }
+        }
+        return data
+            .get("video_model")
+            .and_then(decode_video_model)
+            .into_iter()
+            .collect();
+    }
+
     data.get("video_model")
+        .and_then(decode_video_model)
         .into_iter()
-        .chain(data.values().filter_map(|item| item.get("video_model")))
-        .filter_map(decode_video_model)
+        .chain(
+            data.values()
+                .filter_map(Value::as_object)
+                .filter_map(model_from_video_entry),
+        )
+        .collect()
 }
 
 fn decode_video_model(v: &Value) -> Option<Map<String, Value>> {
@@ -1798,6 +1419,20 @@ fn select_video_source<'a>(
     unresolved
 }
 
+/// Newer models keep quality under `video_meta`; older models put it on the entry.
+fn video_quality_metric(info: &Map<String, Value>, names: &[&str]) -> i64 {
+    let meta = info.get("video_meta").and_then(Value::as_object);
+    for source in [meta, Some(info)].into_iter().flatten() {
+        for name in names {
+            let value = source.get(*name).map(int64_from_any).unwrap_or(0);
+            if value > 0 {
+                return value;
+            }
+        }
+    }
+    0
+}
+
 fn video_quality_score(info: &Map<String, Value>) -> Option<i64> {
     // Codec gates mirror the reference short-drama client: bytevc2
     // (H.266-class) has no decoder on the playback path, so a variant that
@@ -1823,12 +1458,9 @@ fn video_quality_score(info: &Map<String, Value>) -> Option<i64> {
     if codec.contains("bytevc2") {
         return None;
     }
-    let w = int64_from_any(info.get("vwidth").unwrap_or(&Value::Null));
-    let h = int64_from_any(info.get("vheight").unwrap_or(&Value::Null));
-    let mut b = int64_from_any(info.get("bitrate").unwrap_or(&Value::Null));
-    if b == 0 {
-        b = int64_from_any(info.get("real_bitrate").unwrap_or(&Value::Null));
-    }
+    let w = video_quality_metric(info, &["vwidth"]);
+    let h = video_quality_metric(info, &["vheight"]);
+    let b = video_quality_metric(info, &["bitrate", "real_bitrate"]);
     let bonus = i64::from(codec.contains("h264") || codec.contains("avc1"));
     Some(w * 1_000_000_000 + h * 1_000_000 + b + bonus)
 }
@@ -1991,7 +1623,7 @@ fn handle_video_detail<'a>(ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, Ap
                 method: Some("POST".to_string()),
                 raw_url: Some(video_detail_url()),
                 body: Some(body),
-                headers: phoenix_player_headers(),
+                headers: video_detail_headers(),
                 ..Default::default()
             })
             .await
@@ -2011,10 +1643,6 @@ fn video_detail_series_id(params: &Params) -> ApiResult<String> {
         return Err(ApiError::BadRequest("缺少series_id参数".to_string()));
     }
     Ok(series_id)
-}
-
-fn video_detail_url() -> String {
-    phoenix_player_url().replacen("/novel/player/multi_video_model/v1/", VIDEO_DETAIL_PATH, 1)
 }
 
 fn optional_int(raw: &str) -> (i64, bool) {
@@ -2073,102 +1701,11 @@ fn handle_pseries<'a>(ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResu
         if pseries_id.is_empty() {
             return Err(ApiError::BadRequest("缺少pseries_id参数".to_string()));
         }
-        let offset = default_val(&params.get_str("offset"), "1");
-        let count = default_val(&params.get_str("count"), "30");
-        let total = default_val(&params.get_str("total"), "80");
-        let pseries_type = default_val(&params.get_str("pseries_type"), "5");
-
-        let post_body = serde_json::to_vec(&json!({
-            "biz_param": {
-                "detail_page_version": 0,
-                "device_level": 3,
-                "disable_digg_stat": false,
-                "need_all_video_definition": true,
-                "need_mp4_align": false,
-                "use_os_player": false,
-                "use_server_dns": false,
-                "video_platform": 1024,
-                "pseries_type": pseries_type,
-                "offset": offset,
-                "count": count,
-                "total": total,
-                "from_category": "search",
-                "category_name": "related",
-                "mode": "range",
-                "continue_play": 0,
-            },
-            "mixed_video_id_map": {
-                "1004": [pseries_id],
-            },
-        }))
-        .map_err(|e| ApiError::Internal(format!("marshal pseries body: {e}")))?;
-
-        let result = Upstream::new(ctx.up.clone())
-            .json(&UpstreamRequestSpec {
-                mode: UpstreamMode::DeviceSigned,
-                raw_url: Some(phoenix_player_url()),
-                body: Some(post_body),
-                headers: phoenix_player_headers(),
-                ..Default::default()
-            })
-            .await?;
-
-        if let Some(m) = crate::json::as_map(&result) {
-            match crate::json::numeric_code(m.get("code").unwrap_or(&Value::Null)) {
-                Some(code) if code != 0.0 => {
-                    eprintln!(
-                        "pseries {}: player endpoint code={}, trying directory fallback",
-                        pseries_id, code as i64
-                    );
-                    match directory_reading(ctx, &pseries_id).await {
-                        Ok(dir_result) => {
-                            if let Some(dm) = crate::json::as_map(&dir_result) {
-                                match crate::json::numeric_code(
-                                    dm.get("code").unwrap_or(&Value::Null),
-                                ) {
-                                    Some(0.0) => {
-                                        eprintln!(
-                                            "pseries {}: directory fallback ok ({} items)",
-                                            pseries_id,
-                                            dir_item_count(dm)
-                                        );
-                                        return Ok(dir_result);
-                                    }
-                                    _ => {
-                                        eprintln!(
-                                            "pseries {}: directory fallback code={:?}",
-                                            pseries_id,
-                                            dm.get("code")
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                        Err(dir_err) => {
-                            eprintln!(
-                                "pseries {}: directory fallback transport error: {}",
-                                pseries_id, dir_err
-                            );
-                        }
-                    }
-                }
-                _ => {
-                    eprintln!(
-                        "pseries {}: player code not numeric or zero: {:?}",
-                        pseries_id,
-                        m.get("code")
-                    );
-                }
-            }
-        } else {
-            eprintln!("pseries {}: response is not an object", pseries_id);
-        }
-
-        Ok(result)
+        directory_reading(ctx, &pseries_id).await
     })
 }
 
-/// reading from directory.go, copied so pseries can fall back to it.
+/// The directory payload shared by novel, drama and manga routes.
 async fn directory_reading(ctx: &Ctx, book_id: &str) -> ApiResult<Value> {
     let u = format!(
         "{DIRECTORY_READING_URL}book_type=0&item_data_list_md5=&catalog_data_md5=&book_id={}{DIRECTORY_READING_QUERY_SUFFIX}",
@@ -2182,18 +1719,6 @@ async fn directory_reading(ctx: &Ctx, book_id: &str) -> ApiResult<Value> {
             ..Default::default()
         })
         .await
-}
-
-fn dir_item_count(dm: &Map<String, Value>) -> i64 {
-    let data = crate::json::extract_upstream_data(&Value::Object(dm.clone()));
-    if let Some(inner) = crate::json::as_map(&data) {
-        for key in ["item_data_list", "item_list", "lists"] {
-            if let Some(list) = inner.get(key).and_then(|v| v.as_array()) {
-                return list.len() as i64;
-            }
-        }
-    }
-    -1
 }
 
 // ---------------------------------------------------------------------------
@@ -2211,7 +1736,6 @@ async fn unsigned_get(ctx: &Ctx, url: &str, user_agent: &str, max_bytes: usize) 
         headers: vec![("User-Agent".to_string(), user_agent.to_string())],
         no_sign: true,
         pin: None,
-        playback_sign: false,
     };
     match ctx.up.do_request_capped(&req, max_bytes).await {
         Ok((body, _)) => Some(body),
@@ -2259,7 +1783,7 @@ async fn stream_download_to_file(
     stream_download_to_file_with_cap(url, user_agent, part_path, MAX_VIDEO_DOWNLOAD_BYTES).await
 }
 
-async fn stream_download_to_file_with_cap(
+pub(crate) async fn stream_download_to_file_with_cap(
     url: &str,
     user_agent: &str,
     part_path: &Path,
