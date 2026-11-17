@@ -518,7 +518,6 @@ impl DevicePool {
         Err(format!("replace device {device_id}: exhausted retries"))
     }
 
-
     /// Removes a device that upstream silently rejected and tops the pool up in
     /// the background. Unlike `replace_failed`, this does not wait for a new
     /// registration, so a request that already has another usable stream can
