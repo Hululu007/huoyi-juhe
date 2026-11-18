@@ -17,7 +17,9 @@ import '../services/api_client.dart';
 import '../services/backend_transport.dart';
 import '../services/cultivation.dart';
 import '../services/drama_channel_preferences.dart';
+import '../services/drama_feed_adult_mix.dart';
 import '../services/drama_mute_preferences.dart';
+import '../services/drama_site_play.dart';
 import '../services/episode_source_cache.dart';
 import '../services/inline_video_playback.dart';
 
@@ -473,6 +475,18 @@ class _DramaPageState extends ConsumerState<DramaPage>
   /// 值先置空列表占位防止重复请求。
   final Map<String, List<PlayletComment>> _feedHotComments = {};
 
+  /// 推荐 feed 里混入的成人站点推荐（见 `drama_feed_adult_mix.dart`）：
+  /// 只在推荐频道出现，每次打开/下拉刷新随机重挑；取不到时为空，feed
+  /// 回落纯短剧。键为混入卡片 id，点按时按它找回原站条目进详情页。
+  List<MediaItem> _adultMixItems = const [];
+  Map<String, AdultMixEntry> _adultMixById = const {};
+
+  /// 混入取数的代次与状态：刷新重挑时新一轮代次自增，旧一轮回来时
+  /// 代次对不上就丢弃，不拿旧 picks 覆盖新一轮。
+  int _adultMixGeneration = 0;
+  bool _adultMixLoading = false;
+  bool _adultMixLoaded = false;
+
   /// Downward overscroll on the first card, in logical pixels. Official
   /// `aq0.xml` shows 「下拉刷新内容」 (`@string/dhk`) while this is in flight.
   /// A notifier, because the hint follows the drag every frame: a page-wide
@@ -585,6 +599,7 @@ class _DramaPageState extends ConsumerState<DramaPage>
           }
         }
       }
+      if (mounted) unawaited(_loadAdultMix());
       if (mounted) unawaited(_loadChannels());
       if (mounted) _showGuide();
     });
@@ -788,9 +803,20 @@ class _DramaPageState extends ConsumerState<DramaPage>
     }
   }
 
-  List<MediaItem> _visibleItems(HomeState state) => state.items
-      .where((item) => item.kind == _current.kind)
-      .toList(growable: false);
+  /// 当前是不是推荐 feed 频道（服务端下发的推荐条带也按类型认，不看 label）。
+  bool get _isRecommendFeed => _current.serverType == kChannelVideoFeed;
+
+  /// 这张卡是不是混入的成人站点推荐（按取数时登记的 id 认，不解析 id 格式）。
+  bool _isAdultMixItem(MediaItem item) => _adultMixById.containsKey(item.id);
+
+  List<MediaItem> _visibleItems(HomeState state) {
+    final items = state.items
+        .where((item) => item.kind == _current.kind)
+        .toList(growable: false);
+    // 推荐 feed 才混入成人站点推荐；其余频道（看剧/漫剧/最近/收藏）不动。
+    if (!_isRecommendFeed) return items;
+    return interleaveAdultMix(items, _adultMixItems);
+  }
 
   /// The feed reacts to its own builds: items arrive asynchronously, and a
   /// channel switch, a refresh or a returning route can all change what the
@@ -813,7 +839,11 @@ class _DramaPageState extends ConsumerState<DramaPage>
     if (!_current.playsInline) return null;
     final items = _visibleItems(ref.read(dramaProvider));
     if (items.isEmpty) return null;
-    return items[_screenIndex.clamp(0, items.length - 1)];
+    final item = items[_screenIndex.clamp(0, items.length - 1)];
+    // 混入卡是外站视频，不走番茄内联起播：回 null 让 _syncInline 释放
+    // 内联播放器（与本地频道无 feed 时同一路），卡片只显示封面。
+    if (_isAdultMixItem(item)) return null;
+    return item;
   }
 
   void _syncInline() {
@@ -839,13 +869,52 @@ class _DramaPageState extends ConsumerState<DramaPage>
     final items = _visibleItems(ref.read(dramaProvider));
     if (widget.directoryLoader == null) {
       // 往后 3 部：每部只取第一集地址（预加载规格 11-01，往后 1-3 部）。
+      // 混入卡不预取：它不是番茄剧，取地址会拿站方 id 去撞番茄接口。
       for (var offset = 1; offset <= 3; offset++) {
         final next = _screenIndex + offset;
-        if (next < items.length) {
+        if (next < items.length && !_isAdultMixItem(items[next])) {
           unawaited(_inline.prefetchNextDrama(items[next]));
         }
       }
     }
+  }
+
+  /// 推荐 feed 的混入取数：只在推荐频道取，修为快照只读、门禁逻辑不动。
+  ///
+  /// `force` 为 false 时只取首轮（已取过/正在取都是 no-op）；下拉刷新
+  /// 传 `force: true` 重挑一轮（随机换站换片），在飞的旧一轮回来时按
+  /// 代次丢弃。取不到（池子空/全站失败）时混入列表为空，feed 回落纯短剧。
+  Future<void> _loadAdultMix({bool force = false}) async {
+    if (!_isRecommendFeed) return;
+    if (_adultMixLoading && !force) return;
+    if (_adultMixLoaded && !force) return;
+    _adultMixLoading = true;
+    final generation = ++_adultMixGeneration;
+    final entries = await fetchAdultMix(
+      xp: CultivationService.instance.snapshot.totalXp,
+    );
+    if (!mounted || generation != _adultMixGeneration) return;
+    setState(() {
+      _adultMixLoading = false;
+      _adultMixLoaded = true;
+      _adultMixItems = [for (final entry in entries) entry.item];
+      _adultMixById = {for (final entry in entries) entry.item.id: entry};
+    });
+  }
+
+  /// 混入卡点按：走原站详情页（与推荐页「影视」区卡片同路，含成人站
+  /// 20 元宝扣费与余额不足拦截），不走番茄详情/播放器。
+  Future<void> _openAdultMixItem(MediaItem item) async {
+    final entry = _adultMixById[item.id];
+    if (entry == null) return;
+    await openDramaSiteItem(context, entry.siteId, entry.siteItem);
+  }
+
+  /// 记停留卡片作冷启动续接点：混入卡的合成 id 不记（番茄流里找不到它，
+  /// 记了只会污染续接），保留上一部真短剧的记位。
+  void _noteCurrentVid(MediaItem item) {
+    if (_isAdultMixItem(item)) return;
+    ref.read(dramaProvider.notifier).noteCurrentVid(item.id);
   }
 
   void _selectChannel(int index) {
@@ -866,6 +935,9 @@ class _DramaPageState extends ConsumerState<DramaPage>
     if (channel.isFeed) {
       ref.read(dramaProvider.notifier).selectTab(channel.tabIndex);
     }
+    // 切到推荐频道时首轮混入取数（已取过/正在取/非推荐频道都是 no-op，
+    // 换频道不重挑，只在打开与下拉刷新时重挑）。
+    unawaited(_loadAdultMix());
     // 换频道回第一集：**必须在这一帧之前**做完。`_pages` 是各 feed 频道共用的
     // controller，挪到帧后的话，feed→feed 切换会先按旧页码画一帧（旧频道停在
     // 第 N 集，新频道也就闪出第 N 集）再跳回第一集。
@@ -923,8 +995,11 @@ class _DramaPageState extends ConsumerState<DramaPage>
     return false;
   }
 
-  Future<void> _refresh() =>
-      ref.read(dramaProvider.notifier).load(manualRefresh: true);
+  Future<void> _refresh() {
+    // 下拉刷新重挑一轮混入（随机换站换片）；非推荐频道是 no-op。
+    unawaited(_loadAdultMix(force: true));
+    return ref.read(dramaProvider.notifier).load(manualRefresh: true);
+  }
 
   /// 官方单击语义：**暂停 / 继续当前这条视频**，不跳任何界面。
   ///
@@ -1897,7 +1972,7 @@ class _DramaPageState extends ConsumerState<DramaPage>
           // 记录停留卡片，快照保存时作为下次冷启动的续接点（官方落地缓存
           // `recordNextVideoData` 的等价物：单条视频 + 位置）。
           if (index < items.length) {
-            ref.read(dramaProvider.notifier).noteCurrentVid(items[index].id);
+            _noteCurrentVid(items[index]);
           }
 
           // Two cards of runway, so a swipe never lands on an empty page.
@@ -1913,19 +1988,24 @@ class _DramaPageState extends ConsumerState<DramaPage>
           // Only the card on screen may own a texture. The layer itself waits
           // for this drama to be the session's target.
           final onScreen = index == _screenIndex;
+          // 混入卡是外站视频：不内联起播（无 playback = 无手势/进度条/药丸），
+          // 只显示封面；药丸与标题行都进原站详情页，不走番茄播放器/详情页。
+          final isMix = _isAdultMixItem(item);
+          final inlineActive = onScreen && !isMix;
           // 官方在 holder 绑定时拉热评；这里只在剧首次上屏时请求一次。
-          if (onScreen) unawaited(_loadFeedHotComments(item));
+          // 混入卡不拉：站方 id 去撞番茄评论接口没有意义。
+          if (inlineActive) unawaited(_loadFeedHotComments(item));
           return _DramaFeedCard(
             item: item,
             bottomInset: _effectiveBottomInset(context),
             opening: _openingId == item.id,
-            playback: onScreen ? _inline : null,
-            video: onScreen
+            playback: inlineActive ? _inline : null,
+            video: inlineActive
                 ? _InlineVideoLayer(item: item, playback: _inline)
                 : null,
             // 弹幕与视频同裁剪（12dp 圆角内），清屏态整层不出现（与播放
             // 页 chrome 的 `!_clearScreen` 同门）。
-            danmakuOverlay: onScreen
+            danmakuOverlay: inlineActive
                 ? _FeedDanmakuOverlay(
                     item: item,
                     playback: _inline,
@@ -1935,7 +2015,7 @@ class _DramaPageState extends ConsumerState<DramaPage>
                     settings: _feedDanmakuSettings,
                   )
                 : null,
-            errorOverlay: onScreen
+            errorOverlay: inlineActive
                 ? _InlineVideoError(
                     item: item,
                     playback: _inline,
@@ -1943,14 +2023,22 @@ class _DramaPageState extends ConsumerState<DramaPage>
                   )
                 : null,
             // 「观看全集·N集」药丸 = 进全页播放器（官方 `nk3.c.e` →
-            // `zf3.c.s` goToSingleFeed）。
-            onFullscreen: () => _openPlayer(item),
+            // `zf3.c.s` goToSingleFeed）。混入卡的药丸（「观看全片」）
+            // 进原站详情页。
+            onFullscreen: isMix
+                ? () => _openAdultMixItem(item)
+                : () => _openPlayer(item),
             // 右侧横屏钮是另一条路：官方 `nk3.c.g` → `zf3.c.w` →
-            // `transformToLandActivity`，起独立横屏页。
-            onLandscape: () => _openPlayer(item, openFullScreen: true),
-            onQuickCatalog: () => _openQuickCatalog(item),
+            // `transformToLandActivity`，起独立横屏页。混入卡没有。
+            onLandscape: isMix
+                ? null
+                : () => _openPlayer(item, openFullScreen: true),
+            onQuickCatalog: isMix ? null : () => _openQuickCatalog(item),
             // 标题行「剧名 >」= 官方进剧集详情页的入口（ql3/v0.a1）。
-            onOpenSeriesDetail: () => _openSeriesDetail(item),
+            // 混入卡的标题行进原站详情页。
+            onOpenSeriesDetail: isMix
+                ? () => _openAdultMixItem(item)
+                : () => _openSeriesDetail(item),
             onTogglePlay: _togglePlay,
             onOpenMorePanel: () => unawaited(_showFeedMorePanel()),
             clearScreen: onScreen && _feedClearScreen,
@@ -1973,7 +2061,7 @@ class _DramaPageState extends ConsumerState<DramaPage>
     final index = (_screenIndex + delta).clamp(0, items.length - 1);
     if (index == _screenIndex) return;
     setState(() => _screenIndex = index);
-    ref.read(dramaProvider.notifier).noteCurrentVid(items[index].id);
+    _noteCurrentVid(items[index]);
     if (index >= items.length - 2) {
       unawaited(ref.read(dramaProvider.notifier).loadMore());
     }
@@ -4007,7 +4095,10 @@ class _InlineVideoLayer extends StatelessWidget {
               // Official display mode for a feed card: fill the frame unless
               // the source is wide enough to be pinned to its width. The
               // overflow is clipped by the ClipRRect above this layer.
+              // 手机卡恒铺满：横屏片源也不降级成按宽适配（否则在高卡片里
+              // 只剩中间一条、上下大黑边）；桌面 wide 形态仍走 contain。
               fit: wide ? VideoFit.contain : VideoFit.fillFrame,
+              forceFill: !wide,
             );
             return Stack(
               fit: StackFit.expand,

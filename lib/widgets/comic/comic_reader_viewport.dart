@@ -4,10 +4,13 @@ import 'package:flutter/material.dart';
 
 import '../../models/chapter_media.dart';
 import '../../services/comic_page_layout.dart';
+import 'comic_curl_pager.dart';
 import 'comic_image_tile.dart';
 
-/// 漫画页面视图：条漫（连续滚动）与翻页（PageView）两种模式。
+/// 漫画页面视图：条漫（连续滚动）与翻页（卷页）两种模式。
 ///
+/// 翻页模式用 [ComicCurlPager]：与小说同一套卷页交互、同一个
+/// ReaderPageCurl；墨水屏下动画全是残影，退回普通 PageView。
 /// 只负责版式与手势，进度记录、布局缓存和图片尺寸回调都由调用方持有，
 /// 行为与拆分前保持一致（同一组 ValueKey 与滚动控制器）。
 class ComicReaderViewport extends StatelessWidget {
@@ -25,6 +28,7 @@ class ComicReaderViewport extends StatelessWidget {
     required this.onImageFailed,
     required this.onOpenImage,
     this.providerFactory,
+    this.einkMode = false,
   });
 
   final List<ComicImage> images;
@@ -42,6 +46,9 @@ class ComicReaderViewport extends StatelessWidget {
   final ValueChanged<int> onOpenImage;
   final ImageProvider<Object> Function(ComicImage image)? providerFactory;
 
+  /// 墨水屏：翻页不动卷页动画，退回普通 PageView（与小说的 eink 零动画一致）。
+  final bool einkMode;
+
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
@@ -54,14 +61,23 @@ class ComicReaderViewport extends StatelessWidget {
     },
   );
 
-  Widget _pagedView(double width, PageController controller) =>
-      PageView.builder(
+  Widget _pagedView(double width, PageController controller) {
+    if (einkMode) {
+      return PageView.builder(
         key: const ValueKey('comic-reader-paged-view'),
         controller: controller,
         itemCount: images.length,
         onPageChanged: onPageChanged,
         itemBuilder: (context, index) => _tile(width, index),
       );
+    }
+    return ComicCurlPager(
+      controller: controller,
+      itemCount: images.length,
+      itemBuilder: (index) => _tile(width, index),
+      onPageChanged: onPageChanged,
+    );
+  }
 
   Widget _stripView(double width, ComicPageLayout layout) => ListView.builder(
     key: const ValueKey('comic-reader-pages'),

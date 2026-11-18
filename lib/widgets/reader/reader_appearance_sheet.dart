@@ -1,14 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
 
+import '../../services/app_theme_style.dart';
 import '../../services/reader_device.dart';
 import '../../services/reader_preferences.dart';
+import '../app_ui/app_ui_scope.dart';
 import 'reader_theme.dart';
 import 'settings/reader_turn_settings.dart';
 import 'settings/reader_font_picker_sheet.dart';
 import 'settings/reader_more_settings_sheet.dart';
 import 'settings/reader_settings_state.dart';
 import 'settings/reader_settings_widgets.dart';
+
+/// 设置面板固定 classic 外观：本树不装上游那套全局主题样式作用域，
+/// 这里给面板子树单独包一个恒为 classic 的作用域（此 store 从不 load，
+/// 值恒为 classic），面板内的 AppUiScope.isClassic 分支全部走 classic
+/// 普通控件，玻璃分支不渲染。主题本身不受影响。
+final _classicStyleStore = AppThemeStyleStore(
+  missingStyle: AppThemeStyle.classic,
+);
 
 /// 打开阅读设置面板。
 Future<void> showReaderSettingsSheet({
@@ -37,21 +47,24 @@ Future<void> showReaderSettingsSheet({
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
     ),
-    builder: (context) => ReaderAppearanceSheet(
-      initialValue: initialValue,
-      onChanged: onChanged,
-      onPickFont: onPickFont,
-      deviceAvailable: deviceAvailable,
-      systemBrightness: systemBrightness,
-      onBrightness: onBrightness,
-      onBrightnessEnd: onBrightnessEnd,
-      onFollowSystem: onFollowSystem,
-      autoTurnActive: autoTurnActive,
-      onAutoTurn: onAutoTurn,
-      einkOverride: einkOverride,
-      oledOverride: oledOverride,
-      onTextReplacement: onTextReplacement,
-      onListeningSource: onListeningSource,
+    builder: (context) => AppUiScope(
+      store: _classicStyleStore,
+      child: ReaderAppearanceSheet(
+        initialValue: initialValue,
+        onChanged: onChanged,
+        onPickFont: onPickFont,
+        deviceAvailable: deviceAvailable,
+        systemBrightness: systemBrightness,
+        onBrightness: onBrightness,
+        onBrightnessEnd: onBrightnessEnd,
+        onFollowSystem: onFollowSystem,
+        autoTurnActive: autoTurnActive,
+        onAutoTurn: onAutoTurn,
+        einkOverride: einkOverride,
+        oledOverride: oledOverride,
+        onTextReplacement: onTextReplacement,
+        onListeningSource: onListeningSource,
+      ),
     ),
   );
 }
@@ -162,7 +175,7 @@ class _ReaderAppearanceSheetState
       : value.brightness;
 
   void _apply(ReaderPreferences Function(ReaderPreferences) change) =>
-      updatePreferences(change(value));
+      commitPreferences(change(value));
 
   /// 拖动亮度：与内联面板一致，手动调整即退出「跟随系统」。
   void _setBrightness(double level) {
@@ -197,11 +210,15 @@ class _ReaderAppearanceSheetState
       currentPath: value.fontPath,
       currentName: value.fontName,
       onPickFont: widget.onPickFont,
+      currentBuiltinSerif: value.builtinSerifFont,
     );
     if (!mounted || selection == null) return;
     _apply(
-      (current) =>
-          current.copyWith(fontPath: selection.path, fontName: selection.name),
+      (current) => current.copyWith(
+        fontPath: selection.path,
+        fontName: selection.name,
+        builtinSerifFont: selection.builtinSerif,
+      ),
     );
   }
 
@@ -243,7 +260,7 @@ class _ReaderAppearanceSheetState
         _fontSizeRow(),
         _backgroundRow(preset),
         if (_backgroundLocked) _backgroundLockNotice(preset),
-        ReaderTurnSettings(value: value, onChanged: updatePreferences),
+        ReaderTurnSettings(value: value, onChanged: commitPreferences),
         _spacingRow(),
         const ReaderSettingsDivider(),
         _actionsRow(),

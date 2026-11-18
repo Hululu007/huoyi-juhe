@@ -5,13 +5,15 @@ import 'reader_tap_zones.dart';
 
 part 'reader_preferences_codec.dart';
 
-enum ReaderThemePreset { light, eyeCare, parchment, dark, eink }
+enum ReaderThemePreset { light, eyeCare, parchment, dark, eink, mistBlue }
 
 enum ReaderTitleAlignment { start, center }
 
 enum ReaderPageMode { paged, scroll }
 
 enum ReaderScrollChapterMode { replace, joined }
+
+enum ReaderDialogueHighlightStyle { automatic, background, underline }
 
 /// Compact mode keeps one footer; detailed mode also shows book/chapter data.
 /// Note: 兼容旧开关的迁移见 .agents/notes/implemented/feature/2026-10-15-reader-info-modes.md
@@ -32,6 +34,7 @@ class ReaderPreferences {
   static const _paragraphSpacingKey = 'reader_paragraph_spacing';
   static const _horizontalPaddingKey = 'reader_horizontal_padding';
   static const _themePresetKey = 'reader_theme_preset';
+  static const _customBackgroundKey = 'reader_custom_background';
   static const _letterSpacingKey = 'reader_letter_spacing';
   static const _verticalPaddingKey = 'reader_vertical_padding';
   static const _titleSizeKey = 'reader_title_size';
@@ -39,10 +42,15 @@ class ReaderPreferences {
   static const _showReadingInfoKey = 'reader_show_reading_info';
   static const _readingInfoModeKey = 'reader_info_mode';
   static const _showSystemStatusBarKey = 'reader_show_system_status_bar';
+  static const _showSystemNavigationBarKey =
+      'reader_show_system_navigation_bar';
   static const _followSystemBrightnessKey = 'reader_follow_system_brightness';
   static const _brightnessKey = 'reader_brightness';
   static const _fontPathKey = 'reader_font_path';
   static const _fontNameKey = 'reader_font_name';
+  static const _builtinSerifFontKey = 'reader_builtin_serif_font';
+  static const _firstLineIndentKey = 'reader_first_line_indent';
+  static const _justifyTextKey = 'reader_justify_text';
   static const _pageModeKey = 'reader_page_mode';
   static const _pageTurnStyleKey = 'reader_page_turn_style';
   static const _volumeKeyTurnKey = 'reader_volume_key_turn';
@@ -52,6 +60,8 @@ class ReaderPreferences {
   static const _narrationHighlightKey = 'reader_narration_highlight';
   static const _narrationHighlightColorKey = 'reader_narration_highlight_color';
   static const _narrationHighlightStyleKey = 'reader_narration_highlight_style';
+  static const _dialogueHighlightKey = 'reader_dialogue_highlight';
+  static const _dialogueHighlightStyleKey = 'reader_dialogue_highlight_style';
   static const _continuousReadingKey = 'reader_continuous_reading';
   static const _scrollChapterModeKey = 'reader_scroll_chapter_mode';
   static const _einkRefreshIntervalKey = 'reader_eink_refresh_interval';
@@ -68,17 +78,22 @@ class ReaderPreferences {
   final double paragraphSpacing;
   final double horizontalPadding;
   final ReaderThemePreset themePreset;
+  final int? customBackgroundColor;
   final double letterSpacing;
   final double verticalPadding;
   final double titleSize;
   final ReaderTitleAlignment titleAlignment;
   final ReaderInfoMode readingInfoMode;
   final bool showSystemStatusBar;
+  final bool showSystemNavigationBar;
   bool get showReadingInfo => readingInfoMode != ReaderInfoMode.hidden;
   final bool followSystemBrightness;
   final double brightness;
   final String fontPath;
   final String fontName;
+  final bool builtinSerifFont;
+  final bool firstLineIndent;
+  final bool justifyText;
   final ReaderPageMode pageMode;
   final ReaderPageTurnStyle pageTurnStyle;
   final bool volumeKeyTurn;
@@ -130,6 +145,18 @@ class ReaderPreferences {
         _ => preset == ReaderThemePreset.eink,
       };
 
+  /// Marks quoted dialogue in the reading text, independently of playback.
+  final bool dialogueHighlight;
+  final ReaderDialogueHighlightStyle dialogueHighlightStyle;
+
+  bool dialogueUnderlineFor(ReaderThemePreset preset) =>
+      switch (dialogueHighlightStyle) {
+        ReaderDialogueHighlightStyle.automatic =>
+          preset == ReaderThemePreset.eink,
+        ReaderDialogueHighlightStyle.background => false,
+        ReaderDialogueHighlightStyle.underline => true,
+      };
+
   /// 滚动模式连续阅读：到底继续下拉进入下一章。默认开启。
   /// 普通分页始终直接跨章，不受这个滚动手势开关影响。
   final bool continuousReading;
@@ -165,6 +192,7 @@ class ReaderPreferences {
     this.paragraphSpacing = 12,
     this.horizontalPadding = 20,
     this.themePreset = ReaderThemePreset.light,
+    this.customBackgroundColor,
     this.letterSpacing = 0,
     this.verticalPadding = 16,
     this.titleSize = 20,
@@ -172,10 +200,14 @@ class ReaderPreferences {
     bool? showReadingInfo,
     ReaderInfoMode readingInfoMode = ReaderInfoMode.compact,
     this.showSystemStatusBar = true,
+    this.showSystemNavigationBar = false,
     this.followSystemBrightness = true,
     this.brightness = 0.5,
     this.fontPath = '',
     this.fontName = '',
+    this.builtinSerifFont = false,
+    this.firstLineIndent = true,
+    this.justifyText = true,
     this.pageMode = ReaderPageMode.paged,
     this.pageTurnStyle = ReaderPageTurnStyle.slide,
     this.volumeKeyTurn = false,
@@ -185,6 +217,8 @@ class ReaderPreferences {
     this.narrationHighlight = true,
     this.narrationHighlightColor,
     this.narrationHighlightStyle,
+    this.dialogueHighlight = false,
+    this.dialogueHighlightStyle = ReaderDialogueHighlightStyle.automatic,
     this.continuousReading = true,
     this.scrollChapterMode = ReaderScrollChapterMode.joined,
     this.einkRefreshInterval = 10,
@@ -205,6 +239,8 @@ class ReaderPreferences {
     double? paragraphSpacing,
     double? horizontalPadding,
     ReaderThemePreset? themePreset,
+    int? customBackgroundColor,
+    bool clearCustomBackground = false,
     double? letterSpacing,
     double? verticalPadding,
     double? titleSize,
@@ -212,10 +248,14 @@ class ReaderPreferences {
     bool? showReadingInfo,
     ReaderInfoMode? readingInfoMode,
     bool? showSystemStatusBar,
+    bool? showSystemNavigationBar,
     bool? followSystemBrightness,
     double? brightness,
     String? fontPath,
     String? fontName,
+    bool? builtinSerifFont,
+    bool? firstLineIndent,
+    bool? justifyText,
     ReaderPageMode? pageMode,
     ReaderPageTurnStyle? pageTurnStyle,
     bool? volumeKeyTurn,
@@ -232,6 +272,8 @@ class ReaderPreferences {
 
     /// true = 恢复「自动」（墨水屏下划线，其余背景色块）。
     bool autoNarrationHighlightStyle = false,
+    bool? dialogueHighlight,
+    ReaderDialogueHighlightStyle? dialogueHighlightStyle,
     bool? continuousReading,
     ReaderScrollChapterMode? scrollChapterMode,
     int? einkRefreshInterval,
@@ -249,6 +291,9 @@ class ReaderPreferences {
       paragraphSpacing: paragraphSpacing ?? this.paragraphSpacing,
       horizontalPadding: horizontalPadding ?? this.horizontalPadding,
       themePreset: themePreset ?? this.themePreset,
+      customBackgroundColor: clearCustomBackground
+          ? null
+          : customBackgroundColor ?? this.customBackgroundColor,
       letterSpacing: letterSpacing ?? this.letterSpacing,
       verticalPadding: verticalPadding ?? this.verticalPadding,
       titleSize: titleSize ?? this.titleSize,
@@ -261,11 +306,16 @@ class ReaderPreferences {
               ? ReaderInfoMode.compact
               : this.readingInfoMode),
       showSystemStatusBar: showSystemStatusBar ?? this.showSystemStatusBar,
+      showSystemNavigationBar:
+          showSystemNavigationBar ?? this.showSystemNavigationBar,
       followSystemBrightness:
           followSystemBrightness ?? this.followSystemBrightness,
       brightness: brightness ?? this.brightness,
       fontPath: fontPath ?? this.fontPath,
       fontName: fontName ?? this.fontName,
+      builtinSerifFont: builtinSerifFont ?? this.builtinSerifFont,
+      firstLineIndent: firstLineIndent ?? this.firstLineIndent,
+      justifyText: justifyText ?? this.justifyText,
       pageMode: pageMode ?? this.pageMode,
       pageTurnStyle: pageTurnStyle ?? this.pageTurnStyle,
       volumeKeyTurn: volumeKeyTurn ?? this.volumeKeyTurn,
@@ -279,6 +329,9 @@ class ReaderPreferences {
       narrationHighlightStyle: autoNarrationHighlightStyle
           ? null
           : narrationHighlightStyle ?? this.narrationHighlightStyle,
+      dialogueHighlight: dialogueHighlight ?? this.dialogueHighlight,
+      dialogueHighlightStyle:
+          dialogueHighlightStyle ?? this.dialogueHighlightStyle,
       continuousReading: continuousReading ?? this.continuousReading,
       scrollChapterMode: scrollChapterMode ?? this.scrollChapterMode,
       einkRefreshInterval: einkRefreshInterval ?? this.einkRefreshInterval,
@@ -305,6 +358,9 @@ class ReaderPreferences {
           ? horizontalPadding.clamp(8, 48)
           : 20,
       themePreset: themePreset,
+      customBackgroundColor: customBackgroundColor == null
+          ? null
+          : 0xFF000000 | (customBackgroundColor! & 0x00FFFFFF),
       letterSpacing: letterSpacing.isFinite ? letterSpacing.clamp(-0.5, 3) : 0,
       verticalPadding: verticalPadding.isFinite
           ? verticalPadding.clamp(0, 64)
@@ -313,10 +369,14 @@ class ReaderPreferences {
       titleAlignment: titleAlignment,
       readingInfoMode: readingInfoMode,
       showSystemStatusBar: showSystemStatusBar,
+      showSystemNavigationBar: showSystemNavigationBar,
       followSystemBrightness: followSystemBrightness,
       brightness: brightness.isFinite ? brightness.clamp(0.02, 1) : 0.5,
       fontPath: fontPath,
       fontName: fontPath.isEmpty ? '' : fontName,
+      builtinSerifFont: builtinSerifFont,
+      firstLineIndent: firstLineIndent,
+      justifyText: justifyText,
       pageMode: pageMode,
       pageTurnStyle: pageTurnStyle,
       volumeKeyTurn: volumeKeyTurn,
@@ -328,6 +388,8 @@ class ReaderPreferences {
       narrationHighlight: narrationHighlight,
       narrationHighlightColor: narrationHighlightColor,
       narrationHighlightStyle: narrationHighlightStyle,
+      dialogueHighlight: dialogueHighlight,
+      dialogueHighlightStyle: dialogueHighlightStyle,
       continuousReading: continuousReading,
       scrollChapterMode: scrollChapterMode,
       einkRefreshInterval: einkRefreshInterval.clamp(0, 100),
@@ -355,6 +417,10 @@ class ReaderPreferences {
       paragraphSpacing: _number(preferences, _paragraphSpacingKey) ?? 12,
       horizontalPadding: _number(preferences, _horizontalPaddingKey) ?? 20,
       themePreset: preset,
+      customBackgroundColor: _number(
+        preferences,
+        _customBackgroundKey,
+      )?.toInt(),
       letterSpacing: _number(preferences, _letterSpacingKey) ?? 0,
       verticalPadding: _number(preferences, _verticalPaddingKey) ?? 16,
       titleSize:
@@ -372,11 +438,16 @@ class ReaderPreferences {
       ),
       showSystemStatusBar:
           _boolean(preferences, _showSystemStatusBarKey) ?? true,
+      showSystemNavigationBar:
+          _boolean(preferences, _showSystemNavigationBarKey) ?? false,
       followSystemBrightness:
           _boolean(preferences, _followSystemBrightnessKey) ?? true,
       brightness: _number(preferences, _brightnessKey) ?? 0.5,
       fontPath: _string(preferences, _fontPathKey),
       fontName: _string(preferences, _fontNameKey),
+      builtinSerifFont: _boolean(preferences, _builtinSerifFontKey) ?? false,
+      firstLineIndent: _boolean(preferences, _firstLineIndentKey) ?? true,
+      justifyText: _boolean(preferences, _justifyTextKey) ?? true,
       pageMode: ReaderPageMode.values.firstWhere(
         (value) => value.name == preferences.get(_pageModeKey),
         orElse: () => ReaderPageMode.paged,
@@ -400,6 +471,11 @@ class ReaderPreferences {
         preferences,
         _narrationHighlightStyleKey,
       )?.toInt(),
+      dialogueHighlight: _boolean(preferences, _dialogueHighlightKey) ?? false,
+      dialogueHighlightStyle: ReaderDialogueHighlightStyle.values.firstWhere(
+        (style) => style.name == preferences.get(_dialogueHighlightStyleKey),
+        orElse: () => ReaderDialogueHighlightStyle.automatic,
+      ),
       continuousReading: _boolean(preferences, _continuousReadingKey) ?? true,
       scrollChapterMode: ReaderScrollChapterMode.values.firstWhere(
         (mode) => mode.name == preferences.getString(_scrollChapterModeKey),
@@ -438,6 +514,10 @@ class ReaderPreferences {
       preferences.setDouble(_paragraphSpacingKey, value.paragraphSpacing),
       preferences.setDouble(_horizontalPaddingKey, value.horizontalPadding),
       preferences.setString(_themePresetKey, value.themePreset.name),
+      if (value.customBackgroundColor == null)
+        preferences.remove(_customBackgroundKey)
+      else
+        preferences.setInt(_customBackgroundKey, value.customBackgroundColor!),
       preferences.setDouble(_letterSpacingKey, value.letterSpacing),
       preferences.setDouble(_verticalPaddingKey, value.verticalPadding),
       preferences.setDouble(_titleSizeKey, value.titleSize),
@@ -446,12 +526,19 @@ class ReaderPreferences {
       preferences.setString(_readingInfoModeKey, value.readingInfoMode.name),
       preferences.setBool(_showSystemStatusBarKey, value.showSystemStatusBar),
       preferences.setBool(
+        _showSystemNavigationBarKey,
+        value.showSystemNavigationBar,
+      ),
+      preferences.setBool(
         _followSystemBrightnessKey,
         value.followSystemBrightness,
       ),
       preferences.setDouble(_brightnessKey, value.brightness),
       preferences.setString(_fontPathKey, value.fontPath),
       preferences.setString(_fontNameKey, value.fontName),
+      preferences.setBool(_builtinSerifFontKey, value.builtinSerifFont),
+      preferences.setBool(_firstLineIndentKey, value.firstLineIndent),
+      preferences.setBool(_justifyTextKey, value.justifyText),
       preferences.setString(_pageModeKey, value.pageMode.name),
       preferences.setString(_pageTurnStyleKey, value.pageTurnStyle.name),
       preferences.setBool(_volumeKeyTurnKey, value.volumeKeyTurn),
@@ -473,6 +560,11 @@ class ReaderPreferences {
           _narrationHighlightStyleKey,
           value.narrationHighlightStyle!,
         ),
+      preferences.setBool(_dialogueHighlightKey, value.dialogueHighlight),
+      preferences.setString(
+        _dialogueHighlightStyleKey,
+        value.dialogueHighlightStyle.name,
+      ),
       preferences.setBool(_continuousReadingKey, value.continuousReading),
       preferences.setString(
         _scrollChapterModeKey,

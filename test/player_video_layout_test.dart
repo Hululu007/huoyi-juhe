@@ -108,6 +108,46 @@ void main() {
     expect(result.video.height, greaterThanOrEqualTo(result.viewport.height));
   });
 
+  test('forceFill fills a landscape-wide source instead of pinning width', () {
+    // 首页 feed 卡的手机形态：横屏片源也铺满裁切（与魔蚁全屏流一致），
+    // 不再降级成按宽适配、上下留大黑边。桌面 wide 形态走 contain，不传它。
+    final result = PlayerVideoLayout.calculate(
+      window: window,
+      insets: insets,
+      videoSize: const Size(1920, 1080),
+      fit: VideoFit.fillFrame,
+      fullScreen: true,
+      forceFill: true,
+    );
+    expect(
+      result.video.width / result.video.height,
+      closeTo(1920 / 1080, .0001),
+    );
+    expect(result.video.width, greaterThanOrEqualTo(result.viewport.width));
+    expect(result.video.height, greaterThanOrEqualTo(result.viewport.height));
+    expect(result.video.center, result.viewport.center);
+  });
+
+  test('forceFill leaves contain and the default demotion untouched', () {
+    // contain 不受 forceFill 影响；不传 forceFill 时横版降级照旧。
+    final contained = PlayerVideoLayout.calculate(
+      window: window,
+      insets: insets,
+      videoSize: const Size(1920, 1080),
+      fit: VideoFit.contain,
+      fullScreen: true,
+      forceFill: true,
+    );
+    expect(contained.video.width, lessThanOrEqualTo(contained.viewport.width));
+    expect(
+      contained.video.height,
+      lessThanOrEqualTo(contained.viewport.height),
+    );
+    final demoted = layout(const Size(1920, 1080));
+    expect(demoted.video.width, closeTo(demoted.viewport.width, .01));
+    expect(demoted.video.height, lessThan(demoted.viewport.height));
+  });
+
   test('a wide screen forces contain even when 画面撑满 is on (#59)', () {
     // 官方 `cq3/o.d()`：宽屏时强制 `DISPLAY_MODE_ASPECT_FIT`(mode 3)，所以
     // 横屏全屏里「画面撑满」不再生效。

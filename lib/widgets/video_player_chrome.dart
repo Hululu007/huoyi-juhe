@@ -1643,10 +1643,7 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
     );
     try {
       if (landscape) {
-        await _showSidePanel<void>(
-          background: moyiSheetFill,
-          builder: build,
-        );
+        await _showSidePanel<void>(background: moyiSheetFill, builder: build);
       } else {
         await showModalBottomSheet<void>(
           context: context,
@@ -1967,10 +1964,7 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
     onTap: () => onChanged(!value),
     child: Row(
       children: [
-        Text(
-          label,
-          style: const TextStyle(fontSize: 14, color: Colors.white),
-        ),
+        Text(label, style: const TextStyle(fontSize: 14, color: Colors.white)),
         const Spacer(),
         Switch(key: ValueKey(switchKey), value: value, onChanged: onChanged),
       ],
@@ -2259,6 +2253,14 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
   bool get _portraitBrowse =>
       !_splitActive && !_windowLandscape && !_fullScreen;
 
+  /// 竖屏短剧浏览态是否强制铺满：面板未展开、非分屏时，画面恒按
+  /// fillFrame 铺满视口（与魔蚁全屏流一致），竖屏 9:16 片源不再左右
+  /// 留黑边。面板展开/横屏/全屏/分屏/非短剧播放器一律走原有填充规则；
+  /// 「完整画面/等比铺满」开关在该态下不再改变填充（开关本身与存储
+  /// 默认值不动，在其余形态里仍有效）。
+  bool _forcePortraitFill({required bool compact}) =>
+      !compact && widget.shortSeries && _portraitBrowse && !_panelOpen;
+
   /// 右缘锁定按钮此刻是否占位（与 [_lockButton] 同门，但不看淡出动画与
   /// 锁定态）：「下一集」卡叠在画面上时要按它让出命中区，否则点卡片会
   /// 点到锁上。
@@ -2468,7 +2470,11 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
       window: window,
       insets: insets,
       videoSize: _videoSize,
-      fit: VideoFit.contain,
+      // 覆盖层几何与真实视频矩形同源：竖屏短剧浏览态用 fillFrame，
+      // 其余形态保持 contain（与 _positionVideo 的回落口径一致）。
+      fit: _forcePortraitFill(compact: compact)
+          ? VideoFit.fillFrame
+          : VideoFit.contain,
       panelFraction: compact ? 0 : _panelFraction,
       restingPanelFraction: compact ? 0 : _panelRestFraction,
       fullScreen: _fullScreen || landscape,
@@ -3778,7 +3784,10 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
         // 横屏窗口与主动全屏使用同一画面规则；横置进入时也不能沿用
         // 竖屏的裁切和信息区留白。这里只改变几何，不改变返回/转屏状态。
         // 分屏视频盒同理：盒子里只求完整显示，撑满会裁掉字幕。
-        fit: compact
+        // 竖屏短剧浏览态（面板未展开）恒铺满：见 _forcePortraitFill。
+        fit: _forcePortraitFill(compact: compact)
+            ? VideoFit.fillFrame
+            : compact
             ? VideoFit.contain
             : PlayerVideoLayout.fitFor(
                 fillScreen: widget.fillScreen,
@@ -4264,9 +4273,7 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
             height: 44,
             padding: EdgeInsets.symmetric(horizontal: edgeToEdge ? 16 : 12),
             decoration: BoxDecoration(
-              color: edgeToEdge
-                  ? moyiSheetFill
-                  : const Color(0x14FFFFFF),
+              color: edgeToEdge ? moyiSheetFill : const Color(0x14FFFFFF),
               borderRadius: edgeToEdge
                   ? const BorderRadius.vertical(bottom: Radius.circular(12))
                   : BorderRadius.circular(10),

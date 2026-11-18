@@ -105,6 +105,7 @@ extension _ComicReaderBuild on _ComicReaderPageState {
       onImageFailed: _imageFailedForGeneration,
       onOpenImage: _showImage,
       providerFactory: widget.imageProviderFactory,
+      einkMode: palette.eink,
     );
   }
 

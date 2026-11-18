@@ -53,6 +53,12 @@ dependencies:
   html: 0.15.6
   xml: ^7.0.1
   flutter_lucide: 1.59.0
+  # 上游翻页源码（reader_paged_view/curl/turn_settings/ribbon）整取自
+  # ch6vip/fqapp，import 的是 material_ui；与上游同钉 ^1.11.0。
+  # material_ui 1.11.0 须配 cupertino_ui 1.1.6（上游同钉），配旧版 1.0.2
+  # 会导致 MaterialApp 类型链断裂、测试 analyze 报错。
+  material_ui: ^1.11.0
+  cupertino_ui: ^1.1.6
   lottie: ^3.6.1
   flutter_rust_bridge: 2.13.0
   connectivity_plus: ^7.3.1

@@ -89,7 +89,8 @@ class PlayerVideoLayout {
   /// its burnt in captions — stays visible. An unknown size resolves to 9:16
   /// through [sourceSize]: until the decoder reports its own geometry the source
   /// is assumed portrait, which only decides *this* predicate (the stage box in
-  /// [calculate] still fills the viewport).
+  /// [calculate] still fills the viewport). [calculate]'s `forceFill` skips
+  /// this demotion for surfaces that must fill no matter the source shape.
   static bool fillsFrame(Size videoSize) {
     final source = sourceSize(videoSize);
     return source.width / source.height < landscapeRatio;
@@ -181,6 +182,11 @@ class PlayerVideoLayout {
     double? restingPanelFraction,
     bool fullScreen = false,
     bool compact = false,
+    // fillFrame 时跳过 fillsFrame 的横版降级、恒按 max scale 铺满裁切：
+    // 首页 feed 卡的手机形态要求横屏片源也铺满（与魔蚁全屏流一致），
+    // 卡片自带 ClipRRect，裁掉的部分不出画面。默认 false，其余调用方
+    // 行为不变；桌面 wide 形态走 contain，不传它。
+    bool forceFill = false,
   }) {
     final availableHeight = math.max(0.0, window.height - insets.top);
     final fraction = panelFraction.clamp(0.0, 1.0);
@@ -215,8 +221,9 @@ class PlayerVideoLayout {
     }
     final source = videoSize;
     // Filling scales until both axes cover the frame, so the caller has to clip
-    // the overflow; fitting keeps the whole picture inside instead.
-    final scale = fit == VideoFit.fillFrame && fillsFrame(source)
+    // the overflow; fitting keeps the whole picture inside instead. forceFill
+    // keeps the max scale even for a landscape-wide source.
+    final scale = fit == VideoFit.fillFrame && (forceFill || fillsFrame(source))
         ? math.max(
             viewport.width / source.width,
             viewport.height / source.height,
