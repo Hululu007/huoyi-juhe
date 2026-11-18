@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart' as mui;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fqapp/pages/settings_page.dart';
@@ -219,7 +220,7 @@ void main() {
       // 排版面板底色：纯黑页面上再铺纯黑会让面板边界消失。
       expect(preset.sheetColor, const Color(0xFF0C0C0E));
 
-      final theme = preset.theme(ThemeData.light());
+      final theme = preset.theme(mui.ThemeData.light());
       expect(theme.scaffoldBackgroundColor, Colors.black);
       expect(theme.colorScheme.surface, const Color(0xFF0C0C0E));
       expect(
@@ -256,7 +257,7 @@ void main() {
     });
 
     test('reader theme cache separates oled from the plain dark theme', () {
-      final base = ThemeData.light();
+      final base = mui.ThemeData.light();
       final plain = ReaderThemePreset.dark.theme(base);
       oledModeNotifier.value = true;
       final oled = ReaderThemePreset.dark.theme(base);

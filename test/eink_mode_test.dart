@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart' as mui;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fqapp/services/app_theme.dart';
@@ -28,7 +29,7 @@ void main() {
   });
 
   test('reader e-ink theme does not use a tonal seed palette', () {
-    final base = ThemeData.light();
+    final base = mui.ThemeData.light();
     final theme = ReaderThemePreset.eink.theme(base);
     expect(theme.colorScheme.surface, Colors.white);
     expect(theme.colorScheme.onSurface, Colors.black);
