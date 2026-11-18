@@ -710,8 +710,12 @@ jobs:
       - name: Resolve Dart package dependencies
         run: flutter pub get --enforce-lockfile
 
+      # Flutter 3.50 makes info-level issues fatal by default: the
+      # flutter/material deprecation alone (464 files, still supported, only
+      # deprecated) would fail the gate with zero errors. --no-fatal-infos
+      # keeps errors and warnings fatal while letting infos through.
       - name: Analyze
-        run: flutter analyze --no-pub
+        run: flutter analyze --no-pub --no-fatal-infos
 
       # Size is review context, not a quality gate. Even a reporting error
       # must not block the build; analysis and functional checks stay enforced.
