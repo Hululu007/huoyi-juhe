@@ -150,7 +150,9 @@ extension _ReaderPageListeningLaunch on _ReaderPageState {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
       ),
-      builder: (_) => _ListeningSourceSheet(preset: preset),
+      builder: (_) => ReaderMaterialLocalizations(
+        child: _ListeningSourceSheet(preset: preset),
+      ),
     );
   }
 

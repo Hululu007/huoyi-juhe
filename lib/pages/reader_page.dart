@@ -58,6 +58,7 @@ import '../widgets/reader/cue_index.dart';
 import '../widgets/reader/reader_controls.dart';
 import '../widgets/reader/reader_cutout_insets.dart';
 import '../widgets/reader/reader_directory_sheet.dart';
+import '../widgets/reader/reader_material_localizations.dart';
 import '../widgets/reader/reader_illustration.dart';
 import '../widgets/reader/reader_ideas_sheet.dart';
 import '../widgets/reader/reader_paged_view.dart';
@@ -518,6 +519,11 @@ class _ReaderPageState extends State<ReaderPage>
     }
     // 阅读器子树内的 material_ui ScaffoldMessenger：补齐 _showMessage /
     // _toggleControls 已假设的祖先。钥匙直取，不用 .of(context)。
-    return ScaffoldMessenger(key: _scaffoldMessengerKey, child: page);
+    // 同一处再包一层 material_ui 本地化：外壳 SDK MaterialApp 只提供
+    // SDK 型的 MaterialLocalizations，mui widget（AppBar、面板、对话框）
+    // 要的是 mui 自己的那份，缺了就抛 No MaterialLocalizations。
+    return ReaderMaterialLocalizations(
+      child: ScaffoldMessenger(key: _scaffoldMessengerKey, child: page),
+    );
   }
 }

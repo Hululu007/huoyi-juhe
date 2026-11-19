@@ -3,6 +3,7 @@ import 'package:flutter_lucide/flutter_lucide.dart';
 
 import '../../services/reader_preferences.dart';
 import '../../services/reader_tap_zones.dart';
+import 'reader_material_localizations.dart';
 import 'reader_theme.dart';
 
 /// 点击区域设置编辑器：全屏半透明弹窗里的 3x3 九宫格，布局参考 Legado 的
@@ -18,8 +19,9 @@ Future<List<ReaderTapZoneAction>?> showReaderTapZoneEditor({
     context: context,
     barrierColor: Colors.black54,
     barrierDismissible: true,
-    builder: (context) =>
-        _ReaderTapZoneEditor(initialZones: initialZones, preset: preset),
+    builder: (context) => ReaderMaterialLocalizations(
+      child: _ReaderTapZoneEditor(initialZones: initialZones, preset: preset),
+    ),
   );
 }
 
@@ -46,22 +48,24 @@ class _ReaderTapZoneEditorState extends State<_ReaderTapZoneEditor> {
     final selected = await showModalBottomSheet<ReaderTapZoneAction>(
       context: context,
       backgroundColor: preset.panelColor,
-      builder: (context) => Theme(
-        data: preset.theme(Theme.of(context)),
-        child: SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const ListTile(title: Text('选择动作'), enabled: false),
-              for (final action in ReaderTapZoneAction.values)
-                ListTile(
-                  title: Text(action.label),
-                  trailing: action == _zones[index]
-                      ? Icon(LucideIcons.check, color: preset.accentColor)
-                      : null,
-                  onTap: () => Navigator.pop(context, action),
-                ),
-            ],
+      builder: (context) => ReaderMaterialLocalizations(
+        child: Theme(
+          data: preset.theme(Theme.of(context)),
+          child: SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const ListTile(title: Text('选择动作'), enabled: false),
+                for (final action in ReaderTapZoneAction.values)
+                  ListTile(
+                    title: Text(action.label),
+                    trailing: action == _zones[index]
+                        ? Icon(LucideIcons.check, color: preset.accentColor)
+                        : null,
+                    onTap: () => Navigator.pop(context, action),
+                  ),
+              ],
+            ),
           ),
         ),
       ),

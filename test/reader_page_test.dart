@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:material_ui/material_ui.dart' as mui;
 import 'package:flutter_lucide/flutter_lucide.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -105,7 +106,7 @@ void main() {
       } else if (loadState == 'not yet displayed') {
         pending.complete('A chapter that has not been displayed.');
         await tester.idle();
-        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+        expect(find.byType(mui.CircularProgressIndicator), findsOneWidget);
       }
 
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
@@ -272,7 +273,7 @@ void main() {
       _readerApp(readerStore: store, chapterLoader: _longChapterLoader),
     );
     await tester.pump();
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.byType(mui.CircularProgressIndicator), findsOneWidget);
     expect(find.byKey(const ValueKey('reader-page-surface')), findsNothing);
     exitWrite.complete();
     await tester.pumpAndSettle();

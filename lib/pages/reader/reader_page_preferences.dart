@@ -367,11 +367,13 @@ extension _ReaderPagePreferences on _ReaderPageState {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
       ),
-      builder: (context) => ReaderDirectorySheet(
-        chapters: widget.chapters,
-        currentIndex: _index,
-        cachedIds: cachedIds,
-        preset: preset,
+      builder: (context) => ReaderMaterialLocalizations(
+        child: ReaderDirectorySheet(
+          chapters: widget.chapters,
+          currentIndex: _index,
+          cachedIds: cachedIds,
+          preset: preset,
+        ),
       ),
     );
     // 墨水屏：目录关闭后刷一次（选了章节时切章本身也会刷一次，不叠加也无妨）。
@@ -391,14 +393,16 @@ extension _ReaderPagePreferences on _ReaderPageState {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
       ),
-      builder: (context) => ChapterCacheSheet(
-        book: _cachedBook,
-        currentIndex: _index,
-        cache: _diskCache,
-        loader: _fetchChapter,
-        onContentAvailable: _onChapterContentAvailable,
-        shell: ChapterCacheShell.reader,
-        readerPreset: preset,
+      builder: (context) => ReaderMaterialLocalizations(
+        child: ChapterCacheSheet(
+          book: _cachedBook,
+          currentIndex: _index,
+          cache: _diskCache,
+          loader: _fetchChapter,
+          onContentAvailable: _onChapterContentAvailable,
+          shell: ChapterCacheShell.reader,
+          readerPreset: preset,
+        ),
       ),
     );
   }

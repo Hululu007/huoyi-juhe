@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:material_ui/material_ui.dart' as mui;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -317,7 +318,7 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(760, 390));
     await tester.pumpWidget(_app(store: store, cache: cache));
     await tester.pump();
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.byType(mui.CircularProgressIndicator), findsOneWidget);
     delayed.complete();
     store.delay = null;
     await tester.pumpAndSettle();

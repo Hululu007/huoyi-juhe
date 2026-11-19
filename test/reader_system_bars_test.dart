@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart' as mui;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fqapp/models/book_comment.dart';
@@ -307,7 +308,8 @@ void main() {
         );
         await tester.pumpAndSettle();
         expect(
-          tester.getRect(find.byType(Scaffold)),
+          // 阅读器建的是 mui 的 Scaffold，SDK 型查不到（迁移跟不上测试）。
+          tester.getRect(find.byType(mui.Scaffold)),
           const Rect.fromLTWH(0, 0, 390, 800),
         );
         final viewport = tester.getRect(_surface);

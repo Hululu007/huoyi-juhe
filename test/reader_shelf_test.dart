@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart' as mui;
 import 'package:hive_ce/hive.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -64,21 +65,21 @@ void main() {
 
     final button = find.byKey(const ValueKey('reader-shelf-button'));
     expect(button, findsOneWidget);
-    expect(tester.widget<IconButton>(button).tooltip, '加入书架');
+    expect(tester.widget<mui.IconButton>(button).tooltip, '加入书架');
 
     await tester.tap(button);
     await _settleShelfWrite(tester, '已加入书架');
 
     expect(ShelfStore.instance.contains('book', 'reader-shelf'), isTrue);
     expect(find.text('已加入书架'), findsOneWidget);
-    expect(tester.widget<IconButton>(button).tooltip, '已在书架');
+    expect(tester.widget<mui.IconButton>(button).tooltip, '已在书架');
 
     await tester.tap(button);
     await _settleShelfWrite(tester, '已移出书架');
 
     expect(ShelfStore.instance.contains('book', 'reader-shelf'), isFalse);
     expect(find.text('已移出书架'), findsOneWidget);
-    expect(tester.widget<IconButton>(button).tooltip, '加入书架');
+    expect(tester.widget<mui.IconButton>(button).tooltip, '加入书架');
   });
 
   testWidgets('漫画阅读器里可以直接加入书架', (tester) async {

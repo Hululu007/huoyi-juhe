@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fqapp/services/reader_tap_zones.dart';
+import 'package:fqapp/widgets/reader/reader_material_localizations.dart';
 import 'package:fqapp/widgets/reader/reader_tap_zone_sheet.dart';
 
 void main() {
@@ -20,15 +21,19 @@ void main() {
     Future<List<ReaderTapZoneAction>?>? result;
     await tester.pumpWidget(
       MaterialApp(
-        home: Builder(
-          builder: (context) => ElevatedButton(
-            onPressed: () {
-              result = showReaderTapZoneEditor(
-                context: context,
-                initialZones: initial,
-              );
-            },
-            child: const Text('open'),
+        // 假调用方也要包 mui 本地化：真调用方是更多设置面板内容（已包），
+        // mui 的 showDialog 在打开时就用调用方 context 取 mui 本地化。
+        home: ReaderMaterialLocalizations(
+          child: Builder(
+            builder: (context) => ElevatedButton(
+              onPressed: () {
+                result = showReaderTapZoneEditor(
+                  context: context,
+                  initialZones: initial,
+                );
+              },
+              child: const Text('open'),
+            ),
           ),
         ),
       ),

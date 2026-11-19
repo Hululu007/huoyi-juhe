@@ -5,6 +5,7 @@ import '../../services/app_theme_style.dart';
 import '../../services/reader_device.dart';
 import '../../services/reader_preferences.dart';
 import '../app_ui/app_ui_scope.dart';
+import 'reader_material_localizations.dart';
 import 'reader_theme.dart';
 import 'settings/reader_turn_settings.dart';
 import 'settings/reader_font_picker_sheet.dart';
@@ -47,9 +48,10 @@ Future<void> showReaderSettingsSheet({
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
     ),
-    builder: (context) => AppUiScope(
-      store: _classicStyleStore,
-      child: ReaderAppearanceSheet(
+    builder: (context) => ReaderMaterialLocalizations(
+      child: AppUiScope(
+        store: _classicStyleStore,
+        child: ReaderAppearanceSheet(
         initialValue: initialValue,
         onChanged: onChanged,
         onPickFont: onPickFont,
@@ -64,6 +66,7 @@ Future<void> showReaderSettingsSheet({
         oledOverride: oledOverride,
         onTextReplacement: onTextReplacement,
         onListeningSource: onListeningSource,
+      ),
       ),
     ),
   );

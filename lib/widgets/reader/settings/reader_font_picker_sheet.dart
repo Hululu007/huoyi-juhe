@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../../../services/reader_device.dart';
 import '../../../services/reader_preferences.dart';
+import '../reader_material_localizations.dart';
 import '../reader_theme.dart';
 import 'reader_settings_widgets.dart';
 
@@ -28,12 +29,14 @@ Future<ReaderFontSelection?> showReaderFontPicker({
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
     ),
-    builder: (context) => _ReaderFontPickerSheet(
-      preset: preset,
-      currentPath: currentPath,
-      currentName: currentName,
-      onPickFont: onPickFont,
-      currentBuiltinSerif: currentBuiltinSerif,
+    builder: (context) => ReaderMaterialLocalizations(
+      child: _ReaderFontPickerSheet(
+        preset: preset,
+        currentPath: currentPath,
+        currentName: currentName,
+        onPickFont: onPickFont,
+        currentBuiltinSerif: currentBuiltinSerif,
+      ),
     ),
   );
 }

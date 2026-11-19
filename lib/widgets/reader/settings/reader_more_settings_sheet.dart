@@ -4,6 +4,7 @@ import 'package:flutter_lucide/flutter_lucide.dart';
 import '../../../services/linux_platform.dart';
 import '../../../services/reader_preferences.dart';
 import '../../app_ui/app_ui_scope.dart';
+import '../reader_material_localizations.dart';
 import '../reader_tap_zone_sheet.dart';
 import '../reader_theme.dart';
 import 'reader_settings_state.dart';
@@ -38,13 +39,15 @@ Future<ReaderMoreSettingsResult?> showReaderMoreSettings({
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
     ),
-    builder: (context) => ReaderMoreSettingsSheet(
-      initialValue: initialValue,
-      onChanged: onChanged,
-      einkOverride: einkOverride,
-      oledOverride: oledOverride,
-      backgroundLocked: backgroundLocked,
-      showListeningSource: showListeningSource,
+    builder: (context) => ReaderMaterialLocalizations(
+      child: ReaderMoreSettingsSheet(
+        initialValue: initialValue,
+        onChanged: onChanged,
+        einkOverride: einkOverride,
+        oledOverride: oledOverride,
+        backgroundLocked: backgroundLocked,
+        showListeningSource: showListeningSource,
+      ),
     ),
   );
 }

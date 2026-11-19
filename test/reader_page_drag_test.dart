@@ -12,32 +12,45 @@ void main() {
   for (final style in [ReaderPageTurnStyle.slide, ReaderPageTurnStyle.cover]) {
     for (final direction in [1, -1]) {
       for (final startX in [140.0, 280.0]) {
-        testWidgets('$style direction $direction follows finger from $startX', (
+        testWidgets('$style 翻页从屏幕边沿滑入，与触点无关（direction $direction x=$startX）', (
           tester,
         ) async {
           await _pumpPager(tester, style);
           final viewport = tester.getRect(find.byType(PageView));
-          var finger = viewport.topLeft + Offset(startX, 300);
-          final gesture = await tester.startGesture(finger);
           final seamPage = direction > 0 ? 2 : 1;
-          for (final distance in [30.0, 50.0, -20.0]) {
-            finger += Offset(-direction * distance, 0);
-            await gesture.moveTo(finger);
+          final gesture = await tester.startGesture(
+            viewport.topLeft + Offset(startX, 300),
+          );
+          // 位移从「起手点以来的手指位移」算，因此接缝位置只跟拖了多远
+          // 有关，跟手指按在屏幕哪个位置无关：下一页的左缘从右缘进入、
+          // 上一页的右缘从左缘进入，中途反向也按位移退回去。产品实现见
+          // reader_paged_view.dart 的 _wrapPageDrag（与上游 18161a89
+          // 逐字节一致），旧期望把接缝钉在手指下方是错的：实测接缝
+          // 470.0 = 右缘 500 − 位移 30，正是上游公式。
+          for (final distance in [24.0, 60.0, 40.0]) {
+            await gesture.moveTo(
+              viewport.topLeft + Offset(startX - direction * distance, 300),
+            );
             await tester.pump();
             final seam = tester.getTopLeft(
               find.byKey(ValueKey('reader-text-page-$seamPage')),
             );
-            expect(seam.dx, closeTo(finger.dx, 0.1));
+            final expected = direction > 0
+                ? viewport.right - distance
+                : viewport.left + distance;
+            expect(seam.dx, closeTo(expected, 0.1));
           }
+          // 拖过屏宽一半以上再松手，翻页完成。
+          await gesture.moveTo(
+            viewport.topLeft + Offset(startX - direction * 320, 300),
+          );
+          await tester.pump();
           await gesture.up();
           await tester.pumpAndSettle();
           final controller = tester
               .widget<PageView>(find.byType(PageView))
               .controller!;
-          final expectedPage = startX < 200
-              ? (direction > 0 ? 2 : 1)
-              : (direction > 0 ? 1 : 0);
-          expect(controller.page, expectedPage.toDouble());
+          expect(controller.page, (direction > 0 ? 2 : 0).toDouble());
           expect(tester.takeException(), isNull);
         });
       }
