@@ -10,6 +10,7 @@ import 'package:fqapp/services/text_replacement_store.dart';
 import 'package:fqapp/models/media_item.dart';
 import 'package:fqapp/pages/audio_page.dart';
 import 'package:fqapp/pages/reader_page.dart';
+import 'package:fqapp/widgets/reader/reader_material_localizations.dart';
 import 'package:fqapp/services/chapter_text_formatter.dart';
 import 'package:fqapp/services/reader_underline_store.dart';
 import 'package:fqapp/widgets/reader/reader_paged_view.dart';
@@ -108,6 +109,7 @@ Widget _app(
   bool localOnly = false,
   TextReplacementStore? replacementStore,
 }) => MaterialApp(
+  builder: (context, child) => ReaderMaterialLocalizations(child: child!),
   home: ReaderPage(
     bookId: 'reader-test',
     title: '测试书籍',
@@ -723,6 +725,7 @@ void main() {
       addTearDown(() => tester.binding.setSurfaceSize(null));
       await tester.pumpWidget(
         MaterialApp(
+          builder: (context, child) => ReaderMaterialLocalizations(child: child!),
           home: ReaderPage(
             bookId: 'reader-test',
             title: '测试书籍',

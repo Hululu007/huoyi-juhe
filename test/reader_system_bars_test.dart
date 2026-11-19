@@ -10,6 +10,7 @@ import 'package:fqapp/models/book_comment.dart';
 import 'package:fqapp/models/chapter_ideas.dart';
 import 'package:fqapp/models/media_item.dart';
 import 'package:fqapp/pages/reader_page.dart';
+import 'package:fqapp/widgets/reader/reader_material_localizations.dart';
 import 'package:fqapp/services/app_theme.dart';
 import 'package:fqapp/services/chapter_text_formatter.dart';
 import 'package:fqapp/services/reader_preferences.dart';
@@ -46,7 +47,13 @@ void main() {
   ) async {
     // 默认显示状态栏：先关再开。
     for (final visible in [false, true]) {
-      await tester.pumpWidget(MaterialApp(home: _reader()));
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) =>
+              ReaderMaterialLocalizations(child: child!),
+          home: _reader(),
+        ),
+      );
       await tester.pumpAndSettle();
       await tester.tapAt(tester.getRect(_surface).center);
       await tester.pumpAndSettle();
@@ -88,7 +95,12 @@ void main() {
       });
       final navigator = GlobalKey<NavigatorState>();
       await tester.pumpWidget(
-        MaterialApp(navigatorKey: navigator, home: _reader()),
+        MaterialApp(
+          builder: (context, child) =>
+              ReaderMaterialLocalizations(child: child!),
+          navigatorKey: navigator,
+          home: _reader(),
+        ),
       );
       await tester.pumpAndSettle();
 
@@ -185,7 +197,12 @@ void main() {
         });
         final navigator = GlobalKey<NavigatorState>();
         await tester.pumpWidget(
-          MaterialApp(navigatorKey: navigator, home: const Scaffold()),
+          MaterialApp(
+            builder: (context, child) =>
+                ReaderMaterialLocalizations(child: child!),
+            navigatorKey: navigator,
+            home: const Scaffold(),
+          ),
         );
         navigator.currentState!.push(
           MaterialPageRoute<void>(builder: (_) => _readerWithIdeas()),
@@ -225,7 +242,12 @@ void main() {
   ) async {
     einkModeNotifier.value = true;
     addTearDown(() => einkModeNotifier.value = false);
-    await tester.pumpWidget(MaterialApp(home: _readerWithIdeas()));
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => ReaderMaterialLocalizations(child: child!),
+        home: _readerWithIdeas(),
+      ),
+    );
     await tester.pumpAndSettle();
 
     // A fully transparent barrierColor makes the bottom-sheet route build

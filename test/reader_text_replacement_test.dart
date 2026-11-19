@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fqapp/models/media_item.dart';
 import 'package:fqapp/pages/reader_page.dart';
+import 'package:fqapp/widgets/reader/reader_material_localizations.dart';
 import 'package:fqapp/widgets/chapter_cache_sheet.dart';
 import 'package:fqapp/services/text_replacement_store.dart';
 import 'support/fakes.dart';
@@ -77,6 +78,8 @@ void main() {
       );
       await tester.pumpWidget(
         MaterialApp(
+          builder: (context, child) =>
+              ReaderMaterialLocalizations(child: child!),
           home: ReaderPage(
             bookId: 'b',
             title: 'Book',
@@ -202,6 +205,7 @@ void main() {
     await cache.write(bookId: 'b', chapterId: 'c', title: 'C', text: original);
     await tester.pumpWidget(
       MaterialApp(
+        builder: (context, child) => ReaderMaterialLocalizations(child: child!),
         home: ReaderPage(
           bookId: 'b',
           title: 'Book',

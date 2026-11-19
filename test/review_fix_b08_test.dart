@@ -7,6 +7,7 @@ import 'package:fqapp/models/book_comment.dart';
 import 'package:fqapp/models/chapter_ideas.dart';
 import 'package:fqapp/models/media_item.dart';
 import 'package:fqapp/pages/reader_page.dart';
+import 'package:fqapp/widgets/reader/reader_material_localizations.dart';
 import 'package:fqapp/services/listening_session.dart';
 
 import 'support/fakes.dart';
@@ -24,6 +25,7 @@ Widget _app({
   ChapterIdeasLoader? ideasLoader,
   ParagraphCommentResolver? commentResolver,
 }) => MaterialApp(
+  builder: (context, child) => ReaderMaterialLocalizations(child: child!),
   home: ReaderPage(
     bookId: 'reader-test',
     title: title,

@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fqapp/models/media_item.dart';
 import 'package:fqapp/pages/cached_book_reader.dart';
 import 'package:fqapp/pages/reader_page.dart';
+import 'package:fqapp/widgets/reader/reader_material_localizations.dart';
 import 'package:fqapp/services/book_updates.dart';
 import 'package:fqapp/services/chapter_cache_store.dart';
 
@@ -139,6 +140,7 @@ Future<void> _open(
   addTearDown(() => tester.pumpWidget(const SizedBox.shrink()));
   await tester.pumpWidget(
     MaterialApp(
+      builder: (context, child) => ReaderMaterialLocalizations(child: child!),
       home: Builder(
         builder: (context) => TextButton(
           onPressed: () => openRecentBook(

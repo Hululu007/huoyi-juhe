@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fqapp/models/media_item.dart';
 import 'package:fqapp/pages/reader_page.dart';
+import 'package:fqapp/widgets/reader/reader_material_localizations.dart';
 import 'package:fqapp/services/chapter_cache_store.dart';
 import 'package:fqapp/services/reader_device.dart';
 import 'package:fqapp/services/reader_preferences.dart';
@@ -461,13 +462,15 @@ Widget _app({
   int startIndex = 0,
   double scale = 1,
 }) => MaterialApp(
-  builder: (context, child) => RepaintBoundary(
-    key: const ValueKey('pagination-preview'),
-    child: MediaQuery(
-      data: MediaQuery.of(
-        context,
-      ).copyWith(textScaler: TextScaler.linear(scale)),
-      child: child!,
+  builder: (context, child) => ReaderMaterialLocalizations(
+    child: RepaintBoundary(
+      key: const ValueKey('pagination-preview'),
+      child: MediaQuery(
+        data: MediaQuery.of(
+          context,
+        ).copyWith(textScaler: TextScaler.linear(scale)),
+        child: child!,
+      ),
     ),
   ),
   home: ReaderPage(

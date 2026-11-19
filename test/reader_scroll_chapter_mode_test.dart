@@ -10,6 +10,7 @@ import 'package:fqapp/models/book_comment.dart';
 import 'package:fqapp/models/chapter_ideas.dart';
 import 'package:fqapp/services/chapter_text_formatter.dart';
 import 'package:fqapp/pages/reader_page.dart';
+import 'package:fqapp/widgets/reader/reader_material_localizations.dart';
 import 'package:fqapp/services/reader_preferences.dart';
 import 'package:fqapp/services/reader_underline_store.dart';
 import 'package:fqapp/widgets/reader/reader_joined_scroll.dart';
@@ -438,6 +439,7 @@ Widget _readerApp(
   ChapterIdeasLoader? ideasLoader,
   ParagraphCommentResolver? commentResolver,
 }) => MaterialApp(
+  builder: (context, child) => ReaderMaterialLocalizations(child: child!),
   theme: ThemeData(splashFactory: NoSplash.splashFactory),
   home: ReaderPage(
     bookId: 'joined-test',

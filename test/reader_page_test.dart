@@ -9,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fqapp/models/chapter_ideas.dart';
 import 'package:fqapp/models/media_item.dart';
 import 'package:fqapp/pages/reader_page.dart';
+import 'package:fqapp/widgets/reader/reader_material_localizations.dart';
 import 'package:fqapp/services/library_store.dart';
 import 'package:fqapp/services/chapter_cache_store.dart';
 import 'package:fqapp/services/chapter_text_formatter.dart';
@@ -644,9 +645,11 @@ Widget _readerApp({
   TextScaler textScaler = TextScaler.noScaling,
 }) {
   return MaterialApp(
-    builder: (context, child) => MediaQuery(
-      data: MediaQuery.of(context).copyWith(textScaler: textScaler),
-      child: child!,
+    builder: (context, child) => ReaderMaterialLocalizations(
+      child: MediaQuery(
+        data: MediaQuery.of(context).copyWith(textScaler: textScaler),
+        child: child!,
+      ),
     ),
     home: ReaderPage(
       bookId: 'reader-test',

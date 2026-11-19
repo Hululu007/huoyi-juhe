@@ -7,6 +7,7 @@ import 'package:fqapp/models/chapter_ideas.dart';
 import 'package:fqapp/models/comment_reply.dart';
 import 'package:fqapp/models/media_item.dart';
 import 'package:fqapp/pages/reader_page.dart';
+import 'package:fqapp/widgets/reader/reader_material_localizations.dart';
 import 'package:fqapp/services/app_theme.dart';
 import 'package:fqapp/services/chapter_text_formatter.dart';
 import 'package:fqapp/services/eink_refresh.dart';
@@ -548,6 +549,7 @@ void main() {
       addTearDown(() => tester.binding.setSurfaceSize(null));
       await tester.pumpWidget(
         MaterialApp(
+          builder: (context, child) => ReaderMaterialLocalizations(child: child!),
           home: ReaderPage(
             bookId: 'book',
             title: '测试书',

@@ -1,6 +1,7 @@
 import 'services/api_client.dart';
 import 'services/audio_downloader.dart';
 import 'widgets/desktop_app_frame.dart';
+import 'widgets/reader/reader_material_localizations.dart';
 import 'services/native_player.dart';
 import 'services/desktop_platform.dart';
 import 'services/drama_site_content.dart';
@@ -350,11 +351,19 @@ class _FqAppState extends State<FqApp> {
                       recentListen: loadRecentListen,
                       child: child ?? const SizedBox.shrink(),
                     );
-                    final framed = AudioFloatingRouteScope(
-                      routes: _audioRoutes,
-                      child: isWindowsDesktop
-                          ? DesktopAppFrame(child: playback)
-                          : playback,
+                    // mui 本地化补在 Navigator 之上：外壳是 SDK MaterialApp，
+                    // 只提供 SDK 型的 MaterialLocalizations；material_ui 的
+                    // showModalBottomSheet/showDialog 在调用点与路由里都要 mui
+                    // 自己的那份（见 reader_material_localizations.dart）。
+                    // Localizations.override 是叠加式合并，SDK 的 delegates
+                    // 仍在，不动 localizationsDelegates 那行（#79 钉住它）。
+                    final framed = ReaderMaterialLocalizations(
+                      child: AudioFloatingRouteScope(
+                        routes: _audioRoutes,
+                        child: isWindowsDesktop
+                            ? DesktopAppFrame(child: playback)
+                            : playback,
+                      ),
                     );
                     // 图片背景：图片铺满 + 半透明罩（浅色罩白、深色罩黑），
                     // 正文颜色按主题亮度来，罩住后仍可读；墨水屏不铺图。

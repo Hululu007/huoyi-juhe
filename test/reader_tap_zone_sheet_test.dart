@@ -22,18 +22,19 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         // 假调用方也要包 mui 本地化：真调用方是更多设置面板内容（已包），
-        // mui 的 showDialog 在打开时就用调用方 context 取 mui 本地化。
-        home: ReaderMaterialLocalizations(
-          child: Builder(
-            builder: (context) => ElevatedButton(
-              onPressed: () {
-                result = showReaderTapZoneEditor(
-                  context: context,
-                  initialZones: initial,
-                );
-              },
-              child: const Text('open'),
-            ),
+        // mui 的 showDialog/showModalBottomSheet 在打开时就用调用方
+        // context 取 mui 本地化；builder 包在 Navigator 之上，面板路由
+        // 也能拿到这份本地化，光包 home 不够。
+        builder: (context, child) => ReaderMaterialLocalizations(child: child!),
+        home: Builder(
+          builder: (context) => ElevatedButton(
+            onPressed: () {
+              result = showReaderTapZoneEditor(
+                context: context,
+                initialZones: initial,
+              );
+            },
+            child: const Text('open'),
           ),
         ),
       ),

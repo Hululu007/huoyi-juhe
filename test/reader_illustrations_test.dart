@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fqapp/models/media_item.dart';
 import 'package:fqapp/pages/reader_page.dart';
+import 'package:fqapp/widgets/reader/reader_material_localizations.dart';
 import 'package:fqapp/services/app_theme.dart';
 import 'package:fqapp/services/chapter_cache_store.dart';
 import 'package:fqapp/services/chapter_text_formatter.dart';
@@ -890,6 +891,7 @@ Widget _app({
   ChapterTextLoader? loader,
   List<Chapter>? chapters,
 }) => MaterialApp(
+  builder: (context, child) => ReaderMaterialLocalizations(child: child!),
   theme: AppTheme.createTheme(Brightness.light),
   home: ReaderPage(
     bookId: _bookId,

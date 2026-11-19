@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fqapp/models/media_item.dart';
 import 'package:fqapp/pages/reader_page.dart';
+import 'package:fqapp/widgets/reader/reader_material_localizations.dart';
 import 'package:fqapp/services/reader_device.dart';
 import 'package:fqapp/services/reader_preferences.dart';
 import 'package:fqapp/widgets/reader/reader_appearance_sheet.dart';
@@ -331,11 +332,13 @@ Future<List<ReaderPreferences>> _openSheet(
   final changes = <ReaderPreferences>[];
   await tester.pumpWidget(
     MaterialApp(
-      builder: (context, child) => MediaQuery(
-        data: MediaQuery.of(
-          context,
-        ).copyWith(textScaler: TextScaler.linear(scale)),
-        child: child!,
+      builder: (context, child) => ReaderMaterialLocalizations(
+        child: MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: TextScaler.linear(scale)),
+          child: child!,
+        ),
       ),
       home: Builder(
         builder: (context) => Scaffold(

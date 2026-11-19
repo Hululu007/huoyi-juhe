@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fqapp/widgets/reader/reader_material_localizations.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fqapp/services/reader_preferences.dart';
@@ -129,6 +130,7 @@ Future<List<ReaderPreferences>> _openSheet(
   final changes = <ReaderPreferences>[];
   await tester.pumpWidget(
     MaterialApp(
+      builder: (context, child) => ReaderMaterialLocalizations(child: child!),
       theme: ThemeData(splashFactory: NoSplash.splashFactory),
       home: Builder(
         builder: (context) => Scaffold(

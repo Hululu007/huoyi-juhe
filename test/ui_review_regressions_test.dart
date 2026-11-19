@@ -11,6 +11,7 @@ import 'package:fqapp/models/chapter_media.dart';
 import 'package:fqapp/models/media_item.dart';
 import 'package:fqapp/pages/audio_page.dart';
 import 'package:fqapp/pages/reader_page.dart';
+import 'package:fqapp/widgets/reader/reader_material_localizations.dart';
 import 'package:fqapp/widgets/audio/audio_sections.dart';
 import 'package:fqapp/widgets/detail/detail_reviews.dart';
 import 'package:fqapp/widgets/reader/reader_paged_view.dart';
@@ -403,6 +404,7 @@ Future<void> _mountReader(
   await _mount(
     tester,
     MaterialApp(
+      builder: (context, child) => ReaderMaterialLocalizations(child: child!),
       home: ReaderPage(
         bookId: 'review-reader',
         title: '交叉审查回归',

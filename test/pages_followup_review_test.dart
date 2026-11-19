@@ -9,6 +9,7 @@ import 'package:fqapp/models/media_item.dart';
 import 'package:fqapp/models/search_discovery.dart';
 import 'package:fqapp/pages/audio_page.dart';
 import 'package:fqapp/pages/reader_page.dart';
+import 'package:fqapp/widgets/reader/reader_material_localizations.dart';
 import 'package:fqapp/pages/search_page.dart';
 import 'package:fqapp/services/listening_session.dart';
 import 'package:fqapp/services/search_history_store.dart';
@@ -77,6 +78,12 @@ void main() {
     await tester.testTextInput.receiveAction(TextInputAction.search);
     await tester.pump(const Duration(milliseconds: 300));
     expect(calls, isEmpty);
+    // 提交查询会触发全局站源搜索，searchAllSites 带 60 秒超时
+    // （search_page.dart 的 _ensureGlobalSearch）。假环境里它永不落定，
+    // 只剩这个超时计时器挂着；不把它走完，测试框架在收尾时报
+    // “Timer is still pending”。走完后超时按空结果处理，不影响上面
+    // 的断言。
+    await tester.pump(const Duration(seconds: 61));
   });
 
   testWidgets(
@@ -126,6 +133,7 @@ void main() {
     addTearDown(() => tester.pumpWidget(const SizedBox.shrink()));
     await tester.pumpWidget(
       MaterialApp(
+        builder: (context, child) => ReaderMaterialLocalizations(child: child!),
         home: ReaderPage(
           bookId: 'directory',
           title: '目录测试',

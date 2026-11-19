@@ -9,6 +9,7 @@ import 'package:flutter_lucide/flutter_lucide.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fqapp/models/media_item.dart';
 import 'package:fqapp/pages/reader_page.dart';
+import 'package:fqapp/widgets/reader/reader_material_localizations.dart';
 import 'package:fqapp/services/reader_device.dart';
 import 'package:fqapp/services/reader_preferences.dart';
 import 'package:fqapp/widgets/reader/settings/reader_settings_widgets.dart';
@@ -351,13 +352,15 @@ const _paragraphs = [
 ];
 
 Widget _app(Widget child, {double scale = 1}) => MaterialApp(
-  builder: (context, child) => RepaintBoundary(
-    key: const ValueKey('reader-preview-boundary'),
-    child: MediaQuery(
-      data: MediaQuery.of(
-        context,
-      ).copyWith(textScaler: TextScaler.linear(scale)),
-      child: child!,
+  builder: (context, child) => ReaderMaterialLocalizations(
+    child: RepaintBoundary(
+      key: const ValueKey('reader-preview-boundary'),
+      child: MediaQuery(
+        data: MediaQuery.of(
+          context,
+        ).copyWith(textScaler: TextScaler.linear(scale)),
+        child: child!,
+      ),
     ),
   ),
   home: child,
