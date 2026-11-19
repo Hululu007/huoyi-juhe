@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart' as mui;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fqapp/models/chapter_media.dart';
@@ -156,8 +157,10 @@ void main() {
     await tester.tap(find.byType(TextField));
     tester.view.viewInsets = const FakeViewPadding(bottom: 300);
     await tester.pumpAndSettle();
+    // 目录经 mui 的 showModalBottomSheet 打开，面板是 mui 的 BottomSheet，
+    // SDK 型的 BottomSheet 查不到。
     final list = find.descendant(
-      of: find.byType(BottomSheet),
+      of: find.byType(mui.BottomSheet),
       matching: find.byType(ListView),
     );
     expect(list, findsOneWidget);

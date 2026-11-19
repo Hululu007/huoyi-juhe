@@ -35,14 +35,46 @@ class WebScrapePage extends StatefulWidget {
   State<WebScrapePage> createState() => _WebScrapePageState();
 }
 
-/// 网址归一化：去空白；没写协议时补 https；解析不出 host 返回 null。
+/// 网址归一化：去空白；没写协议时补 https；解析不出 host、或 host 含
+/// 空格等非法字符时返回 null（调用方据此报“请输入正确的网址”）。
 String? normalizeScrapeUrl(String raw) {
   final trimmed = raw.trim();
   if (trimmed.isEmpty) return null;
   final withScheme = trimmed.contains('://') ? trimmed : 'https://$trimmed';
   final uri = Uri.tryParse(withScheme);
   if (uri == null || uri.host.isEmpty) return null;
+  if (!_isValidScrapeHost(uri.host)) return null;
   return withScheme;
+}
+
+/// host 校验：先把百分号编码解开再验——`Uri.tryParse` 会把 host 里的
+/// 空格等非法字符编成 `%20`（`not a url` 的 host 是 `not%20a%20url`），
+/// 直接验编码后的串会把空格漏过去；解不开（非法 `%` 序列）也判无效。
+/// 合法字符：字母数字、`- . _ ~`、子定界符、`%`、IPv6 的 `:`；
+/// 非 ASCII 字符（国际化域名）放行；空白、控制字符与其它 ASCII 标点无效。
+bool _isValidScrapeHost(String host) {
+  final String decoded;
+  try {
+    decoded = Uri.decodeComponent(host);
+  } on ArgumentError {
+    return false;
+  }
+  if (decoded.isEmpty) return false;
+  const asciiPunct = '-._~!\$&\'()*+,;=%:';
+  for (var i = 0; i < decoded.length; i++) {
+    final code = decoded.codeUnitAt(i);
+    if (code <= 0x20 || code == 0x7f) return false;
+    if (code < 0x80) {
+      final alnum =
+          (code >= 0x30 && code <= 0x39) ||
+          (code >= 0x41 && code <= 0x5a) ||
+          (code >= 0x61 && code <= 0x7a);
+      if (!alnum && !asciiPunct.contains(String.fromCharCode(code))) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 class _WebScrapePageState extends State<WebScrapePage> {

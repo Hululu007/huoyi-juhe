@@ -573,7 +573,31 @@ void main() {
       ]);
       await tester.pump();
       expect(find.text('漫画结果'), findsNothing);
-      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      // 加载态按区断言，不用“恰好 1 个”CircularProgressIndicator：
+      // 页内两个合法加载区各一个 spinner——全部站点区（行内小圈）与
+      // 番茄分页脚（38h：Found 2 widgets）。
+      expect(find.text('正在搜索全部站点…'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.ancestor(
+            of: find.text('正在搜索全部站点…'),
+            matching: find.byType(Row),
+          ),
+          matching: find.byType(CircularProgressIndicator),
+        ),
+        findsOneWidget,
+      );
+      // 分页脚的 spinner 在 20dp 方框里（全部站点行内是 16dp）。
+      expect(
+        find.descendant(
+          of: find.byWidgetPredicate(
+            (widget) =>
+                widget is SizedBox && widget.width == 20 && widget.height == 20,
+          ),
+          matching: find.byType(CircularProgressIndicator),
+        ),
+        findsOneWidget,
+      );
       audio.complete([
         SearchTab(
           title: '听书',
@@ -665,6 +689,11 @@ void main() {
     pending.last.completeError(Exception('页面已关闭'));
     await tester.pump();
     expect(tester.takeException(), isNull);
+    // _ensureGlobalSearch 的 60 秒超时计时器在体结束时仍挂着（38h：
+    // Timer 仍挂起）：走满 61 秒让它落定，回调里 mounted 已否、直接
+    // 返回。若产品侧把超时改成 dispose 后不再建（另一路工人），
+    // 这句可删。
+    await tester.pump(const Duration(seconds: 61));
   });
 
   testWidgets('history can search again, delete one entry and clear all', (

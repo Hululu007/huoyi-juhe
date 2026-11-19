@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart' as mui;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fqapp/models/book_comment.dart';
@@ -592,7 +593,9 @@ void main() {
       expect(find.text('12条评论'), findsOneWidget);
       expect(resolved, ['c1:0']);
       expect(find.text('第一段的段评'), findsOneWidget);
-      final panel = tester.getRect(find.byType(BottomSheet));
+      // 段评表经 mui 的 showModalBottomSheet 打开，面板是 mui 的 BottomSheet，
+      // SDK 型的 BottomSheet 查不到。
+      final panel = tester.getRect(find.byType(mui.BottomSheet));
       // The reference leaves roughly the upper third of the reader visible.
       expect(panel.top, inInclusiveRange(230, 270));
       expect(

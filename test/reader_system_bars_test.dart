@@ -67,12 +67,17 @@ void main() {
       final row = find
           .ancestor(of: find.text('系统状态栏'), matching: find.byType(Row))
           .first;
-      final toggle = find.descendant(of: row, matching: find.byType(Switch));
+      // 非 classic 下开关行画的是玻璃开关 GlassControls.toggle，本树本地实现
+      // 仍是 mui 的 Switch，不是 SDK 的 Switch，SDK 型查不到。
+      final toggle = find.descendant(
+        of: row,
+        matching: find.byType(mui.Switch),
+      );
       await tester.ensureVisible(toggle);
-      expect(tester.widget<Switch>(toggle).value, !visible);
+      expect(tester.widget<mui.Switch>(toggle).value, !visible);
       await tester.tap(toggle);
       await tester.pumpAndSettle();
-      expect(tester.widget<Switch>(toggle).value, visible);
+      expect(tester.widget<mui.Switch>(toggle).value, visible);
       await tester.tap(find.byTooltip('关闭更多设置'));
       await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('关闭排版设置'));

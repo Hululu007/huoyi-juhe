@@ -213,6 +213,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('ID 结果'), findsOneWidget);
     expect(find.text('旧关键词结果'), findsNothing);
+    // 初次搜「旧关键词」时起的 _ensureGlobalSearch 60 秒超时计时器
+    // 在假环境里等不到 searchAllSites 回包、体结束时仍挂着（38h：
+    // Timer 仍挂起）；走满 61 秒让它落定。若产品侧把超时改成
+    // dispose 后不再建（另一路工人），这句可删。
+    await tester.pump(const Duration(seconds: 61));
   });
 
   testWidgets(

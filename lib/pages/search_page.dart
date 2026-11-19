@@ -161,6 +161,13 @@ class _SearchPageState extends State<SearchPage> {
   Timer? _suggestDebounce;
   int _suggestGeneration = 0;
 
+  /// 全局 / 站源搜索的可取消超时计时器：`Future.timeout` 的计时器外部
+  /// 无句柄可取消，页面 dispose 时会留下 pending timer；这里改走显式
+  /// Timer + Completer 赛跑（见 [_withCancellableSearchTimeout]），
+  /// 计时器落定后撤掉、dispose 时全部取消。两处搜索可能同时在途，
+  /// 所以用集合而不是单个句柄。
+  final Set<Timer> _searchTimeouts = {};
+
   SearchHistoryRepository get _historyStore =>
       widget.historyStore ?? SearchHistoryStore.instance;
 
@@ -608,6 +615,43 @@ class _SearchPageState extends State<SearchPage> {
     }
   }
 
+  /// 与 `Future.timeout(60 秒)` 同样的超时语义，但计时器显式持有、可
+  /// 取消：源 Future 先落定则撤计时器；60 秒到时按 [timeoutValue] 落定；
+  /// 页面 dispose 时 [_searchTimeouts] 里的计时器全部取消，不留
+  /// pending timer。源 Future 本身不停（与 `Future.timeout` 一致，
+  /// 只是超时后不再等它）；调用方仍按原有 generation 守卫处理过期结果。
+  Future<T> _withCancellableSearchTimeout<T>(Future<T> source, T timeoutValue) {
+    // 必须用同步完成器：`Future.timeout` 内部就是 Completer.sync()，
+    // 完成时当轮就递到 await；普通 Completer 要多一个 microtask，
+    // 单次 pump 后加载标记还没清掉，会多出一个转圈（回归见
+    // search_page_test 'out of order category responses…'）。
+    final completer = Completer<T>.sync();
+    late final Timer timer;
+    void finish() {
+      _searchTimeouts.remove(timer);
+      timer.cancel();
+    }
+
+    timer = Timer(const Duration(seconds: 60), () {
+      _searchTimeouts.remove(timer);
+      if (!completer.isCompleted) completer.complete(timeoutValue);
+    });
+    _searchTimeouts.add(timer);
+    source.then(
+      (value) {
+        if (completer.isCompleted) return;
+        finish();
+        completer.complete(value);
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        if (completer.isCompleted) return;
+        finish();
+        completer.completeError(error, stackTrace);
+      },
+    );
+    return completer.future;
+  }
+
   /// 综合 / 分类型页签下的全局站源搜索：与番茄后端搜索并行跑，按页签
   /// 缓存（换页签不重搜、换词重搜）；单站失败不影响整批（服务层保证）。
   Future<void> _ensureGlobalSearch() async {
@@ -636,16 +680,21 @@ class _SearchPageState extends State<SearchPage> {
     // 那段没有单站超时兜底——真机上 Hive 一旦卡住、测试假环境里异步
     // 文件操作永不落定（CRIT-014），这句 await 会永远挂在这里，加载
     // 标记清不掉、「正在搜索全部站点」转圈转到天荒地老、pumpAndSettle
-    // 跟着超时。超时 / 报错都按空结果处理，番茄结果不受影响；加载
-    // 标记在下面的 setState 里一定清掉，不留永久转圈。
+    // 跟着超时。超时用可取消计时器（见 _withCancellableSearchTimeout，
+    // 不用 Future.timeout：它的计时器外部无句柄，dispose 撤不掉）；
+    // 超时 / 报错都按空结果处理，番茄结果不受影响；加载标记在下面的
+    // setState 里一定清掉，不留永久转圈。
     List<DramaSiteSearchResult> results;
     try {
-      results = await searchAllSites(
-        query,
-        types: scope.types,
-        shortDramaOnly: scope.shortDramaOnly,
-        siteIds: widget.initialSiteIds,
-      ).timeout(const Duration(seconds: 60));
+      results = await _withCancellableSearchTimeout(
+        searchAllSites(
+          query,
+          types: scope.types,
+          shortDramaOnly: scope.shortDramaOnly,
+          siteIds: widget.initialSiteIds,
+        ),
+        const <DramaSiteSearchResult>[],
+      );
     } catch (_) {
       results = const [];
     }
@@ -671,13 +720,15 @@ class _SearchPageState extends State<SearchPage> {
     // 与 _ensureGlobalSearch 同款封顶：searchAllDramaSites 末尾的本地库合并
     // 没有整体超时兜底，测试假环境里异步文件操作永不落定（CRIT-014），
     // 真机上 Hive 卡住或抛错时 _siteLoading 同样清不掉、站源页签被守卫
-    // 永久拦住。超时 / 报错按空结果处理，加载标记一定清掉。
+    // 永久拦住。超时用可取消计时器（见 _withCancellableSearchTimeout，
+    // 不用 Future.timeout：它的计时器外部无句柄，dispose 撤不掉）；
+    // 超时 / 报错按空结果处理，加载标记一定清掉。
     List<DramaSiteSearchResult> results;
     try {
-      results = await searchAllDramaSites(
-        _query,
-        siteIds: widget.initialSiteIds,
-      ).timeout(const Duration(seconds: 60));
+      results = await _withCancellableSearchTimeout(
+        searchAllDramaSites(_query, siteIds: widget.initialSiteIds),
+        const <DramaSiteSearchResult>[],
+      );
     } catch (_) {
       results = const [];
     }
@@ -797,6 +848,12 @@ class _SearchPageState extends State<SearchPage> {
     ++_suggestGeneration;
     _activeRequest?.cancel();
     _suggestDebounce?.cancel();
+    // 可取消超时计时器：在途搜索的 60 秒计时器在这里撤掉，不留
+    // pending timer（Future.timeout 的计时器做不到这一点）。
+    for (final timer in _searchTimeouts) {
+      timer.cancel();
+    }
+    _searchTimeouts.clear();
     _scrollController.dispose();
     _ctrl.dispose();
     super.dispose();

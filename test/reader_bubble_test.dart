@@ -6,6 +6,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart' as mui;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fqapp/models/book_comment.dart';
@@ -436,9 +437,11 @@ void main() {
       final toggleRow = find
           .ancestor(of: find.text('段评气泡'), matching: find.byType(Row))
           .first;
+      // 非 classic 下开关行画的是玻璃开关 GlassControls.toggle，本树本地实现
+      // 仍是 mui 的 Switch，不是 SDK 的 Switch，SDK 型查不到。
       final bubbleSwitch = find.descendant(
         of: toggleRow,
-        matching: find.byType(Switch),
+        matching: find.byType(mui.Switch),
       );
       await tester.ensureVisible(bubbleSwitch);
       await tester.tap(bubbleSwitch);

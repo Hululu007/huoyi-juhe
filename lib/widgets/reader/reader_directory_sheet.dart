@@ -282,44 +282,52 @@ class _ReaderDirectorySheetState extends State<ReaderDirectorySheet> {
   Widget _searchField(ReaderThemePreset preset) =>
       ValueListenableBuilder<TextEditingValue>(
         valueListenable: _searchController,
-        builder: (context, value, _) => TextField(
-          controller: _searchController,
-          focusNode: _searchFocus,
-          textInputAction: TextInputAction.search,
-          style: TextStyle(color: preset.textColor, fontSize: 14),
-          onChanged: _onSearchChanged,
-          onSubmitted: _applyQuery,
-          decoration: InputDecoration(
-            hintText: '搜索章节名或序号',
-            hintStyle: TextStyle(color: preset.mutedTextColor),
-            prefixIcon: Icon(
-              LucideIcons.search,
-              size: 20,
-              color: preset.mutedTextColor,
-            ),
-            suffixIcon: value.text.isEmpty
-                ? null
-                : IconButton(
-                    tooltip: '清空',
-                    color: preset.mutedTextColor,
-                    onPressed: () {
-                      _searchController.clear();
-                      _applyQuery('');
-                    },
-                    icon: const Icon(LucideIcons.x),
-                  ),
-            filled: true,
-            fillColor: preset.fieldColor,
-            isDense: true,
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 14,
-            ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: preset.isEink
-                  ? BorderSide(color: preset.borderColor)
-                  : BorderSide.none,
+        // SDK 的 TextField 要求一个 SDK Material 祖先；目录经 mui 弹层打开，
+        // 帧里的 Material 是 mui 的，SDK 认不到，TextField 构建抛错后框架
+        // 用 RenderErrorBox 代替，无界高下它固定 100000px，整列溢出 99632px、
+        // 列表被压到 0 高。补一层透明 SDK Material，只供 TextField 用，
+        // 外观不变。
+        builder: (context, value, _) => Material(
+          type: MaterialType.transparency,
+          child: TextField(
+            controller: _searchController,
+            focusNode: _searchFocus,
+            textInputAction: TextInputAction.search,
+            style: TextStyle(color: preset.textColor, fontSize: 14),
+            onChanged: _onSearchChanged,
+            onSubmitted: _applyQuery,
+            decoration: InputDecoration(
+              hintText: '搜索章节名或序号',
+              hintStyle: TextStyle(color: preset.mutedTextColor),
+              prefixIcon: Icon(
+                LucideIcons.search,
+                size: 20,
+                color: preset.mutedTextColor,
+              ),
+              suffixIcon: value.text.isEmpty
+                  ? null
+                  : IconButton(
+                      tooltip: '清空',
+                      color: preset.mutedTextColor,
+                      onPressed: () {
+                        _searchController.clear();
+                        _applyQuery('');
+                      },
+                      icon: const Icon(LucideIcons.x),
+                    ),
+              filled: true,
+              fillColor: preset.fieldColor,
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 14,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: preset.isEink
+                    ? BorderSide(color: preset.borderColor)
+                    : BorderSide.none,
+              ),
             ),
           ),
         ),

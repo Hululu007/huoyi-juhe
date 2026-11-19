@@ -277,6 +277,48 @@ void main() {
       );
     });
   });
+
+  group('chip row layout', () {
+    // 设计是“放得下才单行”：非 compact 时放得下画 Row，放不下才画 Wrap。
+    testWidgets('chip rows stay on one line on a normal phone', (tester) async {
+      await _openSheet(tester);
+      _expectChipRowLayout(tester, '仿真', singleLine: true);
+      _expectChipRowLayout(tester, '宽松', singleLine: true);
+    });
+
+    testWidgets('chip rows wrap on a narrow screen with large text', (
+      tester,
+    ) async {
+      await _openSheet(tester, size: const Size(280, 600), scale: 2.0);
+      _expectChipRowLayout(tester, '仿真', singleLine: false);
+      _expectChipRowLayout(tester, '宽松', singleLine: false);
+    });
+  });
+}
+
+/// 断言某组 chip 的排布形态：放得下是单行 Row，放不下换行 Wrap。
+/// [label] 用组内唯一的 chip 文案定位该组（'仿真' 是翻页组，'宽松' 是间距组）。
+void _expectChipRowLayout(
+  WidgetTester tester,
+  String label, {
+  required bool singleLine,
+}) {
+  final row = find
+      .ancestor(
+        of: find.text(label),
+        matching: find.byType(ReaderSettingsChipRow),
+      )
+      .first;
+  expect(
+    find.descendant(of: row, matching: find.byType(Row)),
+    singleLine ? findsOneWidget : findsNothing,
+    reason: singleLine ? '$label 所在组放得下时应为单行 Row' : '$label 所在组放不下时不应画 Row',
+  );
+  expect(
+    find.descendant(of: row, matching: find.byType(Wrap)),
+    singleLine ? findsNothing : findsOneWidget,
+    reason: singleLine ? '$label 所在组放得下时不应换行' : '$label 所在组放不下时应换行 Wrap',
+  );
 }
 
 /// 设置测试必须改 View 的尺寸：只改 surface 时 MediaQuery 仍是默认 800x600，

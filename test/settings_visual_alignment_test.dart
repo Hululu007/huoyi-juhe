@@ -48,7 +48,8 @@ void main() {
   testWidgets('设置首页分类行统一使用 moyi 图标砖，尾部值用 moyi 次要字', (tester) async {
     await pumpSettings(tester);
 
-    expect(find.byType(SettingsRow), findsNWidgets(9));
+    // 设置首页现 10 个分类行（38h 实测 10 个，旧期望 9 是加分类后没跟改）。
+    expect(find.byType(SettingsRow), findsNWidgets(10));
     final tile = tester.widget<Container>(
       find.descendant(of: rowOf('外观'), matching: find.byType(Container)).first,
     );
@@ -95,6 +96,12 @@ void main() {
 
   testWidgets('清空历史使用破坏性确认框，确认键不再是红色文字按钮', (tester) async {
     await pumpSettings(tester);
+    // 「数据」行在 800×600 默认画布下位于 y=609，落在视口外，直接 tap
+    // 点不到（38h：tap 落点 Offset(97.3, 609.0) 超出视口）；先滚进视口再点。
+    // ensureVisible 只改滚动偏移，几何要 pump 一帧才更新，不 pump 的话
+    // tap 仍按旧坐标 609 去点（实测）。
+    await tester.ensureVisible(find.text('数据'));
+    await tester.pump();
     await tester.tap(find.text('数据'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('清空历史'));

@@ -79,6 +79,12 @@ void main() {
     _failPreferenceWrites(failClear: true);
     addTearDown(() => tester.pumpWidget(const SizedBox.shrink()));
     await tester.pumpWidget(const MaterialApp(home: SettingsPage()));
+    // 「数据」行在 800×600 默认画布下落在视口外，直接 tap 点不到，
+    // 后面的「清空历史」就找不到（38h）；先滚进视口再点。
+    // ensureVisible 只改滚动偏移，几何要 pump 一帧才更新，不 pump 的话
+    // tap 仍按旧坐标去点（实测）。
+    await tester.ensureVisible(find.text('数据'));
+    await tester.pump();
     await tester.tap(find.text('数据'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('清空历史'));

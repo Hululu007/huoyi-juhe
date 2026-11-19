@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fqapp/models/audio_extra.dart';
 import 'package:fqapp/models/audio_time_track.dart';
@@ -18,6 +19,22 @@ void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     AudioPreferences.instance.resetForTest();
+    // 切后台时控制器会查悬浮窗权限（NativePlayer.canDrawOverlays，
+    // .timeout(10 秒)）：真机上有原生回包，测试里没人回包会挂一个
+    // 10 秒 FakeTimer、体结束时报 Timer 仍挂起（38h）。mock 成
+    // 直接回 null（= 无权限），不走超时计时器。
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('fqapp/native_player'),
+          (call) async => null,
+        );
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            const MethodChannel('fqapp/native_player'),
+            null,
+          ),
+    );
   });
 
   testWidgets(

@@ -86,7 +86,10 @@ void main() {
     final transport = _FakeRustTransport(healthy: false);
     final backend = createBackend(
       transport: transport,
-      timeout: const Duration(milliseconds: 200),
+      // 200ms 在 CI 负载下不够：_startInternal 先走串行部署与 300ms 探针，
+      // 部署一慢就到不了探针、healthChecks 还是 0（37 轮、38g 同款失败，
+      // 35b 通过）；放宽到 1 秒只给预算留余量，产品超时逻辑不动。
+      timeout: const Duration(seconds: 1),
     );
 
     await expectLater(
@@ -102,7 +105,9 @@ void main() {
     final transport = _FakeRustTransport(blockInit: true);
     final backend = createBackend(
       transport: transport,
-      timeout: const Duration(milliseconds: 200),
+      // 同上：200ms 下部署慢到 200ms 才到 init，initCalls 还是 0；
+      // 放宽到 1 秒，产品超时逻辑不动。
+      timeout: const Duration(seconds: 1),
     );
 
     // rustTransport.start() itself has no deadline of its own: a native init

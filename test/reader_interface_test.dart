@@ -7,6 +7,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart' as mui;
 import 'package:fqapp/models/media_item.dart';
 import 'package:fqapp/pages/reader_page.dart';
 import 'package:fqapp/widgets/reader/reader_material_localizations.dart';
@@ -167,18 +168,30 @@ void main() {
       );
       await tester.tap(find.byKey(const ValueKey('reader-more-appearance')));
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.byTooltip('增大字距'));
-      await tester.tap(find.byTooltip('增大字距'));
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('reader-letter-spacing')),
+      );
+      // 字距已改成滑杆（reader-letter-spacing），旧的 ± 步进 tooltip 已删：
+      // 滑杆每格 0.1，默认 0；非拖动时 onChanged 直接提交，直接拨到 0.1。
+      tester
+          .widget<mui.Slider>(
+            find.byKey(const ValueKey('reader-letter-spacing')),
+          )
+          .onChanged!(0.1);
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('居中'));
       await tester.tap(find.text('居中'));
       await tester.pumpAndSettle();
-      // 上下边距 默认 16，每次 +4，三次到 28。
-      for (var i = 0; i < 3; i++) {
-        await tester.ensureVisible(find.byTooltip('增大上下边距'));
-        await tester.tap(find.byTooltip('增大上下边距'));
-        await tester.pumpAndSettle();
-      }
+      // 上下边距 默认 16：滑杆每格 4，原来三次 +4 到 28，直接拨到 28。
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('reader-vertical-padding')),
+      );
+      tester
+          .widget<mui.Slider>(
+            find.byKey(const ValueKey('reader-vertical-padding')),
+          )
+          .onChanged!(28);
+      await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('关闭更多设置'));
       await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('关闭排版设置'));
@@ -205,8 +218,10 @@ void main() {
       await tester.tap(find.text('目录'));
       await tester.pumpAndSettle();
       final directory = find.text('目录 · 2 章');
+      // 面板里包的是 mui 的 Theme（preset.theme() 按 dark 建色板），SDK 的
+      // Theme.of 只能看到外壳 MaterialApp 的浅色主题，所以用 mui 的查。
       expect(
-        Theme.of(tester.element(directory)).colorScheme.brightness,
+        mui.Theme.of(tester.element(directory)).colorScheme.brightness,
         Brightness.dark,
       );
       await tester.tap(

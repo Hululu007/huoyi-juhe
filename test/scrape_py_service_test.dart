@@ -83,7 +83,8 @@ void main() {
       expect(ScrapePyService.sanitizeTitle(null), '');
       expect(
         ScrapePyService.sanitizeTitle('这是一个超过二十四个字的很长很长的页面标题需要截断处理'),
-        '这是一个超过二十四个字的很长很长的页面标题需要',
+        // 产品 cleaned.substring(0, 24) 返回 24 字：期望串原先只数了 23 字。
+        '这是一个超过二十四个字的很长很长的页面标题需要截',
       );
     });
 

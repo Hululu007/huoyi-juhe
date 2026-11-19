@@ -570,7 +570,7 @@ class _GamePageState extends State<GamePage> {
           ),
         ),
         // 顶栏：头像卡（名字 + 战力 + 等级）+ 资源（元宝 / 修为）
-        // + 右边地图钮。
+        // + 右边地图钮 +「离开」钮（与战场顶栏同款，点后回主界面）。
         Positioned(
           top: topPad + 8,
           left: 12,
@@ -674,6 +674,17 @@ class _GamePageState extends State<GamePage> {
                 label: '地图',
                 icon: LucideIcons.map,
                 onTap: () => _openSheet(context, _TasksSheet()),
+              ),
+              const SizedBox(width: 8),
+              // 「离开」：复用战场顶栏同一实现（_TopTextButton +
+              // widget.onExit），退出游戏回主界面，不另写退出逻辑。
+              // 上边距 8 使 38 高的钮与 54 高的头像上下居中对齐。
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: _TopTextButton(
+                  label: '离开',
+                  onTap: widget.onExit,
+                ),
               ),
             ],
           ),
