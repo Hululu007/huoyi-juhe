@@ -170,6 +170,13 @@ class ReaderPage extends StatefulWidget {
 // .agents/notes/implemented/feature/2026-09-10-reader-interface.md
 class _ReaderPageState extends State<ReaderPage>
     with WidgetsBindingObserver, _ReaderPageFields {
+  /// material_ui 消息条的钥匙：阅读器跑在 material_ui 上，外壳是 SDK
+  /// MaterialApp，树里没有 material_ui 的 ScaffoldMessenger 祖先，State
+  /// 方法里的 ScaffoldMessenger.of(context) 在 release 下抛错、菜单打
+  /// 不开。消息条包在 ReaderPage 自己的 build 里，钥匙直取 currentState，
+  /// 7 个进 ReaderPage 的入口共用同一把。
+  final _scaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
+
   /// Calls [setState] on behalf of the logic split into the `reader/` parts.
   ///
   /// Those extensions are methods of this State at runtime, but the analyzer
@@ -490,8 +497,9 @@ class _ReaderPageState extends State<ReaderPage>
 
   @override
   Widget build(BuildContext context) {
+    final Widget page;
     if (widget.chapters.isEmpty) {
-      return MoyiPageBackground(
+      page = MoyiPageBackground(
         child: Scaffold(
           backgroundColor: Colors.transparent,
           appBar: AppBar(
@@ -502,10 +510,14 @@ class _ReaderPageState extends State<ReaderPage>
           body: _errorView(textColor: Colors.white),
         ),
       );
+    } else {
+      page = MediaQuery(
+        data: readerMediaQueryWithCutoutInsets(MediaQuery.of(context)),
+        child: Builder(builder: _buildReader),
+      );
     }
-    return MediaQuery(
-      data: readerMediaQueryWithCutoutInsets(MediaQuery.of(context)),
-      child: Builder(builder: _buildReader),
-    );
+    // 阅读器子树内的 material_ui ScaffoldMessenger：补齐 _showMessage /
+    // _toggleControls 已假设的祖先。钥匙直取，不用 .of(context)。
+    return ScaffoldMessenger(key: _scaffoldMessengerKey, child: page);
   }
 }

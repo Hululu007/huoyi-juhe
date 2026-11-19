@@ -91,12 +91,11 @@ void main() {
 
     test('appending dramas keeps the merged prefix stable', () {
       final mixed = [_mixed('m0'), _mixed('m1')];
-      final short = interleaveAdultMix([
-        for (var i = 0; i < 5; i++) _drama('d$i'),
-      ], mixed);
-      final grown = interleaveAdultMix([
-        for (var i = 0; i < 9; i++) _drama('d$i'),
-      ], mixed);
+      // 两次合并必须用同一批实例：MediaItem 无 == 重载，身份比较下两次
+      // _drama() 生成的不同实例恒不相等，旧写法恒失败，与被测代码无关。
+      final dramas = [for (var i = 0; i < 9; i++) _drama('d$i')];
+      final short = interleaveAdultMix(dramas.sublist(0, 5), mixed);
+      final grown = interleaveAdultMix(dramas, mixed);
       // loadMore 续上后，前 6 个位置（d0..d3、m0、d4）一字不动。
       expect(grown.sublist(0, short.length), short);
     });

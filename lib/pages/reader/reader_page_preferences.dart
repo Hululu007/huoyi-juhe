@@ -190,8 +190,11 @@ extension _ReaderPagePreferences on _ReaderPageState {
   }
 
   void _showMessage(String message) {
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
+    // 不用 ScaffoldMessenger.of(context)：State 的 context 只能看到外壳
+    // 的 SDK 消息条，material_ui 的查不到，release 下抛错。钥匙直取本页
+    // build 里包的那层 material_ui 消息条。
+    _scaffoldMessengerKey.currentState
+      ?..clearSnackBars()
       ..showSnackBar(SnackBar(content: Text(message)));
   }
 
@@ -218,7 +221,8 @@ extension _ReaderPagePreferences on _ReaderPageState {
   void _toggleControls() {
     _stopAutoTurn();
     if (!_controlsVisible) {
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      // 同 _showMessage：钥匙直取本页的 material_ui 消息条。
+      _scaffoldMessengerKey.currentState?.hideCurrentSnackBar();
     }
     _setControlsVisible(!_controlsVisible);
     if (_controlsVisible) _loadReaderMenuData();
