@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../services/live_api.dart';
 import '../services/live_platform.dart';
 import '../services/live_sleep_timer.dart';
 import '../services/live_sources.dart';
@@ -107,9 +108,31 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
       // 平台房间地址是明文 http FLV：直接给 ExoPlayer 会被 App 的明文
       // 策略拦掉（列表能拉、一点播就失败），先走本地中继转成 127.0.0.1。
       // 多线路频道按当前线路取地址（火蚁TV playRoute 语义）；单线路
-      // 频道 urls 只有一条，_route 恒为 0。
+      // 频道 urls 只有一条，_route 恒为 0。api 源（bilibili）列表里
+      // 只有房间号没有直链，播之前按 token 现取播放地址；解析出的直链
+      // 写回本页列表（收藏视图传进来的是不可改列表，写不进也不影响
+      // 本次播放，见下 try/catch）。
       final route = _route.clamp(0, channel.urls.length - 1);
-      final playUrl = await playableLiveUrl(channel.urls[route]);
+      var rawUrl = channel.urls[route];
+      if (rawUrl.isEmpty && _source.protocol == LiveProtocol.api) {
+        rawUrl = await resolveLiveApiPlayUrl(_source, channel);
+        if (rawUrl.isEmpty) throw StateError('该频道暂时无法播放');
+        final fixed = LiveChannel(
+          title: channel.title,
+          url: rawUrl,
+          urls: [rawUrl],
+          group: channel.group,
+          sourceId: channel.sourceId,
+          token: channel.token,
+          subtitle: channel.subtitle,
+          cover: channel.cover,
+          number: channel.number,
+        );
+        try {
+          _channels[index] = fixed;
+        } catch (_) {}
+      }
+      final playUrl = await playableLiveUrl(rawUrl);
       await player.create(playUrl, '');
       if (!_isCurrentLoad(generation, player)) {
         await player.dispose();

@@ -59,7 +59,7 @@ EP_RE = re.compile(r'<a[^>]*class="series-episode-link"[^>]*title="([^"]*)"[^>]*
 EP_RE2 = re.compile(r'<a[^>]*class="series-episode-link"[^>]*href="([^"]+)"[^>]*title="([^"]*)"[^>]*aria-label="第 (\d+) 集[^"]*"[^>]*data-paid="([^"]*)"')
 EP_NUM_RE = re.compile(r'更新至(\d+)集')
 YEAR_RE = re.compile(r'发布年份[^<]*</[^>]+>\s*(\d{4})')
-TAG_RE = re.compile(r'aria-label="查看“([^”]+)”标签下')
+TAG_RE = re.compile(r'<a class="drama-card-tag"[^>]*><span>([^<]+)</span></a>')
 PLAYER_RE = re.compile(r'<div class="watch-player"[^>]*data-video="([^"]+)"[^>]*data-work="([^"]*)"[^>]*data-version="([^"]*)"[^>]*data-price="([^"]*)"')
 PLAYER_RE2 = re.compile(r'data-video="([^"]+)"[^>]*data-version="([^"]*)"[^>]*data-price="([^"]*)"')
 PLAYER_RE3 = re.compile(r'id="player"[^>]*data-video="([^"]+)"[^>]*data-version="([^"]*)"[^>]*data-price="([^"]*)"')
@@ -109,7 +109,9 @@ def _http_get(url, referer=None, timeout=30):
             except Exception:
                 pass
         try:
-            req = urllib.request.Request(url, headers=h)
+            h2 = dict(h)
+            h2['Accept-Encoding'] = 'identity'
+            req = urllib.request.Request(url, headers=h2)
             with urllib.request.urlopen(req, timeout=timeout, context=_ctx()) as resp:
                 data = resp.read()
                 enc = (resp.headers.get('Content-Encoding') or '').lower()
@@ -124,10 +126,105 @@ def _http_get(url, referer=None, timeout=30):
                 return e.read().decode('utf-8', 'ignore')
             except http.client.IncompleteRead as ie:
                 return ie.partial.decode('utf-8', 'ignore')
+        except http.client.IncompleteRead as ie:
+            try:
+                data = ie.partial or b''
+                if data[:2] == b'\x1f\x8b':
+                    try:
+                        import zlib
+                        data = zlib.decompressobj(31).decompress(data)
+                    except Exception:
+                        data = b''
+                text = data.decode('utf-8', 'replace')
+                if text.strip():
+                    return text
+            except Exception:
+                pass
         except Exception:
             pass
         time.sleep(1)
     return ''
+
+
+def _playback(video_id, referer):
+    api = '%s/api/playback/%s?mode=mse' % (BASE, video_id)
+    h = {
+        'User-Agent': UA,
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'Origin': BASE,
+        'Sec-Fetch-Site': 'same-origin',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Dest': 'empty',
+    }
+    if referer:
+        h['Referer'] = referer
+    age_h = {
+        'User-Agent': UA,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Origin': BASE,
+        'Referer': BASE + '/',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'zh-CN,zh;q=0.9',
+        'Sec-Fetch-Site': 'same-origin',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Dest': 'document',
+    }
+    age_body = urllib.parse.urlencode({'decision': 'accepted', 'return_to': '/'}).encode('utf-8')
+    if _HAS_REQ:
+        try:
+            sess = requests.Session()
+            try:
+                sess.post('%s/age-check' % BASE, headers=age_h, data=age_body, timeout=30)
+            except Exception:
+                pass
+            sess.post('%s/api/account/bootstrap' % BASE, headers=h, data=b'{}', timeout=30)
+            r = sess.post(api, headers=h, data=b'{}', timeout=30)
+            cookie = '; '.join('%s=%s' % (c.name, c.value) for c in sess.cookies if c.name.startswith('eden_'))
+            if r.status_code == 200 and r.text:
+                try:
+                    return (json.loads(r.text).get('url') or '').strip(), cookie
+                except Exception:
+                    return '', cookie
+            return '', cookie
+        except Exception:
+            pass
+    try:
+        import http.cookiejar
+        cj = http.cookiejar.CookieJar()
+        opener = urllib.request.build_opener(
+            urllib.request.HTTPSHandler(context=_ctx()),
+            urllib.request.HTTPCookieProcessor(cj))
+
+        def _post(target, data, headers):
+            req = urllib.request.Request(target, data=data, headers=headers, method='POST')
+            try:
+                with opener.open(req, timeout=30) as resp:
+                    try:
+                        return resp.status, resp.read().decode('utf-8', 'replace')
+                    except http.client.IncompleteRead as ie:
+                        return resp.status, (ie.partial or b'').decode('utf-8', 'ignore')
+            except urllib.error.HTTPError as e:
+                try:
+                    return e.code, e.read().decode('utf-8', 'ignore')
+                except http.client.IncompleteRead as ie:
+                    return e.code, (ie.partial or b'').decode('utf-8', 'ignore')
+            except http.client.IncompleteRead as ie:
+                return 200, (ie.partial or b'').decode('utf-8', 'ignore')
+            except Exception:
+                return 0, ''
+
+        _post('%s/age-check' % BASE, age_body, age_h)
+        _post('%s/api/account/bootstrap' % BASE, b'{}', h)
+        _status, body = _post(api, b'{}', h)
+        cookie = '; '.join('%s=%s' % (c.name, c.value) for c in cj if c.name.startswith('eden_'))
+        try:
+            return (json.loads(body).get('url') or '').strip(), cookie
+        except Exception:
+            return '', cookie
+    except Exception:
+        pass
+    return '', ''
 
 
 def _http_post_json(url, referer=None, timeout=30):
@@ -379,17 +476,14 @@ class Spider(BaseSpider):
                 video_id = pm.group(1)
                 price = pm.group(4) if pm.re is PLAYER_RE else (pm.group(3) if len(pm.groups()) >= 3 else '0')
         play_url = ''
+        cookie = ''
         if video_id:
-            api = '%s/api/playback/%s?mode=native' % (BASE, video_id)
-            if price == '0':
-                api += '&startup=1'
-            resp = _http_post_json(api, referer=url)
-            if resp:
-                try:
-                    data = json.loads(resp)
-                    play_url = (data.get('url') or '').strip()
-                except Exception:
-                    play_url = ''
+            rel, cookie = _playback(video_id, url)
+            if rel:
+                play_url = rel if rel.startswith('http') else BASE + rel
+        header = {'User-Agent': UA, 'Referer': url, 'Origin': BASE}
+        if cookie:
+            header['Cookie'] = cookie
         return {'parse': 0, 'playUrl': play_url, 'url': play_url, 'header': header}
 
     def localProxy(self, param):

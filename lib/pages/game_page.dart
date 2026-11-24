@@ -653,16 +653,20 @@ class _GamePageState extends State<GamePage> {
                     const SizedBox(height: 4),
                     Row(
                       children: [
-                        _homeResourcePill(
-                          LucideIcons.coins,
-                          '元宝',
-                          '${game.yuanbao}',
+                        Flexible(
+                          child: _homeResourcePill(
+                            LucideIcons.coins,
+                            '元宝',
+                            '${game.yuanbao}',
+                          ),
                         ),
                         const SizedBox(width: 6),
-                        _homeResourcePill(
-                          LucideIcons.sparkles,
-                          '修为',
-                          '${snapshot.totalXp}',
+                        Flexible(
+                          child: _homeResourcePill(
+                            LucideIcons.sparkles,
+                            '修为',
+                            '${snapshot.totalXp}',
+                          ),
                         ),
                       ],
                     ),
@@ -839,12 +843,16 @@ class _GamePageState extends State<GamePage> {
         children: [
           Icon(icon, color: const Color(0xFFFFD54F), size: 13),
           const SizedBox(width: 4),
-          Text(
-            '$label $value',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
+          Flexible(
+            child: Text(
+              '$label $value',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         ],

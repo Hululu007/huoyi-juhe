@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../actress/actress_adapter_repository.dart';
+import '../actress/actress_adapter_store.dart';
+import '../actress/actress_list_page.dart';
 import '../services/api_client.dart';
 import '../services/cultivation.dart';
 import '../services/drama_sites.dart';
@@ -363,6 +366,23 @@ class _VideoPageState extends State<VideoPage> {
     );
   }
 
+  /// 女优库入口（魔蚁合入，2026-11-22）：进演员库列表页。仓储走
+  /// 修仙版站注册表委托（XiuxianAppRepository），站表状态走
+  /// LocalStore.instance；数据库由列表页自己开
+  ///（SqfliteActressDatabase.instance，MYTV/db/女优库.db）。
+  Future<void> _openActressLibrary() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => ActressListPage(
+          repository: XiuxianAppRepository.shared,
+          store: LocalStore.instance,
+        ),
+      ),
+    );
+    if (mounted) setState(() {});
+  }
+
   /// 未到元婴期时的上锁页：不露源名与站名，只写还差多少修为。
   /// 与直播区锁页同款写法（见 LivePage._lockedBody）：大锁图标 +
   /// 「影视源需要元婴期」+ 还差多少修为（约几集短剧）+ 去我的页看进度。
@@ -548,6 +568,68 @@ class _VideoPageState extends State<VideoPage> {
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
                           color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                  // 女优库入口（魔蚁合入，2026-11-22）：一张通往演员库的卡片，
+                  // 点进 ActressListPage（4 页签：首页/分类/女优/收藏）。
+                  // 门禁：本分支已在元婴期（unlockedVideo）之后，修为不到
+                  // 时整页是上锁页、这张卡根本不出现，不另立门禁；成人站
+                  // 分档口径仍以 cultivation.dart 为准。
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                      child: InkWell(
+                        onTap: _openActressLibrary,
+                        borderRadius: BorderRadius.circular(20),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                          decoration: BoxDecoration(
+                            color: moyiDarkCardFill,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: moyiDarkCardBorder),
+                          ),
+                          child: const Row(
+                            children: [
+                              Icon(
+                                Icons.people_outline,
+                                size: 22,
+                                color: Colors.white,
+                              ),
+                              SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      '女优库',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                    SizedBox(height: 2),
+                                    Text(
+                                      '演员库 · 本地数据库 + 站源',
+                                      style: TextStyle(
+                                        color: moyiMutedOnDark,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Icon(
+                                Icons.chevron_right,
+                                size: 20,
+                                color: moyiMutedOnDark,
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),

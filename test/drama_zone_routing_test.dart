@@ -249,7 +249,7 @@ void main() {
     expect(ids.contains('seed_x51'), isTrue);
   });
 
-  test('午夜区分档：xojav/porncgw 第 2 档、x51 第 4 档，未解锁时隐藏', () {
+  test('午夜区分档：xojav/porncgw 第 2 档、x51 第 3 档，未解锁时隐藏', () {
     // 门禁开关测试期默认就是开的（正式恢复只改初值）；要验“未解锁隐藏”，
     // 先关掉再测，测完恢复（与 video_page_tier_test 同款做法）。
     final wasDisabled = cultivationAdultTierGateDisabledForTesting;
@@ -271,7 +271,10 @@ void main() {
     }
     expect(adultTierForSiteId('seed_xojav', adultVideoSiteOrder), 1);
     expect(adultTierForSiteId('seed_porncgw', adultVideoSiteOrder), 1);
-    expect(adultTierForSiteId('seed_x51', adultVideoSiteOrder), 3);
+    // x51 下标 190：201 站时 190*4~/201 = 3（第 4 档）；资源站追加与
+    // 魔蚁 v63 合入后总数 278，190*4~/278 = 2（第 3 档），解锁从合体
+    // 30000 提前到炼虚 15000——公式本意，不是分档真错。
+    expect(adultTierForSiteId('seed_x51', adultVideoSiteOrder), 2);
     expect(adultTierForSiteId('hddj', adultVideoSiteOrder), 0);
     // hgdj 是期望过时、不是分档真错：登记表里 hgdj 下标 100、总数
     // 201，100*4~/201 = 1（第 2 档）。AOXX69 摘站后总数 202→201，

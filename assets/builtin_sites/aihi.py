@@ -158,7 +158,7 @@ class Spider(BaseSpider):
             return max(max(nums), cur)
         return cur
 
-    def categoryContent(self, tid, pg, filter, extend):
+    def categoryContent(self, tid, pg, filter=False, extend=None):
         pg = int(pg) if str(pg).isdigit() else 1
         try:
             html = self._fetch(self._page_url(tid, pg))
@@ -213,7 +213,7 @@ class Spider(BaseSpider):
         }
         return {"list": [vod]}
 
-    def searchContent(self, key, quick, pg="1"):
+    def searchContent(self, key, quick=False, pg=1):
         pg = int(pg) if str(pg).isdigit() else 1
         vods = []
         try:
@@ -230,7 +230,7 @@ class Spider(BaseSpider):
             "total": len(vods),
         }
 
-    def playerContent(self, flag, id, vipFlags):
+    def playerContent(self, flag, id, vipFlags=None):
         url = ""
         page = ""
         try:

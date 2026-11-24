@@ -83,7 +83,7 @@ class Spider(BaseSpider):
             raw = b""
             try:
                 req = urllib.request.Request(url, headers=headers)
-                with urllib.request.urlopen(req, timeout=20) as r:
+                with urllib.request.urlopen(req, timeout=70) as r:
                     while True:
                         try:
                             chunk = r.read(65536)
@@ -154,7 +154,7 @@ class Spider(BaseSpider):
             return max(max(nums), cur)
         return cur
 
-    def categoryContent(self, tid, pg, filter, extend):
+    def categoryContent(self, tid, pg, filter=False, extend=None):
         pg = int(pg) if str(pg).isdigit() else 1
         try:
             html = self._fetch(self._page_url(tid, pg))
@@ -204,12 +204,13 @@ class Spider(BaseSpider):
             "vod_actor": "",
             "vod_director": "",
             "vod_content": desc,
-            "vod_play_from": "AI污短剧",
+            "vod_play_from": "在线播放",
             "vod_play_url": "#".join(eps),
+            "stills": [],
         }
         return {"list": [vod]}
 
-    def searchContent(self, key, quick, pg="1"):
+    def searchContent(self, key, quick=False, pg=1):
         pg = int(pg) if str(pg).isdigit() else 1
         vods = []
         try:
@@ -226,7 +227,7 @@ class Spider(BaseSpider):
             "total": len(vods),
         }
 
-    def playerContent(self, flag, id, vipFlags):
+    def playerContent(self, flag, id, vipFlags=None):
         url = ""
         page = ""
         try:
@@ -241,8 +242,9 @@ class Spider(BaseSpider):
                     req = urllib.request.Request(api, headers={
                         "User-Agent": self.ua,
                         "Referer": page,
+                        "X-Requested-With": "XMLHttpRequest",
                     })
-                    with urllib.request.urlopen(req, timeout=20) as r:
+                    with urllib.request.urlopen(req, timeout=70) as r:
                         data = json.loads(r.read().decode("utf-8", "ignore"))
                     if data.get("code") == 1 and data.get("url"):
                         url = self.host + data["url"]
@@ -280,7 +282,7 @@ class Spider(BaseSpider):
             _req = _ur.Request(target, headers={
                 "User-Agent": self.ua,
                 "Referer": "%s://%s/" % (_o.scheme, _o.netloc)})
-            with _ur.urlopen(_req, timeout=20) as _r:
+            with _ur.urlopen(_req, timeout=70) as _r:
                 return [_r.status, _r.headers.get("Content-Type") or "application/octet-stream", _r.read(), {}]
         except Exception:
             return [502, "text/plain", b"proxy error", {}]

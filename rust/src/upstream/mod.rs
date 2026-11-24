@@ -5,7 +5,16 @@ pub mod client;
 pub mod cm;
 pub mod dh;
 pub mod http;
+pub(crate) mod playback_identity;
+pub(crate) mod playback_routes;
 pub mod shuqi;
+
+/// Test seam: clears the process-wide playback door health so one scenario
+/// cannot inherit another's cooldowns. Production never calls it.
+#[doc(hidden)]
+pub fn reset_playback_route_state_for_tests() {
+    playback_routes::reset_state_for_tests();
+}
 
 pub use client::{ClientError, PinnedDevice, UpstreamClient, UpstreamRequest};
 pub use http::{HttpTransport, RawResponse, TransportError};

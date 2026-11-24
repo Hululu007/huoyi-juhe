@@ -26,10 +26,14 @@ int _displayWidth(String name) {
 }
 
 void main() {
-  test('短名表全是修仙词·短名两段式，无重名，弹窗两行看得全', () {
-    expect(videoZoneDisplayNames.length, 214);
+  test('短名表全是修仙词·短名两段式，重名只许 whos/wohs 同站共用，弹窗两行看得全', () {
+    expect(videoZoneDisplayNames.length, 219);
     final values = videoZoneDisplayNames.values.toList();
-    expect(values.toSet().length, values.length, reason: '短名全表无重名');
+    // 唯一重名：种子 whos 与 jar wohs 是同一站（whos识图）共用
+    // '炼虚·识图'；种子 id 不走 jar 别名，表里只能写两条。
+    final dupes =
+        values.where((v) => values.where((x) => x == v).length > 1).toSet();
+    expect(dupes, {'炼虚·识图'}, reason: '短名重名只允许 whos/wohs 同站共用');
     for (final entry in videoZoneDisplayNames.entries) {
       final name = entry.value;
       expect(name.contains('┃'), isFalse, reason: '${entry.key} 仍带 ┃ 后缀');
@@ -60,11 +64,11 @@ void main() {
     expect(videoZoneDisplayName('seed_new_site', '新站原名'), '新站原名');
   });
 
-  test('统一表 289 行全走短名，去重后 214 个站名', () {
+  test('统一表 386 行全走短名，去重后 308 个站名', () {
     final sites = unifiedVideoZoneSites(embeddedTestEntries());
-    expect(sites.length, 289);
+    expect(sites.length, 386);
     final names = sites.map((site) => site.name).toSet();
-    expect(names.length, 214);
+    expect(names.length, 308);
     for (final site in sites) {
       expect(
         _displayWidth(site.name),

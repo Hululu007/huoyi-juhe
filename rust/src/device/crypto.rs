@@ -54,6 +54,68 @@ pub fn tt_encrypt(data: &[u8], random_bytes32: Option<[u8; 32]>) -> Result<Vec<u
     Ok(out)
 }
 
+/// Normalizes the gzip header before TTEncrypt V5 hashes the bytes.
+///
+/// The playback device_register profile uses a deterministic ten-byte header
+/// while the deflate payload is produced by Go's gzip writer. The header
+/// carries no authenticated data, so replacing it keeps the compressed stream
+/// valid and matches the wire bytes the reference implementation signs.
+pub fn normalize_tt_encrypt_gzip_header(data: &[u8]) -> Result<Vec<u8>, String> {
+    if data.len() < 10 || data[0] != 0x1f || data[1] != 0x8b {
+        return Err("TTEncrypt gzip body is invalid".to_string());
+    }
+    let mut out = data.to_vec();
+    out[..10].copy_from_slice(&[0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 0]);
+    Ok(out)
+}
+
+/// Decrypts a TTEncrypt V5 response envelope.
+///
+/// The envelope is `magic || seed[32] || AES-128-CBC(SHA512(gzip) || gzip)`.
+/// The key is derived from the same seed/fixed-string pair as request
+/// encryption, and the inner SHA-512 authenticates the compressed bytes before
+/// they are inflated.
+pub fn tt_decrypt_response(data: &[u8]) -> Result<Vec<u8>, String> {
+    const MIN_RESPONSE_LEN: usize = 38 + 64 + 16;
+    const MAX_RESPONSE_GUNZIP: usize = 4 * 1024 * 1024;
+
+    if data.len() < MIN_RESPONSE_LEN
+        || !data.starts_with(&TT_MAGIC)
+        || !(data.len() - 38).is_multiple_of(crate::crypto::BLOCK)
+    {
+        return Err("TTEncrypt response envelope is invalid".to_string());
+    }
+
+    let mut seed = [0u8; 32];
+    seed.copy_from_slice(&data[6..38]);
+    let fixed = base64::engine::general_purpose::STANDARD
+        .decode(TT_FIXED_STRING_B64)
+        .map_err(|e| e.to_string())?;
+    let mut inner = Sha512::digest(seed);
+    let mut hasher = Sha512::new();
+    hasher.update(inner.as_slice());
+    crate::crypto::wipe(&mut inner);
+    hasher.update(&fixed);
+    let mut derived = hasher.finalize();
+    let key = &derived[..16];
+    let iv = &derived[16..32];
+
+    let mut plain = crate::crypto::aes_cbc_decrypt(&data[38..], key, iv);
+    crate::crypto::wipe(&mut derived);
+    crate::crypto::wipe(&mut seed);
+    let unpadded = crate::crypto::pkcs7_unpad_strict(&plain, crate::crypto::BLOCK)?.to_vec();
+    crate::crypto::wipe(&mut plain);
+    if unpadded.len() < 64 {
+        return Err("TTEncrypt response payload is invalid".to_string());
+    }
+    let expected = Sha512::digest(&unpadded[64..]);
+    if expected.as_slice() != &unpadded[..64] {
+        return Err("TTEncrypt response checksum mismatch".to_string());
+    }
+    crate::crypto::gunzip_capped(&unpadded[64..], MAX_RESPONSE_GUNZIP)
+        .map_err(|e| format!("TTEncrypt response gunzip: {e}"))
+}
+
 /// Decrypts a registerkey response `data.key` into the raw secret-key bytes.
 pub fn decrypt_register_key(encrypted_key_b64: &str) -> Result<Vec<u8>, String> {
     // Note: reject malformed upstream blocks before the CBC helper asserts —
@@ -220,5 +282,30 @@ mod reverse_hex_tests {
             reverse_hex("abc").unwrap_or_default(),
             reverse_hex("0").expect("zero id"),
         );
+    }
+}
+
+#[cfg(test)]
+mod tt_envelope_tests {
+    use super::*;
+
+    #[test]
+    fn encrypt_then_decrypt_round_trips_the_gzip_bytes() {
+        // tt_decrypt_response unwraps the envelope AND inflates the inner
+        // gzip payload, so the round trip ends at the original plaintext.
+        let plain = b"{\"device_id\":\"0\"}";
+        let payload = crate::crypto::gzip(plain);
+        let sealed = tt_encrypt(&payload, Some([7u8; 32])).expect("encrypt");
+        let opened = tt_decrypt_response(&sealed).expect("decrypt");
+        assert_eq!(opened, plain);
+    }
+
+    #[test]
+    fn gzip_header_normalization_pins_the_deterministic_prefix() {
+        let payload = crate::crypto::gzip(b"{}");
+        let normalized = normalize_tt_encrypt_gzip_header(&payload).expect("normalize");
+        assert_eq!(&normalized[..10], &[0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(&normalized[10..], &payload[10..]);
+        assert!(normalize_tt_encrypt_gzip_header(b"short").is_err());
     }
 }

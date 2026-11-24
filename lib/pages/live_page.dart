@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../services/cultivation.dart';
+import '../services/live_api.dart';
 import '../services/live_platform.dart';
 import '../services/live_sleep_timer.dart';
 import '../services/live_sources.dart';
@@ -330,7 +331,10 @@ class _LivePageState extends State<LivePage> {
       _hasMore = false;
     });
     try {
-      final platforms = await fetchPingtaiPlatforms(source);
+      // api 源（bilibili）走 B 站公开接口取分区，pingtai 源走平台接口。
+      final platforms = source.protocol == LiveProtocol.api
+          ? await fetchApiPlatforms(source)
+          : await fetchPingtaiPlatforms(source);
       if (!mounted || gen != _loadGeneration) return;
       if (platforms.isEmpty) throw StateError('该直播源没有可用分类');
       setState(() {
@@ -399,7 +403,11 @@ class _LivePageState extends State<LivePage> {
       }
     });
     try {
-      final channels = await fetchPingtaiChannels(source, platform);
+      // api 源（bilibili）按分区调房间列表接口，只拉第 1 页（每页 30 条）；
+      // pingtai 源走平台接口。
+      final channels = source.protocol == LiveProtocol.api
+          ? await fetchApiChannels(source, platform)
+          : await fetchPingtaiChannels(source, platform);
       if (!mounted || gen != _loadGeneration) return;
       if (!append) _lastGood = (group: id, channels: channels);
       setState(() {
@@ -586,9 +594,36 @@ class _LivePageState extends State<LivePage> {
     _player = player;
     _subscribe(player, generation);
     try {
+      // api 源（bilibili）列表里只有房间号没有直链，播之前按 token
+      // 现取播放地址；解析出的直链写回列表，收藏时才能存下可播地址。
       // 平台房间地址是明文 http FLV：直接给 ExoPlayer 会被 App 的明文
       // 策略拦掉（列表能拉、一点播就失败），先走本地中继转成 127.0.0.1。
-      final playUrl = await playableLiveUrl(channel.url);
+      var playUrl = channel.url;
+      if (_source.protocol == LiveProtocol.api && playUrl.isEmpty) {
+        final resolved = await resolveLiveApiPlayUrl(_source, channel);
+        if (resolved.isEmpty) throw StateError('该频道暂时无法播放');
+        playUrl = resolved;
+        final fixed = LiveChannel(
+          title: channel.title,
+          url: playUrl,
+          urls: [playUrl],
+          group: channel.group,
+          sourceId: channel.sourceId,
+          token: channel.token,
+          subtitle: channel.subtitle,
+          cover: channel.cover,
+          number: channel.number,
+        );
+        // 收藏视图的列表是 LiveStore.favourites 的不可改包装，写回会抛
+        // UnsupportedError：只在能写的列表上换，写不进也不影响本次播放。
+        for (final list in [_channels, _allChannels]) {
+          try {
+            final at = list.indexWhere((entry) => entry.key == channel.key);
+            if (at >= 0) list[at] = fixed;
+          } catch (_) {}
+        }
+      }
+      playUrl = await playableLiveUrl(playUrl);
       await player.create(playUrl, '');
       if (!_isCurrentPlayer(generation, player)) {
         await player.dispose();
@@ -697,8 +732,9 @@ class _LivePageState extends State<LivePage> {
 
   @override
   Widget build(BuildContext context) {
-    // 直播内置源全是成人，元婴期（3000 修为）解锁；修为不到不显示，
-    // 修为到了才列出来。
+    // 直播页整页由 unlockedVideo（元婴期 3000 修为）门禁守着：修为不到
+    // 不显示，修为到了才列出来。22 个 m3u 源与 3 个平台源全是成人，
+    // bilibili 是唯一非成人源，目前也随整页上锁（拆分门禁待定，见报告）。
     final unlocked = CultivationService.instance.snapshot.unlockedVideo;
     return Scaffold(
       backgroundColor: Colors.transparent,

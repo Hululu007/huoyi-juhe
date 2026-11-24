@@ -630,6 +630,16 @@ const adultTierRealmNames = <String>['元婴期', '化神期', '炼虚期', '合
 /// 删站时删掉对应行；不动 adultTierThresholds 门槛。
 /// 从未进过核心的站（jar/种子独占站，如 JAV Verse、91三级）不在表里，
 /// 查档位返回 null、按非成人站原样保留——删核心之前它们也没分过档。
+///
+/// 2026-11-22 追加 72 站（魔蚁三部分合并的新站，按注册顺序追加到末站
+/// wohs 之后）：70 个 py 种子（builtin_imported_sites.dart 登记顺序）+
+/// 2 个 jar 站（hstv、eroshort；ZakaChaoliu 归一化后是 chaoliu，已在
+/// 种子清单里不重复加；Xhs 显示名不带 🔞 不收）。新总数 273，四档
+/// 67/68/68/70（第 4 档里 missav、javrate 仍钉末尾）。短剧站未进表
+/// （jinguo、jinguo_jg、hghub、heitao；aihi、aiwu 也是短剧站，未追加），
+/// 口径不变。总数 201→273，104 个原有站换档且全部是提前一档解锁
+/// （1→0 计 18 站、2→1 计 36 站、3→2 计 50 站），无一站推迟解锁；
+/// 换档清单见 ~/workspace/moyi_tier_20261122/REPORT.md。
 const adultVideoSiteOrder = <String>[
   'mjv011', 'huangguo', 'huangguotv', 'hgtvim', 'huai', 'hl365', 'sex8', 'hgdjv',
   'km2', 'cucumber', 'haijiao', 'md', 'utube', 'av91', 'lxs', 'javrate',
@@ -657,6 +667,15 @@ const adultVideoSiteOrder = <String>[
   'herexxx', 'japanwhores', 'javfun', 'koreanporn', 'mythav', 'senzuri', 'tokyomotion', 'x51',
   'taiav', 'rouvideo', 'porna91', 'asextv', 'kissjav', 'javtsunami', 'javsiri', 'sexkbj',
   'chinaxjx', 'wohs',
+  'aijav', 'aosikazy', 'avdb', 'baofengzy', 'changzhangzy', 'chaoliu', 'ckzy', 'dadizy',
+  'danaizizy', 'doudouzy', 'dyttzy', 'fanhaozy', 'feifanzy', 'ficeforand', 'guangsuzy', 'hanjuds',
+  'haohuazy', 'heiheizy', 'heiliaozy', 'hmav', 'honglouzy', 'hongniuzy', 'hsckzy', 'huosuzy',
+  'huyazy', 'ikunzy', 'insav', 'iqiyizy', 'javmenu', 'jipinzy', 'jisuzy', 'jjzy',
+  'jkunzy', 'jp98zy', 'juliangzy', 'kuaichezy', 'laosepzy', 'lebozy', 'mangguozy', 'maoyanzy',
+  'memojav', 'mmsq', 'moduzy', 'mtav', 'naixxzy', 'niuniuzy', 'nvku', 'okzy',
+  'qinav', 'qipaosp', 'souavzy', 'sp91', 'subozy', 'suonizy', 'tanhuavip14', 'taohuazy',
+  'tasexy', 'tianyazy', 'wsyzy', 'wujinzy', 'xhongyan', 'xiguazy', 'xingbazy', 'xingyezy',
+  'yayazy', 'yinghuazy', 'yuanlibzy', 'yutuzy', 'zuidazy', 'zy360', 'hstv', 'eroshort', 'whos', 'youzidj', 'yzaikan', 'one', 'tgpianku',
 ];
 
 /// 成人站档位：按在核心登记表里的下标均分 4 档。

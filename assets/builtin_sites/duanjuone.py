@@ -231,7 +231,7 @@ def _tags_of(html):
         e = chunk.find('<', s + 1)
         if e < 0:
             continue
-        t = _strip_tags(chunk[s + 1:s + 1 + e])
+        t = _strip_tags(chunk[s + 1:e])
         if t:
             tags.append(t)
     return tags
@@ -330,7 +330,7 @@ class Spider(BaseSpider):
             if s >= 0:
                 e = after.find('<', s + 1)
                 if e >= 0:
-                    views = _strip_tags(after[s + 1:s + 1 + e])
+                    views = _strip_tags(after[s + 1:e])
         eps = []
         paid = []
         seen = []

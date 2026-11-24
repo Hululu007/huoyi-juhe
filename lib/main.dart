@@ -30,7 +30,10 @@ import 'pages/drama_page.dart';
 import 'pages/library_page.dart';
 import 'pages/live_page.dart';
 import 'pages/mine_page.dart';
-import 'pages/video_page.dart';
+import 'actress/actress_nvku_page.dart';
+import 'actress/actress_adapter_repository.dart';
+import 'actress/actress_adapter_store.dart';
+import 'actress/actress_mytv_bind.dart';
 import 'services/app_log.dart';
 import 'services/app_theme.dart';
 import 'services/audio_download_store.dart';
@@ -95,6 +98,12 @@ Future<void> _prepareRuntime() async {
   // [main] 的 runZonedGuarded 捕获；文件持久化异步开启，失败只退回内存模式。
   AppLog.instance.install();
   unawaited(AppLog.instance.startPersistence());
+  // 启动就自动生成 MYTV/db 与 MYTV/m3u（2026-11-24 用户令，魔蚁 v63
+  // 同款）：以前只在进演员库时才建目录，不进演员库文件夹就一直没有；
+  // 启动先建一次，不等启动、不抛错，没权限时等用户授权后点“重新绑定”再建。
+  if (Platform.isAndroid) {
+    unawaited(ActressMytvBind.ensureFoldersAtStartup());
+  }
   // 短剧分享的「系统分享」走 Android 的 Intent.ACTION_SEND
   //（官方同一条路径）。桥不可用时 PlayletShare 自动降级为复制链接，
   // 不会把失败说成成功。
@@ -576,6 +585,59 @@ class _RootShellState extends State<RootShell>
   /// 升境庆祝弹窗是否正在显示（避免修为连续跳变时叠弹窗）。
   bool _levelUpDialogShowing = false;
 
+  /// 底部导航「演员库」tab（2026-11-24 用户令：底部导航影视改成
+  /// 演员库）：修为到元婴期（unlockedVideo）才进女优库页，否则
+  /// 显示上锁页（与原来影视区同一道门禁，见 VideoPage._lockedBody
+  /// 同款写法）；门禁只看修为快照，不动修仙体系。
+  Widget _actressLibraryTab() {
+    if (!CultivationService.instance.snapshot.unlockedVideo) {
+      return _actressLockedBody();
+    }
+    return ActressNvkuPage(
+      repository: XiuxianAppRepository.shared,
+      store: LocalStore.instance,
+    );
+  }
+
+  /// 未到元婴期时的演员库上锁页：不露源名与站名，只写还差多少修为。
+  Widget _actressLockedBody() {
+    final snapshot = CultivationService.instance.snapshot;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.lock_outline, size: 48, color: moyiMutedOnDark),
+            const SizedBox(height: 16),
+            const Text(
+              '演员库需要元婴期',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '还差 ${snapshot.xpToVideoZone} 修为（约 ${snapshot.episodesToVideoZone} 集短剧）解锁，修为到了自动显示演员库。',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: moyiBodyOnDark),
+            ),
+            const SizedBox(height: 16),
+            MoyiGradientButton(
+              label: '去我的页看进度',
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute<void>(builder: (_) => const MinePage()),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// 首页 feed 的滚动控制器，由壳层持有以便底部栏触发回顶部。
 
   /// 首页 feed 的滚动控制器，由壳层持有以便底部栏触发回顶部。
@@ -616,7 +678,7 @@ class _RootShellState extends State<RootShell>
     // 短剧频道在推荐（视频流）与浅色页之间切换时，悬浮 dock 和系统导航栏
     // 要跟着换肤，所以停在壳层的 build 里监听。
     dramaLightPageNotifier.addListener(_onDramaChromeChanged);
-    // 修为变化时刷新导航栏：影视入口到元婴期才由锁变正常。
+    // 修为变化时刷新导航栏：演员库入口到元婴期才由锁变正常。
     CultivationService.instance.snapshotNotifier.addListener(
       _onCultivationChanged,
     );
@@ -928,7 +990,7 @@ class _RootShellState extends State<RootShell>
                 ),
                 HomePage(cueLoader: () => ApiClient.instance.searchCue()),
                 const DramaPage(),
-                VideoPage(onOpenGame: () => _flipToTab(0)),
+                _actressLibraryTab(),
                 const LivePage(),
                 LibraryPage(
                   onBrowse: () => desktopTab.value = 1,
@@ -1021,20 +1083,20 @@ class _RootShellState extends State<RootShell>
             selectedIcon: Icon(LucideIcons.clapperboard),
             label: '短剧',
           ),
-          // 影视区是成人午夜区：导航栏一直显示，修为不到元婴期时显示上锁
+          // 演员库是成人区：导航栏一直显示，修为不到元婴期时显示上锁
           // 图标，点进去是上锁页（写明还差多少修为）；到元婴期后正常显示。
           NavigationDestination(
             icon: Icon(
               CultivationService.instance.snapshot.unlockedVideo
-                  ? LucideIcons.film
+                  ? LucideIcons.users
                   : LucideIcons.lock,
             ),
             selectedIcon: Icon(
               CultivationService.instance.snapshot.unlockedVideo
-                  ? LucideIcons.film
+                  ? LucideIcons.users
                   : LucideIcons.lock,
             ),
-            label: '影视',
+            label: '演员库',
           ),
           const NavigationDestination(
             icon: Icon(LucideIcons.tv),
@@ -1130,7 +1192,7 @@ class _RootShellState extends State<RootShell>
                 cueLoader: () => ApiClient.instance.searchCue(),
               ),
               const DramaPage(),
-              VideoPage(onOpenGame: () => _flipToTab(0)),
+              _actressLibraryTab(),
               const LivePage(),
               // 空书架上的「去书城找书」切回首页 tab；收藏空态的「找短剧」
               // 切到短剧 tab。

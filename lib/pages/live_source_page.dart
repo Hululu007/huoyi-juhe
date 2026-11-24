@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../services/live_api.dart';
 import '../services/live_platform.dart';
 import '../services/live_sources.dart';
 import '../widgets/series_detail/moyi_detail_theme.dart';
@@ -37,6 +38,9 @@ class LiveSourceBrowsePage extends StatelessWidget {
       case LiveProtocol.list:
         return _ListChannelsPage(source: source);
       case LiveProtocol.pingtai:
+      case LiveProtocol.api:
+        // api 源（bilibili）的分区与房间也走“分类 → 频道”两级浏览，
+        // 取数时按 protocol 分流（见下面两个 FutureBuilder 的三元）。
         return _PingtaiPlatformsPage(source: source);
     }
   }
@@ -152,7 +156,9 @@ class _PingtaiPlatformsPage extends StatelessWidget {
       ),
       body: MoyiPageBackground(
         child: FutureBuilder<List<LivePlatform>>(
-          future: fetchPingtaiPlatforms(source),
+          future: source.protocol == LiveProtocol.api
+              ? fetchApiPlatforms(source)
+              : fetchPingtaiPlatforms(source),
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Center(child: CircularProgressIndicator());
@@ -227,7 +233,9 @@ class _PingtaiChannelsPage extends StatelessWidget {
       ),
       body: MoyiPageBackground(
         child: FutureBuilder<List<LiveChannel>>(
-          future: fetchPingtaiChannels(source, platform),
+          future: source.protocol == LiveProtocol.api
+              ? fetchApiChannels(source, platform)
+              : fetchPingtaiChannels(source, platform),
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Center(child: CircularProgressIndicator());

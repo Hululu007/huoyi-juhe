@@ -10,12 +10,15 @@ import 'embedded_test_entries.dart';
 
 /// 境界成人分档（内嵌版）：批量转站后核心只剩 hgdj/hgdj58/hgdjv 3 站，
 /// 分档改读 adultVideoSiteOrder（删核心前的核心登记顺序 201 站，加上
-/// 2026-11-07 新入的中国X站精选 chinaxjx，再减 2026-11-08 摘掉的
-/// AOXX69，共 201 站）。
+/// 之后追加的 72 个资源站（zy/* 等），再加 2026-11-24 魔蚁 v63 合入的
+/// 5 站（whos/youzidj/yzaikan/one/tgpianku），共 278 站）。
 /// 影视区统一表里的行 id（种子 `seed_<id>`、jar `jar:zakatv:<key>`、
 /// 核心裸 id）查档位时先归一化成核心站 id。
 ///
-/// 档位必须与删前一致：原来在第几档、现在还在第几档，不洗牌。
+/// 档位按现表下标均分 4 档（档 = min(3, 下标 × 4 ~/ 站总数)），加站
+/// 改分母、边界站会下移一档，这是公式本意，不洗牌：2026-11-24 前的
+/// 抽查期望值是 201 站旧表时代的，资源站追加（201→273）与魔蚁 v63
+/// 合入（273→278）两次改分母后已按现表重算。
 /// 原始 19 短剧站本来就不在分档表里，不受影响；从未进过核心的
 /// jar/种子站也不分档，按非成人站原样保留。
 void main() {
@@ -42,11 +45,11 @@ void main() {
     'huangdou_yh',
   ];
 
-  test('分档登记表：201 站、无重复、首站 mjv011、末站 wohs', () {
-    expect(adultVideoSiteOrder.length, 201);
-    expect(adultVideoSiteOrder.toSet().length, 201);
+  test('分档登记表：278 站、无重复、首站 mjv011、末站 tgpianku', () {
+    expect(adultVideoSiteOrder.length, 278);
+    expect(adultVideoSiteOrder.toSet().length, 278);
     expect(adultVideoSiteOrder.first, 'mjv011');
-    expect(adultVideoSiteOrder.last, 'wohs');
+    expect(adultVideoSiteOrder.last, 'tgpianku');
   });
 
   test('3 个留站仍在分档里，原始 19 短剧站都不在', () {
@@ -60,49 +63,49 @@ void main() {
     }
   });
 
-  test('4 档规模：49/50/50/52（201 站时第 2 档少 1 站）', () {
-    expect(adultTierSiteIds(0, adultVideoSiteOrder).length, 49);
-    expect(adultTierSiteIds(1, adultVideoSiteOrder).length, 50);
-    expect(adultTierSiteIds(2, adultVideoSiteOrder).length, 50);
-    expect(adultTierSiteIds(3, adultVideoSiteOrder).length, 52);
+  test('4 档规模：68/69/70/71', () {
+    expect(adultTierSiteIds(0, adultVideoSiteOrder).length, 68);
+    expect(adultTierSiteIds(1, adultVideoSiteOrder).length, 69);
+    expect(adultTierSiteIds(2, adultVideoSiteOrder).length, 70);
+    expect(adultTierSiteIds(3, adultVideoSiteOrder).length, 71);
   });
 
-  test('抽查档位与删前备份顺序一致', () {
-    // 下标与档位按删除备份里的旧 coreVideoSiteIds 顺序算
-    // （档 = min(3, 下标 × 4 ~/ 201)；missav/javrate 钉第 4 档）。
+  test('抽查档位与现登记表顺序一致', () {
+    // 下标与档位按 adultVideoSiteOrder 顺序算
+    // （档 = min(3, 下标 × 4 ~/ 278)；missav/javrate 钉第 4 档）。
     const expected = <String, int>{
       'mjv011': 0,
       'missav': 3,
       'javrate': 3,
       'hgdj': 1,
-      'hgdj58': 3,
+      'hgdj58': 2,
       'hgdjv': 0,
       'aiye': 1,
       'av18avmcg': 1,
-      'xj': 3,
+      'xj': 2,
       'xj2': 0,
       'haijiao': 0,
-      'haijiao4k': 2,
+      'haijiao4k': 1,
       'rou': 0,
-      'rouvideo': 3,
-      'wohs': 3,
+      'rouvideo': 2,
+      'wohs': 2,
       '123av': 0,
       '321av': 1,
-      '591av': 1,
+      '591av': 0,
       '99jj': 0,
       '17rip': 1,
       '69vj': 0,
       'txfans': 0,
       'hjapp': 1,
       'javplay': 1,
-      'lissavcn': 3,
+      'lissavcn': 2,
       'missavoff': 0,
       'hddj': 0,
       'huangguo': 0,
       'hgtvim': 0,
-      'abjav': 3,
-      'danai': 2,
-      'caoliu': 3,
+      'abjav': 2,
+      'danai': 1,
+      'caoliu': 2,
     };
     for (final entry in expected.entries) {
       expect(
@@ -157,10 +160,8 @@ void main() {
     );
   });
 
-  test('199 个内嵌站全有档位：种子 + jar + 核心 3 站覆盖全部 201 个登记 id', () {
-    // 197 个已转的 tiered 站（199 个删掉的模块里 yaguo 是短剧站，
-    // 从不在分档表里；2026-11-08 又摘了 AOXX69）+ 2026-11-07 新入的
-    // 中国X站精选 + 3 个留站 = 201。
+  test('内嵌站全有档位：种子 + jar + 核心 3 站覆盖全部 278 个登记 id', () {
+    // 201 站旧表 + 72 个资源站 + 2026-11-24 魔蚁 v63 合入 5 站 = 278。
     final covered = <String>{};
     for (final seed in builtinImportedSeeds) {
       final id = 'seed_${seed.seedId}';
@@ -174,8 +175,14 @@ void main() {
         covered.add(adultSiteIdForUnifiedId(id));
       }
     }
+    for (final site in oneBuiltinSites) {
+      final id = JarSiteSpec.siteIdFor(oneJarId, site.key);
+      if (adultTierForSiteId(id, adultVideoSiteOrder) != null) {
+        covered.add(adultSiteIdForUnifiedId(id));
+      }
+    }
     covered.addAll(['hgdj', 'hgdj58', 'hgdjv']);
-    expect(covered.length, 201);
+    expect(covered.length, 278);
     expect(covered, adultVideoSiteOrder.toSet());
   });
 

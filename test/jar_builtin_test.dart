@@ -10,8 +10,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('内置表：247 站 + 6 排除站，键唯一、类名与类型齐全', () {
-    expect(zakatvBuiltinSites.length, 247);
+  test('内置表：253 站 + 6 排除站，键唯一、类名与类型齐全', () {
+    expect(zakatvBuiltinSites.length, 253);
     expect(zakatvExcludedSites.length, 6);
     final keys = zakatvBuiltinSites.map((site) => site.key).toList();
     expect(keys.toSet().length, keys.length);
@@ -36,17 +36,17 @@ void main() {
           .map((site) => site.key),
       ['go_tingshu'],
     );
-    // 成人标记分两种：🔞 开头的 189 站进午夜门禁；徽章前缀（🆕/👑等）+ 🔞
+    // 成人标记分两种：🔞 开头的 192 站进午夜门禁；徽章前缀（🆕/👑等）+ 🔞
     // 的站与原树行为一致（门禁只认 🔞 开头），此处只锁定数量不改规则。
-    // 全量 247 站含 🔞 的是 220，6 个被排除站全含 🔞。
-    // 189/220 含电视直播（ZakaLiveTv，2026-11-08 改名加 🔞 进午夜区）。
+    // 全量 253 站含 🔞 的是 223，6 个被排除站全含 🔞。
+    // 192/223 含电视直播（ZakaLiveTv，2026-11-08 改名加 🔞 进午夜区）。
     expect(
       zakatvBuiltinSites.where((site) => site.name.startsWith('🔞')).length,
-      189,
+      192,
     );
     expect(
       zakatvBuiltinSites.where((site) => site.name.contains('🔞')).length,
-      220,
+      223,
     );
     expect(youtubeBuiltinSite.className, youtubeSpiderClass);
     expect(youtubeBuiltinSite.key, 'youtube');
@@ -61,19 +61,21 @@ void main() {
     expect(JarBridge.md5Hex(zakatvBytes), zakatvJarMd5);
     final youtubeBytes = await File(youtubeJarAsset).readAsBytes();
     expect(JarBridge.md5Hex(youtubeBytes), youtubeJarMd5);
+    final oneBytes = await File(oneJarAsset).readAsBytes();
+    expect(JarBridge.md5Hex(oneBytes), oneJarMd5);
   });
 
-  test('补齐 lifecycle：补 248 站、幂等、开关保留、删后墓碑不再复活', () async {
+  test('补齐 lifecycle：补 255 站、幂等、开关保留、删后墓碑不再复活', () async {
     SharedPreferences.setMockInitialValues({});
     final registry = SourceRegistry.instance;
     await registry.ensureBuiltinJarSites();
     final first = registry.custom
         .where((entry) => entry.extra['builtin'] == true)
         .toList();
-    expect(first.length, 248);
+    expect(first.length, 255);
     expect(
       first.where((entry) => entry.kind == SourceKind.jarImport).length,
-      248,
+      255,
     );
     final youtube = first.firstWhere(
       (entry) => entry.id == 'jar:youtube:youtube',
@@ -95,7 +97,7 @@ void main() {
     await registry.ensureBuiltinJarSites();
     expect(
       registry.custom.where((entry) => entry.extra['builtin'] == true).length,
-      248,
+      255,
     );
 
     await registry.setCustomEnabled(sample.id, false);
@@ -111,7 +113,7 @@ void main() {
     );
     expect(
       registry.custom.where((entry) => entry.extra['builtin'] == true).length,
-      247,
+      254,
     );
     // 内置 jar 视频站现归午夜页，不再进 visibleDramaSites；此处改验一个
     // 内置短剧站仍可见，意图不变：删一站不影响其他站的可见性。

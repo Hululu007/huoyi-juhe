@@ -45,6 +45,19 @@ static STREAM_TRACE_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::
 const V5_PLAYER_URL: &str =
     "https://api5-normal-sinfonlinea.fqnovel.com/novel/player/multi_video_model/player/v1";
 
+/// Official single-episode door path, tried on both hosts in
+/// [crate::upstream::playback_routes::VIDEO_MODEL_HOSTS].
+/// Anonymous enhanced V5 door: same path as [V5_PLAYER_URL] but with a
+/// trailing slash, signed with the full Medusa/Gorgon envelope.
+const V5_PLAYER_URL_ANON: &str =
+    "https://api5-normal-sinfonlinea.fqnovel.com/novel/player/multi_video_model/player/v1/";
+
+const VIDEO_MODEL_PATH: &str = "/novel/player/video_model/v1/";
+/// Signed `GET video_tab` fallback door base (no body).
+const VIDEO_TAB_BASE: &str = "https://api5-normal-sinfonlineb.fqnovel.com/reading/bookapi/video_tab/multi_video_model/v1/";
+/// Same-door re-probe delay for an empty body, before the door is parked.
+const SAME_DOOR_REPROBE_DELAY: Duration = Duration::from_millis(250);
+
 /// Reading directory endpoint used as the primary pseries directory source.
 const DIRECTORY_READING_URL: &str =
     "https://api5-normal-sinfonlineb.fqnovel.com/reading/bookapi/directory/all_items/v?";
@@ -267,8 +280,8 @@ fn handle_video<'a>(ctx: &'a Ctx, params: &'a Params) -> BoxFuture<'a, ApiResult
     })
 }
 
-fn v5_playback_body(video_id: &str) -> ApiResult<Vec<u8>> {
-    let plain = serde_json::to_vec(&json!({
+fn v5_playback_body_json(video_id: &str) -> Value {
+    json!({
         "biz_param": {
             "detail_page_version": 0,
             "device_level": 1,
@@ -284,8 +297,12 @@ fn v5_playback_body(video_id: &str) -> ApiResult<Vec<u8>> {
             "1004": [video_id],
         },
         "dr_scene": "player",
-    }))
-    .map_err(|e| ApiError::Internal(format!("marshal v5 playback body: {e}")))?;
+    })
+}
+
+fn gzip_playback_body(value: &Value) -> ApiResult<Vec<u8>> {
+    let plain = serde_json::to_vec(value)
+        .map_err(|e| ApiError::Internal(format!("marshal v5 playback body: {e}")))?;
     let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
     encoder
         .write_all(&plain)
@@ -295,11 +312,236 @@ fn v5_playback_body(video_id: &str) -> ApiResult<Vec<u8>> {
         .map_err(|e| ApiError::Internal(format!("gzip v5 playback body: {e}")))
 }
 
-async fn fetch_v5_video_model(ctx: &Ctx, video_id: &str) -> ApiResult<Vec<u8>> {
-    let body = v5_playback_body(video_id)?;
-    Upstream::new(ctx.up.clone())
-        .v5_playback(V5_PLAYER_URL, &body)
+fn v5_playback_body(video_id: &str) -> ApiResult<Vec<u8>> {
+    gzip_playback_body(&v5_playback_body_json(video_id))
+}
+
+/// Anonymous enhanced door body: the v5 body plus `video_id` and
+/// `content_type: 1`.
+fn anonymous_playback_body(video_id: &str) -> ApiResult<Vec<u8>> {
+    let mut value = v5_playback_body_json(video_id);
+    value["video_id"] = json!(video_id);
+    value["content_type"] = json!(1);
+    gzip_playback_body(&value)
+}
+
+/// One playback-door attempt: a usable body, an empty (HTTP 200 with zero
+/// bytes) body, or a hard failure. Empty is not an error by itself: the
+/// ladder re-probes the same door once before parking it.
+enum PlaybackDoorOutcome {
+    Body(Vec<u8>),
+    Empty,
+    Failed,
+}
+
+/// The enhanced anonymous V5 door: the mini-reel device identity plus the
+/// full Medusa/Gorgon envelope, posted to the trailing-slash player URL.
+/// The device id is reported back so the ladder can rotate the identity
+/// after consecutive all-empty rounds.
+async fn fetch_anonymous_v5_door(
+    ctx: &Ctx,
+    anon_body: &[u8],
+    anon_device_id: &mut Option<String>,
+) -> ApiResult<Vec<u8>> {
+    let identity = crate::upstream::playback_identity::shared().map_err(ApiError::Internal)?;
+    let device = identity.current().await.map_err(ApiError::Internal)?;
+    *anon_device_id = Some(device.device_id.clone());
+    let signing = crate::sign::v5::AnonymousV5Identity {
+        device_id: &device.device_id,
+        install_id: &device.install_id,
+        cdid: &device.cdid,
+        egdi: &device.egdi,
+    };
+    let signed =
+        crate::sign::v5::sign_anonymous_playback_v5(V5_PLAYER_URL_ANON, anon_body, &signing)
+            .map_err(ApiError::Internal)?;
+    let (raw, _) = Upstream::new(ctx.up.clone())
+        .raw_with_headers(&UpstreamRequestSpec {
+            mode: UpstreamMode::NoSign,
+            method: Some("POST".to_string()),
+            raw_url: Some(signed.url),
+            headers: signed.headers,
+            body: Some(anon_body.to_vec()),
+            ..Default::default()
+        })
+        .await?;
+    Ok(raw)
+}
+
+async fn fetch_playback_door(
+    ctx: &Ctx,
+    route: crate::upstream::playback_routes::Route,
+    video_id: &str,
+    body: &[u8],
+    anon_body: &[u8],
+    anon_device_id: &mut Option<String>,
+) -> PlaybackDoorOutcome {
+    use crate::upstream::playback_routes::Door;
+    let result = match route.door {
+        Door::AnonymousV5 => {
+            fetch_anonymous_v5_door(ctx, anon_body, anon_device_id).await
+        }
+        Door::V5Player => Upstream::new(ctx.up.clone())
+            .v5_playback(V5_PLAYER_URL, body)
+            .await,
+        Door::VideoModel => {
+            let base = format!("{}{VIDEO_MODEL_PATH}", route.host());
+            Upstream::new(ctx.up.clone()).v5_playback(&base, body).await
+        }
+        Door::VideoTab => fetch_video_tab_door(ctx, video_id).await,
+    };
+    match result {
+        Ok(raw) if !raw.is_empty() => PlaybackDoorOutcome::Body(raw),
+        Ok(_) => {
+            log::warn!(
+                "video {video_id}: playback door {} empty response body",
+                route.tag()
+            );
+            PlaybackDoorOutcome::Empty
+        }
+        Err(error) => {
+            log::warn!(
+                "video {video_id}: playback door {} failed: {}",
+                route.tag(),
+                error.message()
+            );
+            PlaybackDoorOutcome::Failed
+        }
+    }
+}
+
+/// `GET /reading/bookapi/video_tab/multi_video_model/v1/` signed with the
+/// v5 player envelope in its GET form: the digest that selects the branch is
+/// the digest of zero bytes, and the body-describing headers
+/// (`Content-Type`, `Content-Encoding`, `x-ss-stub`) are omitted.
+async fn fetch_video_tab_door(ctx: &Ctx, video_id: &str) -> ApiResult<Vec<u8>> {
+    let dev = ctx
+        .pool
+        .get()
         .await
+        .map_err(|error| ApiError::Internal(format!("get device: {error}")))?;
+    let cdid = if dev.cdid.is_empty() {
+        dev.openudid.as_str()
+    } else {
+        dev.cdid.as_str()
+    };
+    let identity = crate::sign::v5::V5Identity {
+        device_id: &dev.device_id,
+        install_id: &dev.install_id,
+        cdid,
+    };
+    let signed = crate::sign::v5::sign_playback_v5_get(
+        VIDEO_TAB_BASE,
+        &[("video_id", video_id)],
+        &identity,
+    )
+    .map_err(ApiError::Internal)?;
+    let (_, query) = signed
+        .url
+        .split_once('?')
+        .ok_or_else(|| ApiError::Internal("video_tab signed url has no query".to_string()))?;
+    if !crate::sign::v5::playback_envelope_is_full(query) {
+        return Err(ApiError::Internal(
+            "video_tab playback envelope is incomplete".to_string(),
+        ));
+    }
+    let (raw, _) = Upstream::new(ctx.up.clone())
+        .raw_with_headers(&UpstreamRequestSpec {
+            mode: UpstreamMode::NoSign,
+            method: Some("GET".to_string()),
+            raw_url: Some(signed.url),
+            headers: signed.headers,
+            ..Default::default()
+        })
+        .await?;
+    Ok(raw)
+}
+
+async fn fetch_v5_video_model(ctx: &Ctx, video_id: &str) -> ApiResult<Vec<u8>> {
+    use crate::upstream::playback_routes::{now_ms, with_state, Route};
+
+    let body = v5_playback_body(video_id)?;
+    let anon_body = anonymous_playback_body(video_id)?;
+    // Ladder order (upstream routes()): anon -> v5 -> model-a -> model-c ->
+    // tab-b. Cooling doors are skipped by plan(); an all-blocked plan falls
+    // back to the cooling doors ordered by recovery time.
+    let plan: Vec<Route> = with_state(|state| state.plan(now_ms(), false));
+    let mut all_empty = true;
+    let mut anon_device_id: Option<String> = None;
+    for route in plan {
+        match fetch_playback_door(ctx, route, video_id, &body, &anon_body, &mut anon_device_id)
+            .await
+        {
+            PlaybackDoorOutcome::Body(raw) => {
+                with_state(|state| state.success(route, now_ms()));
+                return Ok(raw);
+            }
+            PlaybackDoorOutcome::Empty => {
+                // An empty body no longer fails the request outright: re-probe
+                // the same door once after 250ms, then park it on cooldown.
+                tokio::time::sleep(SAME_DOOR_REPROBE_DELAY).await;
+                match fetch_playback_door(
+                    ctx,
+                    route,
+                    video_id,
+                    &body,
+                    &anon_body,
+                    &mut anon_device_id,
+                )
+                .await
+                {
+                    PlaybackDoorOutcome::Body(raw) => {
+                        with_state(|state| state.success(route, now_ms()));
+                        return Ok(raw);
+                    }
+                    PlaybackDoorOutcome::Empty => {
+                        with_state(|state| state.failed(route, now_ms(), true));
+                    }
+                    PlaybackDoorOutcome::Failed => {
+                        all_empty = false;
+                        with_state(|state| state.failed(route, now_ms(), false));
+                    }
+                }
+            }
+            PlaybackDoorOutcome::Failed => {
+                all_empty = false;
+                with_state(|state| state.failed(route, now_ms(), false));
+            }
+        }
+    }
+    with_state(|state| state.note_round(all_empty));
+    // Consecutive all-empty rounds justify one anonymous-identity rotation,
+    // paced by the route state so a scarce replacement identity is reused.
+    if all_empty {
+        if let Some(device_id) = &anon_device_id {
+            let now = now_ms();
+            if with_state(|state| state.rotate_due(now, false)) {
+                match crate::upstream::playback_identity::shared() {
+                    Ok(identity) => match identity.refresh_after_empty(device_id).await {
+                        Ok(Some(_)) => {
+                            with_state(|state| state.note_rotate(now, true));
+                            log::info!(
+                                "video {video_id}: anonymous identity rotated after empty round"
+                            );
+                        }
+                        Ok(None) => {}
+                        Err(error) => {
+                            with_state(|state| state.note_rotate(now, false));
+                            log::warn!(
+                                "video {video_id}: anonymous identity refresh failed: {error}"
+                            );
+                        }
+                    },
+                    Err(error) => {
+                        log::warn!(
+                            "video {video_id}: anonymous identity unavailable: {error}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+    Err(ApiError::Internal("视频取流失败，请稍后重试".to_string()))
 }
 
 async fn fetch_parsed_video_response(
@@ -3059,6 +3301,8 @@ pub fn register(s: &mut Server) {
 
 #[cfg(test)]
 mod cenc_sample_fixture;
+#[cfg(test)]
+mod playback_ladder;
 #[cfg(test)]
 mod spade_vectors;
 #[cfg(test)]

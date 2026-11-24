@@ -412,6 +412,9 @@ class SourceRegistry {
     for (final site in zakatvBuiltinSites) {
       addBuiltin(site, zakatvJarId, zakatvJarAsset, zakatvJarMd5);
     }
+    for (final site in oneBuiltinSites) {
+      addBuiltin(site, oneJarId, oneJarAsset, oneJarMd5);
+    }
     addBuiltin(
       youtubeBuiltinSite,
       youtubeJarId,

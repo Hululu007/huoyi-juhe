@@ -343,6 +343,7 @@ const dramaSites = [
   // 只能以 seed_ 行出现、且 xandaskday 还被误判进影视区。
   DramaSite('xandaskday', '🔞AI不用钱'),
   DramaSite('huangguomanju', '🔞黄果漫剧'),
+  DramaSite('youzidj', '🔞柚子短剧'),
 ];
 
 List<DramaSite> _extraDramaSites = const [];

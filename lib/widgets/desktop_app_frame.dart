@@ -90,8 +90,8 @@ class DesktopAppFrame extends StatelessWidget {
                       label: Text('短剧'),
                     ),
                     NavigationRailDestination(
-                      icon: Icon(LucideIcons.film),
-                      label: Text('影视'),
+                      icon: Icon(LucideIcons.users),
+                      label: Text('演员库'),
                     ),
                     NavigationRailDestination(
                       icon: Icon(LucideIcons.tv),

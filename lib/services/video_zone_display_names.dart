@@ -234,6 +234,14 @@ const videoZoneDisplayNames = <String, String>{
   'badyi': '🔞墨蛟·八度',
   'caoliu': '🔞金蟒·草榴',
   'chinax': '🔞紫狼·中国X',
+  'whos': '炼虚·识图',
+  'yzaikan': '🔞黄枫谷·柚子',
+  'one': '🔞掩月宗·一播',
+  'tgpianku': '🔞虚天殿·TG片',
+  // ficeforand 种子原名 '🔞AI小视频·ficeforand' 宽 146 超 130 预算，
+  // 弹窗两行放不下，补短名（2026-11-24 恢复树里已有的旧问题，
+  // 本次把 289 旧数改准后才暴露出来）。
+  'ficeforand': '🔞AI小视频·fice',
 };
 
 /// 影视区统一表里某行的显示名：归一化成核心站 id 后查短名表，

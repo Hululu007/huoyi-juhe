@@ -1,0 +1,4128 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:path/path.dart' as path;
+import 'package:sqflite/sqflite.dart';
+
+import 'actress_generic_db.dart';
+import 'actress_models.dart';
+import 'actress_mytv_bind.dart';
+
+/// 没有外置数据库：女优库只读 MYTV/db/女优库.db（2026-11-22 用户令
+/// 最终口径），绑定不到它、或文件不存在/为空时开库抛这个错；
+/// 调用方（列表页/详情页）接住它显示空态提示，不回落任何内置库、
+/// 不建新库、不悄悄造数据。
+class ActressNoExternalDbException implements Exception {
+  const ActressNoExternalDbException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+/// 重读失败文案：没找到外置库时直说，没有“仍用旧库”（没有旧库可留）；
+/// 其它失败（新库打不开）才说留旧库继续用。
+String actressReloadErrorText(String error) =>
+    error.startsWith('未找到外置数据库')
+        ? error
+        : '数据库重读失败：$error（仍用旧库）';
+
+/// 同步断点：每源每阶段一条，记录下次接着跑的位置。
+class ActressSyncCheckpoint {
+  const ActressSyncCheckpoint({
+    required this.source,
+    required this.phase,
+    this.cursor = '',
+    this.total = 0,
+    this.finished = false,
+    this.error = '',
+    this.updatedAt = 0,
+  });
+
+  /// 'roster' | 'films' | 'ranking'。
+  final String source;
+  final String phase;
+
+  /// roster/ranking：下一页页码；films：最后完成的人物 localId。
+  final String cursor;
+  final int total;
+  final bool finished;
+  final String error;
+  final int updatedAt;
+}
+
+/// 全站叠加断点在 sync_state 里的键：source 与 phase 均为 'stacking'，
+/// 与三家名册源的检查点分键，互不干扰。
+const actressStackingCheckpointSource = 'stacking';
+const actressStackingCheckpointPhase = 'stacking';
+
+/// 同步总览：列表页横幅与手动刷新判断用。
+class ActressSyncOverview {
+  const ActressSyncOverview({
+    required this.persons,
+    required this.works,
+    required this.sources,
+    required this.lastUpdatedAt,
+    this.personsWithWorks = 0,
+  });
+
+  final int persons;
+  final int works;
+
+  /// 有入库作品的人数（SELECT COUNT(DISTINCT person_id) FROM
+  /// works）：头顶人数只算这个（2026-11-20 用户令：要入库才算），
+  /// 只有名册、还没入库作品的人不算；[persons] 仍是名册总人数，
+  /// 供同步进度与叠加总量用，不改语义。
+  final int personsWithWorks;
+
+  /// 每源：是否三阶段都完成。
+  final Map<ActressRosterSourceId, bool> sources;
+  final int lastUpdatedAt;
+
+  bool get hasAnything => persons > 0;
+  bool get allDone => sources.values.every((done) => done);
+}
+
+/// 女优本地库接口：名册 + 作品一次性全量存本地，打开只读本地。
+/// sqflite 实现跑真机，内存实现跑测试与预览；两者语义必须一致。
+/// [ActressDatabase.updateWorkPlayLinks] 的一条更新：与
+/// [ActressDatabase.updateWorkPlayLink] 同字段（人由调用方一次传，
+/// 不在每条里重复）。
+class WorkPlayLinkUpdate {
+  const WorkPlayLinkUpdate({
+    required this.site,
+    required this.codeKey,
+    required this.titleKey,
+    this.title = '',
+    this.date = '',
+    required this.coverSource,
+    required this.coverDramaId,
+    required this.coverUrl,
+  });
+  final String site;
+  final String codeKey;
+  final String titleKey;
+  final String title;
+  final String date;
+  final String coverSource;
+  final String coverDramaId;
+  final String coverUrl;
+}
+
+abstract class ActressDatabase {
+  /// 名册人物合并入库：按任一名字变体键命中即合并，否则新建。
+  /// 名字含硬线词时返回 null（整人剔除）。
+  Future<ActressPerson?> upsertRosterPerson(RosterPerson roster);
+
+  /// 爬虫落库：按归一化名字合并人物（只补空字段、并标签与别名，
+  /// 不认领任何名册源身份、不碰来源 id 列）；名字含硬线词返回 null。
+  /// 爬到的女优名来自详情“演员：”行；mjv 站的演员记 sex 'female'，
+  /// 其他站 sex 未知记空（不臆断）。
+  Future<ActressPerson?> upsertCrawledPerson({
+    required String name,
+    String sex = '',
+    List<String> tags = const [],
+    String avatarUrl = '',
+  });
+
+  Future<ActressPerson?> personById(int localId);
+
+  Future<List<ActressPerson>> listPersons({
+    required ActressSexFilter sex,
+    required ActressSort sort,
+    required String query,
+    required int offset,
+    required int limit,
+    String tag = '',
+    String category = '',
+  });
+
+  Future<int> countPersons({
+    required ActressSexFilter sex,
+    required String query,
+    String tag = '',
+  });
+
+  /// 排行榜全量取数（榜内 Dart 侧按综合分排，读本地不联网）。
+  Future<List<ActressPerson>> allPersonsForRanking({
+    required ActressSexFilter sex,
+  });
+
+  /// 记录 MissAV 排行名次：只保留最好（最小）名次。
+  Future<void> setMissavRank(int personId, int rank);
+
+  /// 记录 whos 日榜名次：只保留最好（最小）名次；与 MissAV 列
+  /// 互不覆盖（名气分主链 MissAV、后备 whos）。
+  Future<void> setWhosRank(int personId, int rank);
+
+  /// 写入 whos 人物页简介：与已有键值合并，已有键优先；含硬线词
+  /// 的键或值整条丢弃（不写该键），不影响其它键。
+  Future<void> setPersonAbout(int personId, Map<String, String> about);
+
+  Future<List<ActressWork>> worksForPerson(
+    int personId, {
+    required int offset,
+    required int limit,
+
+    /// 只取该分类的作品：null/空 = 全部（头顶总数与旧调用同一口径）。
+    String? category,
+  });
+
+  Future<int> countWorks(int personId, {String? category});
+
+  /// 多库合并去重用：该人名下全部作品的（番号，播放链接）键集合
+  ///（键形如 `番号键|有效播放地址`，番号键是归一化后的番号
+  ///（normalizeAvCode，跨库同作品才能对上：严格库的 vod_id
+  ///是小写 slug、通用库的 code 列可能是大写带连字符），有效地址
+  ///口径与播放链一致：m3u8_url 优先、否则 vod_play_url，再过
+  ///extractPlayUrl）。
+  /// 2026-11-20 合并规则：只有番号与播放链接完全一样才过滤，
+  /// 同番号不同地址各留一条。视频库模式才有数据；其它模式回空集
+  ///（合并时退回相加口径）。默认实现回空集——测试替身与内存库
+  /// 不用实现。
+  Future<Set<String>> distinctWorkKeysForName(String name) async =>
+      const <String>{};
+
+  /// 全库一级分类（去重计数）：多库勾选时列表页分类行取各库并集。
+  /// 严格库读 video_category.main_category；通用库读通用读法
+  /// 的分类（优先 video_category、否则作品表自己的分类列，
+  /// 见 GenericDbReader.categories）。默认实现回空集——测试替身
+  /// 与内存库不用实现。
+  Future<List<(String, int)>> dbCategories() async => const [];
+
+  /// 该人物作品里实际存在的分类（只含 category 非空的行），按作品
+  /// 数从多到少、同数按名字排；没有分类的作品不产生标签、不丢数据
+  /// （它们只在“全部”里显示）。详情页分类筛选的标签来源。
+  Future<List<({String name, int count})>> workCategories(int personId);
+
+  /// 作品清单合并入库：按（站，番号键）去重、无番号按（站，标题键）
+  /// 去重——同番号两站各留一条，各算一条可播线路；命中硬线词的
+  /// 条目跳过；写完刷新人物的 works_count。
+  /// [site] 是这批作品的站（名册源名或蜘蛛站 id，如 'chaoliu'/
+  /// 'whos'/'missav'）：去重键的一部分；不传时为空（旧调用与旧库
+  /// 行同一口径）。[coverSource] 是这批作品封面的来源站（见
+  /// [actressRosterCoverSource]）：有封面的新建行按它写
+  /// cover_source；不传时默认 'whos'（与旧行为一致）；传空表示
+  /// 该源不带可用封面，有封面地址的条目也不认站源、不写封面。
+  Future<void> upsertWorks(
+    int personId,
+    List<RosterFilm> films, {
+    String coverSource = 'whos',
+    String site = '',
+  });
+
+  /// 全站搜索补封面：按（站，番号键）命中则更新封面与标题（同站
+  /// 行优先；同站没有时退到该番号任意站的行只补封面，不挪行；
+  /// 找到的行没记站（旧库 site 为空）时认领到本次命中站名下，不
+  /// 新增第二行），命中不到则按 [insertIfMissing] 决定是否新增
+  /// 一条跨站发现的作品行（名字搜索带番号的命中可新增，番号搜索
+  /// 只补已有行；新增行的站记 [site]，同番号两站各留一条）。
+  /// [site] 是命中来源站 id；不传时为空（旧调用同一口径）。
+  Future<void> attachCover({
+    required int personId,
+    required String codeKey,
+    required String titleKey,
+    String codeDisplay = '',
+    String title = '',
+    String date = '',
+    required String coverSource,
+    required String coverDramaId,
+    required String coverUrl,
+    bool insertIfMissing = true,
+    String site = '',
+  });
+
+  /// [updateWorkPlayLinks] 的一条更新：与 [updateWorkPlayLink] 同字
+  /// 段（人由调用方一次传，不在每条里重复）。
+  /// 数据库镜像“任一不同就更新替换”（2026-11-20 用户令）：按
+  /// （人，站，番号键/标题键）找到已有的作品行，把播放链接
+  /// （cover_drama_id）与封面（cover_source/cover_url）换成
+  /// 新值；标题/日期只在调用方给了非空值时才换；分类不动（与
+  /// upsertWorks 的“只补空分类”同一口径）。找到并更新了返回
+  /// true，没找到返回 false（调用方随后再按新建行处理）。
+  Future<bool> updateWorkPlayLink({
+    required int personId,
+    required String site,
+    required String codeKey,
+    required String titleKey,
+    String title = '',
+    String date = '',
+    required String coverSource,
+    required String coverDramaId,
+    required String coverUrl,
+  });
+
+  /// 批量版 [updateWorkPlayLink]：多条更新只开一个事务，按顺序
+  /// 返回每条是否改了行。镜像每批几百条逐条调时每条一个事务、
+  /// 每次提交都要落盘（约 95ms/条，323798 行要几小时）；批量后
+  /// 约 0.9ms/条（2026-11-21 计时复现实测）。
+  Future<List<bool>> updateWorkPlayLinks({
+    required int personId,
+    required List<WorkPlayLinkUpdate> updates,
+  });
+
+  /// 某源作品清单待同步的人物（有该源身份、且该源 films 未完成）。
+  Future<List<ActressPerson>> personsPendingFilms(ActressRosterSourceId source);
+
+  /// 一次性修复候选人：该源 films 已记完成、但作品行数为 0 的人
+  /// （旧版空结果记 ok 的中毒状态），供修复检查点重取一次。
+  Future<List<ActressPerson>> personsNeedingFilmsRepair(
+    ActressRosterSourceId source,
+  );
+
+  /// films 进度：done = 已完成人数，total = 该源身份总人数。
+  Future<({int done, int total})> filmsProgress(ActressRosterSourceId source);
+
+  Future<void> markFilmsState(
+    int personId,
+    ActressRosterSourceId source, {
+    required bool ok,
+  });
+
+  Future<void> markEnriched(int personId);
+
+  /// 按 localId 升序取人（全站叠加逐人轮询用）：只要 id 大于
+  /// [afterId] 的前 [limit] 人，与列表排序无关，断点 cursor 即最后
+  /// 一人的 localId。
+  Future<List<ActressPerson>> personsAfterId({
+    required int afterId,
+    required int limit,
+  });
+
+  /// 全站叠加断点（独立键，与三家名册源的检查点分开，各记各的）。
+  Future<ActressSyncCheckpoint?> stackingCheckpoint();
+
+  Future<void> saveStackingCheckpoint(ActressSyncCheckpoint checkpoint);
+
+  Future<ActressSyncCheckpoint?> checkpoint(
+    ActressRosterSourceId source,
+    String phase,
+  );
+
+  Future<void> saveCheckpoint(ActressSyncCheckpoint checkpoint);
+
+  /// 内置 json 版本戳（sync_state 里 source='actress_json'、
+  /// phase='version'，cursor 存合并后的 last_update）：列表页用它
+  /// 判断新版 json 到没到——只在新版到达时触发一次同步，
+  /// 不自动爬取网站。
+  Future<String?> jsonVersionStamp();
+
+  Future<void> saveJsonVersionStamp(String version);
+
+  Future<ActressSyncOverview> overview();
+
+  /// 热换库（2026-11-20 用户令）：比对当前绑定路径下数据库文件的
+  /// 大小与修改时间，变了先验新库（能打开、结构对）再关旧连接重开；
+  /// 验不过留旧库并回原因，不崩、不丢数据。没变回
+  /// (reloaded: false, error: null)。[force] 为 true 时不管指纹
+  /// 都重读一次（手动“重新加载数据库”用）。实现落在共用的打开
+  /// 路径上（SqfliteActressDatabase），同步/现爬/叠加读库都走
+  /// 同一个实例，换库后它们读到的都是新库。
+  Future<({bool reloaded, String? error})> reloadIfChanged({
+    bool force = false,
+  });
+
+  /// 通用读库（2026-11-20 用户令）：当前打开的库不是女优库结构
+  /// 时返回通用读取器（动态探结构 + 字段映射，见
+  /// actress_generic_db.dart）；是女优库结构时返回 null，走严格
+  /// 路径。每次调用都按当前文件指纹重探，不沿用旧库的字段映射。
+  Future<GenericDbReader?> genericReader();
+
+  /// 是不是用户视频库（MYTV/db/女优库.db：actresses + videos +
+  /// video_actress + video_category）：是时读走视频库 SQL（人用
+  /// actresses.rowid），写只走 videos / video_category 合并，
+  /// 不碰 persons/works（那两张表这个库里没有）。
+  bool get isVideoLibrary;
+
+  /// 视频库模式：把条目按合并规则写进 videos / video_category
+  ///（同 vod_id 且播放地址相同跳过；同 vod_id 但地址不同只换
+  /// 播放地址；新 vod_id 插 videos + video_category 两行；
+  /// 有女优名时按名字精确匹配 actresses.cate_id，找到了才插
+  /// video_actress 链接，找不到不插、不新建女优行）。
+  /// 普通模式（非视频库）下是空操作——普通库没有 videos 表，
+  /// 走 upsertCrawledPerson + upsertWorks 那套。
+  /// 安全底线：只 INSERT 新视频行与 UPDATE 播放地址，绝不
+  /// DELETE 任何行、不改已有行的标题/日期/分类（播放地址更新
+  /// 时标题/封面只在新值非空时才换）。
+  Future<void> upsertVideoEntries(List<VideoLibraryEntry> entries);
+
+  /// 开库回退提示（2026-11-20 用户令“全部使用数据库兜底”）：
+  /// MYTV 库损坏/打不开时自动回退到 app 内置 actress.db，
+  /// 本字段记下回退原因（供列表页绑定行显示）；正常打开时为 null。
+  String? get openFallbackNote;
+
+  Future<void> close();
+}
+
+String _sourceName(ActressRosterSourceId source) => source.name;
+
+/// 视频库结构判定（纯函数，供测试与 _isVideoLibraryDb 共用）：
+/// 表名集合里同时有 actresses、videos、video_actress 三张表即
+/// 用户视频库（video_category 是分类表，有没有不影响判定）。
+bool isVideoLibrarySchema(Set<String> tableNames) =>
+    tableNames.contains('actresses') &&
+    tableNames.contains('videos') &&
+    tableNames.contains('video_actress');
+
+/// 没有 actresses 表的视频库（2026-11-24 用户报“切换其他数据库
+/// 没有显示数据”）：只有 videos + video_actress + video_category
+/// 三张表，人物按 video_actress.cate_id（人名）分组现算（见
+/// listPersons / countPersons / worksForPerson 的回退），同样认
+/// 作视频库，不走通用读法、也不当成空库。
+bool isVideoLibrarySchemaWithoutActresses(Set<String> tableNames) =>
+    tableNames.contains('videos') &&
+    tableNames.contains('video_actress') &&
+    tableNames.contains('video_category');
+
+/// 第三行分类里去掉数据库名称分类（2026-11-24 用户令）：外来库把
+/// 库名写成了 video_category 的主分类，合并后行 3 会冒出“东瀛丽库
+/// 1 / 综合合集”这种库名项。类别名等于任一已知 .db 文件名（去后
+/// 缀），或以“<库名>/”开头的，一律不进第三行；真分类（有码/无码/
+/// 国产……不在库名集合里）原样保留。库名集合为空时原样返回。
+List<(String, int)> filterLibraryNameCategories(
+  List<(String, int)> categories,
+  Set<String> libraryNames,
+) {
+  if (libraryNames.isEmpty) return categories;
+  return [
+    for (final c in categories)
+      if (!libraryNames.any(
+        (name) => c.$1 == name || c.$1.startsWith('$name/'),
+      ))
+        c,
+  ];
+}
+
+String _sourceIdColumn(ActressRosterSourceId source) => switch (source) {
+  ActressRosterSourceId.chaoliu => 'chaoliu_id',
+  ActressRosterSourceId.whos => 'whos_slug',
+  ActressRosterSourceId.missav => 'missav_path',
+};
+
+Map<String, Object?> _personToRow(ActressPerson person, int now) => {
+  if (person.localId > 0) 'id': person.localId,
+  'display_name': person.displayName,
+  'aliases': jsonEncode(person.aliases),
+  'sex': person.sex,
+  'avatar_url': person.avatarUrl,
+  'tags': jsonEncode(person.tags),
+  'works_count': person.worksCount,
+  'roster_works': person.rosterWorks,
+  'from_chaoliu': person.fromChaoliu ? 1 : 0,
+  'from_whos': person.fromWhos ? 1 : 0,
+  'from_missav': person.fromMissav ? 1 : 0,
+  'chaoliu_id': person.chaoliuId,
+  'whos_slug': person.whosSlug,
+  'missav_path': person.missavPath,
+  'missav_rank': person.missavRank,
+  'recommended': person.recommended ? 1 : 0,
+  'films_synced_at': person.filmsSyncedAt,
+  'enriched_at': person.enrichedAt,
+  'whos_rank': person.whosRank,
+  'rating': person.rating,
+  'exact_works': person.exactWorks,
+  'about': jsonEncode(person.about),
+  'updated_at': now,
+};
+
+Map<String, String> _decodeAbout(Object? value) {
+  if (value is! String || value.isEmpty) return const {};
+  try {
+    final decoded = jsonDecode(value);
+    if (decoded is! Map) return const {};
+    final out = <String, String>{};
+    decoded.forEach((key, item) {
+      if (item != null) out[key.toString()] = item.toString();
+    });
+    return out;
+  } catch (_) {
+    return const {};
+  }
+}
+
+ActressPerson _personFromRow(Map<String, Object?> row) {
+  List<String> decodeList(Object? value) {
+    if (value is! String || value.isEmpty) return const [];
+    final decoded = jsonDecode(value);
+    if (decoded is! List) return const [];
+    return [for (final item in decoded) item.toString()];
+  }
+
+  return ActressPerson(
+    localId: (row['id'] as num?)?.toInt() ?? 0,
+    displayName: (row['display_name'] as String?) ?? '',
+    aliases: decodeList(row['aliases']),
+    sex: (row['sex'] as String?) ?? '',
+    avatarUrl: (row['avatar_url'] as String?) ?? '',
+    tags: decodeList(row['tags']),
+    worksCount: (row['works_count'] as num?)?.toInt() ?? 0,
+    rosterWorks: (row['roster_works'] as num?)?.toInt() ?? 0,
+    fromChaoliu: (row['from_chaoliu'] as num?)?.toInt() == 1,
+    fromWhos: (row['from_whos'] as num?)?.toInt() == 1,
+    fromMissav: (row['from_missav'] as num?)?.toInt() == 1,
+    chaoliuId: (row['chaoliu_id'] as String?) ?? '',
+    whosSlug: (row['whos_slug'] as String?) ?? '',
+    missavPath: (row['missav_path'] as String?) ?? '',
+    missavRank: (row['missav_rank'] as num?)?.toInt(),
+    recommended: (row['recommended'] as num?)?.toInt() == 1,
+    filmsSyncedAt: (row['films_synced_at'] as num?)?.toInt(),
+    enrichedAt: (row['enriched_at'] as num?)?.toInt(),
+    whosRank: (row['whos_rank'] as num?)?.toInt(),
+    rating: (row['rating'] as num?)?.toDouble(),
+    exactWorks: (row['exact_works'] as num?)?.toInt() ?? 0,
+    about: _decodeAbout(row['about']),
+  );
+}
+
+ActressWork _workFromRow(Map<String, Object?> row) => ActressWork(
+  id: (row['id'] as num?)?.toInt() ?? 0,
+  personId: (row['person_id'] as num?)?.toInt() ?? 0,
+  codeKey: (row['code_key'] as String?) ?? '',
+  titleKey: (row['title_key'] as String?) ?? '',
+  site: (row['site'] as String?) ?? '',
+  codeDisplay: (row['code_display'] as String?) ?? '',
+  title: (row['title'] as String?) ?? '',
+  date: (row['date'] as String?) ?? '',
+  coverSource: (row['cover_source'] as String?) ?? '',
+  coverDramaId: (row['cover_drama_id'] as String?) ?? '',
+  coverUrl: (row['cover_url'] as String?) ?? '',
+  fromCrossSite: (row['from_cross_site'] as num?)?.toInt() == 1,
+  category: (row['category'] as String?) ?? '',
+);
+
+/// 视频库（女优库.db）行 → 人：localId 用 actresses.rowid，人一律
+/// sex 'female'；worksCount/rosterWorks/exactWorks 都是 LEFT JOIN
+/// video_actress 计出的作品数（要入库才算）。
+ActressPerson videoLibraryPersonFromRow(Map<String, Object?> row) {
+  final count = (row['works_count'] as num?)?.toInt() ?? 0;
+  // cate_id 决定来源身份（作品阶段取流靠 sourceIdFor）：新补的行是
+  // 'whos:'/'mjv:'/'missav:' 前缀 + 来源 id；原库 29237 行的
+  // cate_id 就是名字本身（无前缀），来源身份为空（她们大多已有
+  // 作品，作品阶段不需再取）。
+  final cateId = (row['cate_id'] as String?) ?? '';
+  var fromChaoliu = false;
+  var fromWhos = false;
+  var fromMissav = false;
+  var chaoliuId = '';
+  var whosSlug = '';
+  var missavPath = '';
+  if (cateId.startsWith('whos:')) {
+    fromWhos = true;
+    whosSlug = cateId.substring('whos:'.length);
+  } else if (cateId.startsWith('mjv:')) {
+    fromChaoliu = true;
+    chaoliuId = cateId.substring('mjv:'.length);
+  } else if (cateId.startsWith('missav:')) {
+    fromMissav = true;
+    missavPath = cateId.substring('missav:'.length);
+  }
+  // 2026-11-23 修复（v58 验机：貞松大輔是男优却显示“女”）：
+  // 库里 actresses 有 sex 列时按列取值（名册同步写，见
+  // upsertRosterPerson）；老库没有该列、或列值为空时性别是未知，
+  // 不许再默认成“女”——未知就是未知，界面不显示性别
+  // （actressSexLabel 对未知返回空）。
+  final sexValue = (row['sex'] as String?)?.trim() ?? '';
+  return ActressPerson(
+    localId: (row['id'] as num?)?.toInt() ?? 0,
+    displayName: (row['display_name'] as String?) ?? '',
+    sex: sexValue,
+    avatarUrl: (row['avatar_url'] as String?) ?? '',
+    worksCount: count,
+    rosterWorks: count,
+    exactWorks: count,
+    fromChaoliu: fromChaoliu,
+    fromWhos: fromWhos,
+    fromMissav: fromMissav,
+    chaoliuId: chaoliuId,
+    whosSlug: whosSlug,
+    missavPath: missavPath,
+  );
+}
+
+/// 名册汇总累加器（见 [_ensureVideoRollup]）：同一个人被拆成多行时，
+/// 作品数相加、头像取第一条非空、最新作品日期取最大。
+class _RollupAcc {
+  _RollupAcc(this.firstRowid);
+
+  final int firstRowid;
+  String avatar = '';
+  int works = 0;
+  String lastDate = '';
+
+  /// 2026-11-22：性别按人归并（同一名字下有一行是男优就算男优）。
+  /// 2026-11-23：默认改未知（''），不再默认女——没有男优行只说明
+  /// 没确认过性别，不等于女。
+  String sex = '';
+}
+
+/// 视频库（女优库.db）行 → 作品：id 用 videos.rowid；vod_id 作
+/// codeKey/titleKey/codeDisplay/coverDramaId（播放链路按番号经
+/// filmDb 兜底查女优库.db 取直链，不直接用这里的地址）；
+/// vod_play_from 作 site 与 coverSource；pic_url 作 coverUrl；
+/// category 是 COALESCE(main_category, type_name, '')。
+ActressWork videoLibraryWorkFromRow(
+  Map<String, Object?> row,
+  int personId,
+) {
+  final code = (row['code_key'] as String?) ?? '';
+  return ActressWork(
+    id: (row['id'] as num?)?.toInt() ?? 0,
+    personId: personId,
+    codeKey: code,
+    titleKey: code,
+    site: (row['site'] as String?) ?? '',
+    codeDisplay: code,
+    title: (row['title'] as String?) ?? '',
+    date: (row['date'] as String?) ?? '',
+    coverSource: (row['cover_source'] as String?) ?? '',
+    coverDramaId: code,
+    coverUrl: (row['cover_url'] as String?) ?? '',
+    category: (row['category'] as String?) ?? '',
+  );
+}
+
+/// sqflite 实现：独立 actress.db，不动 app.db 的版本与表结构。
+class SqfliteActressDatabase implements ActressDatabase {
+  SqfliteActressDatabase._({this.pathOverride});
+
+  static final SqfliteActressDatabase instance = SqfliteActressDatabase._();
+
+  /// 多库勾选：按指定路径开一个只读库实例（不走 MYTV 绑定）。
+  /// 只读打开、不跑迁移、不补索引、不补列、不写汇总表，用户的
+  /// 外来库文件一个字都不动；读走与主库同一套 SQL。
+  factory SqfliteActressDatabase.forPath(String path) =>
+      SqfliteActressDatabase._(pathOverride: path);
+
+  /// 非空时 _openNow 不读绑定，直接开这个路径（只读）。
+  final String? pathOverride;
+
+  Database? _db;
+
+  /// 视频库模式（2026-11-21 用户令：女优库加载 MYTV/db/女优库.db）：
+  /// 当前打开的是用户视频库时为 true，读走视频库 SQL、写只走
+  /// videos / video_category 合并。由 _openDbAt 按实际打开的
+  /// 文件定，close() 时清掉。
+  bool _videoLibraryMode = false;
+
+  @override
+  bool get isVideoLibrary => _videoLibraryMode;
+
+  /// 正在进行的开库 Future：并发调用共用同一份结果，不轮询自旋
+  /// （旧的 10ms 自旋在开库挂起时越转越久，还会留 pending Timer）。
+  Future<Database>? _openFuture;
+
+  Future<Database> _open() async {
+    final existing = _db;
+    if (existing != null && existing.isOpen) return existing;
+    // 2026-11-24 掉线修复（自愈）：_db 已被从外面关掉（探库 close
+    // 误关共享连接）时，_openFuture 仍是旧的已完成 future，直接
+    // await 它会拿回已关闭的连接、此后全掉线还卡死。先把旧连接
+    // 与旧 future 都清掉，重新开库。
+    if (existing != null && !existing.isOpen) {
+      _db = null;
+      _openFuture = null;
+    }
+    var pending = _openFuture;
+    if (pending == null) {
+      pending = _openNow();
+      _openFuture = pending;
+    }
+    try {
+      final db = await pending;
+      _db = db;
+      return db;
+    } catch (_) {
+      if (identical(_openFuture, pending)) _openFuture = null;
+      rethrow;
+    }
+  }
+
+  Future<Database> _openNow() async {
+    // 2026-11-23 多库勾选：指定了路径就只读开那个文件，不读绑定、
+    // 不跑迁移、不补索引列，文件一个字都不动。
+    final override = pathOverride;
+    if (override != null && override.isNotEmpty) {
+      final db = await _openDbAt(override, readOnly: true);
+      _openedPath = override;
+      _openedSignature = _signatureOf(File(override));
+      _genericReaderCache = null;
+      _genericReaderKey = null;
+      return db;
+    }
+    // 2026-11-22 用户令最终口径：女优库只读外置数据库
+    // MYTV/db/女优库.db；绑定不到它（dbPath 为空）就抛
+    // ActressNoExternalDbException，界面显示空态提示；外置库
+    // 损坏/打不开也直接抛错，不回落任何内置库、不建新库。
+    final bind = await ActressMytvBind.instance.ensureBound();
+    final filePath = bind.dbPath;
+    _openFallbackNote = null;
+    if (filePath.isEmpty) {
+      throw const ActressNoExternalDbException(
+        '未找到外置数据库：MYTV/db/女优库.db',
+      );
+    }
+    final db = await _openDbAt(filePath);
+    _openedPath = filePath;
+    _openedSignature = _signatureOf(File(filePath));
+    _genericReaderCache = null;
+    _genericReaderKey = null;
+    return db;
+  }
+
+  @override
+  String? get openFallbackNote => _openFallbackNote;
+
+  /// 按文件探结构再开库（2026-11-20 通用读库）：不存在/空文件
+  /// 直接抛没有外置数据库——绝不在用户文件位置新建 persons/works
+  /// 库（2026-11-22 用户令：没有外置库就是空库，不悄悄造数据）；
+  /// 是女优库结构走建库/迁移路径；是用户视频库
+  /// （女优库.db）走读写打开、置视频库标志；外来库直接打开，
+  /// 不跑女优库迁移、不动用户的文件结构，读走通用映射层。
+  Future<Database> _openDbAt(String filePath, {bool readOnly = false}) async {
+    final file = File(filePath);
+    if (!file.existsSync() || file.lengthSync() == 0) {
+      _videoLibraryMode = false;
+      throw ActressNoExternalDbException(
+        '数据库文件不存在或为空：$filePath',
+      );
+    }
+    if (await _looksLikeActressDb(filePath)) {
+      _videoLibraryMode = false;
+      // 只读开外来库时不跑迁移（_openActressDb 会建表/升版写盘），
+      // 直接只读打开，结构不对读的时候再报错。
+      final db = readOnly
+          ? await openDatabase(filePath, readOnly: true)
+          : await _openActressDb(filePath);
+      // 强制读一次文件头：损坏文件 open 时不一定报错，第一次查询
+      // 才抛；这里验出来就关掉重抛，不开坏库。
+      try {
+        await db.rawQuery('SELECT COUNT(*) FROM sqlite_master');
+      } catch (_) {
+        await db.close();
+        rethrow;
+      }
+      return db;
+    }
+    // 2026-11-21 用户令：女优库.db 是用户视频库，读写打开——
+    // 网站上新出的、库里没有的视频要补进这个库；只读打开写不
+    // 进去。标志由这里定，close() 时清掉；验头失败时标志清掉
+    // 再重抛，不留错标志。
+    if (await _looksLikeVideoLibraryDb(filePath)) {
+      final db = readOnly
+          ? await openDatabase(filePath, readOnly: true)
+          : await openDatabase(filePath);
+      _videoLibraryMode = true;
+      try {
+        await db.rawQuery('SELECT COUNT(*) FROM sqlite_master');
+        if (!readOnly) {
+          // 2026-11-21 用户令「点头像要能看到作品、能播放」：这个库是
+          // 32 万视频 / 47 万条人物关联，那两条关联查询没索引时手机上
+          // 会扫全表排序，点开一个人要等半天像卡死。这里能写就补两个
+          // 索引（只加索引，不动任何一行数据）；库被系统设成只读、
+          // 或磁盘满时建不了就跳过，查询照样能跑。
+          await _ensureVideoIndexes(db, filePath);
+          // 2026-11-23：actresses 补 sex 列（见 _ensureActressSexColumn），
+          // 名册同步把性别写进来才有列可写；建不了就跳过（性别未知）。
+          await _ensureActressSexColumn(db);
+        }
+      } catch (_) {
+        _videoLibraryMode = false;
+        await db.close();
+        rethrow;
+      }
+      return db;
+    }
+    _videoLibraryMode = false;
+    final db = readOnly
+        ? await openDatabase(filePath, readOnly: true)
+        : await openDatabase(filePath);
+    // 强制读一次文件头：损坏文件 open 时不一定报错，第一次查询
+    // 才抛；这里验出来就关掉重抛，不开坏库。
+    try {
+      await db.rawQuery('SELECT COUNT(*) FROM sqlite_master');
+    } catch (_) {
+      await db.close();
+      rethrow;
+    }
+    return db;
+  }
+
+  /// 视频库里一个人的全部关联键（2026-11-21 注意字段）：这个库的
+  /// `actresses.cate_id` 存的是**名字**（如「今村由美」），
+  /// `video_actress` 用它关联，不是数字 ID；rowid 才是列表里用的 id。
+  ///
+  /// 而且同一个人常有两行：`木下ひまり（花沢ひまり）` 与 `木下ひまり`，
+  /// 作品劈成两半。所以按 rowid 找到这个人 → 取同名 → 返回**所有**
+  /// 同名 cate_id，作品按这批 cate_id 一起取，才不漏。
+  Future<List<String>> _videoCateIdsOf(Database db, int personRowId) async {
+    final rows = await db.rawQuery(
+      'SELECT cate_id FROM actresses WHERE name = '
+      '(SELECT name FROM actresses WHERE rowid = ?)',
+      [personRowId],
+    );
+    return [
+      for (final row in rows)
+        if ((row['cate_id']?.toString() ?? '').isNotEmpty)
+          row['cate_id'].toString(),
+    ];
+  }
+
+  /// 汇总表是否可用（建过且行数正常）。
+  Future<bool> _hasVideoRollup(Database db) async {
+    try {
+      final rows = await db.rawQuery(
+        'SELECT COUNT(*) AS c FROM actress_rollup',
+      );
+      return ((rows.first['c'] as num?)?.toInt() ?? 0) > 0;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 库里 actresses 是否有 sex 列（2026-11-22 合并版库才有；老库没有）。
+  Future<bool> _hasActressSexColumn(Database db) async {
+    try {
+      final rows = await db.rawQuery('PRAGMA table_info(actresses)');
+      return rows.any((r) => (r['name']?.toString() ?? '') == 'sex');
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 库里有没有 actresses 表（2026-11-24 用户报“切换其他数据库
+  /// 没有显示数据”）：外来库可能只有 videos + video_actress +
+  /// video_category，没有这张表；没它时人物查询走 video_actress
+  /// 分组回退（见 listPersons / countPersons），不抛错。
+  Future<bool> _hasActressesTable(Database db) async {
+    try {
+      final rows = await db.rawQuery('PRAGMA table_info(actresses)');
+      return rows.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 没有 actresses 表时按 video_actress 的 rowid 反查 cate_id
+  ///（人名）：回退人物的 localId 就是该人 video_actress 行里最小
+  /// 的 rowid（与通用库同一口径，见 GenericActressDatabase）。
+  Future<String?> _cateIdOfVideoActressRow(
+    Database db,
+    int rowId,
+  ) async {
+    try {
+      final rows = await db.rawQuery(
+        'SELECT cate_id FROM video_actress WHERE rowid = ? LIMIT 1',
+        [rowId],
+      );
+      if (rows.isEmpty) return null;
+      final name = rows.first['cate_id']?.toString().trim() ?? '';
+      return name.isEmpty ? null : name;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 视频库里一个人名的 cate_id 集合：先按 actresses.rowid 取同名
+  /// cate_id；没有 actresses 表的外来库按 rowid 反查 cate_id 再取
+  /// 作品（worksForPerson / countWorks / workCategories 共用）。
+  Future<List<String>> _videoCateIdsForPerson(
+    Database db,
+    int personId,
+  ) async {
+    final cateIds = await _videoCateIdsOf(db, personId);
+    if (cateIds.isNotEmpty) return cateIds;
+    final name = await _cateIdOfVideoActressRow(db, personId);
+    if (name == null) return const [];
+    return [name];
+  }
+
+  static String _placeholders(int n) =>
+      List.filled(n, '?').join(', ');
+
+  /// 视频库索引（best-effort）：只 CREATE INDEX，不改数据。
+  /// - video_actress(cate_id)：点开一个人时按人名取自己的作品；
+  /// - video_actress(vod_id)：按番号查/播时反查。
+  /// 建不出来（只读库/空间不足）就当没有，查询仍能跑，只是慢。
+  /// 汇总表重建不再这里同步等（2026-11-22 修复：重建 2.5~24 秒
+  /// 堵住首次开屏）：只排期后台跑，列表先用旧汇总表、没有就现算
+  /// 顶着，不堵首屏。
+  Future<void> _ensureVideoIndexes(Database db, String filePath) async {
+    for (final sql in const [
+      'CREATE INDEX IF NOT EXISTS idx_moyi_va_cate ON video_actress(cate_id)',
+      'CREATE INDEX IF NOT EXISTS idx_moyi_va_vod ON video_actress(vod_id)',
+      'CREATE INDEX IF NOT EXISTS idx_moyi_act_name ON actresses(name)',
+      // 2026-11-22 加载优化：影视库站点去重（SELECT DISTINCT
+      // vod_play_from）原来无索引、全表扫 34 万行，实测 1.8~8.3 秒，
+      // 全球丽影库首屏被它堵住；建索引后 0.05 秒。只加索引，
+      // 不动任何一行数据；已存在时不建。
+      'CREATE INDEX IF NOT EXISTS idx_moyi_v_play_from ON videos(vod_play_from)',
+      // 2026-11-23 v58 验机：全球丽影库读 videos 太慢——合并库的
+      // videos 表除主键外一个索引都没有，34 万行全表扫。补三条：
+      // vod_pubdate（点开一个人 ORDER BY vod_pubdate DESC 排序）、
+      // video_category(vod_id)（worksForPerson / listFilms 里
+      // LEFT JOIN video_category 的探针）、
+      // video_category(main_category)（categories() 的 GROUP BY）。
+      // 仍是只加索引、不动任何一行数据；已存在时不建。
+      'CREATE INDEX IF NOT EXISTS idx_moyi_v_pubdate ON videos(vod_pubdate)',
+      'CREATE INDEX IF NOT EXISTS idx_moyi_vc_vod ON video_category(vod_id)',
+      'CREATE INDEX IF NOT EXISTS idx_moyi_vc_cat ON video_category(main_category)',
+    ]) {
+      try {
+        await db.execute(sql);
+      } catch (_) {
+        // 单个索引建不了不影响另一个，也不影响读。
+      }
+    }
+    _scheduleVideoRollup(db, filePath);
+  }
+
+  /// actresses 补 sex 列（2026-11-23 v58 验机：合并版库与老库的
+  /// actresses 都没有 sex 列，读人时只能默认女，貞松大輔这样的男优
+  /// 全被标成女；名册同步要把性别写进来，先得有列可写）。
+  /// ALTER TABLE ADD COLUMN 是元数据操作，不重写表、不动任何一行
+  /// 数据；列已存在、库只读、磁盘满时跳过，读侧按无列走（性别未知）。
+  Future<void> _ensureActressSexColumn(Database db) async {
+    try {
+      if (await _hasActressSexColumn(db)) return;
+      await db.execute(
+        "ALTER TABLE actresses ADD COLUMN sex TEXT NOT NULL DEFAULT ''",
+      );
+    } catch (_) {
+      // 建不了就当没有，查询与同步照样跑（性别未知）。
+    }
+  }
+
+  /// 名册性别归一化（潮流实拉名册 s 字段就是 male/female；其它源
+  /// 可能给 m/f/男/女）：只认男/女两种确认值，其余一律未知（''），
+  /// 绝不猜。
+  static String _normalizeRosterSex(String value) {
+    final s = value.trim().toLowerCase();
+    if (s == 'male' || s == 'm' || s == '男') return 'male';
+    if (s == 'female' || s == 'f' || s == '女') return 'female';
+    return '';
+  }
+
+  /// 汇总表重建是否已排期（防重复排期）。
+  var _videoRollupScheduled = false;
+
+  /// 汇总表重建挪到后台：首次开库只建索引就放行，3 秒后再跑；
+  /// 库已关/已换时不再是当前连接，不跑。失败不影响读（读取侧
+  /// 回退现算）。
+  void _scheduleVideoRollup(Database db, String filePath) {
+    if (_videoRollupScheduled) return;
+    _videoRollupScheduled = true;
+    Future.delayed(const Duration(seconds: 3), () async {
+      // 2026-11-23 详情页转圈 12~54 秒的根因之一：汇总表重建（per_cate
+      // 全表 GROUP BY + 分批写回，实测冷盘 36 秒）在共享连接上跑，
+      // sqflite 单连接串行排队，列表/详情的读全被堵在重建后面。改在
+      // 独立连接上重建：读连接照常读，只剩磁盘 IO 竞争；写锁只在每批
+      // 提交与换表的一瞬间，读等一小下就过去。重建失败不影响读。
+      Database? rebuildDb;
+      try {
+        if (!identical(_db, db)) return;
+        rebuildDb = await openDatabase(filePath, singleInstance: false);
+        await _ensureVideoRollup(rebuildDb);
+      } catch (_) {
+        // 后台重建失败不影响读。
+      } finally {
+        try {
+          await rebuildDb?.close();
+        } catch (_) {}
+        _videoRollupScheduled = false;
+      }
+    });
+  }
+
+  /// 名册汇总表（2026-11-21 用户令「名册要与 who's 女优数据库合并」）。
+  ///
+  /// 这个库里同一个人常被拆成两行：`木下ひまり（花沢ひまり）` 和
+  /// `木下ひまり`，作品也劈成两份（217 + 739）。列表如果按行显示，
+  /// 用户看到的是两个人、每个人作品都不全。这里按**名字**归并成一人，
+  /// 作品数相加，头像取一条，并记下最新作品日期供「最近更新」排序。
+  ///
+  /// 现算一次要 0.8 秒（47 万条关联 join 排序），手机上点一下就是
+  /// 转圈半天；所以落一张 `actress_rollup` 汇总表，源表行数变了才
+  /// 重建，之后每次查询几毫秒。库设成只读、写不进去时就不落表，
+  /// 读取侧回退到现算 SQL，功能不丢。
+  ///
+  /// 重建只在后台跑（见 [_scheduleVideoRollup]）：先分批写进临时表
+  /// `actress_rollup_new`（每 2000 行让出一次事件循环，不卡界面），
+  /// 再一次短事务换表——读侧要么见旧汇总表、要么见新汇总表，绝不
+  /// 见半成品；中途被杀只剩临时表，下次重建先清掉它。
+  Future<void> _ensureVideoRollup(Database db) async {
+    try {
+      final sourceCounts = await db.rawQuery(
+        'SELECT (SELECT COUNT(*) FROM actresses) AS a, '
+        '(SELECT COUNT(*) FROM video_actress) AS v',
+      );
+      final aCount = (sourceCounts.first['a'] as num?)?.toInt() ?? 0;
+      final vCount = (sourceCounts.first['v'] as num?)?.toInt() ?? 0;
+      final signature = '$aCount/$vCount';
+
+      await db.execute(
+        'CREATE TABLE IF NOT EXISTS actress_rollup ('
+        'name TEXT PRIMARY KEY, '
+        'first_rowid INTEGER NOT NULL, '
+        'avatar TEXT NOT NULL DEFAULT \'\', '
+        'works INTEGER NOT NULL DEFAULT 0, '
+        'sex TEXT NOT NULL DEFAULT \'\', '
+        'last_date TEXT NOT NULL DEFAULT \'\')',
+      );
+      await db.execute(
+        'CREATE TABLE IF NOT EXISTS actress_rollup_meta ('
+        'key TEXT PRIMARY KEY, value TEXT NOT NULL)',
+      );
+      final meta = await db.query(
+        'actress_rollup_meta',
+        columns: ['value'],
+        where: 'key = ?',
+        whereArgs: ['signature'],
+        limit: 1,
+      );
+      final current = meta.isEmpty ? '' : meta.first['value'].toString();
+      final rollupRows = await db.rawQuery(
+        'SELECT COUNT(*) AS c FROM actress_rollup',
+      );
+      final rollupCount = (rollupRows.first['c'] as num?)?.toInt() ?? 0;
+      if (current == signature && rollupCount > 0) return;
+
+      // 按名字归并：每类作品数 + 最新日期先算出来，再按人名累加。
+      final perCate = await db.rawQuery(
+        'SELECT va.cate_id AS cate_id, COUNT(*) AS n, '
+        'MAX(v.vod_pubdate) AS d '
+        'FROM video_actress va '
+        'LEFT JOIN videos v ON v.vod_id = va.vod_id '
+        'GROUP BY va.cate_id',
+      );
+      final works = <String, int>{};
+      final dates = <String, String>{};
+      for (final row in perCate) {
+        final cateId = row['cate_id'].toString();
+        works[cateId] = (row['n'] as num?)?.toInt() ?? 0;
+        final d = row['d']?.toString() ?? '';
+        if (d.isNotEmpty) dates[cateId] = d;
+      }
+      final hasSex = await _hasActressSexColumn(db);
+      final people = await db.rawQuery(
+        'SELECT rowid AS rid, name AS name, cate_id AS cate_id, '
+        "COALESCE(NULLIF(avatar,''),'') AS avatar, "
+        "${hasSex ? "COALESCE(NULLIF(sex,''),'')" : "''"} AS sex "
+        'FROM actresses',
+      );
+      final byName = <String, _RollupAcc>{};
+      for (final row in people) {
+        final name = row['name']?.toString() ?? '';
+        final cateId = row['cate_id']?.toString() ?? '';
+        if (name.isEmpty || cateId.isEmpty) continue;
+        final acc = byName.putIfAbsent(
+          name,
+          () => _RollupAcc((row['rid'] as num).toInt()),
+        );
+        final avatar = row['avatar']?.toString() ?? '';
+        if (acc.avatar.isEmpty && avatar.isNotEmpty) acc.avatar = avatar;
+        if ((row['sex']?.toString() ?? '') == 'male') acc.sex = 'male';
+        acc.works += works[cateId] ?? 0;
+        final d = dates[cateId];
+        if (d != null && d.compareTo(acc.lastDate) > 0) acc.lastDate = d;
+      }
+
+      // 重建：分批写进临时表，再一次短事务换表（见本函数头注释）。
+      await db.execute('DROP TABLE IF EXISTS actress_rollup_new');
+      await db.execute(
+        'CREATE TABLE actress_rollup_new ('
+        'name TEXT PRIMARY KEY, '
+        'first_rowid INTEGER NOT NULL, '
+        'avatar TEXT NOT NULL DEFAULT \'\', '
+        'works INTEGER NOT NULL DEFAULT 0, '
+        'sex TEXT NOT NULL DEFAULT \'\', '
+        'last_date TEXT NOT NULL DEFAULT \'\')',
+      );
+      const batchSize = 2000;
+      final names = byName.keys.toList();
+      for (var i = 0; i < names.length; i += batchSize) {
+        final end = (i + batchSize).clamp(0, names.length);
+        final batch = db.batch();
+        for (var j = i; j < end; j++) {
+          final name = names[j];
+          final acc = byName[name]!;
+          batch.insert('actress_rollup_new', {
+            'name': name,
+            'first_rowid': acc.firstRowid,
+            'avatar': acc.avatar,
+            'works': acc.works,
+            'sex': acc.sex,
+            'last_date': acc.lastDate,
+          });
+        }
+        await batch.commit(noResult: true);
+        // 每批让出一次事件循环：几万行一次写完会把界面卡住。
+        await Future<void>.delayed(Duration.zero);
+      }
+      await db.transaction((txn) async {
+        await txn.execute('DROP TABLE IF EXISTS actress_rollup');
+        await txn.execute(
+          'ALTER TABLE actress_rollup_new RENAME TO actress_rollup',
+        );
+        await txn.insert('actress_rollup_meta', {
+          'key': 'signature',
+          'value': signature,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      });
+    } catch (_) {
+      // 只读库 / 空间不足：不落表，读取侧回退现算。
+    }
+  }
+
+  /// 女优库建库/迁移路径：version 4 + onCreate 建五张表 +
+  /// onUpgrade v1→v2、v2→v3、v3→v4。只对女优库结构的文件跑。
+  Future<Database> _openActressDb(String filePath) {    return openDatabase(
+      filePath,
+      version: 4,
+      onCreate: (db, version) async {
+        await db.execute(
+          'CREATE TABLE persons('
+          'id INTEGER PRIMARY KEY AUTOINCREMENT, '
+          'display_name TEXT NOT NULL, '
+          'aliases TEXT NOT NULL DEFAULT \'[]\', '
+          'sex TEXT NOT NULL DEFAULT \'\', '
+          'avatar_url TEXT NOT NULL DEFAULT \'\', '
+          'tags TEXT NOT NULL DEFAULT \'[]\', '
+          'works_count INTEGER NOT NULL DEFAULT 0, '
+          'roster_works INTEGER NOT NULL DEFAULT 0, '
+          'from_chaoliu INTEGER NOT NULL DEFAULT 0, '
+          'from_whos INTEGER NOT NULL DEFAULT 0, '
+          'from_missav INTEGER NOT NULL DEFAULT 0, '
+          'chaoliu_id TEXT NOT NULL DEFAULT \'\', '
+          'whos_slug TEXT NOT NULL DEFAULT \'\', '
+          'missav_path TEXT NOT NULL DEFAULT \'\', '
+          'missav_rank INTEGER, '
+          'recommended INTEGER NOT NULL DEFAULT 0, '
+          'films_synced_at INTEGER, '
+          'enriched_at INTEGER, '
+          'whos_rank INTEGER, '
+          'rating REAL, '
+          'exact_works INTEGER NOT NULL DEFAULT 0, '
+          'about TEXT NOT NULL DEFAULT \'{}\', '
+          'updated_at INTEGER NOT NULL)',
+        );
+        await db.execute(
+          'CREATE TABLE person_names('
+          'name_key TEXT NOT NULL PRIMARY KEY, '
+          'person_id INTEGER NOT NULL)',
+        );
+        await db.execute(
+          'CREATE INDEX idx_persons_works ON persons(works_count DESC)',
+        );
+        await db.execute(
+          'CREATE TABLE works('
+          'id INTEGER PRIMARY KEY AUTOINCREMENT, '
+          'person_id INTEGER NOT NULL, '
+          'code_key TEXT NOT NULL DEFAULT \'\', '
+          'title_key TEXT NOT NULL DEFAULT \'\', '
+          'site TEXT NOT NULL DEFAULT \'\', '
+          'code_display TEXT NOT NULL DEFAULT \'\', '
+          'title TEXT NOT NULL DEFAULT \'\', '
+          'date TEXT NOT NULL DEFAULT \'\', '
+          'cover_source TEXT NOT NULL DEFAULT \'\', '
+          'cover_drama_id TEXT NOT NULL DEFAULT \'\', '
+          'cover_url TEXT NOT NULL DEFAULT \'\', '
+          'category TEXT NOT NULL DEFAULT \'\', '
+          'from_cross_site INTEGER NOT NULL DEFAULT 0)',
+        );
+        // 番号去重与无番号标题去重：部分唯一索引各管一摊，互不冲突；
+        // 去重键是（人，站，番号/标题）：同番号两站各留一条。
+        await db.execute(
+          'CREATE UNIQUE INDEX idx_works_code '
+          'ON works(person_id, site, code_key) WHERE code_key <> \'\'',
+        );
+        await db.execute(
+          'CREATE UNIQUE INDEX idx_works_title '
+          'ON works(person_id, site, title_key) '
+          'WHERE code_key = \'\' AND title_key <> \'\'',
+        );
+        await db.execute(
+          'CREATE INDEX idx_works_person ON works(person_id, id)',
+        );
+        await db.execute(
+          'CREATE INDEX idx_works_person_category '
+          'ON works(person_id, category)',
+        );
+        await db.execute(
+          'CREATE TABLE source_films('
+          'person_id INTEGER NOT NULL, '
+          'source TEXT NOT NULL, '
+          'synced_at INTEGER, '
+          'failed INTEGER NOT NULL DEFAULT 0, '
+          'PRIMARY KEY(person_id, source))',
+        );
+        await db.execute(
+          'CREATE TABLE sync_state('
+          'source TEXT NOT NULL, '
+          'phase TEXT NOT NULL, '
+          'cursor TEXT NOT NULL DEFAULT \'\', '
+          'total INTEGER NOT NULL DEFAULT 0, '
+          'finished INTEGER NOT NULL DEFAULT 0, '
+          'error TEXT NOT NULL DEFAULT \'\', '
+          'updated_at INTEGER NOT NULL, '
+          'PRIMARY KEY(source, phase))',
+        );
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        // v1 → v2：whos 兜底四列（排行后备、评分、精确作品数、简介）。
+        if (oldVersion < 2) {
+          await db.execute('ALTER TABLE persons ADD COLUMN whos_rank INTEGER');
+          await db.execute('ALTER TABLE persons ADD COLUMN rating REAL');
+          await db.execute(
+            'ALTER TABLE persons ADD COLUMN exact_works INTEGER NOT NULL DEFAULT 0',
+          );
+          await db.execute(
+            'ALTER TABLE persons ADD COLUMN about TEXT NOT NULL DEFAULT \'{}\'',
+          );
+        }
+        // v2 → v3：作品行加站列，去重键改成（人，站，番号/标题）；
+        // 旧行站为空，与新口径一致（旧库本就按番号去重，站空即一站）。
+        if (oldVersion < 3) {
+          await db.execute(
+            'ALTER TABLE works ADD COLUMN site TEXT NOT NULL DEFAULT \'\'',
+          );
+          await db.execute('DROP INDEX IF EXISTS idx_works_code');
+          await db.execute('DROP INDEX IF EXISTS idx_works_title');
+          await db.execute(
+            'CREATE UNIQUE INDEX idx_works_code '
+            'ON works(person_id, site, code_key) WHERE code_key <> \'\'',
+          );
+          await db.execute(
+            'CREATE UNIQUE INDEX idx_works_title '
+            'ON works(person_id, site, title_key) '
+            'WHERE code_key = \'\' AND title_key <> \'\'',
+          );
+        }
+        // v3 → v4：作品行加分类列（爬取/镜像时的列表分类，如
+        // “中文字幕”/“国产自拍”；旧行与无分类来源的行留空，只在
+        // “全部”里显示，不丢数据；下次镜像经过时由 upsertWorks
+        // 的回填把空分类补上）。
+        if (oldVersion < 4) {
+          await db.execute(
+            'ALTER TABLE works ADD COLUMN category TEXT NOT NULL DEFAULT \'\'',
+          );
+          await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_works_person_category '
+            'ON works(person_id, category)',
+          );
+        }
+      },
+    );
+  }
+
+  /// 当前打开库的文件指纹（大小 + 修改时间毫秒）：开库时记一次，
+  /// 热换库比对它，变了才重开。
+  String? _openedPath;
+  ({int length, int modifiedMs})? _openedSignature;
+
+  /// 开库提示（见 openFallbackNote）：2026-11-22 起不再回退任何
+  /// 内置库，恒为 null（接口保留，列表页的显示分支不动）。
+  String? _openFallbackNote;
+
+  /// 通用读取器缓存：按（路径，文件指纹）缓存，文件变了自动重探，
+  /// 不沿用旧库的字段映射。
+  GenericDbReader? _genericReaderCache;
+  String? _genericReaderKey;
+
+  static ({int length, int modifiedMs})? _signatureOf(File file) {
+    try {
+      final stat = file.statSync();
+      return (
+        length: stat.size,
+        modifiedMs: stat.modified.millisecondsSinceEpoch,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 只读探一下：是不是女优库结构（persons + works 表，且 works
+  /// 有 code_key 列）。文件损坏/不是 sqlite 时返回 false（调用方
+  /// 再按外来库直接打开，同样打不开就报错，不静默当空库）。
+  Future<bool> _looksLikeActressDb(String filePath) async {
+    Database? probe;
+    try {
+      probe = await openDatabase(filePath, readOnly: true);
+      return await _isActressSchemaDb(probe);
+    } catch (_) {
+      return false;
+    } finally {
+      await probe?.close();
+    }
+  }
+
+  /// 已打开的库是不是女优库结构（persons + works 表，且 works 有
+  /// code_key 列）：严格路径只认这一套；表名撞上、字段不对的按
+  /// 外来库走通用映射。
+  Future<bool> _isActressSchemaDb(Database db) async {
+    final tables = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table'",
+    );
+    final names = {for (final row in tables) row['name'].toString()};
+    if (!names.contains('persons') || !names.contains('works')) {
+      return false;
+    }
+    final cols = await db.rawQuery('PRAGMA table_info("works")');
+    final colNames = {for (final row in cols) row['name'].toString()};
+    return colNames.contains('code_key') &&
+        colNames.contains('person_id');
+  }
+
+  /// 只读探一下：是不是用户视频库（actresses + videos +
+  /// video_actress 三张表同时在）。文件损坏/不是 sqlite 时返回
+  /// false（调用方再按外来库直接打开，同样打不开就报错，不静默
+  /// 当空库）。只探表，不写文件。
+  Future<bool> _looksLikeVideoLibraryDb(String filePath) async {
+    Database? probe;
+    try {
+      probe = await openDatabase(filePath, readOnly: true);
+      return await _isVideoLibraryDb(probe);
+    } catch (_) {
+      return false;
+    } finally {
+      await probe?.close();
+    }
+  }
+
+  /// 已打开的库是不是用户视频库：sqlite_master 里同时有
+  /// actresses、videos、video_actress 三张表即 true（video_category
+  /// 是分类表，有没有不影响判定，读分类时 LEFT JOIN 即可）。
+  /// 没有 actresses 表、只有 videos + video_actress +
+  /// video_category 的外来库同样认（人物按 video_actress.cate_id
+  /// 分组现算，见 listPersons 等方法的回退）。
+  Future<bool> _isVideoLibraryDb(Database db) async {
+    final tables = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table'",
+    );
+    final names = {for (final row in tables) row['name'].toString()};
+    return isVideoLibrarySchema(names) ||
+        isVideoLibrarySchemaWithoutActresses(names);
+  }
+
+  /// 验一个已打开的候选库：女优库结构核对 works.code_key；用户
+  /// 视频库（actresses + videos + video_actress）是合法的女优库
+  /// 源，直接认；外来库至少要有一张能认出作品的表（标题 + 播放
+  /// 地址），否则抛错——调用方留旧库并报原因。空库（0 张表）也
+  /// 接受（后面自动生成会灌种子；通用模式下列表为空，不报错）。
+  Future<void> _validateOpenDb(Database db) async {
+    final tables = await db.rawQuery(
+      "SELECT name FROM sqlite_master "
+      "WHERE type='table' AND name NOT LIKE 'sqlite_%'",
+    );
+    if (tables.isEmpty) return;
+    if (await _isActressSchemaDb(db)) return;
+    if (await _isVideoLibraryDb(db)) return;
+    final schema = await probeGenericDbSchema(db);
+    if (schema.worksTable == null) {
+      throw StateError('没有找到带标题与播放地址的作品表');
+    }
+  }
+
+  static String _shortDbError(Object error) {
+    final first = error.toString().split('\n').first.trim();
+    return first.length > 120 ? '${first.substring(0, 120)}…' : first;
+  }
+
+  @override
+  Future<({bool reloaded, String? error})> reloadIfChanged({
+    bool force = false,
+  }) async {
+    // 重解析绑定：新放进 / 删掉的女优库.db 只有重解析才看得到
+    // （“重新加载数据库”与进页热换库都靠它）。
+    final bind = await ActressMytvBind.instance.ensureBound(refresh: true);
+    final currentPath = bind.dbPath;
+    if (currentPath.isEmpty) {
+      return (reloaded: false, error: '未找到外置数据库：MYTV/db/女优库.db');
+    }
+    final file = File(currentPath);
+    FileStat? stat;
+    try {
+      stat = await file.stat();
+    } catch (_) {
+      stat = null;
+    }
+    if (stat == null || stat.type == FileSystemEntityType.notFound) {
+      return (reloaded: false, error: '数据库文件不存在：$currentPath');
+    }
+    final signature = (
+      length: stat.size,
+      modifiedMs: stat.modified.millisecondsSinceEpoch,
+    );
+    // 在途的开库先等它落定（不然它完成后会把 _db 指回旧文件，
+    // 盖掉这次换库）。
+    final pending = _openFuture;
+    if (pending != null) {
+      try {
+        await pending;
+      } catch (_) {
+        // 开库失败：下面按没开过库走。
+      }
+    }
+    final opened = _db;
+    if (!force &&
+        opened != null &&
+        opened.isOpen &&
+        _openedPath == currentPath &&
+        _openedSignature == signature) {
+      return (reloaded: false, error: null);
+    }
+    // 同一文件、只是内容变了（指纹变了）：不重开。镜像/同步正是
+    // 通过当前连接在写这个文件，当前连接本来就能读到已提交的新
+    // 数据；重开反而要等镜像的写锁（PRAGMA journal_mode 报
+    // SQLITE_BUSY，2026-11-21 用户截图里详情页一点作品就弹这个
+    // 错），还把正在用的连接关了。只有换了路径（重新绑定到另一
+    // 个文件）或用户手动点“重新加载数据库”（force）时才重开；
+    // 外部直接替换同路径文件时也用手动重载。
+    if (!force &&
+        opened != null &&
+        opened.isOpen &&
+        _openedPath == currentPath) {
+      _openedSignature = signature;
+      return (reloaded: false, error: null);
+    }
+    if (opened == null) {
+      // 还没开过库：下次 _open 会按当前文件开；手动重载时在这里
+      // 开一次就算重载。
+      if (!force) return (reloaded: false, error: null);
+      try {
+        await _open();
+        _openedPath = currentPath;
+        _openedSignature = signature;
+        _genericReaderCache = null;
+        _genericReaderKey = null;
+        return (reloaded: true, error: null);
+      } catch (e) {
+        return (reloaded: false, error: '数据库打不开：${_shortDbError(e)}');
+      }
+    }
+    // 先在新连接上打开并验结构（旧库还开着）：验不过留旧库。
+    Database? candidate;
+    try {
+      candidate = await _openDbAt(currentPath);
+      await _validateOpenDb(candidate);
+    } catch (e) {
+      await candidate?.close();
+      return (reloaded: false, error: '新数据库打不开：${_shortDbError(e)}');
+    }
+    // 验过：换连接（旧连接关掉；_openFuture 指向新库）。
+    final old = _db;
+    _db = candidate;
+    _openFuture = Future.value(candidate);
+    _openedPath = currentPath;
+    _openedSignature = signature;
+    _genericReaderCache = null;
+    _genericReaderKey = null;
+    await old?.close();
+    return (reloaded: true, error: null);
+  }
+
+  @override
+  Future<GenericDbReader?> genericReader() async {
+    final db = await _open();
+    // 视频库是合法的女优库源（不是通用库）：返回 null，走视频库
+    // 严格路径，不走通用映射。
+    if (_videoLibraryMode) return null;
+    if (await _isActressSchemaDb(db)) return null;
+    final key =
+        '$_openedPath|${_openedSignature?.length}|'
+        '${_openedSignature?.modifiedMs}';
+    final cached = _genericReaderCache;
+    if (cached != null && _genericReaderKey == key) return cached;
+    final schema = await probeGenericDbSchema(db);
+    // 手动映射文件与库文件放一起（MYTV/db/字段映射.json；未绑定
+    // 时在 documents 下），换同结构库直接复用。
+    final bind = await ActressMytvBind.instance.ensureBound();
+    final store = GenericDbMappingStore(
+      file: File(path.join(path.dirname(bind.dbPath), '字段映射.json')),
+    );
+    var resolvedSchema = schema;
+    final saved = await store.loadMapping(schema.fingerprint);
+    if (saved != null) {
+      resolvedSchema = schema.withManualMapping(
+        table: saved.table,
+        columns: saved.columns,
+      );
+    }
+    final reader = GenericDbReader(
+      db: db,
+      schema: resolvedSchema,
+      mappingStore: store,
+    );
+    _genericReaderCache = reader;
+    _genericReaderKey = key;
+    return reader;
+  }
+
+  @override
+  Future<ActressPerson?> upsertRosterPerson(RosterPerson roster) async {
+    final variants = actressNameVariants(roster.name);
+    if (variants.isEmpty) return null;
+    if (variants.any(actressTextBlocked) ||
+        roster.tags.any(actressTextBlocked) ||
+        roster.aliases.any(actressTextBlocked) ||
+        roster.about.entries.any(
+          (entry) =>
+              actressTextBlocked(entry.key) || actressTextBlocked(entry.value),
+        )) {
+      return null;
+    }
+    final db = await _open();
+    if (_videoLibraryMode) {
+      // 视频库模式：主名册就是 actresses 表（本地库是主库，不是
+      // 兜底）。名册里有、本地没有的人补进本地库；已有的人（按
+      // 名字精确匹配）不重复建。2026-11-23 修复：名册是性别的权威
+      // （潮流实拉名册 roster_live.json：s 字段 male/female，
+      // 貞松大輔 male）——已有的人也按名册补性别（只在名册给了确认
+      // 性别、且库里还是空时写，名册没给的不动），新人建行时一起
+      // 写性别；sex 列由开库时 _ensureActressSexColumn 补上，
+      // 没有列就跳过不写。作品由作品阶段
+      // （personsPendingFilms → upsertWorks）或现爬补。
+      final name = variants.first;
+      final rosterSex = _normalizeRosterSex(roster.sex);
+      final hasSex = await _hasActressSexColumn(db);
+      final existing = await db.query(
+        'actresses',
+        columns: ['rowid'],
+        where: 'name = ?',
+        whereArgs: [name],
+        limit: 1,
+      );
+      if (existing.isNotEmpty) {
+        final id = (existing.first['rowid'] as num).toInt();
+        if (hasSex && rosterSex.isNotEmpty) {
+          try {
+            await db.update(
+              'actresses',
+              {'sex': rosterSex},
+              where: 'rowid = ? AND (sex IS NULL OR sex = \'\')',
+              whereArgs: [id],
+            );
+          } catch (_) {
+            // 性别写不进去不堵同步（人照样在）。
+          }
+        }
+        return personById(id);
+      }
+      // 新人：INSERT 一条 actresses 行。cate_id 用来源 id 拼
+      //（whos:'whos:'+slug、mjv:'mjv:'+chaoliuId、
+      // MissAV:'missav:'+路径）；来源 id 为空时退回 'roster:' +
+      // 名字，仍唯一。
+      final sourceId = roster.sourceId.trim();
+      final cateId = sourceId.isEmpty
+          ? 'roster:$name'
+          : rosterVideoLibraryCateId(roster.source, sourceId);
+      await db.insert('actresses', {
+        'cate_id': cateId,
+        'name': name,
+        'avatar': roster.avatarUrl,
+        if (hasSex && rosterSex.isNotEmpty) 'sex': rosterSex,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+      final inserted = await db.query(
+        'actresses',
+        columns: ['rowid'],
+        where: 'cate_id = ?',
+        whereArgs: [cateId],
+        limit: 1,
+      );
+      if (inserted.isEmpty) return null;
+      final id = (inserted.first['rowid'] as num).toInt();
+      return personById(id);
+    }
+    final now = DateTime.now().millisecondsSinceEpoch;
+    return db.transaction((txn) async {
+      ActressPerson? existing;
+      for (final variant in variants) {
+        final rows = await txn.query(
+          'person_names',
+          columns: ['person_id'],
+          where: 'name_key = ?',
+          whereArgs: [actressNameKey(variant)],
+          limit: 1,
+        );
+        if (rows.isEmpty) continue;
+        final id = (rows.first['person_id'] as num).toInt();
+        final personRows = await txn.query(
+          'persons',
+          where: 'id = ?',
+          whereArgs: [id],
+          limit: 1,
+        );
+        if (personRows.isNotEmpty) {
+          existing = _personFromRow(personRows.first);
+          break;
+        }
+      }
+      final merged = mergeRosterIntoPerson(existing, roster);
+      int personId;
+      if (existing == null) {
+        personId = await txn.insert('persons', _personToRow(merged, now));
+      } else {
+        personId = existing.localId;
+        await txn.update(
+          'persons',
+          _personToRow(merged.copyWith(localId: personId), now),
+          where: 'id = ?',
+          whereArgs: [personId],
+        );
+      }
+      final keys = <String>{
+        actressNameKey(merged.displayName),
+        for (final alias in merged.aliases) actressNameKey(alias),
+        for (final variant in variants) actressNameKey(variant),
+      };
+      for (final key in keys) {
+        if (key.isEmpty) continue;
+        await txn.insert('person_names', {
+          'name_key': key,
+          'person_id': personId,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+      final rows = await txn.query(
+        'persons',
+        where: 'id = ?',
+        whereArgs: [personId],
+        limit: 1,
+      );
+      return _personFromRow(rows.first);
+    });
+  }
+
+  @override
+  Future<ActressPerson?> upsertCrawledPerson({
+    required String name,
+    String sex = '',
+    List<String> tags = const [],
+    String avatarUrl = '',
+  }) async {
+    final variants = actressNameVariants(name);
+    if (variants.isEmpty) return null;
+    if (variants.any(actressTextBlocked) ||
+        tags.any(actressTextBlocked)) {
+      return null;
+    }
+    final db = await _open();
+    // 视频库没有 persons/person_names 表：不往 actresses 里造人。
+    if (_videoLibraryMode) return null;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    return db.transaction((txn) async {
+      ActressPerson? existing;
+      for (final variant in variants) {
+        final rows = await txn.query(
+          'person_names',
+          columns: ['person_id'],
+          where: 'name_key = ?',
+          whereArgs: [actressNameKey(variant)],
+          limit: 1,
+        );
+        if (rows.isEmpty) continue;
+        final id = (rows.first['person_id'] as num).toInt();
+        final personRows = await txn.query(
+          'persons',
+          where: 'id = ?',
+          whereArgs: [id],
+          limit: 1,
+        );
+        if (personRows.isNotEmpty) {
+          existing = _personFromRow(personRows.first);
+          break;
+        }
+      }
+      // 只补空字段、并标签与别名：不认领任何名册源身份（fromX 与
+      // 来源 id 列一律不动），名册跑过之后再合也不会被爬虫覆盖。
+      ActressPerson merged;
+      if (existing == null) {
+        merged = ActressPerson(
+          displayName: variants.first,
+          aliases: variants.skip(1).toList(),
+          sex: sex,
+          avatarUrl: avatarUrl,
+          tags: tags,
+        );
+      } else {
+        final aliasKeys = <String>{
+          actressNameKey(existing.displayName),
+          for (final alias in existing.aliases) actressNameKey(alias),
+        };
+        final extra = <String>[];
+        for (final variant in variants) {
+          if (aliasKeys.add(actressNameKey(variant))) extra.add(variant);
+        }
+        merged = existing.copyWith(
+          aliases: [...existing.aliases, ...extra],
+          sex: existing.sex.isNotEmpty ? existing.sex : sex,
+          avatarUrl: existing.avatarUrl.isNotEmpty
+              ? existing.avatarUrl
+              : avatarUrl,
+          tags: <String>{...existing.tags, ...tags}.toList(),
+        );
+      }
+      int personId;
+      if (existing == null) {
+        personId = await txn.insert('persons', _personToRow(merged, now));
+      } else {
+        personId = existing.localId;
+        await txn.update(
+          'persons',
+          _personToRow(merged.copyWith(localId: personId), now),
+          where: 'id = ?',
+          whereArgs: [personId],
+        );
+      }
+      final keys = <String>{
+        actressNameKey(merged.displayName),
+        for (final alias in merged.aliases) actressNameKey(alias),
+        for (final variant in variants) actressNameKey(variant),
+      };
+      for (final key in keys) {
+        if (key.isEmpty) continue;
+        await txn.insert('person_names', {
+          'name_key': key,
+          'person_id': personId,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+      final rows = await txn.query(
+        'persons',
+        where: 'id = ?',
+        whereArgs: [personId],
+        limit: 1,
+      );
+      return _personFromRow(rows.first);
+    });
+  }
+
+  @override
+  Future<ActressPerson?> personById(int localId) async {
+    final db = await _open();
+    if (_videoLibraryMode) {
+      // 没有 actresses 表的外来库：人物 id 是 video_actress 的
+      // rowid，按它反查人名再现算作品数。
+      if (!await _hasActressesTable(db)) {
+        final name = await _cateIdOfVideoActressRow(db, localId);
+        if (name == null) return null;
+        final rows = await db.rawQuery(
+          'SELECT COUNT(*) AS c FROM video_actress WHERE cate_id = ?',
+          [name],
+        );
+        return videoLibraryPersonFromRow({
+          'id': localId,
+          'display_name': name,
+          'cate_id': name,
+          'avatar_url': '',
+          'works_count': (rows.first['c'] as num?)?.toInt() ?? 0,
+        });
+      }
+      // 2026-11-23：sex 列存在时一起取出来（详情页头显性别靠它；
+      // 没这列时 videoLibraryPersonFromRow 按未知处理，不默认女）。
+      final hasSex = await _hasActressSexColumn(db);
+      final rows = await db.rawQuery(
+        'SELECT a.rowid AS id, a.name AS display_name, '
+        'a.cate_id AS cate_id, a.avatar AS avatar_url, '
+        "${hasSex ? 'a.sex AS sex, ' : ''}"
+        'COUNT(va.vod_id) AS works_count '
+        'FROM actresses a '
+        'LEFT JOIN video_actress va ON va.cate_id = a.cate_id '
+        'WHERE a.rowid = ? '
+        'GROUP BY a.rowid, a.name, a.avatar',
+        [localId],
+      );
+      if (rows.isEmpty) return null;
+      return videoLibraryPersonFromRow(rows.first);
+    }
+    final rows = await db.query(
+      'persons',
+      where: 'id = ?',
+      whereArgs: [localId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return (await _withLiveWorksCounts([_personFromRow(rows.first)])).first;
+  }
+
+  String _sexWhere(ActressSexFilter sex, List<Object?> args) {
+    switch (sex) {
+      case ActressSexFilter.all:
+        return '1 = 1';
+      case ActressSexFilter.female:
+        args.add('female');
+        return 'sex = ?';
+      case ActressSexFilter.male:
+        args.add('male');
+        return 'sex = ?';
+    }
+  }
+
+  String _queryWhere(String query, List<Object?> args) {
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) return '1 = 1';
+    final like = '%$trimmed%';
+    final keyLike = '%${actressNameKey(trimmed)}%';
+    args.addAll([like, like, keyLike]);
+    var where =
+        '(display_name LIKE ? OR aliases LIKE ? OR id IN '
+        '(SELECT person_id FROM person_names WHERE name_key LIKE ?)';
+    // 番号搜索：输入像番号时，另按作品番号键模糊匹配（SSIS-12 能命中
+    // SSIS123）；键只含大写字母与数字，拼进 LIKE 无通配符风险。
+    final codeKey = actressCodeQueryKey(trimmed);
+    if (codeKey != null) {
+      args.add('%$codeKey%');
+      where +=
+          ' OR id IN (SELECT person_id FROM works WHERE code_key LIKE ?)';
+    }
+    return '$where)';
+  }
+
+  // 标签存为 JSON 数组文本，带引号匹配避免子串误中（'"有码"' 只中整标签）。
+  String _tagWhere(String tag, List<Object?> args) {
+    if (tag.isEmpty) return '1 = 1';
+    args.add('%${jsonEncode(tag)}%');
+    return 'tags LIKE ?';
+  }
+
+  // 数据库分类：只留该分类里有作品的人（video_category 主分类
+  // 经同步写进 works.category；见 upsertWorks）。
+  String _categoryWhere(String category, List<Object?> args) {
+    if (category.isEmpty) return '1 = 1';
+    args.add(category);
+    return 'EXISTS (SELECT 1 FROM works w '
+        'WHERE w.person_id = persons.id AND w.category = ?)';
+  }
+
+  String _sortOrder(ActressSort sort) => switch (sort) {
+    // 作品数只算入库数（2026-11-20 用户令：要入库才算），
+    // 不再拿 MAX(works_count, roster_works) 充数。
+    ActressSort.worksDesc => 'works_count DESC, display_name ASC',
+    ActressSort.nameAsc => 'display_name ASC',
+    // 最近更新：每人入库作品里最新作品日期倒序；COALESCE 把
+    // 无入库作品的人的空值当 ''，倒序时沉底；同日按名字。
+    // 只算 works 表里实际有的日期，不用站方宣称的更新时间。
+    ActressSort.recentDesc =>
+      "COALESCE((SELECT MAX(date) FROM works WHERE works.person_id = persons.id), '') DESC, display_name ASC",
+  };
+
+  @override
+  Future<List<ActressPerson>> listPersons({
+    required ActressSexFilter sex,
+    required ActressSort sort,
+    required String query,
+    required int offset,
+    required int limit,
+    String tag = '',
+    String category = '',
+  }) async {
+    final db = await _open();
+    if (_videoLibraryMode) {
+      // 2026-11-22 用户令（男优与女优分开）：合并版库 actresses 带
+      // sex 列（男优 257 位，按 who's 番号绑定作品），男优筛选按列
+      // 过滤；老库没有 sex 列时保持改前行为（male 无结果）。
+      final hasSex = await _hasActressSexColumn(db);
+      if (sex != ActressSexFilter.all && !hasSex) return const [];
+      // 没有 actresses 表的外来库（只有 videos + video_actress +
+      // video_category）：直接按 video_actress.cate_id（人名）分组
+      // 现算人物——头像与性别未知（空），作品数按组计数，localId 取
+      // 该人 video_actress 行里最小的 rowid（worksForPerson 按它
+      // 反查人名，与通用库同一口径）。没有这条回退时旧的两条路都
+      // 会抛错、被调用方静默跳过，人物列表永远是主库数据。
+      if (!await _hasActressesTable(db)) {
+        final trimmedQuery = query.trim();
+        final args = <Object?>[];
+        final conditions = <String>[];
+        if (trimmedQuery.isNotEmpty) {
+          args.add('%$trimmedQuery%');
+          conditions.add('pc.cate_id LIKE ?');
+        }
+        if (category.isNotEmpty) {
+          args.add(category);
+          conditions.add(
+            'EXISTS (SELECT 1 FROM video_actress va2 '
+            'JOIN videos v2 ON v2.vod_id = va2.vod_id '
+            'LEFT JOIN video_category vc2 ON vc2.vod_id = va2.vod_id '
+            'WHERE va2.cate_id = pc.cate_id '
+            "AND COALESCE(vc2.main_category, '') = ?)",
+          );
+        }
+        final where = conditions.isEmpty
+            ? ''
+            : 'WHERE ${conditions.join(' AND ')}';
+        final order = switch (sort) {
+          ActressSort.worksDesc => 'pc.n DESC, pc.cate_id ASC',
+          ActressSort.nameAsc => 'pc.cate_id ASC',
+          ActressSort.recentDesc => 'pc.d DESC, pc.cate_id ASC',
+        };
+        // 最近更新排序才 join videos 取 MAX(vod_pubdate)，平时纯走
+        // video_actress(cate_id) 分组（与回退路同一优化，见下）。
+        final perCateSql = sort == ActressSort.recentDesc
+            ? 'SELECT va.cate_id AS cate_id, COUNT(*) AS n, '
+                'MAX(v.vod_pubdate) AS d, MIN(va.rowid) AS first_rowid '
+                'FROM video_actress va '
+                'LEFT JOIN videos v ON v.vod_id = va.vod_id '
+                'GROUP BY va.cate_id'
+            : 'SELECT cate_id AS cate_id, COUNT(*) AS n, '
+                "'' AS d, MIN(rowid) AS first_rowid "
+                'FROM video_actress GROUP BY cate_id';
+        final rows = await db.rawQuery(
+          'WITH per_cate AS ($perCateSql) '
+          'SELECT pc.first_rowid AS id, pc.cate_id AS display_name, '
+          "pc.cate_id AS cate_id, '' AS avatar_url, "
+          "pc.n AS works_count, '' AS sex "
+          'FROM per_cate pc $where ORDER BY $order LIMIT ? OFFSET ?',
+          [...args, limit, offset],
+        );
+        return rows.map(videoLibraryPersonFromRow).toList();
+      }
+      final trimmedQuery = query.trim();
+      final args = <Object?>[];
+      final conditions = <String>[];
+
+      // 首选汇总表（按名字归并，2026-11-21）：同一个人被拆成
+      // 「木下ひまり（花沢ひまり）」+「木下ひまり」两行时，在这里
+      // 合回一个人，作品数相加（217+739 → 755）。
+      if (await _hasVideoRollup(db)) {
+        if (trimmedQuery.isNotEmpty) {
+          args.add('%$trimmedQuery%');
+          conditions.add('r.name LIKE ?');
+        }
+        if (sex == ActressSexFilter.male) {
+          conditions.add(
+            "EXISTS (SELECT 1 FROM actresses ax WHERE ax.name = r.name "
+            "AND ax.sex = 'male')",
+          );
+        } else if (sex == ActressSexFilter.female) {
+          conditions.add(
+            "NOT EXISTS (SELECT 1 FROM actresses ax WHERE ax.name = r.name "
+            "AND ax.sex = 'male')",
+          );
+        }
+        if (category.isNotEmpty) {
+          args.add(category);
+          conditions.add(
+            'EXISTS (SELECT 1 FROM actresses a2 '
+            'JOIN video_actress va2 ON va2.cate_id = a2.cate_id '
+            'JOIN videos v2 ON v2.vod_id = va2.vod_id '
+            'LEFT JOIN video_category vc2 ON vc2.vod_id = va2.vod_id '
+            'WHERE a2.name = r.name '
+            "AND COALESCE(vc2.main_category, '') = ?)",
+          );
+        }
+        final where = conditions.isEmpty
+            ? ''
+            : 'WHERE ${conditions.join(' AND ')}';
+        final order = switch (sort) {
+          ActressSort.worksDesc => 'r.works DESC, r.name ASC',
+          ActressSort.nameAsc => 'r.name ASC',
+          ActressSort.recentDesc => 'r.last_date DESC, r.name ASC',
+        };
+        // 2026-11-23：性别未知不再冒充“女”——没有男优行只说明没确认
+        // 过，不等于女；女筛（见上）仍按“非男”留人，显示只认确认值。
+        final sexExpr = hasSex
+            ? "(SELECT CASE WHEN EXISTS(SELECT 1 FROM actresses a4 "
+                  "WHERE a4.name = r.name AND a4.sex = 'male') "
+                  "THEN 'male' ELSE '' END) AS sex"
+            : "'' AS sex";
+        final rows = await db.rawQuery(
+          'SELECT r.first_rowid AS id, r.name AS display_name, '
+          'r.name AS cate_id, r.avatar AS avatar_url, '
+          'r.works AS works_count, $sexExpr '
+          'FROM actress_rollup r $where '
+          'ORDER BY $order LIMIT ? OFFSET ?',
+          [...args, limit, offset],
+        );
+        return rows.map(videoLibraryPersonFromRow).toList();
+      }
+
+      // 回退（库只读、汇总表没落下）：现算同一套归并。
+      if (trimmedQuery.isNotEmpty) {
+        args.add('%$trimmedQuery%');
+        conditions.add('a.name LIKE ?');
+      }
+      if (hasSex && sex == ActressSexFilter.male) {
+        conditions.add("a.sex = 'male'");
+      } else if (hasSex && sex == ActressSexFilter.female) {
+        conditions.add("COALESCE(NULLIF(a.sex,''),'female') = 'female'");
+      }
+      if (category.isNotEmpty) {
+        // 该人有该分类的作品才留：分类口径与 workCategories 同
+        // 一份（COALESCE(main_category, type_name, '')），点分类
+        // 标签筛出来的人与标签数一致。
+        args.add(category);
+        conditions.add(
+          'EXISTS (SELECT 1 FROM video_actress va2 '
+          'JOIN videos v2 ON v2.vod_id = va2.vod_id '
+          'LEFT JOIN video_category vc2 ON vc2.vod_id = va2.vod_id '
+          'JOIN actresses a3 ON a3.cate_id = va2.cate_id '
+          'WHERE a3.name = a.name '
+          "AND COALESCE(vc2.main_category, '') = ?)",
+        );
+      }
+      final where = conditions.isEmpty
+          ? ''
+          : 'WHERE ${conditions.join(' AND ')}';
+      final order = switch (sort) {
+        ActressSort.worksDesc => 'works_count DESC, a.name ASC',
+        ActressSort.nameAsc => 'a.name ASC',
+        ActressSort.recentDesc => 'last_date DESC, a.name ASC',
+      };
+      // 2026-11-23 转圈根因之二：回退 CTE 里 LEFT JOIN videos 只为
+      // 取 MAX(vod_pubdate)（最近更新排序用），47 万行逐行回表查
+      // videos 主键，冷盘实测 36 秒；按作品数/名字排时 last_date
+      // 根本不用。只在 recentDesc 时才 join，平时纯走
+      // video_actress(cate_id) 索引扫，实测 0.6 秒（冷盘）/ 0.1 秒（热）。
+      final needLatestDate = sort == ActressSort.recentDesc;
+      final perCateSql = needLatestDate
+          ? 'SELECT cate_id AS cate_id, COUNT(*) AS n, '
+              'MAX(v.vod_pubdate) AS d FROM video_actress va '
+              'LEFT JOIN videos v ON v.vod_id = va.vod_id GROUP BY cate_id'
+          : 'SELECT cate_id AS cate_id, COUNT(*) AS n, '
+              "'' AS d FROM video_actress GROUP BY cate_id";
+      final rows = await db.rawQuery(
+        'WITH per_cate AS ($perCateSql) '
+        'SELECT MIN(a.rowid) AS id, a.name AS display_name, '
+        'a.name AS cate_id, '
+        '${hasSex ? "CASE WHEN SUM(CASE WHEN a.sex='male' THEN 1 ELSE 0 END)>0 "
+            "THEN 'male' ELSE '' END" : "''"} AS sex, '
+        "COALESCE(MAX(NULLIF(a.avatar,'')),'') AS avatar_url, "
+        'SUM(COALESCE(pc.n,0)) AS works_count, '
+        "COALESCE(MAX(COALESCE(pc.d,'')),'') AS last_date "
+        'FROM actresses a LEFT JOIN per_cate pc ON pc.cate_id = a.cate_id '
+        '$where GROUP BY a.name ORDER BY $order LIMIT ? OFFSET ?',
+        [...args, limit, offset],
+      );
+      return rows.map(videoLibraryPersonFromRow).toList();
+    }
+    final args = <Object?>[];
+    final where =
+        '${_sexWhere(sex, args)} AND ${_queryWhere(query, args)} '
+        'AND ${_tagWhere(tag, args)} AND ${_categoryWhere(category, args)}';
+    final rows = await db.query(
+      'persons',
+      where: where,
+      whereArgs: args,
+      orderBy: _sortOrder(sort),
+      limit: limit,
+      offset: offset,
+    );
+    return _withLiveWorksCounts(rows.map(_personFromRow).toList());
+  }
+
+  @override
+  Future<int> countPersons({
+    required ActressSexFilter sex,
+    required String query,
+    String tag = '',
+  }) async {
+    final db = await _open();
+    if (_videoLibraryMode) {
+      final hasSex = await _hasActressSexColumn(db);
+      if (sex != ActressSexFilter.all && !hasSex) return 0;
+      // 没有 actresses 表的外来库：按 video_actress.cate_id 分组计数
+      //（与 listPersons 的回退同一口径）。
+      if (!await _hasActressesTable(db)) {
+        final trimmedQuery = query.trim();
+        final args = <Object?>[];
+        final where =
+            trimmedQuery.isEmpty ? '' : 'WHERE cate_id LIKE ?';
+        if (trimmedQuery.isNotEmpty) args.add('%$trimmedQuery%');
+        final rows = await db.rawQuery(
+          'SELECT COUNT(*) AS c FROM '
+          '(SELECT cate_id FROM video_actress $where GROUP BY cate_id)',
+          args,
+        );
+        return (rows.first['c'] as num?)?.toInt() ?? 0;
+      }
+      final args = <Object?>[];
+      final conditions = <String>[];
+      final trimmedQuery = query.trim();
+      if (trimmedQuery.isNotEmpty) {
+        args.add('%$trimmedQuery%');
+        conditions.add('name LIKE ?');
+      }
+      if (sex == ActressSexFilter.male) {
+        conditions.add("sex = 'male'");
+      } else if (sex == ActressSexFilter.female) {
+        conditions.add("COALESCE(NULLIF(sex,''),'female') = 'female'");
+      }
+      final where = conditions.isEmpty
+          ? ''
+          : 'WHERE ${conditions.join(' AND ')}';
+      // 按名字去重计数（同一个人被拆成两行时只算一个）。
+      final rows = await db.rawQuery(
+        'SELECT COUNT(*) AS c FROM '
+        '(SELECT name FROM actresses $where GROUP BY name)',
+        args,
+      );
+      return (rows.first['c'] as num?)?.toInt() ?? 0;
+    }
+    final args = <Object?>[];
+    final where =
+        '${_sexWhere(sex, args)} AND ${_queryWhere(query, args)} '
+        'AND ${_tagWhere(tag, args)}';
+    final rows = await db.rawQuery(
+      'SELECT COUNT(*) AS c FROM persons WHERE $where',
+      args,
+    );
+    return (rows.first['c'] as num?)?.toInt() ?? 0;
+  }
+
+  @override
+  Future<List<ActressPerson>> allPersonsForRanking({
+    required ActressSexFilter sex,
+  }) async {
+    final db = await _open();
+    if (_videoLibraryMode) {
+      // 视频库没有排行名次/评分：按作品数倒序取前 500 人，走
+      // listPersons 的视频库逻辑（同一份 SQL 与映射）。
+      return listPersons(
+        sex: sex,
+        sort: ActressSort.worksDesc,
+        query: '',
+        offset: 0,
+        limit: 500,
+      );
+    }
+    final args = <Object?>[];
+    final rows = await db.query(
+      'persons',
+      where: _sexWhere(sex, args),
+      whereArgs: args,
+    );
+    final persons =
+        await _withLiveWorksCounts(rows.map(_personFromRow).toList())
+          ..sort(compareActressRank);
+    return persons;
+  }
+
+  @override
+  Future<void> setMissavRank(int personId, int rank) async {
+    final db = await _open();
+    // 视频库没有 persons 表（没有 missav_rank 列）：空操作。
+    if (_videoLibraryMode) return;
+    await db.rawUpdate(
+      'UPDATE persons SET missav_rank = '
+      'CASE WHEN missav_rank IS NULL OR ? < missav_rank THEN ? '
+      'ELSE missav_rank END, updated_at = ? WHERE id = ?',
+      [rank, rank, DateTime.now().millisecondsSinceEpoch, personId],
+    );
+  }
+
+  @override
+  Future<void> setWhosRank(int personId, int rank) async {
+    final db = await _open();
+    // 视频库没有 persons 表（没有 whos_rank 列）：空操作。
+    if (_videoLibraryMode) return;
+    await db.rawUpdate(
+      'UPDATE persons SET whos_rank = '
+      'CASE WHEN whos_rank IS NULL OR ? < whos_rank THEN ? '
+      'ELSE whos_rank END, updated_at = ? WHERE id = ?',
+      [rank, rank, DateTime.now().millisecondsSinceEpoch, personId],
+    );
+  }
+
+  @override
+  Future<void> setPersonAbout(int personId, Map<String, String> about) async {
+    final clean = <String, String>{};
+    for (final entry in about.entries) {
+      if (actressTextBlocked(entry.key) || actressTextBlocked(entry.value)) {
+        continue;
+      }
+      clean[entry.key] = entry.value;
+    }
+    if (clean.isEmpty) return;
+    final db = await _open();
+    // 视频库没有 persons 表（没有 about 列）：空操作。
+    if (_videoLibraryMode) return;
+    final rows = await db.query(
+      'persons',
+      columns: ['about'],
+      where: 'id = ?',
+      whereArgs: [personId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return;
+    final merged = {...clean, ..._decodeAbout(rows.first['about'])};
+    await db.update(
+      'persons',
+      {
+        'about': jsonEncode(merged),
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'id = ?',
+      whereArgs: [personId],
+    );
+  }
+
+  @override
+  Future<List<ActressWork>> worksForPerson(
+    int personId, {
+    required int offset,
+    required int limit,
+    String? category,
+  }) async {
+    final db = await _open();
+    if (_videoLibraryMode) {
+      final useCategory = category != null && category.isNotEmpty;
+      // 2026-11-21：先按 rowid 取这个人（主键，瞬时），再用 cate_id
+      // 反查作品。原来一条大 JOIN（videos × video_actress × actresses）
+      // 再 ORDER BY 排序，32 万视频的库在手机上点一下要转半天，
+      // 看着就是「点了头像没作品」。
+      final cateIds = await _videoCateIdsForPerson(db, personId);
+      if (cateIds.isEmpty) return const [];
+      final inList = _placeholders(cateIds.length);
+      final rows = await db.rawQuery(
+        'SELECT v.rowid AS id, v.vod_id AS code_key, '
+        'v.title AS title, v.vod_pubdate AS date, '
+        'v.vod_play_from AS site, v.vod_play_from AS cover_source, '
+        'v.pic_url AS cover_url, '
+        "COALESCE(vc.main_category, '') AS category "
+        'FROM videos v '
+        'LEFT JOIN video_category vc ON vc.vod_id = v.vod_id '
+        'WHERE v.vod_id IN (SELECT vod_id FROM video_actress '
+        'WHERE cate_id IN ($inList)) '
+        "${useCategory ? "AND COALESCE(vc.main_category, '') = ? " : ''}"
+        'ORDER BY v.vod_pubdate DESC, v.vod_id ASC '
+        'LIMIT ? OFFSET ?',
+        useCategory
+            ? [...cateIds, category, limit, offset]
+            : [...cateIds, limit, offset],
+      );
+      return [
+        for (final row in rows) videoLibraryWorkFromRow(row, personId),
+      ];
+    }
+    final useCategory = category != null && category.isNotEmpty;
+    final rows = await db.query(
+      'works',
+      where: useCategory ? 'person_id = ? AND category = ?' : 'person_id = ?',
+      whereArgs: useCategory ? [personId, category] : [personId],
+      orderBy: 'id ASC',
+      limit: limit,
+      offset: offset,
+    );
+    return rows.map(_workFromRow).toList();
+  }
+
+  @override
+  Future<int> countWorks(int personId, {String? category}) async {
+    final db = await _open();
+    if (_videoLibraryMode) {
+      final useCategory = category != null && category.isNotEmpty;
+      final cateIds = await _videoCateIdsForPerson(db, personId);
+      if (cateIds.isEmpty) return 0;
+      final inList = _placeholders(cateIds.length);
+      final rows = await db.rawQuery(
+        'SELECT COUNT(*) AS c FROM videos v '
+        'LEFT JOIN video_category vc ON vc.vod_id = v.vod_id '
+        'WHERE v.vod_id IN (SELECT vod_id FROM video_actress '
+        'WHERE cate_id IN ($inList)) '
+        "${useCategory ? "AND COALESCE(vc.main_category, '') = ?" : ''}",
+        useCategory ? [...cateIds, category] : cateIds,
+      );
+      return (rows.first['c'] as num?)?.toInt() ?? 0;
+    }
+    final useCategory = category != null && category.isNotEmpty;
+    final rows = await db.rawQuery(
+      useCategory
+          ? 'SELECT COUNT(*) AS c FROM works '
+                'WHERE person_id = ? AND category = ?'
+          : 'SELECT COUNT(*) AS c FROM works WHERE person_id = ?',
+      useCategory ? [personId, category] : [personId],
+    );
+    return (rows.first['c'] as num?)?.toInt() ?? 0;
+  }
+
+  @override
+  Future<Set<String>> distinctWorkKeysForName(String name) async {
+    final db = await _open();
+    if (!_videoLibraryMode) return const {};
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return const {};
+    try {
+      final rows = await db.rawQuery(
+        'SELECT v.vod_id AS vod_id, v.m3u8_url AS m3u8_url, '
+        'v.vod_play_url AS vod_play_url FROM videos v '
+        'WHERE v.vod_id IN (SELECT vod_id FROM video_actress '
+        'WHERE cate_id IN (SELECT cate_id FROM actresses '
+        'WHERE name = ?))',
+        [trimmed],
+      );
+      return {
+        for (final row in rows)
+          '${normalizeAvCode((row['vod_id'] ?? '').toString())}|'
+              '${extractPlayUrl(
+            (row['m3u8_url']?.toString() ?? '').isNotEmpty
+                ? row['m3u8_url']
+                : row['vod_play_url'],
+          )}',
+      };
+    } catch (_) {
+      return const {};
+    }
+  }
+
+  /// 全库一级分类（video_category.main_category，去重计数）：
+  /// 多库勾选时列表页分类行取各库并集。只读查询，不写盘；
+  /// 没有 video_category 表的库直接抛错，调用方跳过。
+  @override
+  Future<List<(String, int)>> dbCategories() async {
+    final db = await _open();
+    final rows = await db.rawQuery(
+      'SELECT main_category, COUNT(*) AS c FROM video_category '
+      "WHERE main_category IS NOT NULL AND main_category <> '' "
+      'GROUP BY main_category ORDER BY c DESC',
+    );
+    return [
+      for (final row in rows)
+        (row['main_category'].toString(), (row['c'] as num).toInt()),
+    ];
+  }
+
+  @override
+  Future<List<({String name, int count})>> workCategories(
+    int personId,
+  ) async {
+    final db = await _open();
+    if (_videoLibraryMode) {
+      // 2026-11-22 加载优化：先按 rowid 取同名 cate_id（已索引，
+      // 见 _videoCateIdsOf），再与 worksForPerson 同形走
+      // IN (SELECT vod_id FROM video_actress …) 取分类。
+      // 原来的 videos × video_actress × actresses 三表 JOIN 再
+      // GROUP BY，34 万行库上实测 0.9~6.3 秒、抖动大，详情页首屏
+      // 被它堵住一直转圈；改后同量级实测 0.02 秒（热缓存）。
+      final cateIds = await _videoCateIdsForPerson(db, personId);
+      if (cateIds.isEmpty) return const [];
+      final inList = _placeholders(cateIds.length);
+      final rows = await db.rawQuery(
+        "SELECT COALESCE(vc.main_category, '') AS name, "
+        'COUNT(*) AS c FROM videos v '
+        'LEFT JOIN video_category vc ON vc.vod_id = v.vod_id '
+        'WHERE v.vod_id IN (SELECT vod_id FROM video_actress '
+        'WHERE cate_id IN ($inList)) '
+        "AND COALESCE(vc.main_category, '') <> '' "
+        // GROUP BY 必须写完整表达式：写别名 name 有歧义（actresses
+        // 表也有 name 列），SQLite 会按人名分组、全并成一组。
+        "GROUP BY COALESCE(vc.main_category, '') "
+        'ORDER BY c DESC, name ASC',
+        cateIds,
+      );
+      return [
+        for (final row in rows)
+          (
+            name: (row['name'] as String?) ?? '',
+            count: (row['c'] as num?)?.toInt() ?? 0,
+          ),
+      ];
+    }
+    final rows = await db.rawQuery(
+      'SELECT category AS name, COUNT(*) AS c FROM works '
+      'WHERE person_id = ? AND category <> \'\' '
+      'GROUP BY category ORDER BY c DESC, category ASC',
+      [personId],
+    );
+    return [
+      for (final row in rows)
+        (
+          name: (row['name'] as String?) ?? '',
+          count: (row['c'] as num?)?.toInt() ?? 0,
+        ),
+    ];
+  }
+
+  Future<void> _refreshWorksCount(
+    DatabaseExecutor executor,
+    int personId,
+  ) async {
+    await executor.rawUpdate(
+      'UPDATE persons SET works_count = '
+      '(SELECT COUNT(*) FROM works WHERE person_id = ?) WHERE id = ?',
+      [personId, personId],
+    );
+  }
+
+  /// 读数口径（2026-11-20 计数修复）：列表卡片与详情头顶的
+  /// worksCount 一律以 works 表实时行数为准——单次聚合查询覆盖
+  /// 本批全部人，覆盖掉 persons.works_count 缓存列的值。
+  /// 缓存列仍由各写路径维护、只供 SQL 排序用；显示数与
+  /// countWorks() 从此永远是同一份数，不存在“列表一个数、
+  /// 详情另一个数”。
+  Future<List<ActressPerson>> _withLiveWorksCounts(
+    List<ActressPerson> persons,
+  ) async {
+    if (persons.isEmpty) return persons;
+    final db = await _open();
+    final ids = persons.map((person) => person.localId).toList();
+    final placeholders = List.filled(ids.length, '?').join(',');
+    final rows = await db.rawQuery(
+      'SELECT person_id, COUNT(*) AS c FROM works '
+      'WHERE person_id IN ($placeholders) GROUP BY person_id',
+      ids,
+    );
+    final counts = <int, int>{
+      for (final row in rows)
+        (row['person_id'] as num).toInt(): (row['c'] as num).toInt(),
+    };
+    return [
+      for (final person in persons)
+        person.copyWith(worksCount: counts[person.localId] ?? 0),
+    ];
+  }
+
+  /// 视频库模式：按 actresses.rowid 取女优名（upsertWorks /
+  /// attachCover / updateWorkPlayLink 链 video_actress 用）。
+  /// 找不到返回 ''（不链、不新建人）。
+  Future<String> _videoLibraryActressName(
+    DatabaseExecutor exec,
+    int personId,
+  ) async {
+    final rows = await exec.query(
+      'actresses',
+      columns: ['name'],
+      where: 'rowid = ?',
+      whereArgs: [personId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return '';
+    return (rows.first['name'] as String?) ?? '';
+  }
+
+  /// 视频库单条合并（在调用方开的事务/执行器上跑）：按 vod_id 认行。
+  /// 安全底线：只 INSERT 新视频行与 UPDATE 播放地址，绝不 DELETE
+  /// 任何行；已有行的标题/日期/分类不动（播放地址更新时标题/封面
+  /// 只在新值非空时才换；新地址为空时不换地址、不拿空值盖已有地址，
+  /// 只补空标题/封面）。
+  /// 返回 true = 写了行（新建或更新），false = 跳过。
+  Future<bool> _mergeVideoEntry(
+    DatabaseExecutor exec,
+    VideoLibraryEntry entry,
+  ) async {
+    final vodId = entry.vodId.trim();
+    if (vodId.isEmpty) return false;
+    final rows = await exec.query(
+      'videos',
+      columns: ['vod_play_url', 'title', 'pic_url'],
+      where: 'vod_id = ?',
+      whereArgs: [vodId],
+      limit: 1,
+    );
+    final playUrl = entry.playUrl.trim();
+    if (rows.isEmpty) {
+      // 新行：INSERT videos + video_category。分类空就写 NULL
+      //（真库里空分类就是 NULL；写空串 '' 的话 COALESCE 认不出
+      // 空、回落不到 type_name）。
+      await exec.insert('videos', {
+        'vod_id': vodId,
+        'title': entry.title,
+        'pic_url': entry.picUrl,
+        'm3u8_url': playUrl,
+        'vod_remarks': entry.remarks,
+        'vod_pubdate': entry.pubdate,
+        'vod_area': entry.area,
+        'vod_year': entry.year,
+        'vod_content': entry.content,
+        'vod_play_from': entry.playFrom,
+        'vod_play_url': playUrl,
+        'type_name': entry.typeName,
+      });
+      await exec.insert('video_category', {
+        'vod_id': vodId,
+        'main_category':
+            entry.category.trim().isEmpty ? null : entry.category,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      await _linkVideoActress(exec, vodId, entry.actressName);
+      return true;
+    }
+    final existing = rows.first;
+    final existingPlayUrl = (existing['vod_play_url'] as String?) ?? '';
+    final action = videoLibraryMergeAction(existingPlayUrl, playUrl);
+    if (action == VideoLibraryMergeAction.update) {
+      // 地址不同：只换播放地址（m3u8_url 与 vod_play_url 两列同值，
+      // 一起换）；标题/封面只在新值非空时才换；分类不动。
+      final updates = <String, Object?>{
+        'm3u8_url': playUrl,
+        'vod_play_url': playUrl,
+      };
+      final newTitle = entry.title.trim();
+      if (newTitle.isNotEmpty) updates['title'] = newTitle;
+      final newPic = entry.picUrl.trim();
+      if (newPic.isNotEmpty) updates['pic_url'] = newPic;
+      await exec.update(
+        'videos',
+        updates,
+        where: 'vod_id = ?',
+        whereArgs: [vodId],
+      );
+      await _linkVideoActress(exec, vodId, entry.actressName);
+      return true;
+    }
+    // skip：地址相同，或新地址为空。只补空标题/封面（已有值不动，
+    // 地址不动、分类不动）。
+    final fillUpdates = <String, Object?>{};
+    final existingTitle = (existing['title'] as String?) ?? '';
+    final newTitle = entry.title.trim();
+    if (existingTitle.isEmpty && newTitle.isNotEmpty) {
+      fillUpdates['title'] = newTitle;
+    }
+    final existingPic = (existing['pic_url'] as String?) ?? '';
+    final newPic = entry.picUrl.trim();
+    if (existingPic.isEmpty && newPic.isNotEmpty) {
+      fillUpdates['pic_url'] = newPic;
+    }
+    if (fillUpdates.isNotEmpty) {
+      await exec.update(
+        'videos',
+        fillUpdates,
+        where: 'vod_id = ?',
+        whereArgs: [vodId],
+      );
+      return true;
+    }
+    return false;
+  }
+
+  /// video_actress 链接：按女优名精确匹配 actresses.name 取
+  /// cate_id，找到了才插链接（INSERT OR IGNORE，(vod_id, cate_id)
+  /// 复合主键去重）；找不到不插、不新建女优行（不往 actresses
+  /// 里造人，免得脏数据）。whos 条目没女优名，不进这里。
+  Future<void> _linkVideoActress(
+    DatabaseExecutor exec,
+    String vodId,
+    String actressName,
+  ) async {
+    final name = actressName.trim();
+    if (name.isEmpty) return;
+    final rows = await exec.query(
+      'actresses',
+      columns: ['cate_id'],
+      where: 'name = ?',
+      whereArgs: [name],
+      limit: 1,
+    );
+    if (rows.isEmpty) return;
+    final cateId = (rows.first['cate_id'] as String?) ?? '';
+    if (cateId.isEmpty) return;
+    await exec.insert('video_actress', {
+      'vod_id': vodId,
+      'cate_id': cateId,
+    }, conflictAlgorithm: ConflictAlgorithm.ignore);
+  }
+
+  /// 视频库模式：把条目按合并规则写进 videos / video_category
+  ///（主入口，供现爬/同步的镜像调）。一批一个事务，原子写；
+  /// 失败时整批回滚、调用方重试（json 影子文件已落盘，数据不丢）。
+  /// 普通模式下是空操作。
+  @override
+  Future<void> upsertVideoEntries(List<VideoLibraryEntry> entries) async {
+    if (entries.isEmpty) return;
+    final db = await _open();
+    if (!_videoLibraryMode) return;
+    await db.transaction((txn) async {
+      for (final entry in entries) {
+        await _mergeVideoEntry(txn, entry);
+      }
+    });
+  }
+
+  @override
+  Future<void> upsertWorks(
+    int personId,
+    List<RosterFilm> films, {
+    String coverSource = 'whos',
+    String site = '',
+  }) async {
+    final db = await _open();
+    if (_videoLibraryMode) {
+      // 视频库模式：RosterFilm 没有播放地址，只合元数据进 videos
+      //（按 vod_id 认行，新行插 videos + video_category，旧行只补
+      // 空标题/封面）；播放地址不动（空地址不盖已有地址），留给
+      // updateWorkPlayLink / attachCover 补。女优名按 personId
+      //（actresses.rowid）取到后才链 video_actress。
+      final actressName = await _videoLibraryActressName(db, personId);
+      await db.transaction((txn) async {
+        for (final film in films) {
+          if (actressTextBlocked(film.code) ||
+              actressTextBlocked(film.title)) {
+            continue;
+          }
+          final vodId = videoLibraryVodId(film.code);
+          if (vodId.isEmpty) continue;
+          await _mergeVideoEntry(txn, (
+            vodId: vodId,
+            title: film.title,
+            picUrl: film.coverUrl,
+            playUrl: '',
+            remarks: '',
+            pubdate: film.date,
+            area: '',
+            year: '',
+            content: '',
+            playFrom: site,
+            typeName: film.category,
+            category: film.category,
+            actressName: actressName,
+          ));
+        }
+      });
+      return;
+    }
+    await db.transaction((txn) async {
+      for (final film in films) {
+        if (actressTextBlocked(film.code) || actressTextBlocked(film.title)) {
+          continue;
+        }
+        final codeKey = film.codeKey;
+        final titleKey = film.titleKey;
+        if (codeKey.isEmpty && titleKey.isEmpty) continue;
+        final codeDisplay = film.code.trim();
+        final title = film.title.trim();
+        // 同步时已取到的封面（whos XOR 开关打开时、MissAV 人物页
+        // 直取）：只在新建行时写入；开关关闭/无图时三字段恒为空。
+        // 封面来源站按调用方传入的 [coverSource] 写，不再写死。
+        final coverFields = film.coverUrl.isEmpty || coverSource.isEmpty
+            ? const <String, Object?>{}
+            : <String, Object?>{
+                'cover_source': coverSource,
+                'cover_drama_id': film.detailUrl,
+                'cover_url': film.coverUrl,
+              };
+        // 去重键是（人，站，番号/标题）：同站同番号冲突即丢弃，
+        // 换站同番号不冲突，各留一条。
+        if (codeKey.isNotEmpty) {
+          await txn.insert('works', {
+            'person_id': personId,
+            'code_key': codeKey,
+            'title_key': titleKey,
+            'site': site,
+            'code_display': codeDisplay,
+            'title': title == codeDisplay ? '' : title,
+            'date': film.date.trim(),
+            'category': film.category,
+            ...coverFields,
+          }, conflictAlgorithm: ConflictAlgorithm.ignore);
+        } else {
+          await txn.insert('works', {
+            'person_id': personId,
+            'code_key': '',
+            'title_key': titleKey,
+            'site': site,
+            'code_display': '',
+            'title': title,
+            'date': film.date.trim(),
+            'category': film.category,
+            ...coverFields,
+          }, conflictAlgorithm: ConflictAlgorithm.ignore);
+        }
+        // 分类回填：这部已在库里（同步先写了空分类的行、或旧库行）、
+        // 本次带真实分类时，只把空分类补上；已有分类的行不动，
+        // 不覆盖。老用户库里的旧行下次镜像经过时自动补上分类。
+        if (film.category.isNotEmpty) {
+          if (codeKey.isNotEmpty) {
+            await txn.rawUpdate(
+              'UPDATE works SET category = ? WHERE person_id = ? '
+              'AND site = ? AND code_key = ? AND category = \'\'',
+              [film.category, personId, site, codeKey],
+            );
+          } else {
+            await txn.rawUpdate(
+              'UPDATE works SET category = ? WHERE person_id = ? '
+              'AND site = ? AND code_key = \'\' AND title_key = ? '
+              'AND category = \'\'',
+              [film.category, personId, site, titleKey],
+            );
+          }
+        }
+      }
+      await _refreshWorksCount(txn, personId);
+    });
+  }
+
+  @override
+  Future<bool> updateWorkPlayLink({
+    required int personId,
+    required String site,
+    required String codeKey,
+    required String titleKey,
+    String title = '',
+    String date = '',
+    required String coverSource,
+    required String coverDramaId,
+    required String coverUrl,
+  }) async {
+    if (codeKey.isEmpty && titleKey.isEmpty) return false;
+    final db = await _open();
+    if (_videoLibraryMode) {
+      // 视频库模式：按 vod_id 认行，把播放地址写进 videos。
+      // coverDramaId 在镜像里装的就是播放直链（http 开头才认
+      // 作地址，否则不换地址）；番号从 codeKey 还原横杠。
+      final vodId = videoLibraryVodId(codeKey);
+      if (vodId.isEmpty) return false;
+      final playUrl =
+          coverDramaId.startsWith('http') ? coverDramaId : '';
+      final actressName = await _videoLibraryActressName(db, personId);
+      var wrote = false;
+      await db.transaction((txn) async {
+        wrote = await _mergeVideoEntry(txn, (
+          vodId: vodId,
+          title: title,
+          picUrl: coverUrl,
+          playUrl: playUrl,
+          remarks: '',
+          pubdate: date,
+          area: '',
+          year: '',
+          content: '',
+          playFrom: site,
+          typeName: '',
+          category: '',
+          actressName: actressName,
+        ));
+      });
+      return wrote;
+    }
+    final values = <String, Object?>{
+      'cover_source': coverSource,
+      'cover_drama_id': coverDramaId,
+      'cover_url': coverUrl,
+    };
+    // 标题/日期只在调用方给了非空值时才换（不拿空值盖掉已有标题）。
+    if (title.isNotEmpty) values['title'] = title;
+    if (date.isNotEmpty) values['date'] = date;
+    final changed = codeKey.isNotEmpty
+        ? await db.update(
+            'works',
+            values,
+            where: 'person_id = ? AND site = ? AND code_key = ?',
+            whereArgs: [personId, site, codeKey],
+          )
+        : await db.update(
+            'works',
+            values,
+            where: 'person_id = ? AND site = ? AND code_key = \'\' '
+                'AND title_key = ?',
+            whereArgs: [personId, site, titleKey],
+          );
+    return changed > 0;
+  }
+
+  @override
+  Future<List<bool>> updateWorkPlayLinks({
+    required int personId,
+    required List<WorkPlayLinkUpdate> updates,
+  }) async {
+    if (updates.isEmpty) return const [];
+    final db = await _open();
+    if (_videoLibraryMode) {
+      // 视频库模式：批量按 vod_id 认行写 videos（一个事务）。
+      final actressName = await _videoLibraryActressName(db, personId);
+      final results = <bool>[];
+      await db.transaction((txn) async {
+        for (final u in updates) {
+          if (u.codeKey.isEmpty && u.titleKey.isEmpty) {
+            results.add(false);
+            continue;
+          }
+          final vodId = videoLibraryVodId(u.codeKey);
+          if (vodId.isEmpty) {
+            results.add(false);
+            continue;
+          }
+          final playUrl =
+              u.coverDramaId.startsWith('http') ? u.coverDramaId : '';
+          results.add(await _mergeVideoEntry(txn, (
+            vodId: vodId,
+            title: u.title,
+            picUrl: u.coverUrl,
+            playUrl: playUrl,
+            remarks: '',
+            pubdate: u.date,
+            area: '',
+            year: '',
+            content: '',
+            playFrom: u.site,
+            typeName: '',
+            category: '',
+            actressName: actressName,
+          )));
+        }
+      });
+      return results;
+    }
+    final results = <bool>[];
+    // 多条更新只开一个事务：逐条调时每条一个事务、每次提交都要
+    // 落盘（约 95ms/条）；批量后约 0.9ms/条。
+    await db.transaction((txn) async {
+      for (final u in updates) {
+        if (u.codeKey.isEmpty && u.titleKey.isEmpty) {
+          results.add(false);
+          continue;
+        }
+        final values = <String, Object?>{
+          'cover_source': u.coverSource,
+          'cover_drama_id': u.coverDramaId,
+          'cover_url': u.coverUrl,
+        };
+        if (u.title.isNotEmpty) values['title'] = u.title;
+        if (u.date.isNotEmpty) values['date'] = u.date;
+        final changed = u.codeKey.isNotEmpty
+            ? await txn.update(
+                'works',
+                values,
+                where: 'person_id = ? AND site = ? AND code_key = ?',
+                whereArgs: [personId, u.site, u.codeKey],
+              )
+            : await txn.update(
+                'works',
+                values,
+                where: 'person_id = ? AND site = ? AND code_key = \'\' '
+                    'AND title_key = ?',
+                whereArgs: [personId, u.site, u.titleKey],
+              );
+        results.add(changed > 0);
+      }
+    });
+    return results;
+  }
+
+  @override
+  Future<void> attachCover({
+    required int personId,
+    required String codeKey,
+    required String titleKey,
+    String codeDisplay = '',
+    String title = '',
+    String date = '',
+    required String coverSource,
+    required String coverDramaId,
+    required String coverUrl,
+    bool insertIfMissing = true,
+    String site = '',
+  }) async {
+    if (actressTextBlocked(title) || actressTextBlocked(codeDisplay)) return;
+    if (codeKey.isEmpty && titleKey.isEmpty) return;
+    final db = await _open();
+    if (_videoLibraryMode) {
+      // 视频库模式：只补封面（pic_url）与元数据，不碰播放地址
+      //（attachCover 没有播放地址；coverDramaId 是剧集 id，
+      // 不是直链）。番号优先用 codeDisplay（带横杠原番号），
+      // 没有时用 codeKey 还原。行不存在且不允许新增时只补已有行；
+      // 允许新增时插一行（空地址，地址留给现爬/取流补）。
+      final vodId = videoLibraryVodId(
+        codeDisplay.isNotEmpty ? codeDisplay : codeKey,
+      );
+      if (vodId.isEmpty) return;
+      if (!insertIfMissing) {
+        final existing = await db.query(
+          'videos',
+          columns: ['vod_id'],
+          where: 'vod_id = ?',
+          whereArgs: [vodId],
+          limit: 1,
+        );
+        if (existing.isEmpty) return;
+      }
+      final actressName = await _videoLibraryActressName(db, personId);
+      await db.transaction((txn) async {
+        await _mergeVideoEntry(txn, (
+          vodId: vodId,
+          title: title,
+          picUrl: coverUrl,
+          playUrl: '',
+          remarks: '',
+          pubdate: date,
+          area: '',
+          year: '',
+          content: '',
+          playFrom: site,
+          typeName: '',
+          category: '',
+          actressName: actressName,
+        ));
+      });
+      return;
+    }
+    await db.transaction((txn) async {
+      // 1）同站行优先：按（人，站，番号/标题）查。
+      final where = codeKey.isNotEmpty
+          ? 'person_id = ? AND site = ? AND code_key = ?'
+          : 'person_id = ? AND site = ? AND code_key = \'\' AND title_key = ?';
+      final whereArgs = <Object?>[
+        personId,
+        site,
+        codeKey.isNotEmpty ? codeKey : titleKey,
+      ];
+      final sameSite = await txn.query(
+        'works',
+        where: where,
+        whereArgs: whereArgs,
+        limit: 1,
+      );
+      if (sameSite.isNotEmpty) {
+        final row = _workFromRow(sameSite.first);
+        final updates = <String, Object?>{
+          if (row.coverUrl.isEmpty) 'cover_source': coverSource,
+          if (row.coverUrl.isEmpty) 'cover_drama_id': coverDramaId,
+          if (row.coverUrl.isEmpty) 'cover_url': coverUrl,
+          if (row.title.isEmpty && title.isNotEmpty) 'title': title,
+          if (row.date.isEmpty && date.isNotEmpty) 'date': date,
+        };
+        // 行已完整时不发空 UPDATE（空 SET 是 SQL 语法错）。
+        if (updates.isNotEmpty) {
+          await txn.update(
+            'works',
+            updates,
+            where: 'id = ?',
+            whereArgs: [row.id],
+          );
+        }
+        await _refreshWorksCount(txn, personId);
+        return;
+      }
+      // 2）同站没有：退到该番号任意站的行，只补封面，不挪行、
+      // 不改标题与日期（那是别站行的字段）。
+      final anyWhere = codeKey.isNotEmpty
+          ? 'person_id = ? AND code_key = ?'
+          : 'person_id = ? AND code_key = \'\' AND title_key = ?';
+      final anyArgs = <Object?>[
+        personId,
+        codeKey.isNotEmpty ? codeKey : titleKey,
+      ];
+      final anySite = await txn.query(
+        'works',
+        where: anyWhere,
+        whereArgs: anyArgs,
+        limit: 1,
+      );
+      if (anySite.isNotEmpty) {
+        final row = _workFromRow(anySite.first);
+        if (row.site.isEmpty) {
+          // 旧库行没记站（站未知）：认领到本次命中站名下，封面/
+          // 标题/日期只补空位，不新增第二行（名字路只附已有行）。
+          final updates = <String, Object?>{
+            'site': site,
+            if (row.coverUrl.isEmpty) 'cover_source': coverSource,
+            if (row.coverUrl.isEmpty) 'cover_drama_id': coverDramaId,
+            if (row.coverUrl.isEmpty) 'cover_url': coverUrl,
+            if (row.title.isEmpty && title.isNotEmpty) 'title': title,
+            if (row.date.isEmpty && date.isNotEmpty) 'date': date,
+          };
+          await txn.update(
+            'works',
+            updates,
+            where: 'id = ?',
+            whereArgs: [row.id],
+          );
+        } else {
+          if (row.coverUrl.isEmpty) {
+            await txn.update(
+              'works',
+              {
+                'cover_source': coverSource,
+                'cover_drama_id': coverDramaId,
+                'cover_url': coverUrl,
+              },
+              where: 'id = ?',
+              whereArgs: [row.id],
+            );
+          }
+          // 找到的行站 ≠ 传入站且允许新增时，按传入站新增一行：
+          // 同番号两站各留一条，各算一条可播线路。
+          if (insertIfMissing && site.isNotEmpty && row.site != site) {
+            await txn.insert('works', {
+              'person_id': personId,
+              'code_key': codeKey,
+              'title_key': titleKey,
+              'site': site,
+              'code_display': codeDisplay,
+              'title': title,
+              'date': date,
+              'cover_source': coverSource,
+              'cover_drama_id': coverDramaId,
+              'cover_url': coverUrl,
+              'from_cross_site': 1,
+            }, conflictAlgorithm: ConflictAlgorithm.ignore);
+          }
+        }
+        await _refreshWorksCount(txn, personId);
+        return;
+      }
+      // 3）无行：按 insertIfMissing 决定是否按传入站新增一行。
+      if (!insertIfMissing) return;
+      await txn.insert('works', {
+        'person_id': personId,
+        'code_key': codeKey,
+        'title_key': titleKey,
+        'site': site,
+        'code_display': codeDisplay,
+        'title': title,
+        'date': date,
+        'cover_source': coverSource,
+        'cover_drama_id': coverDramaId,
+        'cover_url': coverUrl,
+        'from_cross_site': 1,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+      await _refreshWorksCount(txn, personId);
+    });
+  }
+
+  /// 视频库模式下某名册源对应的 cate_id 前缀（名册补新人才有；
+  /// 原库 29237 行的 cate_id 是名字本身，无前缀）。
+  String _videoLibraryCatePrefix(ActressRosterSourceId source) =>
+      switch (source) {
+        ActressRosterSourceId.whos => 'whos:',
+        ActressRosterSourceId.chaoliu => 'mjv:',
+        ActressRosterSourceId.missav => 'missav:',
+      };
+
+  @override
+  Future<List<ActressPerson>> personsPendingFilms(
+    ActressRosterSourceId source,
+  ) async {
+    final db = await _open();
+    if (_videoLibraryMode) {
+      // 视频库模式：待取作品 = 该源新补的人（cate_id 有来源前缀）
+      // 且 video_actress 里一条作品链接都没有。作品阶段取到后
+      // 经 upsertWorks 写进 videos 并链上（再跑时就不再待取）。
+      // 原库无前缀的人不归任何一源的作品阶段管（走现爬补作品）。
+      final prefix = _videoLibraryCatePrefix(source);
+      final rows = await db.rawQuery(
+        'SELECT a.rowid AS id, a.name AS display_name, '
+        'a.cate_id AS cate_id, a.avatar AS avatar_url, '
+        '0 AS works_count FROM actresses a '
+        'WHERE a.cate_id LIKE ? '
+        'AND NOT EXISTS (SELECT 1 FROM video_actress va '
+        'WHERE va.cate_id = a.cate_id) '
+        'ORDER BY a.rowid ASC',
+        ['$prefix%'],
+      );
+      return rows.map(videoLibraryPersonFromRow).toList();
+    }
+    final column = _sourceIdColumn(source);
+    final rows = await db.query(
+      'persons',
+      where:
+          "$column <> '' AND NOT EXISTS (SELECT 1 FROM source_films f "
+          'WHERE f.person_id = persons.id AND f.source = ? '
+          'AND f.synced_at IS NOT NULL)',
+      whereArgs: [_sourceName(source)],
+      orderBy: 'id ASC',
+    );
+    return rows.map(_personFromRow).toList();
+  }
+
+  @override
+  Future<List<ActressPerson>> personsNeedingFilmsRepair(
+    ActressRosterSourceId source,
+  ) async {
+    final db = await _open();
+    // 视频库没有 source_films 记账：没作品的人已在待取清单里，
+    // 修复集恒为空（不重复取）。
+    if (_videoLibraryMode) return const [];
+    final column = _sourceIdColumn(source);
+    final rows = await db.query(
+      'persons',
+      where:
+          "$column <> '' AND EXISTS (SELECT 1 FROM source_films f "
+          'WHERE f.person_id = persons.id AND f.source = ? '
+          'AND f.synced_at IS NOT NULL) '
+          'AND NOT EXISTS (SELECT 1 FROM works w '
+          'WHERE w.person_id = persons.id)',
+      whereArgs: [_sourceName(source)],
+      orderBy: 'id ASC',
+    );
+    return rows.map(_personFromRow).toList();
+  }
+
+  @override
+  Future<({int done, int total})> filmsProgress(
+    ActressRosterSourceId source,
+  ) async {
+    final db = await _open();
+    if (_videoLibraryMode) {
+      // 视频库模式：total = 该源的人数（cate_id 前缀计），
+      // done = 其中已有作品链接的人数（进度条不显示 0/0）。
+      final prefix = _videoLibraryCatePrefix(source);
+      final totalRows = await db.rawQuery(
+        'SELECT COUNT(*) AS c FROM actresses WHERE cate_id LIKE ?',
+        ['$prefix%'],
+      );
+      final doneRows = await db.rawQuery(
+        'SELECT COUNT(*) AS c FROM actresses a '
+        'WHERE a.cate_id LIKE ? '
+        'AND EXISTS (SELECT 1 FROM video_actress va '
+        'WHERE va.cate_id = a.cate_id)',
+        ['$prefix%'],
+      );
+      return (
+        done: (doneRows.first['c'] as num?)?.toInt() ?? 0,
+        total: (totalRows.first['c'] as num?)?.toInt() ?? 0,
+      );
+    }
+    final column = _sourceIdColumn(source);
+    final totalRows = await db.rawQuery(
+      'SELECT COUNT(*) AS c FROM persons WHERE $column <> \'\'',
+    );
+    final doneRows = await db.rawQuery(
+      'SELECT COUNT(*) AS c FROM source_films '
+      'WHERE source = ? AND synced_at IS NOT NULL',
+      [_sourceName(source)],
+    );
+    return (
+      done: (doneRows.first['c'] as num?)?.toInt() ?? 0,
+      total: (totalRows.first['c'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  @override
+  Future<void> markFilmsState(
+    int personId,
+    ActressRosterSourceId source, {
+    required bool ok,
+  }) async {
+    final db = await _open();
+    // 视频库没有 source_films/persons 表：空操作。
+    if (_videoLibraryMode) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await db.transaction((txn) async {
+      await txn.insert('source_films', {
+        'person_id': personId,
+        'source': _sourceName(source),
+        'synced_at': ok ? now : null,
+        'failed': ok ? 0 : 1,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      if (ok) {
+        await txn.rawUpdate(
+          'UPDATE persons SET films_synced_at = ? WHERE id = ? '
+          'AND films_synced_at IS NULL',
+          [now, personId],
+        );
+      }
+    });
+  }
+
+  @override
+  Future<void> markEnriched(int personId) async {
+    final db = await _open();
+    // 视频库没有 persons 表（没有 enriched_at 列）：空操作。
+    if (_videoLibraryMode) return;
+    await db.update(
+      'persons',
+      {'enriched_at': DateTime.now().millisecondsSinceEpoch},
+      where: 'id = ?',
+      whereArgs: [personId],
+    );
+  }
+
+  @override
+  Future<List<ActressPerson>> personsAfterId({
+    required int afterId,
+    required int limit,
+  }) async {
+    final db = await _open();
+    if (_videoLibraryMode) {
+      // 全站叠加逐人轮询：rowid 大于 afterId 的前 limit 人，
+      // 按 rowid 升序（与列表排序无关，断点即最后一人 rowid）。
+      final rows = await db.rawQuery(
+        'SELECT a.rowid AS id, a.name AS display_name, '
+        'a.cate_id AS cate_id, a.avatar AS avatar_url, '
+        'COUNT(va.vod_id) AS works_count '
+        'FROM actresses a '
+        'LEFT JOIN video_actress va ON va.cate_id = a.cate_id '
+        'WHERE a.rowid > ? '
+        'GROUP BY a.rowid, a.name, a.avatar '
+        'ORDER BY a.rowid ASC LIMIT ?',
+        [afterId, limit],
+      );
+      return rows.map(videoLibraryPersonFromRow).toList();
+    }
+    final rows = await db.query(
+      'persons',
+      where: 'id > ?',
+      whereArgs: [afterId],
+      orderBy: 'id ASC',
+      limit: limit,
+    );
+    return rows.map(_personFromRow).toList();
+  }
+
+  @override
+  Future<ActressSyncCheckpoint?> stackingCheckpoint() async {
+    final db = await _open();
+    // 视频库没有 sync_state 表：叠加断点恒为空。
+    if (_videoLibraryMode) return null;
+    final rows = await db.query(
+      'sync_state',
+      where: 'source = ? AND phase = ?',
+      whereArgs: [
+        actressStackingCheckpointSource,
+        actressStackingCheckpointPhase,
+      ],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    final row = rows.first;
+    return ActressSyncCheckpoint(
+      source: row['source'] as String,
+      phase: row['phase'] as String,
+      cursor: (row['cursor'] as String?) ?? '',
+      total: (row['total'] as num?)?.toInt() ?? 0,
+      finished: (row['finished'] as num?)?.toInt() == 1,
+      error: (row['error'] as String?) ?? '',
+      updatedAt: (row['updated_at'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  @override
+  Future<void> saveStackingCheckpoint(ActressSyncCheckpoint checkpoint) async {
+    final db = await _open();
+    // 视频库没有 sync_state 表：空操作（叠加在视频库模式下禁掉）。
+    if (_videoLibraryMode) return;
+    await db.insert('sync_state', {
+      'source': actressStackingCheckpointSource,
+      'phase': actressStackingCheckpointPhase,
+      'cursor': checkpoint.cursor,
+      'total': checkpoint.total,
+      'finished': checkpoint.finished ? 1 : 0,
+      'error': checkpoint.error,
+      'updated_at': DateTime.now().millisecondsSinceEpoch,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  @override
+  Future<ActressSyncCheckpoint?> checkpoint(
+    ActressRosterSourceId source,
+    String phase,
+  ) async {
+    final db = await _open();
+    // 视频库没有 sync_state 表：检查点恒为空。
+    if (_videoLibraryMode) return null;
+    final rows = await db.query(
+      'sync_state',
+      where: 'source = ? AND phase = ?',
+      whereArgs: [_sourceName(source), phase],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    final row = rows.first;
+    return ActressSyncCheckpoint(
+      source: row['source'] as String,
+      phase: row['phase'] as String,
+      cursor: (row['cursor'] as String?) ?? '',
+      total: (row['total'] as num?)?.toInt() ?? 0,
+      finished: (row['finished'] as num?)?.toInt() == 1,
+      error: (row['error'] as String?) ?? '',
+      updatedAt: (row['updated_at'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  @override
+  Future<void> saveCheckpoint(ActressSyncCheckpoint checkpoint) async {
+    final db = await _open();
+    // 视频库没有 sync_state 表：空操作。
+    if (_videoLibraryMode) return;
+    await db.insert('sync_state', {
+      'source': checkpoint.source,
+      'phase': checkpoint.phase,
+      'cursor': checkpoint.cursor,
+      'total': checkpoint.total,
+      'finished': checkpoint.finished ? 1 : 0,
+      'error': checkpoint.error,
+      'updated_at': DateTime.now().millisecondsSinceEpoch,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  @override
+  Future<String?> jsonVersionStamp() async {
+    final db = await _open();
+    // 视频库没有 sync_state 表：版本戳恒为空（不触发 json 同步）。
+    if (_videoLibraryMode) return null;
+    final rows = await db.query(
+      'sync_state',
+      columns: ['cursor'],
+      where: 'source = ? AND phase = ?',
+      whereArgs: ['actress_json', 'version'],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return rows.first['cursor'] as String?;
+  }
+
+  @override
+  Future<void> saveJsonVersionStamp(String version) async {
+    final db = await _open();
+    // 视频库没有 sync_state 表：空操作。
+    if (_videoLibraryMode) return;
+    await db.insert('sync_state', {
+      'source': 'actress_json',
+      'phase': 'version',
+      'cursor': version,
+      'total': 0,
+      'finished': 1,
+      'error': '',
+      'updated_at': DateTime.now().millisecondsSinceEpoch,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  @override
+  Future<ActressSyncOverview> overview() async {
+    final db = await _open();
+    // 视频库没有同步，但头顶人数取 overview.personsWithWorks，
+    // 必须回实数——否则头顶显示“0 位演员”，而列表本身正常出人。
+    // 实数口径与“要入库才算”一致：persons=actresses 总数，
+    // works=videos 总数，personsWithWorks=video_actress 里有
+    // 链接的不同女优数。
+    if (_videoLibraryMode) {
+      final personRows = await db.rawQuery(
+        'SELECT COUNT(*) AS c FROM actresses',
+      );
+      final workRows = await db.rawQuery(
+        'SELECT COUNT(*) AS c FROM videos',
+      );
+      final withWorksRows = await db.rawQuery(
+        'SELECT COUNT(DISTINCT cate_id) AS c FROM video_actress',
+      );
+      return ActressSyncOverview(
+        persons: (personRows.first['c'] as num?)?.toInt() ?? 0,
+        works: (workRows.first['c'] as num?)?.toInt() ?? 0,
+        personsWithWorks: (withWorksRows.first['c'] as num?)?.toInt() ?? 0,
+        sources: const {},
+        lastUpdatedAt: 0,
+      );
+    }
+    final personRows = await db.rawQuery('SELECT COUNT(*) AS c FROM persons');
+    final workRows = await db.rawQuery('SELECT COUNT(*) AS c FROM works');
+    final withWorksRows = await db.rawQuery(
+      'SELECT COUNT(DISTINCT person_id) AS c FROM works',
+    );
+    final updatedRows = await db.rawQuery(
+      'SELECT MAX(updated_at) AS m FROM persons',
+    );
+    final sources = <ActressRosterSourceId, bool>{};
+    for (final source in ActressRosterSourceId.values) {
+      var done = true;
+      for (final phase in ['roster', 'films']) {
+        final cp = await checkpoint(source, phase);
+        if (cp == null || !cp.finished) {
+          done = false;
+          break;
+        }
+      }
+      sources[source] = done;
+    }
+    return ActressSyncOverview(
+      persons: (personRows.first['c'] as num?)?.toInt() ?? 0,
+      works: (workRows.first['c'] as num?)?.toInt() ?? 0,
+      personsWithWorks: (withWorksRows.first['c'] as num?)?.toInt() ?? 0,
+      sources: sources,
+      lastUpdatedAt: (updatedRows.first['m'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  @override
+  Future<void> close() async {
+    final db = _db;
+    _db = null;
+    // 2026-11-20 MYTV 绑定：close 后再开必须重新走 _openNow
+    // 拿新路径（授权后重新绑定换库用）。原来只清 _db 不清
+    // _openFuture，close 后再开会拿到已关闭的旧库。
+    _openFuture = null;
+    // 2026-11-20 热换库：指纹与通用缓存也清掉，下次开库重探。
+    _openedPath = null;
+    _openedSignature = null;
+    _genericReaderCache = null;
+    _genericReaderKey = null;
+    // 2026-11-21 视频库：标志也清掉，下次开库由 _openDbAt 重算，
+    // 不让旧标志挂在新库上。
+    _videoLibraryMode = false;
+    await db?.close();
+  }
+}
+
+/// 内存实现：测试与预览用，与 sqflite 实现同一语义（合并、去重、
+/// 断点、进度口径一致；SQL 层本身只在真机上跑）。
+class MemoryActressDatabase implements ActressDatabase {
+  final _persons = <int, ActressPerson>{};
+  final _nameIndex = <String, int>{};
+  final _works = <int, ActressWork>{};
+  final _filmsState = <String, bool>{};
+  final _checkpoints = <String, ActressSyncCheckpoint>{};
+
+  /// 内存库永远不是视频库（视频库只走 SqfliteActressDatabase）。
+  @override
+  bool get isVideoLibrary => false;
+
+  /// 内存库没有 videos 表：空操作。
+  @override
+  Future<void> upsertVideoEntries(List<VideoLibraryEntry> entries) async {}
+
+  /// 全站叠加断点在检查点表里的键（与三家名册源的键分开）。
+  static const _stackingCheckpointKey =
+      '$actressStackingCheckpointSource:$actressStackingCheckpointPhase';
+  int _nextPersonId = 1;
+  int _nextWorkId = 1;
+
+  @override
+  Future<ActressPerson?> upsertRosterPerson(RosterPerson roster) async {
+    final variants = actressNameVariants(roster.name);
+    if (variants.isEmpty) return null;
+    if (variants.any(actressTextBlocked) ||
+        roster.tags.any(actressTextBlocked) ||
+        roster.aliases.any(actressTextBlocked) ||
+        roster.about.entries.any(
+          (entry) =>
+              actressTextBlocked(entry.key) || actressTextBlocked(entry.value),
+        )) {
+      return null;
+    }
+    ActressPerson? existing;
+    for (final variant in variants) {
+      final id = _nameIndex[actressNameKey(variant)];
+      if (id != null && _persons.containsKey(id)) {
+        existing = _persons[id];
+        break;
+      }
+    }
+    final merged = mergeRosterIntoPerson(existing, roster);
+    final stored = existing == null
+        ? merged.copyWith(localId: _nextPersonId++)
+        : merged.copyWith(localId: existing.localId);
+    _persons[stored.localId] = stored;
+    final keys = <String>{
+      actressNameKey(stored.displayName),
+      for (final alias in stored.aliases) actressNameKey(alias),
+      for (final variant in variants) actressNameKey(variant),
+    };
+    for (final key in keys) {
+      if (key.isNotEmpty) _nameIndex[key] = stored.localId;
+    }
+    return stored;
+  }
+
+  @override
+  Future<ActressPerson?> upsertCrawledPerson({
+    required String name,
+    String sex = '',
+    List<String> tags = const [],
+    String avatarUrl = '',
+  }) async {
+    final variants = actressNameVariants(name);
+    if (variants.isEmpty) return null;
+    if (variants.any(actressTextBlocked) ||
+        tags.any(actressTextBlocked)) {
+      return null;
+    }
+    ActressPerson? existing;
+    for (final variant in variants) {
+      final id = _nameIndex[actressNameKey(variant)];
+      if (id != null && _persons.containsKey(id)) {
+        existing = _persons[id];
+        break;
+      }
+    }
+    final ActressPerson merged;
+    if (existing == null) {
+      merged = ActressPerson(
+        displayName: variants.first,
+        aliases: variants.skip(1).toList(),
+        sex: sex,
+        avatarUrl: avatarUrl,
+        tags: tags,
+      );
+    } else {
+      final aliasKeys = <String>{
+        actressNameKey(existing.displayName),
+        for (final alias in existing.aliases) actressNameKey(alias),
+      };
+      final extra = <String>[];
+      for (final variant in variants) {
+        if (aliasKeys.add(actressNameKey(variant))) extra.add(variant);
+      }
+      merged = existing.copyWith(
+        aliases: [...existing.aliases, ...extra],
+        sex: existing.sex.isNotEmpty ? existing.sex : sex,
+        avatarUrl: existing.avatarUrl.isNotEmpty
+            ? existing.avatarUrl
+            : avatarUrl,
+        tags: <String>{...existing.tags, ...tags}.toList(),
+      );
+    }
+    final stored = existing == null
+        ? merged.copyWith(localId: _nextPersonId++)
+        : merged.copyWith(localId: existing.localId);
+    _persons[stored.localId] = stored;
+    final keys = <String>{
+      actressNameKey(stored.displayName),
+      for (final alias in stored.aliases) actressNameKey(alias),
+      for (final variant in variants) actressNameKey(variant),
+    };
+    for (final key in keys) {
+      if (key.isNotEmpty) _nameIndex[key] = stored.localId;
+    }
+    return stored;
+  }
+
+  @override
+  Future<ActressPerson?> personById(int localId) async {
+    final person = _persons[localId];
+    return person == null ? null : _withLiveWorksCount(person);
+  }
+
+  bool _sexMatches(ActressPerson person, ActressSexFilter sex) => switch (sex) {
+    ActressSexFilter.all => true,
+    ActressSexFilter.female => person.sex == 'female',
+    ActressSexFilter.male => person.sex == 'male',
+  };
+
+  bool _queryMatches(ActressPerson person, String query) {
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) return true;
+    if (person.displayName.contains(trimmed)) return true;
+    if (person.aliases.any((alias) => alias.contains(trimmed))) return true;
+    final key = actressNameKey(trimmed);
+    if (key.isNotEmpty) {
+      final keys = <String>{
+        actressNameKey(person.displayName),
+        for (final alias in person.aliases) actressNameKey(alias),
+      };
+      if (keys.any((candidate) => candidate.contains(key))) return true;
+    }
+    // 番号搜索：与 SQL 版同一口径，作品番号键模糊匹配。
+    final codeKey = actressCodeQueryKey(trimmed);
+    if (codeKey != null) {
+      return _works.values.any(
+        (work) =>
+            work.personId == person.localId &&
+            work.codeKey.contains(codeKey),
+      );
+    }
+    return false;
+  }
+
+  List<ActressPerson> _filtered({
+    required ActressSexFilter sex,
+    required String query,
+    String tag = '',
+    String category = '',
+  }) => _persons.values
+      .where(
+        (person) =>
+            _sexMatches(person, sex) &&
+            _queryMatches(person, query) &&
+            (tag.isEmpty || person.tags.contains(tag)) &&
+            (category.isEmpty ||
+                _works.values.any(
+                  (work) =>
+                      work.personId == person.localId &&
+                      work.category == category,
+                )),
+      )
+      .toList();
+
+  @override
+  Future<List<ActressPerson>> listPersons({
+    required ActressSexFilter sex,
+    required ActressSort sort,
+    required String query,
+    required int offset,
+    required int limit,
+    String tag = '',
+    String category = '',
+  }) async {
+    final filtered = _filtered(
+      sex: sex,
+      query: query,
+      tag: tag,
+      category: category,
+    );
+    switch (sort) {
+      case ActressSort.worksDesc:
+        filtered.sort((a, b) {
+          final works = b.displayWorks.compareTo(a.displayWorks);
+          if (works != 0) return works;
+          return a.displayName.compareTo(b.displayName);
+        });
+      case ActressSort.nameAsc:
+        filtered.sort((a, b) => a.displayName.compareTo(b.displayName));
+      case ActressSort.recentDesc:
+        // 最近更新：每人入库作品里最新作品日期倒序，无入库作品的
+        // 人日期为空串、倒序沉底；同日按名字。只算库里实际有的。
+        final latest = <int, String>{};
+        for (final work in _works.values) {
+          final current = latest[work.personId] ?? '';
+          if (work.date.compareTo(current) > 0) {
+            latest[work.personId] = work.date;
+          }
+        }
+        filtered.sort((a, b) {
+          final cmp = (latest[b.localId] ?? '').compareTo(
+            latest[a.localId] ?? '',
+          );
+          if (cmp != 0) return cmp;
+          return a.displayName.compareTo(b.displayName);
+        });
+    }
+    if (offset >= filtered.length) return const [];
+    return filtered
+        .skip(offset)
+        .take(limit)
+        .map(_withLiveWorksCount)
+        .toList();
+  }
+
+  @override
+  Future<int> countPersons({
+    required ActressSexFilter sex,
+    required String query,
+    String tag = '',
+  }) async => _filtered(sex: sex, query: query, tag: tag).length;
+
+  @override
+  Future<List<ActressPerson>> allPersonsForRanking({
+    required ActressSexFilter sex,
+  }) async {
+    final filtered =
+        _persons.values
+            .where((person) => _sexMatches(person, sex))
+            .map(_withLiveWorksCount)
+            .toList()
+          ..sort(compareActressRank);
+    return filtered;
+  }
+
+  @override
+  Future<void> setMissavRank(int personId, int rank) async {
+    final person = _persons[personId];
+    if (person == null) return;
+    final current = person.missavRank;
+    if (current == null || rank < current) {
+      _persons[personId] = person.copyWith(missavRank: rank);
+    }
+  }
+
+  @override
+  Future<void> setWhosRank(int personId, int rank) async {
+    final person = _persons[personId];
+    if (person == null) return;
+    final current = person.whosRank;
+    if (current == null || rank < current) {
+      _persons[personId] = person.copyWith(whosRank: rank);
+    }
+  }
+
+  @override
+  Future<void> setPersonAbout(int personId, Map<String, String> about) async {
+    final person = _persons[personId];
+    if (person == null) return;
+    final clean = <String, String>{};
+    for (final entry in about.entries) {
+      if (actressTextBlocked(entry.key) || actressTextBlocked(entry.value)) {
+        continue;
+      }
+      clean[entry.key] = entry.value;
+    }
+    if (clean.isEmpty) return;
+    _persons[personId] = person.copyWith(
+      about: {...clean, ...person.about},
+    );
+  }
+
+  @override
+  Future<List<ActressWork>> worksForPerson(
+    int personId, {
+    required int offset,
+    required int limit,
+    String? category,
+  }) async {
+    final useCategory = category != null && category.isNotEmpty;
+    final works = _works.values
+        .where((work) => work.personId == personId)
+        .where((work) => !useCategory || work.category == category)
+        .toList()
+      ..sort((a, b) => a.id.compareTo(b.id));
+    if (offset >= works.length) return const [];
+    return works.skip(offset).take(limit).toList();
+  }
+
+  @override
+  Future<int> countWorks(int personId, {String? category}) async {
+    final useCategory = category != null && category.isNotEmpty;
+    return _works.values
+        .where((work) => work.personId == personId)
+        .where((work) => !useCategory || work.category == category)
+        .length;
+  }
+
+  @override
+  Future<Set<String>> distinctWorkKeysForName(String name) async {
+    // 内存库没有 videos 表（没有播放链接）：只按番号键去重。
+    int? personId;
+    for (final person in _persons.values) {
+      if (person.displayName == name) {
+        personId = person.localId;
+        break;
+      }
+    }
+    if (personId == null) return const {};
+    return {
+      for (final work in _works.values)
+        if (work.personId == personId) '${work.codeKey}|',
+    };
+  }
+
+  @override
+  Future<List<({String name, int count})>> workCategories(
+    int personId,
+  ) async {
+    final counts = <String, int>{};
+    for (final work in _works.values) {
+      if (work.personId != personId) continue;
+      if (work.category.isEmpty) continue;
+      counts[work.category] = (counts[work.category] ?? 0) + 1;
+    }
+    final out = [
+      for (final entry in counts.entries)
+        (name: entry.key, count: entry.value),
+    ];
+    out.sort((a, b) {
+      final byCount = b.count.compareTo(a.count);
+      if (byCount != 0) return byCount;
+      return a.name.compareTo(b.name);
+    });
+    return out;
+  }
+
+  /// 内存库没有全库分类表：回空集（多库合并时跳过）。
+  @override
+  Future<List<(String, int)>> dbCategories() async => const [];
+
+  void _refreshWorksCount(int personId) {
+    final person = _persons[personId];
+    if (person == null) return;
+    final count = _works.values
+        .where((work) => work.personId == personId)
+        .length;
+    _persons[personId] = person.copyWith(worksCount: count);
+  }
+
+  /// 读数口径（2026-11-20 计数修复，与 sqflite 实现同一口径）：
+  /// 列表卡片与详情头顶的 worksCount 一律以 works 表实时行数为准，
+  /// 读时现算，不拿存着的 worksCount 字段充数；显示数与
+  /// countWorks() 永远是同一份数。
+  ActressPerson _withLiveWorksCount(ActressPerson person) =>
+      person.copyWith(
+        worksCount: _works.values
+            .where((work) => work.personId == person.localId)
+            .length,
+      );
+
+  @override
+  Future<void> upsertWorks(
+    int personId,
+    List<RosterFilm> films, {
+    String coverSource = 'whos',
+    String site = '',
+  }) async {
+    for (final film in films) {
+      if (actressTextBlocked(film.code) || actressTextBlocked(film.title)) {
+        continue;
+      }
+      final codeKey = film.codeKey;
+      final titleKey = film.titleKey;
+      if (codeKey.isEmpty && titleKey.isEmpty) continue;
+      // 去重键是（人，站，番号/标题）：同站同番号冲突即丢弃，
+      // 换站同番号不冲突，各留一条；冲突行只做分类回填（旧行没记
+      // 分类、新数据带真实分类时补上，已有分类的不覆盖）。
+      ActressWork? existing;
+      for (final work in _works.values) {
+        if (work.personId != personId) continue;
+        if (work.site != site) continue;
+        if (codeKey.isNotEmpty) {
+          if (work.codeKey == codeKey) existing = work;
+        } else if (work.codeKey.isEmpty && work.titleKey == titleKey) {
+          existing = work;
+        }
+        if (existing != null) break;
+      }
+      if (existing != null) {
+        if (existing.category.isEmpty && film.category.isNotEmpty) {
+          _works[existing.id] = existing.copyWith(
+            category: film.category,
+          );
+        }
+        continue;
+      }
+      final codeDisplay = film.code.trim();
+      final title = film.title.trim();
+      _works[_nextWorkId] = ActressWork(
+        id: _nextWorkId++,
+        personId: personId,
+        codeKey: codeKey,
+        titleKey: titleKey,
+        site: site,
+        codeDisplay: codeDisplay,
+        title: title == codeDisplay ? '' : title,
+        date: film.date.trim(),
+        category: film.category,
+        // 同步时已取到的封面：开关关闭/无图/来源站为空时三字段恒为空；
+        // 封面来源站按调用方传入的 [coverSource] 写，不再写死。
+        coverSource: film.coverUrl.isEmpty || coverSource.isEmpty
+            ? ''
+            : coverSource,
+        coverDramaId: film.coverUrl.isEmpty || coverSource.isEmpty
+            ? ''
+            : film.detailUrl,
+        coverUrl: film.coverUrl.isEmpty || coverSource.isEmpty
+            ? ''
+            : film.coverUrl,
+      );
+    }
+    _refreshWorksCount(personId);
+  }
+
+  @override
+  Future<bool> updateWorkPlayLink({
+    required int personId,
+    required String site,
+    required String codeKey,
+    required String titleKey,
+    String title = '',
+    String date = '',
+    required String coverSource,
+    required String coverDramaId,
+    required String coverUrl,
+  }) async {
+    if (codeKey.isEmpty && titleKey.isEmpty) return false;
+    for (final work in _works.values) {
+      if (work.personId != personId) continue;
+      if (work.site != site) continue;
+      final matches = codeKey.isNotEmpty
+          ? work.codeKey == codeKey
+          : work.codeKey.isEmpty && work.titleKey == titleKey;
+      if (!matches) continue;
+      _works[work.id] = work.copyWith(
+        title: title.isNotEmpty ? title : work.title,
+        date: date.isNotEmpty ? date : work.date,
+        coverSource: coverSource,
+        coverDramaId: coverDramaId,
+        coverUrl: coverUrl,
+      );
+      return true;
+    }
+    return false;
+  }
+
+  @override
+  Future<List<bool>> updateWorkPlayLinks({
+    required int personId,
+    required List<WorkPlayLinkUpdate> updates,
+  }) async {
+    final results = <bool>[];
+    for (final u in updates) {
+      results.add(
+        await updateWorkPlayLink(
+          personId: personId,
+          site: u.site,
+          codeKey: u.codeKey,
+          titleKey: u.titleKey,
+          title: u.title,
+          date: u.date,
+          coverSource: u.coverSource,
+          coverDramaId: u.coverDramaId,
+          coverUrl: u.coverUrl,
+        ),
+      );
+    }
+    return results;
+  }
+
+  @override
+  Future<void> attachCover({
+    required int personId,
+    required String codeKey,
+    required String titleKey,
+    String codeDisplay = '',
+    String title = '',
+    String date = '',
+    required String coverSource,
+    required String coverDramaId,
+    required String coverUrl,
+    bool insertIfMissing = true,
+    String site = '',
+  }) async {
+    if (actressTextBlocked(title) || actressTextBlocked(codeDisplay)) return;
+    if (codeKey.isEmpty && titleKey.isEmpty) return;
+    bool matches(ActressWork work) {
+      if (work.personId != personId) return false;
+      if (codeKey.isNotEmpty) return work.codeKey == codeKey;
+      return work.codeKey.isEmpty && work.titleKey == titleKey;
+    }
+
+    ActressWork? sameSite;
+    ActressWork? anySite;
+    for (final work in _works.values) {
+      if (!matches(work)) continue;
+      anySite ??= work;
+      if (work.site == site) {
+        sameSite = work;
+        break;
+      }
+    }
+    // 1）同站行优先：封面/标题/日期只补空位。
+    if (sameSite != null) {
+      _works[sameSite.id] = sameSite.copyWith(
+        coverSource: sameSite.coverUrl.isEmpty
+            ? coverSource
+            : sameSite.coverSource,
+        coverDramaId: sameSite.coverUrl.isEmpty
+            ? coverDramaId
+            : sameSite.coverDramaId,
+        coverUrl: sameSite.coverUrl.isEmpty ? coverUrl : sameSite.coverUrl,
+        title: sameSite.title.isEmpty && title.isNotEmpty
+            ? title
+            : sameSite.title,
+        date: sameSite.date.isEmpty && date.isNotEmpty
+            ? date
+            : sameSite.date,
+      );
+      _refreshWorksCount(personId);
+      return;
+    }
+    // 2）同站没有：退到该番号任意站的行，只补封面，不挪行。
+    if (anySite != null) {
+      if (anySite.site.isEmpty) {
+        // 旧库行没记站（站未知）：认领到本次命中站名下，封面/
+        // 标题/日期只补空位，不新增第二行（名字路只附已有行）。
+        _works[anySite.id] = anySite.copyWith(
+          site: site,
+          coverSource: anySite.coverUrl.isEmpty
+              ? coverSource
+              : anySite.coverSource,
+          coverDramaId: anySite.coverUrl.isEmpty
+              ? coverDramaId
+              : anySite.coverDramaId,
+          coverUrl: anySite.coverUrl.isEmpty ? coverUrl : anySite.coverUrl,
+          title: anySite.title.isEmpty && title.isNotEmpty
+              ? title
+              : anySite.title,
+          date: anySite.date.isEmpty && date.isNotEmpty
+              ? date
+              : anySite.date,
+        );
+      } else {
+        if (anySite.coverUrl.isEmpty) {
+          _works[anySite.id] = anySite.copyWith(
+            coverSource: coverSource,
+            coverDramaId: coverDramaId,
+            coverUrl: coverUrl,
+          );
+        }
+        // 找到的行站 ≠ 传入站且允许新增时，按传入站新增一行：
+        // 同番号两站各留一条，各算一条可播线路。
+        if (insertIfMissing && site.isNotEmpty && anySite.site != site) {
+          _works[_nextWorkId] = ActressWork(
+            id: _nextWorkId++,
+            personId: personId,
+            codeKey: codeKey,
+            titleKey: titleKey,
+            site: site,
+            codeDisplay: codeDisplay,
+            title: title,
+            date: date,
+            coverSource: coverSource,
+            coverDramaId: coverDramaId,
+            coverUrl: coverUrl,
+            fromCrossSite: true,
+          );
+        }
+      }
+      _refreshWorksCount(personId);
+      return;
+    }
+    // 3）无行：按 insertIfMissing 决定是否按传入站新增一行。
+    if (!insertIfMissing) return;
+    _works[_nextWorkId] = ActressWork(
+      id: _nextWorkId++,
+      personId: personId,
+      codeKey: codeKey,
+      titleKey: titleKey,
+      site: site,
+      codeDisplay: codeDisplay,
+      title: title,
+      date: date,
+      coverSource: coverSource,
+      coverDramaId: coverDramaId,
+      coverUrl: coverUrl,
+      fromCrossSite: true,
+    );
+    _refreshWorksCount(personId);
+  }
+
+  @override
+  Future<List<ActressPerson>> personsPendingFilms(
+    ActressRosterSourceId source,
+  ) async {
+    final pending =
+        _persons.values
+            .where(
+              (person) =>
+                  person.hasSource(source) &&
+                  _filmsState['${person.localId}:${source.name}'] != true,
+            )
+            .toList()
+          ..sort((a, b) => a.localId.compareTo(b.localId));
+    return pending;
+  }
+
+  @override
+  Future<List<ActressPerson>> personsNeedingFilmsRepair(
+    ActressRosterSourceId source,
+  ) async {
+    final repair =
+        _persons.values
+            .where(
+              (person) =>
+                  person.hasSource(source) &&
+                  _filmsState['${person.localId}:${source.name}'] == true &&
+                  !_works.values.any(
+                    (work) => work.personId == person.localId,
+                  ),
+            )
+            .toList()
+          ..sort((a, b) => a.localId.compareTo(b.localId));
+    return repair;
+  }
+
+  @override
+  Future<({int done, int total})> filmsProgress(
+    ActressRosterSourceId source,
+  ) async {
+    final total = _persons.values.where((p) => p.hasSource(source)).length;
+    final done = _persons.values
+        .where(
+          (p) =>
+              p.hasSource(source) &&
+              _filmsState['${p.localId}:${source.name}'] == true,
+        )
+        .length;
+    return (done: done, total: total);
+  }
+
+  @override
+  Future<void> markFilmsState(
+    int personId,
+    ActressRosterSourceId source, {
+    required bool ok,
+  }) async {
+    _filmsState['$personId:${source.name}'] = ok;
+    if (ok) {
+      final person = _persons[personId];
+      if (person != null && person.filmsSyncedAt == null) {
+        _persons[personId] = person.copyWith(
+          filmsSyncedAt: DateTime.now().millisecondsSinceEpoch,
+        );
+      }
+    }
+  }
+
+  @override
+  Future<void> markEnriched(int personId) async {
+    final person = _persons[personId];
+    if (person != null) {
+      _persons[personId] = person.copyWith(
+        enrichedAt: DateTime.now().millisecondsSinceEpoch,
+      );
+    }
+  }
+
+  @override
+  Future<List<ActressPerson>> personsAfterId({
+    required int afterId,
+    required int limit,
+  }) async {
+    final persons =
+        _persons.values.where((person) => person.localId > afterId).toList()
+          ..sort((a, b) => a.localId.compareTo(b.localId));
+    return persons.take(limit).toList();
+  }
+
+  @override
+  Future<ActressSyncCheckpoint?> stackingCheckpoint() async =>
+      _checkpoints[_stackingCheckpointKey];
+
+  @override
+  Future<void> saveStackingCheckpoint(ActressSyncCheckpoint checkpoint) async {
+    _checkpoints[_stackingCheckpointKey] = ActressSyncCheckpoint(
+      source: actressStackingCheckpointSource,
+      phase: actressStackingCheckpointPhase,
+      cursor: checkpoint.cursor,
+      total: checkpoint.total,
+      finished: checkpoint.finished,
+      error: checkpoint.error,
+      updatedAt: checkpoint.updatedAt,
+    );
+  }
+
+  @override
+  Future<ActressSyncCheckpoint?> checkpoint(
+    ActressRosterSourceId source,
+    String phase,
+  ) async => _checkpoints['${source.name}:$phase'];
+
+  @override
+  Future<void> saveCheckpoint(ActressSyncCheckpoint checkpoint) async {
+    _checkpoints['${checkpoint.source}:${checkpoint.phase}'] = checkpoint;
+  }
+
+  @override
+  Future<String?> jsonVersionStamp() async =>
+      _checkpoints['actress_json:version']?.cursor;
+
+  @override
+  Future<void> saveJsonVersionStamp(String version) async {
+    _checkpoints['actress_json:version'] = ActressSyncCheckpoint(
+      source: 'actress_json',
+      phase: 'version',
+      cursor: version,
+      finished: true,
+    );
+  }
+
+  @override
+  Future<ActressSyncOverview> overview() async {
+    final sources = <ActressRosterSourceId, bool>{};
+    for (final source in ActressRosterSourceId.values) {
+      var done = true;
+      for (final phase in ['roster', 'films']) {
+        final cp = _checkpoints['${source.name}:$phase'];
+        if (cp == null || !cp.finished) {
+          done = false;
+          break;
+        }
+      }
+      sources[source] = done;
+    }
+    return ActressSyncOverview(
+      persons: _persons.length,
+      works: _works.length,
+      personsWithWorks: {
+        for (final work in _works.values) work.personId,
+      }.length,
+      sources: sources,
+      lastUpdatedAt: 0,
+    );
+  }
+
+  @override
+  Future<({bool reloaded, String? error})> reloadIfChanged({
+    bool force = false,
+  }) async => (reloaded: false, error: null);
+
+  @override
+  Future<GenericDbReader?> genericReader() async => null;
+
+  @override
+  String? get openFallbackNote => null;
+
+  @override
+  Future<void> close() async {}
+}

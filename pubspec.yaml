@@ -37,6 +37,8 @@ dependencies:
 
   http: ^1.6.0
   crypto: 3.0.8
+  path: ^1.9.1
+  sqflite: ^2.4.2
   path_provider: ^2.1.0
   shared_preferences: ^2.3.0
   image_picker: ^1.1.0
@@ -115,9 +117,18 @@ flutter:
     - assets/audio/sword_clash.mp3
     - assets/jars/zakatv.jar
     - assets/jars/youtube.jar
+    - assets/jars/one.jar
+    # 女优库内置索引（魔蚁 v63 同款 gzip 索引，只读不写盘）：
+    # who's 视频目录 + 番号→女优映射 + 三站番号元数据。
+    # 随包 whos.json（49MB）已删：2026-11-22 用户令最终口径，
+    # App 里不内置任何数据库与 JSON 种子，女优库只读外置库。
+    - assets/jav_code_meta.txt.gz
+    - assets/whos_video_catalog.txt.gz
+    - assets/whos_actress_map.txt.gz
     - assets/builtin_sites/
     - assets/youtube3.json
     - assets/live/
+    - assets/live/m3u/
     - assets/config/filter.json
     - assets/config/device_pool.example.json
     - assets/filters/
