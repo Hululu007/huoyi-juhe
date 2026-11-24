@@ -40,7 +40,7 @@ void main() {
       expect(first.tier, 0);
       expect(service.yuanbao, 80);
       final fourth = await service.tryChargeAdultFilm(
-        'wohs',
+        'missav',
         seriesId: 'film-b',
         label: '片子B',
       );
@@ -198,7 +198,7 @@ void main() {
       expect(first.tier, 0);
       expect(first.allowed, isTrue);
       expect(service.yuanbao, 100);
-      final fourth = await service.tryEnterAdultSite('wohs');
+      final fourth = await service.tryEnterAdultSite('missav');
       expect(fourth.status, AdultEntryStatus.free);
       expect(fourth.cost, 0);
       expect(fourth.tier, 3);

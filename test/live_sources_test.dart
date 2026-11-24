@@ -22,7 +22,32 @@ notaurl
   test('内置源：秀果、欲火聚合与百年直播为成人直播，用户 m3u 为内置频道表', () {
     expect(
       LiveSources.builtin.map((source) => source.id),
-      ['xiuguo', 'maiyoux', 'bnzb', 'user_m3u'],
+      [
+        'xiuguo',
+        'maiyoux',
+        'bnzb',
+        'user_m3u',
+        'm3u_zhubo',
+        'm3u_luanlun',
+        'm3u_huayu',
+        'm3u_guochan',
+        'm3u_xuesheng',
+        'm3u_tanhua',
+        'm3u_riben',
+        'm3u_oumei',
+        'm3u_heilian',
+        'm3u_community10',
+        'm3u_community11',
+        'm3u_wuma',
+        'm3u_wanghong',
+        'm3u_xingba',
+        'm3u_chengtou',
+        'm3u_zhifu',
+        'm3u_qunjiao',
+        'm3u_mingxing',
+        'm3u_zipai',
+        'm3u_avxiongdi',
+      ],
     );
     final userM3u = LiveSources.byId('user_m3u')!;
     expect(userM3u.endpoint, 'asset://assets/live/user_m3u.m3u');

@@ -54,7 +54,8 @@ const V5_PLAYER_URL_ANON: &str =
 
 const VIDEO_MODEL_PATH: &str = "/novel/player/video_model/v1/";
 /// Signed `GET video_tab` fallback door base (no body).
-const VIDEO_TAB_BASE: &str = "https://api5-normal-sinfonlineb.fqnovel.com/reading/bookapi/video_tab/multi_video_model/v1/";
+const VIDEO_TAB_BASE: &str =
+    "https://api5-normal-sinfonlineb.fqnovel.com/reading/bookapi/video_tab/multi_video_model/v1/";
 /// Same-door re-probe delay for an empty body, before the door is parked.
 const SAME_DOOR_REPROBE_DELAY: Duration = Duration::from_millis(250);
 
@@ -378,12 +379,12 @@ async fn fetch_playback_door(
 ) -> PlaybackDoorOutcome {
     use crate::upstream::playback_routes::Door;
     let result = match route.door {
-        Door::AnonymousV5 => {
-            fetch_anonymous_v5_door(ctx, anon_body, anon_device_id).await
+        Door::AnonymousV5 => fetch_anonymous_v5_door(ctx, anon_body, anon_device_id).await,
+        Door::V5Player => {
+            Upstream::new(ctx.up.clone())
+                .v5_playback(V5_PLAYER_URL, body)
+                .await
         }
-        Door::V5Player => Upstream::new(ctx.up.clone())
-            .v5_playback(V5_PLAYER_URL, body)
-            .await,
         Door::VideoModel => {
             let base = format!("{}{VIDEO_MODEL_PATH}", route.host());
             Upstream::new(ctx.up.clone()).v5_playback(&base, body).await
@@ -430,12 +431,9 @@ async fn fetch_video_tab_door(ctx: &Ctx, video_id: &str) -> ApiResult<Vec<u8>> {
         install_id: &dev.install_id,
         cdid,
     };
-    let signed = crate::sign::v5::sign_playback_v5_get(
-        VIDEO_TAB_BASE,
-        &[("video_id", video_id)],
-        &identity,
-    )
-    .map_err(ApiError::Internal)?;
+    let signed =
+        crate::sign::v5::sign_playback_v5_get(VIDEO_TAB_BASE, &[("video_id", video_id)], &identity)
+            .map_err(ApiError::Internal)?;
     let (_, query) = signed
         .url
         .split_once('?')
@@ -533,9 +531,7 @@ async fn fetch_v5_video_model(ctx: &Ctx, video_id: &str) -> ApiResult<Vec<u8>> {
                         }
                     },
                     Err(error) => {
-                        log::warn!(
-                            "video {video_id}: anonymous identity unavailable: {error}"
-                        );
+                        log::warn!("video {video_id}: anonymous identity unavailable: {error}");
                     }
                 }
             }

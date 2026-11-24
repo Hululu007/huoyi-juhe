@@ -50,10 +50,35 @@ Future<void> _openSheet(WidgetTester tester) async {
 }
 
 void main() {
-  test('内置直播源只剩四个：秀果、欲火聚合、百年直播、成人点播（至尊 m3u）', () {
+  test('内置直播源：秀果、欲火聚合、百年直播、成人点播（至尊 m3u）与 20 个合入 m3u 源', () {
     expect(
       [for (final source in LiveSources.builtin) source.id],
-      const ['xiuguo', 'maiyoux', 'bnzb', 'user_m3u'],
+      const [
+        'xiuguo',
+        'maiyoux',
+        'bnzb',
+        'user_m3u',
+        'm3u_zhubo',
+        'm3u_luanlun',
+        'm3u_huayu',
+        'm3u_guochan',
+        'm3u_xuesheng',
+        'm3u_tanhua',
+        'm3u_riben',
+        'm3u_oumei',
+        'm3u_heilian',
+        'm3u_community10',
+        'm3u_community11',
+        'm3u_wuma',
+        'm3u_wanghong',
+        'm3u_xingba',
+        'm3u_chengtou',
+        'm3u_zhifu',
+        'm3u_qunjiao',
+        'm3u_mingxing',
+        'm3u_zipai',
+        'm3u_avxiongdi',
+      ],
     );
     expect(
       LiveSources.builtin.map((source) => source.adult).toSet(),

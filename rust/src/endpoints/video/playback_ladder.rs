@@ -29,12 +29,9 @@ fn video_tab_get_signs_with_the_full_envelope_and_no_body_headers() {
         install_id: "iid-2",
         cdid: "cdid-3",
     };
-    let signed = crate::sign::v5::sign_playback_v5_get(
-        VIDEO_TAB_BASE,
-        &[("video_id", "vid-9")],
-        &identity,
-    )
-    .expect("GET playback signature");
+    let signed =
+        crate::sign::v5::sign_playback_v5_get(VIDEO_TAB_BASE, &[("video_id", "vid-9")], &identity)
+            .expect("GET playback signature");
     let query = signed.url.split_once('?').expect("GET query").1;
     assert!(query.contains("video_id=vid-9"));
     assert!(crate::sign::v5::playback_envelope_is_full(query));
