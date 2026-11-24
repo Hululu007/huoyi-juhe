@@ -73,7 +73,8 @@ List<DramaSite> videoZoneSites() {
 
 /// 内置导入视频站：随包发布的 py / 阅读 JSON 站（builtin=true，
 /// 非 jar），与午夜 jar 站同属午夜区；用户自己导入的站不在此列
-/// （用户站走下方单独的网格）。
+/// （用户站走 [videoPagePlayableSites]，见 [unifiedVideoZoneSites]
+/// 第四路）。
 List<SourceEntry> builtinImportedVideoSites(List<SourceEntry> entries) {
   return [
     for (final entry in entries)
@@ -88,10 +89,14 @@ List<SourceEntry> builtinImportedVideoSites(List<SourceEntry> entries) {
 }
 
 /// 影视区统一站表：午夜区就是影视区，不再分两块。内置影视站
-/// 在前、午夜 jar 视频站次之、内置导入视频站在后，按 id 去重，
-/// 供统一切换器与网格共用。三路都只留影视站，短剧站一律摘掉
-/// （判据走 [isFilmVideoSite]，与短剧区共用同一份短剧判据）。
-/// 显示名走修仙版两段式短名（[videoZoneDisplayName]，如
+/// 在前、午夜 jar 视频站次之、内置导入视频站在后、用户导入的
+/// 影视站最后（第四路，[videoPagePlayableSites] 再过
+/// [isFilmVideoSite] 摘短剧），按 id 去重，供统一切换器与网格
+/// 共用。四路都只留影视站，短剧站一律摘掉（判据走
+/// [isFilmVideoSite]，与短剧区共用同一份短剧判据）。用户站 id
+/// 若与内置站撞 id，内置那条在前、去重后只留内置那条。
+/// 分档过滤不在这里做，[visibleVideoZoneSites] 会对整张统一表
+/// 再做一次。显示名走修仙版两段式短名（[videoZoneDisplayName]，如
 /// 「🔞黄枫谷·黄瓜」「🔞虚天殿·Verse」），只改显示、不动 id 与分档。
 List<({String id, String name})> unifiedVideoZoneSites(
   List<SourceEntry> customEntries,
@@ -110,6 +115,12 @@ List<({String id, String name})> unifiedVideoZoneSites(
     }
   }
   for (final entry in builtinImportedVideoSites(customEntries)) {
+    if (!isFilmVideoSite(entry.id, entry.name)) continue;
+    if (seen.add(entry.id)) {
+      out.add((id: entry.id, name: videoZoneDisplayName(entry.id, entry.name)));
+    }
+  }
+  for (final entry in videoPagePlayableSites(customEntries)) {
     if (!isFilmVideoSite(entry.id, entry.name)) continue;
     if (seen.add(entry.id)) {
       out.add((id: entry.id, name: videoZoneDisplayName(entry.id, entry.name)));
@@ -140,6 +151,62 @@ List<({String id, String name})> visibleVideoZoneSites(
     for (final site in all)
       if (visibleIds.contains(site.id)) site,
   ];
+}
+
+/// 影视/午夜区切换弹窗用的带区·分组条目（纯函数，可单测）：
+/// 区：统一表前三路（核心影视站、午夜 jar 站、内置导入站）的 id
+/// 进内置区，第四路用户导入站进导入区（按来源集判，不查登记行
+/// 的 `builtin` 标记，撞 id 时内置优先）；修仙版不要插件系统
+/// （用户 2026-11-24 20:25 令），只有这两区。
+/// 组：午夜 jar 站与内置导入视频站进「午夜」组，核心影视站与
+/// 用户导入的影视站进「视频」组（用户站不在 midnightIds 里，
+/// 自动落视频组；区则由 customById 查到且 `builtin != true`
+/// 判定为导入区）。
+/// 已在站源管理里关掉的内置站（`isBuiltinEnabled==false`）不列出；
+/// 隐藏只认归一化后的核心站 id（`adultSiteIdForUnifiedId`）：种子行
+/// `seed_x` / jar 行 `jar:...:Key` 与裸站行 `x` 是同一站，站源管理里
+/// 的开关管的也是裸 id，归一化后两边才对得上。
+/// [isBuiltinEnabled] 默认读 `SourceRegistry.instance.isBuiltinEnabled`，
+/// 单测可注入。
+List<SiteGridEntry> videoZoneSiteEntries(
+  List<SourceEntry> customEntries,
+  int xp, {
+  bool Function(String siteId)? isBuiltinEnabled,
+}) {
+  final isEnabled =
+      isBuiltinEnabled ?? SourceRegistry.instance.isBuiltinEnabled;
+  final midnightIds = <String>{
+    for (final entry in midnightJarVideoSites(customEntries)) entry.id,
+    for (final entry in builtinImportedVideoSites(customEntries)) entry.id,
+  };
+  // 内置区 id 集 = 统一表前三路（核心影视站 + 午夜 jar 站 + 内置
+  // 导入站）的 id；其余进统一表的站（第四路用户导入站）进导入区。
+  // 按来源集判区、不用 customById 查 `builtin`：用户站 id 若与
+  // 内置站撞 id，统一表去重已只留内置那条，区判定也要跟着保留
+  // 内置（customById 里后写入的用户行会盖掉内置行，不能靠它判）。
+  final builtinIds = <String>{
+    for (final site in videoZoneSites()) site.id,
+    ...midnightIds,
+  };
+  final entries = <SiteGridEntry>[];
+  for (final site in visibleVideoZoneSites(customEntries, xp)) {
+    final zone = builtinIds.contains(site.id)
+        ? SiteGridZone.builtin
+        : SiteGridZone.import;
+    if (zone == SiteGridZone.builtin &&
+        !isEnabled(adultSiteIdForUnifiedId(site.id))) {
+      continue;
+    }
+    entries.add((
+      id: site.id,
+      name: site.name,
+      zone: zone,
+      group: midnightIds.contains(site.id)
+          ? SiteGridGroup.midnight
+          : SiteGridGroup.video,
+    ));
+  }
+  return entries;
 }
 
 /// 推荐页全局「影视」区的可见站表（纯函数，可单测）：视频站与
@@ -327,19 +394,31 @@ class _VideoPageState extends State<VideoPage> {
   }
 
   /// 午夜区站切换（午夜区就是影视区，统一表含核心影视站 + 午夜
-  /// jar 视频站 + 内置导入视频站）：点药丸弹居中弹窗，站点四列网格，点一项即切换
+  /// jar 视频站 + 内置导入视频站 + 用户导入的影视站）：点药丸弹居中弹窗，站点四列网格，点一项即切换
   /// 并持久化。分类走右上角分类按钮进分类页（卡片上方不再放分类
   /// 这一排，分类弹窗已废弃）。
   Future<void> _openVideoZoneSiteSwitcher() async {
     final xp = CultivationService.instance.snapshot.totalXp;
-    final sites = visibleVideoZoneSites(SourceRegistry.instance.custom, xp);
-    if (sites.isEmpty || !mounted) return;
+    final entries = videoZoneSiteEntries(SourceRegistry.instance.custom, xp);
+    if (entries.isEmpty || !mounted) return;
     final picked = await showSiteGridDialog(
       context: context,
-      sites: sites,
+      sites: entries,
       selectedId: _videoZoneId,
+      initialZone:
+          entries
+              .where((entry) => entry.id == _videoZoneId)
+              .firstOrNull
+              ?.zone ??
+          SiteGridZone.builtin,
+      onDeleteSite: deleteSiteGridEntry,
     );
-    if (picked == null || !mounted) return;
+    if (!mounted) return;
+    if (picked == null) {
+      // 弹窗里删/藏了当前站：当前站不在可见表里就回落到首站，别留野 id。
+      await _fallBackVideoZoneSiteIfHidden();
+      return;
+    }
     try {
       final preferences = await SharedPreferences.getInstance();
       await preferences.setString(_videoZoneSiteKey, picked);
@@ -351,6 +430,31 @@ class _VideoPageState extends State<VideoPage> {
       });
       _resolveVideoZoneCategory(picked);
     }
+  }
+
+  /// 弹窗里删/藏了当前午夜站：当前站不在可见表里就回落到首站（或空）。
+  Future<void> _fallBackVideoZoneSiteIfHidden() async {
+    final xp = CultivationService.instance.snapshot.totalXp;
+    final entries = videoZoneSiteEntries(SourceRegistry.instance.custom, xp);
+    final resolved = resolveCurrentSiteId(
+      _videoZoneId,
+      [for (final entry in entries) entry.id],
+    );
+    if (resolved == _videoZoneId) return;
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      if (resolved == null) {
+        await preferences.remove(_videoZoneSiteKey);
+      } else {
+        await preferences.setString(_videoZoneSiteKey, resolved);
+      }
+    } catch (_) {}
+    if (!mounted) return;
+    setState(() {
+      _videoZoneId = resolved;
+      _videoZoneCategoryId = null;
+    });
+    if (resolved != null) _resolveVideoZoneCategory(resolved);
   }
 
   /// 右上角分类：打开分类页并直接落在影视 tab，内容随当前视频站

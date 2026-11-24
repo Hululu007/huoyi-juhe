@@ -145,6 +145,39 @@ class GenericActressDatabase implements ActressDatabase {
     return null;
   }
 
+  /// 标签过滤条件（2026-11-24 标签筛选）：与 [_categoryCondition]
+  /// 同形——副表（video_tag.tag_name）走精确 IN 半连接；作品表
+  /// 自己的标签列（如 tags 列，常是逗号拼的多个标签）走 LIKE 模糊
+  /// 匹配（可能误含子串，如实写，不冒充精确）；两条路都没有回 null
+  ///（调用方按“筛不出”处理）。
+  (String, List<Object?>)? _tagCondition(String tag) {
+    final works = _works;
+    if (works == null) return null;
+    // 精确的副表优先（video_tag.tag_name）；没有才退到作品表
+    // 自己的标签列。
+    for (final relation in _schema.facetRelations) {
+      final col = relation.columnFor(GenericDbRole.category);
+      if (col == null) continue;
+      if (!normalizeDbFieldName(col).contains('tag')) continue;
+      return (
+        'CAST(${_q(works.table)}.${_q(relation.primaryKey)} AS TEXT) '
+        'IN (SELECT CAST(${_q(relation.foreignKey)} AS TEXT) '
+        'FROM ${_q(relation.table)} '
+        'WHERE CAST(${_q(col)} AS TEXT) = ?)',
+        [tag],
+      );
+    }
+    for (final column in categoryFacetColumns(works)) {
+      if (normalizeDbFieldName(column).contains('tag')) {
+        return (
+          'CAST(${_q(column)} AS TEXT) LIKE ?',
+          ['%$tag%'],
+        );
+      }
+    }
+    return null;
+  }
+
   /// 作品行里分类值的取法：自己的分类列、或副表关联取、
   /// 或没有（空字符串）。
   String _categorySelect(String alias) {
@@ -253,6 +286,7 @@ class GenericActressDatabase implements ActressDatabase {
     required int limit,
     String tag = '',
     String category = '',
+    String videoTag = '',
   }) async {
     final works = _works;
     final actressCol = _actressCol;
@@ -271,6 +305,12 @@ class GenericActressDatabase implements ActressDatabase {
     }
     if (category.isNotEmpty) {
       final condition = _categoryCondition(category);
+      if (condition == null) return const [];
+      conditions.add(condition.$1);
+      args.addAll(condition.$2);
+    }
+    if (videoTag.isNotEmpty) {
+      final condition = _tagCondition(videoTag);
       if (condition == null) return const [];
       conditions.add(condition.$1);
       args.addAll(condition.$2);
@@ -309,19 +349,33 @@ class GenericActressDatabase implements ActressDatabase {
     required ActressSexFilter sex,
     required String query,
     String tag = '',
+    String videoTag = '',
   }) async {
     final works = _works;
     final actressCol = _actressCol;
     if (works == null || actressCol == null) return 0;
     if (sex != ActressSexFilter.all) return 0;
     final trimmedQuery = query.trim();
+    final conditions = <String>[
+      '${_q(actressCol)} IS NOT NULL',
+      "TRIM(CAST(${_q(actressCol)} AS TEXT)) <> ''",
+    ];
+    final args = <Object?>[];
+    if (trimmedQuery.isNotEmpty) {
+      conditions.add('${_q(actressCol)} LIKE ?');
+      args.add('%$trimmedQuery%');
+    }
+    if (videoTag.isNotEmpty) {
+      final condition = _tagCondition(videoTag);
+      if (condition == null) return 0;
+      conditions.add(condition.$1);
+      args.addAll(condition.$2);
+    }
     final rows = await _db.rawQuery(
       'SELECT COUNT(DISTINCT ${_q(actressCol)}) AS c '
       'FROM ${_q(works.table)} '
-      'WHERE ${_q(actressCol)} IS NOT NULL '
-      "AND TRIM(CAST(${_q(actressCol)} AS TEXT)) <> '' "
-      '${trimmedQuery.isEmpty ? '' : 'AND ${_q(actressCol)} LIKE ?'}',
-      trimmedQuery.isEmpty ? const [] : ['%$trimmedQuery%'],
+      'WHERE ${conditions.join(' AND ')}',
+      args,
     );
     return (rows.first['c'] as num?)?.toInt() ?? 0;
   }
@@ -345,6 +399,7 @@ class GenericActressDatabase implements ActressDatabase {
     required int offset,
     required int limit,
     String? category,
+    String? videoTag,
   }) async {
     final works = _works;
     if (works == null) return const [];
@@ -360,6 +415,13 @@ class GenericActressDatabase implements ActressDatabase {
     final useCategory = category != null && category.isNotEmpty;
     if (useCategory) {
       final condition = _categoryCondition(category);
+      if (condition == null) return const [];
+      conditions.add(condition.$1);
+      args.addAll(condition.$2);
+    }
+    final useVideoTag = videoTag != null && videoTag.isNotEmpty;
+    if (useVideoTag) {
+      final condition = _tagCondition(videoTag);
       if (condition == null) return const [];
       conditions.add(condition.$1);
       args.addAll(condition.$2);
@@ -387,7 +449,7 @@ class GenericActressDatabase implements ActressDatabase {
   }
 
   @override
-  Future<int> countWorks(int personId, {String? category}) async {
+  Future<int> countWorks(int personId, {String? category, String? videoTag}) async {
     final works = _works;
     if (works == null) return 0;
     final name = await _actressOfRow(personId);
@@ -398,6 +460,13 @@ class GenericActressDatabase implements ActressDatabase {
     final useCategory = category != null && category.isNotEmpty;
     if (useCategory) {
       final condition = _categoryCondition(category);
+      if (condition == null) return 0;
+      conditions.add(condition.$1);
+      args.addAll(condition.$2);
+    }
+    final useVideoTag = videoTag != null && videoTag.isNotEmpty;
+    if (useVideoTag) {
+      final condition = _tagCondition(videoTag);
       if (condition == null) return 0;
       conditions.add(condition.$1);
       args.addAll(condition.$2);
@@ -491,6 +560,13 @@ class GenericActressDatabase implements ActressDatabase {
   @override
   Future<List<(String, int)>> dbCategories() async {
     return _reader.categories();
+  }
+
+  /// 全库作品标签（通用读法的标签维度，见 [GenericDbReader.tagFacet]）。
+  @override
+  Future<List<(String, int)>> dbTags() async {
+    final tag = await _reader.tagFacet();
+    return tag.values;
   }
 
   @override

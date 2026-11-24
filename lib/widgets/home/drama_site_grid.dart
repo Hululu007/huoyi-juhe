@@ -66,10 +66,18 @@ class DramaSiteGrid extends StatefulWidget {
 class _DramaSiteGridState extends State<DramaSiteGrid> {
   DramaSiteContentClient? _client;
   List<DramaSiteItem> _items = [];
+
+  /// 已展示视频的 id：翻页追加时按 id 去重，同一条视频不重复出卡。
+  /// 切站点/切分类时 [_loadFirst] 重置。
+  final Set<String> _seenIds = <String>{};
   int _page = 1;
   bool _hasMore = false;
   bool _loading = false;
   bool _loadingMore = false;
+
+  /// 本次加载下一页是不是失败了：失败时哨兵停住不再自动重试，
+  /// 底部改摆「加载失败，点我重试」，点后才继续。
+  bool _loadMoreFailed = false;
   String? _error;
 
   /// 本次加载失败是不是超时：超时与回空/解析失败是两回事，超时
@@ -261,6 +269,7 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
       _error = null;
       _errorIsTimeout = false;
       _gateBlocked = false;
+      _loadMoreFailed = false;
       _prefetchedPage = null;
       _prefetchedForPage = 0;
       _filterGroups = client is XbpqContentClient
@@ -272,6 +281,9 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
       if (!mounted) return;
       setState(() {
         _items = page.items;
+        _seenIds
+          ..clear()
+          ..addAll(page.items.map((item) => item.id));
         _page = 1;
         _hasMore = page.hasMore;
         _loading = false;
@@ -293,33 +305,60 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
     if (client == null || _loadingMore || !_hasMore) return;
     final prefetched = _prefetchedPage;
     if (prefetched != null && _prefetchedForPage == _page + 1) {
+      final fresh = _dedupe(prefetched.items);
       setState(() {
-        _items = [..._items, ...prefetched.items];
+        _items = [..._items, ...fresh];
         _page += 1;
         _hasMore = prefetched.hasMore;
+        _loadMoreFailed = false;
         _prefetchedPage = null;
         _prefetchedForPage = 0;
       });
-      _autoSave(prefetched.items);
+      _autoSave(fresh);
       if (prefetched.hasMore) _prefetchNext(_page + 1);
       return;
     }
-    setState(() => _loadingMore = true);
+    setState(() {
+      _loadingMore = true;
+      _loadMoreFailed = false;
+    });
     try {
       final page = await _catalog(client, widget.categoryId, _page + 1);
       if (!mounted) return;
+      final fresh = _dedupe(page.items);
       setState(() {
-        _items = [..._items, ...page.items];
+        _items = [..._items, ...fresh];
         _page += 1;
         _hasMore = page.hasMore;
         _loadingMore = false;
       });
-      _autoSave(page.items);
+      _autoSave(fresh);
       if (page.hasMore) _prefetchNext(_page + 1);
     } catch (_) {
       if (!mounted) return;
-      setState(() => _loadingMore = false);
+      // 加载下一页失败：不吞掉状态——哨兵靠 [_loadMoreFailed]
+      // 停住不再自动重试，底部摆重试按钮，点后才继续；列表本身
+      // 不卡死，已加载的卡片照常能点。
+      setState(() {
+        _loadingMore = false;
+        _loadMoreFailed = true;
+      });
     }
+  }
+
+  /// 追加页去重：只留没展示过的 id，已展示过的同一条不重复出卡。
+  List<DramaSiteItem> _dedupe(List<DramaSiteItem> items) {
+    return [
+      for (final item in items)
+        if (_seenIds.add(item.id)) item,
+    ];
+  }
+
+  /// 加载下一页失败后的手动重试：清失败标记再取同一页。
+  Future<void> _retryLoadMore() async {
+    if (_loadingMore || !_hasMore) return;
+    setState(() => _loadMoreFailed = false);
+    await _loadMore();
   }
 
   @override
@@ -408,17 +447,141 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
             }, childCount: _items.length),
           ),
         ),
-        if (_hasMore)
+        if (_loadingMore)
+          const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.all(16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  SizedBox(width: 8),
+                  Text('加载中…', style: TextStyle(color: moyiBodyOnDark)),
+                ],
+              ),
+            ),
+          )
+        else if (_loadMoreFailed)
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: OutlinedButton(
-                onPressed: _loadingMore ? null : _loadMore,
-                child: Text(_loadingMore ? '加载中…' : '加载更多'),
+                key: const ValueKey('drama_site_grid_retry'),
+                onPressed: _retryLoadMore,
+                child: const Text('加载失败，点我重试'),
+              ),
+            ),
+          )
+        else if (_hasMore)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: OutlinedButton(
+                onPressed: _loadMore,
+                child: const Text('加载更多'),
+              ),
+            ),
+          )
+        else
+          const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(16, 8, 16, 24),
+              child: Center(
+                child: Text(
+                  '没有更多了',
+                  style: TextStyle(fontSize: 12, color: moyiMutedOnDark),
+                ),
               ),
             ),
           ),
+        // 触底自动加载哨兵：滑到底自动取下一页；加载中/失败/
+        // 到底时不触发。内容不满一屏时哨兵不触发，短列表仍由
+        // 上面的「加载更多」按钮翻页。
+        SliverToBoxAdapter(
+          child: _AutoLoadSentinel(
+            enabled: _hasMore && !_loadingMore && !_loadMoreFailed,
+            onNearBottom: _loadMore,
+          ),
+        ),
       ],
     );
   }
+}
+
+/// 触底自动加载哨兵：放在列表末尾的零高组件，监听外层滚动位置，
+/// 滑到底（剩余内容不足 400）就调 [onNearBottom]。
+///
+/// 列表本身是 sliver、没有自己的 ScrollController，所以不用
+/// NotificationListener，改在哨兵里拿 `Scrollable.of(context)`
+/// 的 position 监听；哨兵只有滑进视口附近才会被建出来，平时
+/// 不触发。连续自动加载超过 5 次还没填满视口就停住（防站方
+/// 小页 endless），剩下的由底部「加载更多」按钮接手；用户一滚
+/// 动、或一次加载成功后仍有剩余内容，计数清零。
+class _AutoLoadSentinel extends StatefulWidget {
+  const _AutoLoadSentinel({required this.enabled, required this.onNearBottom});
+
+  /// 能不能触发：有下一页、没在加载、没失败时才为真。
+  final bool enabled;
+
+  /// 滑到底时的回调（一般是取下一页）。
+  final VoidCallback onNearBottom;
+
+  @override
+  State<_AutoLoadSentinel> createState() => _AutoLoadSentinelState();
+}
+
+class _AutoLoadSentinelState extends State<_AutoLoadSentinel> {
+  static const _nearBottomThreshold = 400.0;
+  static const _maxChainedLoads = 5;
+
+  ScrollPosition? _position;
+  var _chained = 0;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final position = Scrollable.of(context).position;
+    if (position != _position) {
+      _position?.removeListener(_check);
+      _position = position;
+      _position?.addListener(_check);
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) => _check());
+  }
+
+  @override
+  void didUpdateWidget(_AutoLoadSentinel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 失败重试/切页后重新可用：连锁计数清零，允许再次自动加载。
+    if (!oldWidget.enabled && widget.enabled) _chained = 0;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _check());
+  }
+
+  @override
+  void dispose() {
+    _position?.removeListener(_check);
+    super.dispose();
+  }
+
+  void _check() {
+    if (!widget.enabled || !mounted) return;
+    final position = _position;
+    if (position == null || !position.hasContentDimensions) return;
+    // 内容不满一屏：滑不动，没有“底”可言，不自动加载。
+    if (position.maxScrollExtent <= 0) return;
+    if (position.extentAfter >= _nearBottomThreshold) {
+      _chained = 0;
+      return;
+    }
+    if (_chained >= _maxChainedLoads) return;
+    _chained++;
+    widget.onNearBottom();
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
 }

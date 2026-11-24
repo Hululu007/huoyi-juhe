@@ -128,6 +128,10 @@ abstract class ActressDatabase {
 
   Future<ActressPerson?> personById(int localId);
 
+  /// 人物列表：[tag] 是人物自身的标签（名册 tags 列，有码/无码/
+  /// 欧美那行）；[videoTag] 是作品标签（video_tag.tag_name）——
+  /// 只留有该标签作品的人（2026-11-24 标签筛选）。[category]
+  /// 是视频主分类（video_category.main_category）。
   Future<List<ActressPerson>> listPersons({
     required ActressSexFilter sex,
     required ActressSort sort,
@@ -136,12 +140,15 @@ abstract class ActressDatabase {
     required int limit,
     String tag = '',
     String category = '',
+    String videoTag = '',
   });
 
+  /// 人物总数（与 [listPersons] 同一过滤口径，含 [videoTag]）。
   Future<int> countPersons({
     required ActressSexFilter sex,
     required String query,
     String tag = '',
+    String videoTag = '',
   });
 
   /// 排行榜全量取数（榜内 Dart 侧按综合分排，读本地不联网）。
@@ -167,9 +174,13 @@ abstract class ActressDatabase {
 
     /// 只取该分类的作品：null/空 = 全部（头顶总数与旧调用同一口径）。
     String? category,
+
+    /// 只取带该作品标签的作品：null/空 = 全部（2026-11-24 标签筛选）。
+    /// 与 [category] 是 AND 关系。
+    String? videoTag,
   });
 
-  Future<int> countWorks(int personId, {String? category});
+  Future<int> countWorks(int personId, {String? category, String? videoTag});
 
   /// 多库合并去重用：该人名下全部作品的（番号，播放链接）键集合
   ///（键形如 `番号键|有效播放地址`，番号键是归一化后的番号
@@ -190,6 +201,14 @@ abstract class ActressDatabase {
   /// 见 GenericDbReader.categories）。默认实现回空集——测试替身
   /// 与内存库不用实现。
   Future<List<(String, int)>> dbCategories() async => const [];
+
+  /// 全库作品标签（去重计数，按作品数倒序）：严格库读
+  /// video_tag.tag_name（2026-11-24 标签筛选，底部弹窗的数据
+  /// 来源）；通用库读通用读法的标签维度（video_tag.tag_name
+  /// 优先，否则作品表里含 tag 的列，见 GenericDbReader.tagFacet）。
+  /// 没有 video_tag 表的库直接抛错，调用方跳过（与 dbCategories
+  /// 同一口径）。默认实现回空集——测试替身与内存库不用实现。
+  Future<List<(String, int)>> dbTags() async => const [];
 
   /// 该人物作品里实际存在的分类（只含 category 非空的行），按作品
   /// 数从多到少、同数按名字排；没有分类的作品不产生标签、不丢数据
@@ -541,7 +560,7 @@ ActressPerson videoLibraryPersonFromRow(Map<String, Object?> row) {
 }
 
 /// 名册汇总累加器（见 [_ensureVideoRollup]）：同一个人被拆成多行时，
-/// 作品数相加、头像取第一条非空、最新作品日期取最大。
+/// 作品数相加、头像取第一条可用（见 [preferLoadableAvatar]）、最新作品日期取最大。
 class _RollupAcc {
   _RollupAcc(this.firstRowid);
 
@@ -780,6 +799,20 @@ class SqfliteActressDatabase implements ActressDatabase {
     }
   }
 
+  /// 库里有没有 video_tag 表（2026-11-24 标签筛选）：没有的库
+  /// 选了标签筛不出人，调用方直接回空，不抛错。
+  Future<bool> _hasVideoTagTable(Database db) async {
+    try {
+      final rows = await db.rawQuery(
+        "SELECT 1 AS x FROM sqlite_master "
+        "WHERE type = 'table' AND name = 'video_tag' LIMIT 1",
+      );
+      return rows.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// 库里 actresses 是否有 sex 列（2026-11-22 合并版库才有；老库没有）。
   Future<bool> _hasActressSexColumn(Database db) async {
     try {
@@ -958,7 +991,10 @@ class SqfliteActressDatabase implements ActressDatabase {
       );
       final aCount = (sourceCounts.first['a'] as num?)?.toInt() ?? 0;
       final vCount = (sourceCounts.first['v'] as num?)?.toInt() ?? 0;
-      final signature = '$aCount/$vCount';
+      // 汇总表版本 v2：2026-11-24 头像归并改只接受能加载的地址后，
+      // 旧版汇总表里已存的裸域名头像必须重建一次才掉；只比行数
+      // 的旧签名认不出代码改了，版本号写进签名强制重建一次。
+      final signature = 'v2:$aCount/$vCount';
 
       await db.execute(
         'CREATE TABLE IF NOT EXISTS actress_rollup ('
@@ -1008,7 +1044,7 @@ class SqfliteActressDatabase implements ActressDatabase {
         'SELECT rowid AS rid, name AS name, cate_id AS cate_id, '
         "COALESCE(NULLIF(avatar,''),'') AS avatar, "
         "${hasSex ? "COALESCE(NULLIF(sex,''),'')" : "''"} AS sex "
-        'FROM actresses',
+        'FROM actresses ORDER BY rowid',
       );
       final byName = <String, _RollupAcc>{};
       for (final row in people) {
@@ -1020,7 +1056,10 @@ class SqfliteActressDatabase implements ActressDatabase {
           () => _RollupAcc((row['rid'] as num).toInt()),
         );
         final avatar = row['avatar']?.toString() ?? '';
-        if (acc.avatar.isEmpty && avatar.isNotEmpty) acc.avatar = avatar;
+        // 2026-11-24 头像修复：第一批有效头像才占坑：裸域名行在前
+        // 也不赢，后面的完整头像照样能补进来；同名全是坏地址时
+        // 留空（列表画圆圈）。
+        acc.avatar = preferLoadableAvatar(acc.avatar, avatar);
         if ((row['sex']?.toString() ?? '') == 'male') acc.sex = 'male';
         acc.works += works[cateId] ?? 0;
         final d = dates[cateId];
@@ -1655,9 +1694,7 @@ class SqfliteActressDatabase implements ActressDatabase {
         merged = existing.copyWith(
           aliases: [...existing.aliases, ...extra],
           sex: existing.sex.isNotEmpty ? existing.sex : sex,
-          avatarUrl: existing.avatarUrl.isNotEmpty
-              ? existing.avatarUrl
-              : avatarUrl,
+          avatarUrl: preferLoadableAvatar(existing.avatarUrl, avatarUrl),
           tags: <String>{...existing.tags, ...tags}.toList(),
         );
       }
@@ -1813,9 +1850,14 @@ class SqfliteActressDatabase implements ActressDatabase {
     required int limit,
     String tag = '',
     String category = '',
+    String videoTag = '',
   }) async {
     final db = await _open();
     if (_videoLibraryMode) {
+      // 2026-11-24 标签筛选：没有 video_tag 表的库筛不出带标签的
+      // 作品，选了标签直接回空（不抛错、不暗地里回未过滤的列表）。
+      final useVideoTag = videoTag.isNotEmpty;
+      if (useVideoTag && !await _hasVideoTagTable(db)) return const [];
       // 2026-11-22 用户令（男优与女优分开）：合并版库 actresses 带
       // sex 列（男优 257 位，按 who's 番号绑定作品），男优筛选按列
       // 过滤；老库没有 sex 列时保持改前行为（male 无结果）。
@@ -1843,6 +1885,29 @@ class SqfliteActressDatabase implements ActressDatabase {
             'LEFT JOIN video_category vc2 ON vc2.vod_id = va2.vod_id '
             'WHERE va2.cate_id = pc.cate_id '
             "AND COALESCE(vc2.main_category, '') = ?)",
+          );
+        }
+        if (tag.isNotEmpty) {
+          // 2026-11-24 册别筛按视频主分类筛人（guochang 口径）：
+          // 视频库没有名册标签列，tag 值本身就是主分类名（有码/
+          // 无码/国产/4K/动漫/三级/欧美/其他）；为空（全部）时不加
+          // 条件，默认列表性能不变。
+          args.add(tag);
+          conditions.add(
+            'EXISTS (SELECT 1 FROM video_actress va2 '
+            'JOIN videos v2 ON v2.vod_id = va2.vod_id '
+            'LEFT JOIN video_category vc2 ON vc2.vod_id = va2.vod_id '
+            'WHERE va2.cate_id = pc.cate_id '
+            "AND COALESCE(vc2.main_category, '') = ?)",
+          );
+        }
+        if (useVideoTag) {
+          args.add(videoTag);
+          conditions.add(
+            'EXISTS (SELECT 1 FROM video_actress va2 '
+            'JOIN video_tag vt2 ON vt2.vod_id = va2.vod_id '
+            'WHERE va2.cate_id = pc.cate_id '
+            'AND vt2.tag_name = ?)',
           );
         }
         final where = conditions.isEmpty
@@ -1908,6 +1973,29 @@ class SqfliteActressDatabase implements ActressDatabase {
             "AND COALESCE(vc2.main_category, '') = ?)",
           );
         }
+        if (tag.isNotEmpty) {
+          // 2026-11-24 册别筛按视频主分类筛人（guochang 口径，
+          // 见无 actresses 表分支的注释）；tag 值就是主分类名。
+          args.add(tag);
+          conditions.add(
+            'EXISTS (SELECT 1 FROM actresses a2 '
+            'JOIN video_actress va2 ON va2.cate_id = a2.cate_id '
+            'JOIN videos v2 ON v2.vod_id = va2.vod_id '
+            'LEFT JOIN video_category vc2 ON vc2.vod_id = va2.vod_id '
+            'WHERE a2.name = r.name '
+            "AND COALESCE(vc2.main_category, '') = ?)",
+          );
+        }
+        if (useVideoTag) {
+          args.add(videoTag);
+          conditions.add(
+            'EXISTS (SELECT 1 FROM actresses a2 '
+            'JOIN video_actress va2 ON va2.cate_id = a2.cate_id '
+            'JOIN video_tag vt2 ON vt2.vod_id = va2.vod_id '
+            'WHERE a2.name = r.name '
+            'AND vt2.tag_name = ?)',
+          );
+        }
         final where = conditions.isEmpty
             ? ''
             : 'WHERE ${conditions.join(' AND ')}';
@@ -1958,6 +2046,31 @@ class SqfliteActressDatabase implements ActressDatabase {
           "AND COALESCE(vc2.main_category, '') = ?)",
         );
       }
+      if (tag.isNotEmpty) {
+        // 2026-11-24 册别筛按视频主分类筛人（guochang 口径，
+        // 见无 actresses 表分支的注释）；tag 值就是主分类名。
+        args.add(tag);
+        conditions.add(
+          'EXISTS (SELECT 1 FROM video_actress va2 '
+          'JOIN videos v2 ON v2.vod_id = va2.vod_id '
+          'LEFT JOIN video_category vc2 ON vc2.vod_id = va2.vod_id '
+          'JOIN actresses a3 ON a3.cate_id = va2.cate_id '
+          'WHERE a3.name = a.name '
+          "AND COALESCE(vc2.main_category, '') = ?)",
+        );
+      }
+      if (useVideoTag) {
+        // 该人有该标签的作品才留（与分类同一口径：EXISTS 半连接，
+        // 不走大 JOIN 逐行回表）。
+        args.add(videoTag);
+        conditions.add(
+          'EXISTS (SELECT 1 FROM video_actress va2 '
+          'JOIN video_tag vt2 ON vt2.vod_id = va2.vod_id '
+          'JOIN actresses a3 ON a3.cate_id = va2.cate_id '
+          'WHERE a3.name = a.name '
+          'AND vt2.tag_name = ?)',
+        );
+      }
       final where = conditions.isEmpty
           ? ''
           : 'WHERE ${conditions.join(' AND ')}';
@@ -1978,13 +2091,20 @@ class SqfliteActressDatabase implements ActressDatabase {
               'LEFT JOIN videos v ON v.vod_id = va.vod_id GROUP BY cate_id'
           : 'SELECT cate_id AS cate_id, COUNT(*) AS n, '
               "'' AS d FROM video_actress GROUP BY cate_id";
+      // 2026-11-24 头像修复：回退路 avatar_url 不用 MAX（字典序里
+      // 裸域名 https://v.hersav.me/ 的 v 开头必赢 c 开头的真头像），
+      // 只在有效头像（LIKE '%://%/%_'：有 scheme、有 host、path
+      // 非根）里取 MAX；全行裸/空时回 ''，调用方回落首字圆圈。
+      // B 方案（行序第一有效子查询）在新库实测 200 组 1.58 秒、
+      // 外推全量约 205 秒，太慢，弃用。
       final rows = await db.rawQuery(
         'WITH per_cate AS ($perCateSql) '
         'SELECT MIN(a.rowid) AS id, a.name AS display_name, '
         'a.name AS cate_id, '
         '${hasSex ? "CASE WHEN SUM(CASE WHEN a.sex='male' THEN 1 ELSE 0 END)>0 "
             "THEN 'male' ELSE '' END" : "''"} AS sex, '
-        "COALESCE(MAX(NULLIF(a.avatar,'')),'') AS avatar_url, "
+        "COALESCE(MAX(CASE WHEN a.avatar LIKE '%://%/%_' "
+        "THEN a.avatar END),'') AS avatar_url, "
         'SUM(COALESCE(pc.n,0)) AS works_count, '
         "COALESCE(MAX(COALESCE(pc.d,'')),'') AS last_date "
         'FROM actresses a LEFT JOIN per_cate pc ON pc.cate_id = a.cate_id '
@@ -1993,6 +2113,9 @@ class SqfliteActressDatabase implements ActressDatabase {
       );
       return rows.map(videoLibraryPersonFromRow).toList();
     }
+    // 旧 persons/works 结构没有 video_tag 表：选了作品标签筛不出，
+    // 回空，不暗地里回未过滤的列表。
+    if (videoTag.isNotEmpty) return const [];
     final args = <Object?>[];
     final where =
         '${_sexWhere(sex, args)} AND ${_queryWhere(query, args)} '
@@ -2013,19 +2136,49 @@ class SqfliteActressDatabase implements ActressDatabase {
     required ActressSexFilter sex,
     required String query,
     String tag = '',
+    String videoTag = '',
   }) async {
     final db = await _open();
     if (_videoLibraryMode) {
       final hasSex = await _hasActressSexColumn(db);
       if (sex != ActressSexFilter.all && !hasSex) return 0;
+      // 2026-11-24 标签筛选：没有 video_tag 表的库选了标签回 0。
+      final useVideoTag = videoTag.isNotEmpty;
+      if (useVideoTag && !await _hasVideoTagTable(db)) return 0;
       // 没有 actresses 表的外来库：按 video_actress.cate_id 分组计数
       //（与 listPersons 的回退同一口径）。
       if (!await _hasActressesTable(db)) {
         final trimmedQuery = query.trim();
         final args = <Object?>[];
-        final where =
-            trimmedQuery.isEmpty ? '' : 'WHERE cate_id LIKE ?';
-        if (trimmedQuery.isNotEmpty) args.add('%$trimmedQuery%');
+        final conditions = <String>[];
+        if (trimmedQuery.isNotEmpty) {
+          args.add('%$trimmedQuery%');
+          conditions.add('cate_id LIKE ?');
+        }
+        if (tag.isNotEmpty) {
+          // 2026-11-24 册别筛按视频主分类计数（guochang 口径，
+          // 见 listPersons 无 actresses 表分支的注释）。
+          args.add(tag);
+          conditions.add(
+            'EXISTS (SELECT 1 FROM video_actress va2 '
+            'JOIN videos v2 ON v2.vod_id = va2.vod_id '
+            'LEFT JOIN video_category vc2 ON vc2.vod_id = va2.vod_id '
+            'WHERE va2.cate_id = video_actress.cate_id '
+            "AND COALESCE(vc2.main_category, '') = ?)",
+          );
+        }
+        if (useVideoTag) {
+          args.add(videoTag);
+          conditions.add(
+            'EXISTS (SELECT 1 FROM video_actress va2 '
+            'JOIN video_tag vt2 ON vt2.vod_id = va2.vod_id '
+            'WHERE va2.cate_id = video_actress.cate_id '
+            'AND vt2.tag_name = ?)',
+          );
+        }
+        final where = conditions.isEmpty
+            ? ''
+            : 'WHERE ${conditions.join(' AND ')}';
         final rows = await db.rawQuery(
           'SELECT COUNT(*) AS c FROM '
           '(SELECT cate_id FROM video_actress $where GROUP BY cate_id)',
@@ -2044,6 +2197,29 @@ class SqfliteActressDatabase implements ActressDatabase {
         conditions.add("sex = 'male'");
       } else if (sex == ActressSexFilter.female) {
         conditions.add("COALESCE(NULLIF(sex,''),'female') = 'female'");
+      }
+      if (tag.isNotEmpty) {
+        // 2026-11-24 册别筛按视频主分类计数（guochang 口径，
+        // 见 listPersons 无 actresses 表分支的注释）。
+        args.add(tag);
+        conditions.add(
+          'EXISTS (SELECT 1 FROM actresses a2 '
+          'JOIN video_actress va2 ON va2.cate_id = a2.cate_id '
+          'JOIN videos v2 ON v2.vod_id = va2.vod_id '
+          'LEFT JOIN video_category vc2 ON vc2.vod_id = va2.vod_id '
+          'WHERE a2.name = actresses.name '
+          "AND COALESCE(vc2.main_category, '') = ?)",
+        );
+      }
+      if (useVideoTag) {
+        args.add(videoTag);
+        conditions.add(
+          'EXISTS (SELECT 1 FROM actresses a2 '
+          'JOIN video_actress va2 ON va2.cate_id = a2.cate_id '
+          'JOIN video_tag vt2 ON vt2.vod_id = va2.vod_id '
+          'WHERE a2.name = actresses.name '
+          'AND vt2.tag_name = ?)',
+        );
       }
       final where = conditions.isEmpty
           ? ''
@@ -2160,10 +2336,13 @@ class SqfliteActressDatabase implements ActressDatabase {
     required int offset,
     required int limit,
     String? category,
+    String? videoTag,
   }) async {
     final db = await _open();
     if (_videoLibraryMode) {
       final useCategory = category != null && category.isNotEmpty;
+      final useVideoTag = videoTag != null && videoTag.isNotEmpty;
+      if (useVideoTag && !await _hasVideoTagTable(db)) return const [];
       // 2026-11-21：先按 rowid 取这个人（主键，瞬时），再用 cate_id
       // 反查作品。原来一条大 JOIN（videos × video_actress × actresses）
       // 再 ORDER BY 排序，32 万视频的库在手机上点一下要转半天，
@@ -2171,6 +2350,13 @@ class SqfliteActressDatabase implements ActressDatabase {
       final cateIds = await _videoCateIdsForPerson(db, personId);
       if (cateIds.isEmpty) return const [];
       final inList = _placeholders(cateIds.length);
+      final args = <Object?>[
+        ...cateIds,
+        if (useCategory) category,
+        if (useVideoTag) videoTag,
+        limit,
+        offset,
+      ];
       final rows = await db.rawQuery(
         'SELECT v.rowid AS id, v.vod_id AS code_key, '
         'v.title AS title, v.vod_pubdate AS date, '
@@ -2182,16 +2368,17 @@ class SqfliteActressDatabase implements ActressDatabase {
         'WHERE v.vod_id IN (SELECT vod_id FROM video_actress '
         'WHERE cate_id IN ($inList)) '
         "${useCategory ? "AND COALESCE(vc.main_category, '') = ? " : ''}"
+        "${useVideoTag ? 'AND EXISTS (SELECT 1 FROM video_tag vt '
+            'WHERE vt.vod_id = v.vod_id AND vt.tag_name = ?) ' : ''}"
         'ORDER BY v.vod_pubdate DESC, v.vod_id ASC '
         'LIMIT ? OFFSET ?',
-        useCategory
-            ? [...cateIds, category, limit, offset]
-            : [...cateIds, limit, offset],
+        args,
       );
       return [
         for (final row in rows) videoLibraryWorkFromRow(row, personId),
       ];
     }
+    if (videoTag != null && videoTag.isNotEmpty) return const [];
     final useCategory = category != null && category.isNotEmpty;
     final rows = await db.query(
       'works',
@@ -2205,23 +2392,33 @@ class SqfliteActressDatabase implements ActressDatabase {
   }
 
   @override
-  Future<int> countWorks(int personId, {String? category}) async {
+  Future<int> countWorks(int personId, {String? category, String? videoTag}) async {
     final db = await _open();
     if (_videoLibraryMode) {
       final useCategory = category != null && category.isNotEmpty;
+      final useVideoTag = videoTag != null && videoTag.isNotEmpty;
+      if (useVideoTag && !await _hasVideoTagTable(db)) return 0;
       final cateIds = await _videoCateIdsForPerson(db, personId);
       if (cateIds.isEmpty) return 0;
       final inList = _placeholders(cateIds.length);
+      final args = <Object?>[
+        ...cateIds,
+        if (useCategory) category,
+        if (useVideoTag) videoTag,
+      ];
       final rows = await db.rawQuery(
         'SELECT COUNT(*) AS c FROM videos v '
         'LEFT JOIN video_category vc ON vc.vod_id = v.vod_id '
         'WHERE v.vod_id IN (SELECT vod_id FROM video_actress '
         'WHERE cate_id IN ($inList)) '
-        "${useCategory ? "AND COALESCE(vc.main_category, '') = ?" : ''}",
-        useCategory ? [...cateIds, category] : cateIds,
+        "${useCategory ? "AND COALESCE(vc.main_category, '') = ?" : ''}"
+        "${useVideoTag ? 'AND EXISTS (SELECT 1 FROM video_tag vt '
+            'WHERE vt.vod_id = v.vod_id AND vt.tag_name = ?)' : ''}",
+        args,
       );
       return (rows.first['c'] as num?)?.toInt() ?? 0;
     }
+    if (videoTag != null && videoTag.isNotEmpty) return 0;
     final useCategory = category != null && category.isNotEmpty;
     final rows = await db.rawQuery(
       useCategory
@@ -2276,6 +2473,23 @@ class SqfliteActressDatabase implements ActressDatabase {
     return [
       for (final row in rows)
         (row['main_category'].toString(), (row['c'] as num).toInt()),
+    ];
+  }
+
+  /// 全库作品标签（video_tag.tag_name，去重计数，按作品数倒序）：
+  /// 标签筛选底部弹窗的数据来源。只读查询，不写盘；没有 video_tag
+  /// 表的库直接抛错，调用方跳过（与 dbCategories 同一口径）。
+  @override
+  Future<List<(String, int)>> dbTags() async {
+    final db = await _open();
+    final rows = await db.rawQuery(
+      'SELECT tag_name, COUNT(*) AS c FROM video_tag '
+      "WHERE tag_name IS NOT NULL AND tag_name <> '' "
+      'GROUP BY tag_name ORDER BY c DESC',
+    );
+    return [
+      for (final row in rows)
+        (row['tag_name'].toString(), (row['c'] as num).toInt()),
     ];
   }
 
@@ -3347,6 +3561,24 @@ class MemoryActressDatabase implements ActressDatabase {
   final _filmsState = <String, bool>{};
   final _checkpoints = <String, ActressSyncCheckpoint>{};
 
+  /// 作品标签（测试用，镜像 video_tag 表）：番号键 → 标签集合。
+  /// RosterFilm 没有标签字段，测试用 [setWorkTagsForCode] 另行登记。
+  final _workTags = <String, Set<String>>{};
+
+  /// 测试用：给某番号登记作品标签（与 video_tag 表同一口径，
+  /// 番号键用归一化后的 codeKey）。
+  void setWorkTagsForCode(String codeKey, List<String> tags) {
+    final key = normalizeAvCode(codeKey);
+    if (key.isEmpty) return;
+    _workTags[key] = {...tags.where((t) => t.isNotEmpty)};
+  }
+
+  bool _workHasVideoTag(ActressWork work, String videoTag) {
+    if (videoTag.isEmpty) return true;
+    final tags = _workTags[normalizeAvCode(work.codeKey)];
+    return tags != null && tags.contains(videoTag);
+  }
+
   /// 内存库永远不是视频库（视频库只走 SqfliteActressDatabase）。
   @override
   bool get isVideoLibrary => false;
@@ -3440,9 +3672,7 @@ class MemoryActressDatabase implements ActressDatabase {
       merged = existing.copyWith(
         aliases: [...existing.aliases, ...extra],
         sex: existing.sex.isNotEmpty ? existing.sex : sex,
-        avatarUrl: existing.avatarUrl.isNotEmpty
-            ? existing.avatarUrl
-            : avatarUrl,
+        avatarUrl: preferLoadableAvatar(existing.avatarUrl, avatarUrl),
         tags: <String>{...existing.tags, ...tags}.toList(),
       );
     }
@@ -3527,13 +3757,24 @@ class MemoryActressDatabase implements ActressDatabase {
     required int limit,
     String tag = '',
     String category = '',
+    String videoTag = '',
   }) async {
     final filtered = _filtered(
       sex: sex,
       query: query,
       tag: tag,
       category: category,
-    );
+    ).where(
+      // 作品标签：只留有该标签作品的人（与严格库 video_tag
+      // EXISTS 同一口径）。
+      (person) =>
+          videoTag.isEmpty ||
+          _works.values.any(
+            (work) =>
+                work.personId == person.localId &&
+                _workHasVideoTag(work, videoTag),
+          ),
+    ).toList();
     switch (sort) {
       case ActressSort.worksDesc:
         filtered.sort((a, b) {
@@ -3574,7 +3815,23 @@ class MemoryActressDatabase implements ActressDatabase {
     required ActressSexFilter sex,
     required String query,
     String tag = '',
-  }) async => _filtered(sex: sex, query: query, tag: tag).length;
+    String videoTag = '',
+  }) async {
+    if (videoTag.isEmpty) {
+      return _filtered(sex: sex, query: query, tag: tag).length;
+    }
+    return _filtered(
+      sex: sex,
+      query: query,
+      tag: tag,
+    ).where(
+      (person) => _works.values.any(
+        (work) =>
+            work.personId == person.localId &&
+            _workHasVideoTag(work, videoTag),
+      ),
+    ).length;
+  }
 
   @override
   Future<List<ActressPerson>> allPersonsForRanking({
@@ -3632,11 +3889,17 @@ class MemoryActressDatabase implements ActressDatabase {
     required int offset,
     required int limit,
     String? category,
+    String? videoTag,
   }) async {
     final useCategory = category != null && category.isNotEmpty;
+    final useVideoTag = videoTag != null && videoTag.isNotEmpty;
+    final wantedTag = videoTag ?? '';
     final works = _works.values
         .where((work) => work.personId == personId)
         .where((work) => !useCategory || work.category == category)
+        .where(
+          (work) => !useVideoTag || _workHasVideoTag(work, wantedTag),
+        )
         .toList()
       ..sort((a, b) => a.id.compareTo(b.id));
     if (offset >= works.length) return const [];
@@ -3644,11 +3907,16 @@ class MemoryActressDatabase implements ActressDatabase {
   }
 
   @override
-  Future<int> countWorks(int personId, {String? category}) async {
+  Future<int> countWorks(int personId, {String? category, String? videoTag}) async {
     final useCategory = category != null && category.isNotEmpty;
+    final useVideoTag = videoTag != null && videoTag.isNotEmpty;
+    final wantedTag = videoTag ?? '';
     return _works.values
         .where((work) => work.personId == personId)
         .where((work) => !useCategory || work.category == category)
+        .where(
+          (work) => !useVideoTag || _workHasVideoTag(work, wantedTag),
+        )
         .length;
   }
 
@@ -3694,6 +3962,27 @@ class MemoryActressDatabase implements ActressDatabase {
   /// 内存库没有全库分类表：回空集（多库合并时跳过）。
   @override
   Future<List<(String, int)>> dbCategories() async => const [];
+
+  /// 内存库作品标签计数（按登记的 _workTags × 入库作品现算，
+  /// 作品数倒序、同数按名字排；没有登记的标签不出现）。
+  @override
+  Future<List<(String, int)>> dbTags() async {
+    final counts = <String, int>{};
+    for (final work in _works.values) {
+      final tags = _workTags[normalizeAvCode(work.codeKey)];
+      if (tags == null) continue;
+      for (final tag in tags) {
+        counts[tag] = (counts[tag] ?? 0) + 1;
+      }
+    }
+    final entries = counts.entries.toList()
+      ..sort((a, b) {
+        final byCount = b.value.compareTo(a.value);
+        if (byCount != 0) return byCount;
+        return a.key.compareTo(b.key);
+      });
+    return [for (final e in entries) (e.key, e.value)];
+  }
 
   void _refreshWorksCount(int personId) {
     final person = _persons[personId];

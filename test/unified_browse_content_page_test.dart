@@ -55,32 +55,20 @@ void main() {
     expect(find.text('测试分类'), findsOneWidget);
     // 首批 4 站的站头与作品都出现，第 5、6 站还没取。
     expect(find.text('站0作品甲'), findsOneWidget);
-    // 第 4 站在首屏外，滚到可见再断言（懒加载只建可见卡）。
-    await tester.scrollUntilVisible(find.text('站3作品乙'), 300);
-    expect(find.text('站3作品乙'), findsOneWidget);
     expect(find.text('站4作品甲'), findsNothing);
     expect(find.text('站5作品甲'), findsNothing);
-    // 还剩 2 站，加载更多按钮显示余数（按钮在列表底，滚到可见再断言）。
-    await tester.scrollUntilVisible(
-      find.byKey(const ValueKey('unified_browse_load_more_sites')),
-      300,
-    );
+    // 还剩 2 站，加载更多按钮显示余数：把视口拉高到装得下
+    // 首批 + 按钮再断言——滚到底会触发自动加载，不能先滚。
+    await tester.binding.setSurfaceSize(const Size(400, 1300));
+    await tester.pumpAndSettle();
     expect(find.textContaining('还剩 2 站'), findsOneWidget);
   });
 
-  testWidgets('加载更多站点取下一批', (tester) async {
+  testWidgets('滑到底自动取下一批站点，不用点按钮', (tester) async {
     await pump(tester, entries(6), itemsBySite: twoItemsPerSite(6));
 
-    // 按钮在列表底，先滚到可见再点。
-    await tester.scrollUntilVisible(
-      find.byKey(const ValueKey('unified_browse_load_more_sites')),
-      300,
-    );
-    await tester.tap(
-      find.byKey(const ValueKey('unified_browse_load_more_sites')),
-    );
-    await tester.pumpAndSettle();
-
+    expect(find.text('站4作品甲'), findsNothing);
+    // 往上滑到底，第二批自动取来，不点「加载更多站点」按钮。
     await tester.scrollUntilVisible(find.text('站4作品甲'), 300);
     expect(find.text('站4作品甲'), findsOneWidget);
     await tester.scrollUntilVisible(find.text('站5作品乙'), 300);

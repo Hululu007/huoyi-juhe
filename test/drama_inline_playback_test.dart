@@ -18,6 +18,8 @@ import 'package:fqapp/services/api_client.dart';
 import 'package:fqapp/services/app_theme.dart';
 import 'package:fqapp/services/digg_store.dart';
 import 'package:fqapp/services/drama_channel_preferences.dart';
+import 'package:fqapp/services/drama_feed_adult_mix.dart';
+import 'package:fqapp/services/drama_site_content.dart';
 import 'package:fqapp/services/drama_mute_preferences.dart';
 import 'package:fqapp/services/player_preferences.dart';
 import 'package:fqapp/services/shelf_store.dart';
@@ -77,6 +79,10 @@ class _Session {
 
   /// 每部剧的目录集数（缺省单集）。续播到第 N 集的用例调大它。
   int episodeCount = 1;
+
+  /// 推荐 feed 里混入的成人条目（测试缝经 adultMixLoader 注入，缺省空 =
+  /// 纯短剧）。条目自带验活地址，页面直接拿它内联起播。
+  List<AdultMixEntry> adultMixEntries = const [];
 
   /// The two notifiers the page's providers resolve to; kept as fields so a
   /// test can re-load the feed without a gesture.
@@ -142,6 +148,7 @@ class _Session {
             return response;
           },
           historyStore: store,
+          adultMixLoader: ({required int xp}) async => adultMixEntries,
           hotCommentsLoader: (seriesId) async =>
               hotComments.putIfAbsent(seriesId, () => const []),
           playerFactory: () {
@@ -1198,6 +1205,70 @@ void main() {
         .toList();
     expect(writesForFirst, isNotEmpty);
     expect(writesForFirst.last['episodeId'], firstEpisodeId);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('混入卡上屏就内联起播（直接地址），不走番茄目录/取流', (tester) async {
+    final session = _Session()
+      ..itemsPerTab = 8
+      ..adultMixEntries = [
+        AdultMixEntry(
+          item: MediaItem(
+            id: 'adultmix:test:v0',
+            title: '混入片',
+            cover: '',
+            author: '',
+            badge: '',
+            ep: '',
+            kind: 'film',
+            categories: ['测试站'],
+          ),
+          siteId: 'test',
+          siteItem: const DramaSiteItem(id: 'v0', title: '混入片', cover: ''),
+          playUrl: 'https://example.invalid/mix.mp4',
+        ),
+      ];
+    await _mount(tester, session);
+    // 首卡是短剧，正常起播。
+    expect(session.players, hasLength(1));
+
+    // 每 4 条短剧插 1 条混入：上滑 4 次落到混入卡。
+    for (var i = 0; i < 4; i++) {
+      await _swipeUp(tester);
+    }
+    final mixPlayer = session.players.last;
+    expect(
+      mixPlayer.calls,
+      contains('create:https://example.invalid/mix.mp4'),
+    );
+    expect(mixPlayer.calls, contains('play'));
+    expect(mixPlayer.isPlaying, isTrue);
+    // 混入卡没拿站方 id 去撞番茄目录/取流，也没拉番茄热评。
+    expect(
+      session.directoryCalls.any((call) => call.contains('adultmix')),
+      isFalse,
+    );
+    expect(
+      session.contentCalls.any((call) => call.contains('adultmix')),
+      isFalse,
+    );
+    expect(session.hotComments.containsKey('adultmix:test:v0'), isFalse);
+    // 混入卡挂的是视频层（纹理），不是只有封面。
+    expect(
+      find.byKey(const ValueKey('drama_inline_texture_film_adultmix:test:v0')),
+      findsOneWidget,
+    );
+    expect(find.byType(Texture), findsOneWidget);
+
+    // 滑回上一部短剧：混入解码器只入池不销毁，短剧从池里接回、不新建。
+    await tester.drag(
+      find.byKey(const Key('drama_feed')),
+      const Offset(0, 600),
+    );
+    await tester.pumpAndSettle();
+    await _flush(tester);
+    expect(session.players, hasLength(5));
+    expect(mixPlayer.disposed, isFalse);
     expect(tester.takeException(), isNull);
   });
 }

@@ -244,4 +244,147 @@ void main() {
     expect(session.activeEpisodeIndex, 1);
     expect(session.activeVid.value, 'a-2');
   });
+
+  group('activateDirect（混入成人卡直接地址起播）', () {
+    MediaItem mix(String id) => MediaItem(
+      id: 'adultmix:test:$id',
+      title: '混入$id',
+      cover: '',
+      author: '',
+      badge: '',
+      ep: '',
+      kind: 'film',
+    );
+
+    InlineVideoPlayback directSession(
+      List<ControlledNativePlayer> players, {
+      ControlledReaderStore? store,
+    }) => InlineVideoPlayback(
+      directoryLoader: (id, tab) async =>
+          throw StateError('混入卡不应走番茄目录'),
+      contentLoader: (itemId, tab) async =>
+          throw StateError('混入卡不应走番茄取流'),
+      playerFactory: () {
+        final player = ControlledNativePlayer();
+        players.add(player);
+        return player;
+      },
+      historyStore: store ?? MemoryReaderStore(),
+    );
+
+    test('直接用验活地址建播放器，不碰番茄目录与取流', () async {
+      final players = <ControlledNativePlayer>[];
+      final store = ControlledReaderStore();
+      final session = directSession(players, store: store);
+      addTearDown(session.dispose);
+
+      await session.activateDirect(
+        mix('m'),
+        'https://example.invalid/mix.mp4',
+      );
+      expect(session.activeId.value, 'adultmix:test:m');
+      expect(session.playing.value, isTrue);
+      expect(players.single.calls, contains('create:https://example.invalid/mix.mp4'));
+      expect(players.single.calls, contains('play'));
+      // 没有目录与集号：不写弹幕 vid，不记进度。
+      expect(session.episodes, isEmpty);
+      expect(session.activeVid.value, isNull);
+      expect(session.activeEpisodeIndex, isNull);
+      await session.release();
+      expect(store.writes, isEmpty);
+    });
+
+    test('非法地址按失败处理：报错、不建播放器、不抛错', () async {
+      final players = <ControlledNativePlayer>[];
+      final session = directSession(players);
+      addTearDown(session.dispose);
+
+      await session.activateDirect(mix('m'), 'novel://{"title":"x"}');
+      expect(players, isEmpty);
+      expect(session.hasPlayer, isFalse);
+      expect(session.playing.value, isFalse);
+      expect(session.error.value, isNotNull);
+    });
+
+    test('短剧切到混入卡再切回：两边解码器都入池复用，不重建', () async {
+      final players = <ControlledNativePlayer>[];
+      final session = InlineVideoPlayback(
+        directoryLoader: (id, tab) async => [
+          [Chapter(itemId: '$id-1', title: '第 1 集', volumeName: '剧集')],
+        ],
+        contentLoader: (itemId, tab) async => {
+          'video_url': 'https://example.invalid/$itemId.mp4',
+        },
+        playerFactory: () {
+          final player = ControlledNativePlayer();
+          players.add(player);
+          return player;
+        },
+        historyStore: MemoryReaderStore(),
+      );
+      addTearDown(session.dispose);
+
+      await session.activate(_series('a'));
+      expect(players.single.calls, contains('play'));
+
+      await session.activateDirect(
+        mix('m'),
+        'https://example.invalid/mix.mp4',
+      );
+      expect(players, hasLength(2));
+      expect(
+        players[1].calls,
+        contains('create:https://example.invalid/mix.mp4'),
+      );
+      expect(players[1].calls, contains('play'));
+      expect(players[0].disposed, isFalse, reason: '短剧解码器只入池不销毁');
+
+      await session.activate(_series('a'));
+      expect(players, hasLength(2), reason: '短剧从池里接回，不新建解码器');
+      expect(
+        players[0].calls.where((call) => call == 'play').length,
+        2,
+      );
+      expect(players[1].disposed, isFalse, reason: '混入解码器只入池不销毁');
+    });
+
+    test('混入卡滑走入池、滑回接回，不新建解码器', () async {
+      final players = <ControlledNativePlayer>[];
+      final session = InlineVideoPlayback(
+        directoryLoader: (id, tab) async => [
+          [Chapter(itemId: '$id-1', title: '第 1 集', volumeName: '剧集')],
+        ],
+        contentLoader: (itemId, tab) async => {
+          'video_url': 'https://example.invalid/$itemId.mp4',
+        },
+        playerFactory: () {
+          final player = ControlledNativePlayer();
+          players.add(player);
+          return player;
+        },
+        historyStore: MemoryReaderStore(),
+      );
+      addTearDown(session.dispose);
+
+      await session.activateDirect(
+        mix('m'),
+        'https://example.invalid/mix.mp4',
+      );
+      await session.activate(_series('b'));
+      expect(players, hasLength(2));
+      expect(players[0].disposed, isFalse, reason: '混入解码器只入池不销毁');
+
+      await session.activateDirect(
+        mix('m'),
+        'https://example.invalid/mix.mp4',
+      );
+      expect(players, hasLength(2), reason: '混入卡从池里接回，不新建解码器');
+      expect(
+        players[0].calls.where((call) => call == 'play').length,
+        2,
+      );
+      expect(session.activeId.value, 'adultmix:test:m');
+      expect(session.playing.value, isTrue);
+    });
+  });
 }

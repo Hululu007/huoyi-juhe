@@ -7,7 +7,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/home_cell.dart';
 import '../models/media_item.dart';
-import '../models/search_discovery.dart';
 import '../services/api_client.dart';
 import '../services/app_log.dart';
 import '../services/book_open_preferences.dart';
@@ -57,7 +56,7 @@ import 'video_page.dart';
 /// 版式（用户 2026-10-26 起的设计方向）：
 ///
 /// ```
-/// 搜索行
+/// 品牌行（头像 + 标题 + 搜索/刷新/分类圆钮）
 /// 分类条（吸顶）
 /// 继续阅读          ← 只有「推荐」且有阅读史：一行字，无封面无卡面
 /// 排行榜            ← 上游 RankCellV3，横滑大封面 + 名次
@@ -78,7 +77,6 @@ class HomePage extends ConsumerStatefulWidget {
     this.cacheStore,
     this.readerStore,
     this.scrollController,
-    this.cueLoader,
   });
 
   final ChapterCache? cacheStore;
@@ -92,12 +90,6 @@ class HomePage extends ConsumerStatefulWidget {
   /// 使用不受影响。
   final ScrollController? scrollController;
 
-  /// 搜索框热搜词来源，由壳层注入（生产接 `ApiClient.searchCue`）。
-  ///
-  /// 注入而不是页内直连，与 [SearchPage] 的 `hotSearchLoader` 同一规矩：
-  /// 页面测试不落网络（ApiClient 的超时是 20s Timer，挂进测试必炸）。
-  final Future<SearchCue> Function()? cueLoader;
-
   @override
   ConsumerState<HomePage> createState() => _HomePageState();
 }
@@ -106,11 +98,11 @@ class _HomePageState extends ConsumerState<HomePage> {
   late final ScrollController _scroll =
       widget.scrollController ?? ScrollController();
 
-  /// 分类条吸顶的位置靠它量：搜索行的高度就是内容区的第一行。
+  /// 分类条吸顶的位置靠它量：品牌行的高度就是内容区的第一行。
   final GlobalKey _heroKey = GlobalKey();
   late final _homeTabs = HomeTabSwitch(_scroll, ref, _heroKey);
 
-  /// 当前短剧站点：只在短剧分类下显示为搜索行左侧的药丸。
+  /// 当前短剧站点：只在短剧分类下显示为品牌行副标题，头像点按切站。
   /// 有取数客户端的站切站即换内容，未接通的站照旧走原站流。
   String _dramaSiteId = DramaSitePreferences.selectedId;
 
@@ -119,7 +111,7 @@ class _HomePageState extends ConsumerState<HomePage> {
     DramaSitePreferences.selectedId,
   ).categories.first.id;
 
-  /// 当前影视站点：只在影视分类下显示为搜索行左侧的药丸。
+  /// 当前影视站点：只在影视分类下显示为品牌行副标题，头像点按切站。
   /// 与底部导航影视区共用同一把选择（`video_zone_site_id`），
   /// 两边切站互相记得；短剧的选择另记（`drama_site_id`），各记各的。
   String? _filmSiteId;
@@ -224,19 +216,31 @@ class _HomePageState extends ConsumerState<HomePage> {
         dramaSiteById(id).name;
   }
 
-  /// 影视站切换：点药丸弹居中弹窗，站点四列网格，点一项即切换并持久化
+  /// 影视站切换：点头像弹居中弹窗，站点四列网格，点一项即切换并持久化
   /// （与影视区共用同一把选择，两边互相记得）。
   Future<void> _openFilmSiteList() async {
     await SourceRegistry.instance.load();
     if (!mounted) return;
     final xp = CultivationService.instance.snapshot.totalXp;
-    final sites = visibleVideoZoneSites(SourceRegistry.instance.custom, xp);
+    final entries = videoZoneSiteEntries(SourceRegistry.instance.custom, xp);
     final picked = await showSiteGridDialog(
       context: context,
-      sites: sites,
+      sites: entries,
       selectedId: _filmSiteId,
+      initialZone:
+          entries
+              .where((entry) => entry.id == _filmSiteId)
+              .firstOrNull
+              ?.zone ??
+          SiteGridZone.builtin,
+      onDeleteSite: deleteSiteGridEntry,
     );
-    if (picked == null || !mounted) return;
+    if (!mounted) return;
+    if (picked == null) {
+      // 弹窗里删/藏了当前站：当前站不在可见表里就回落到首站，别留野 id。
+      await _fallBackFilmSiteIfHidden();
+      return;
+    }
     try {
       final preferences = await SharedPreferences.getInstance();
       await preferences.setString(videoZoneSitePreferenceKey, picked);
@@ -250,6 +254,33 @@ class _HomePageState extends ConsumerState<HomePage> {
       });
       _refreshFilmCategories(picked);
     }
+  }
+
+  /// 弹窗里删/藏了当前影视站：当前站不在可见表里就回落到首站（或空）。
+  Future<void> _fallBackFilmSiteIfHidden() async {
+    final xp = CultivationService.instance.snapshot.totalXp;
+    final entries = videoZoneSiteEntries(SourceRegistry.instance.custom, xp);
+    final resolved = resolveCurrentSiteId(
+      _filmSiteId,
+      [for (final entry in entries) entry.id],
+    );
+    if (resolved == _filmSiteId) return;
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      if (resolved == null) {
+        await preferences.remove(videoZoneSitePreferenceKey);
+      } else {
+        await preferences.setString(videoZoneSitePreferenceKey, resolved);
+      }
+    } catch (_) {}
+    if (!mounted) return;
+    setState(() {
+      _filmSiteId = resolved;
+      _filmCategoryId = 'all';
+      _filmCategories = null;
+      _filmCategoriesSiteId = '';
+    });
+    if (resolved != null) _refreshFilmCategories(resolved);
   }
 
   /// 影视站的真实分类：客户端分类优先，取不到退回站点登记的分类。
@@ -354,7 +385,7 @@ class _HomePageState extends ConsumerState<HomePage> {
     unawaited(
       DramaSitePreferences.load().then((_) async {
         if (!mounted) return;
-        // 以前短剧药丸混着影视站，存过的选择可能是影视站：不在
+        // 以前短剧站表里混着影视站，存过的选择可能是影视站：不在
         // 短剧表里就回落到第一个短剧站并持久化，短剧区不再接着
         // 播影视站的内容。
         await SourceRegistry.instance.load();
@@ -518,7 +549,7 @@ class _HomePageState extends ConsumerState<HomePage> {
               ),
               child: SafeArea(
                 bottom: false,
-                // 冷启动失败不再整页替换：搜索行与分类条留在原位，错误信息进
+                // 冷启动失败不再整页替换：品牌行与分类条留在原位，错误信息进
                 // feed 里滚动，用户换个分类或下拉都能继续用。
                 child: RefreshIndicator(
                   color: HomePalette.accent,
@@ -558,7 +589,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                           controller: _scroll,
                           // 顶栏用反向位移钉在屏幕上（SwipeStationary），会被画到
                           // 视口之外。视口默认 Clip.hardEdge 只认自己的 bounds，会把
-                          // 搜索行右半截和末位标签裁掉；裁剪统一交给 TabSwipeArea
+                          // 品牌行右半截和末位标签裁掉；裁剪统一交给 TabSwipeArea
                           // 外层的 ClipRect。
                           clipBehavior: Clip.none,
                           physics: const BouncingScrollPhysics(
@@ -623,7 +654,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                             // 顶部出现，核心里所有站点的视频、小说、漫画、听书
                             // 都在这里；成人站按修仙境界解锁，未解锁的不显示。
                             // 放在内容区之外（不进 _contentSlivers 的缓存），
-                            // 跟搜索行、分类条一样属于页面级区块。
+                            // 跟品牌行、分类条一样属于页面级区块。
                             if (state.tabIndex == 0)
                               HomeFilmZone(gridWidth: gridWidth),
                             ...content,
@@ -641,9 +672,9 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
-  /// 搜索行。横滑切分类时它不跟着走：它属于「页面」，不属于「内容」。
-  /// 短剧分类下搜索行左侧是短剧站点药丸，影视分类下是影视站点药丸
-  /// （走影视区站表，点它切影视站）；其余分类保持原版式。
+  /// 品牌行。横滑切分类时它不跟着走：它属于「页面」，不属于「内容」。
+  /// 短剧分类下品牌行副标题是短剧站点名，影视分类下是影视站点名
+  /// （走影视区站表，点头像切影视站）；其余分类头像点按切短剧站。
   SliverToBoxAdapter _heroSliver(int tabIndex) {
     final label = tabIndex >= 0 && tabIndex < homeCategories.length
         ? homeCategories[tabIndex].label
@@ -660,37 +691,62 @@ class _HomePageState extends ConsumerState<HomePage> {
               : label == '影视'
               ? _filmSiteName
               : label,
-          siteName: label == '短剧'
-              ? dramaSiteById(_dramaSiteId).name
-              : label == '影视'
-              ? _filmSiteName
-              : null,
           onSiteTap: label == '影视' ? _openFilmSiteList : _openSiteList,
-          cueLoader: widget.cueLoader,
         ),
       ),
     );
   }
 
   /// 短剧站点列表：只列短剧站，影视站不进（`visibleShortDramaSites`）。
-  /// 点药丸弹居中弹窗，站点四列网格，点一项即切换药丸并持久化。
+  /// 点头像弹居中弹窗，站点四列网格，点一项即切换并持久化。
+  /// 弹窗内分内置区 / 导入区两区（修仙版不要插件系统），区内全是短剧组；
+  /// 长按删/藏（导入站真删、内置站隐藏），删/藏了当前站就回落到首站。
   Future<void> _openSiteList() async {
     await SourceRegistry.instance.load();
     if (!mounted) return;
-    final sites = SourceRegistry.instance
-        .visibleShortDramaSites(types: {ContentType.video, ContentType.mixed})
-        .where((site) {
-          final entry = SourceRegistry.instance.customById(site.id);
-          if (entry?.kind != SourceKind.legadoImport) return true;
-          return entry!.extra['hasExplore'] == true;
-        })
-        .toList();
+    final sites = _shortDramaPickerSites();
+    final builtinIds = {for (final site in allDramaSites) site.id};
+    final entries = <SiteGridEntry>[
+      for (final site in sites)
+        (
+          id: site.id,
+          name: site.name,
+          zone: builtinIds.contains(site.id)
+              ? SiteGridZone.builtin
+              : SiteGridZone.import,
+          group: SiteGridGroup.shortDrama,
+        ),
+    ];
     final picked = await showSiteGridDialog(
       context: context,
-      sites: [for (final site in sites) (id: site.id, name: site.name)],
+      sites: entries,
       selectedId: _dramaSiteId,
+      initialZone: builtinIds.contains(_dramaSiteId)
+          ? SiteGridZone.builtin
+          : SiteGridZone.import,
+      onDeleteSite: deleteSiteGridEntry,
     );
-    if (picked == null || !mounted) return;
+    if (!mounted) return;
+    if (picked == null) {
+      // 弹窗里删/藏了当前站：当前站不在可见表里就回落到首站，别留野 id。
+      final fresh = _shortDramaPickerSites();
+      final resolved = resolveCurrentSiteId(
+        _dramaSiteId,
+        [for (final site in fresh) site.id],
+      );
+      if (resolved != null && resolved != _dramaSiteId) {
+        await DramaSitePreferences.save(resolved);
+        if (mounted) {
+          setState(() {
+            _dramaSiteId = resolved;
+            _dramaCategoryId = dramaSiteById(resolved).categories.first.id;
+            _engineCategories = null;
+            _engineCategoriesSiteId = '';
+          });
+        }
+      }
+      return;
+    }
     await DramaSitePreferences.save(picked);
     if (mounted) {
       setState(() {
@@ -700,6 +756,19 @@ class _HomePageState extends ConsumerState<HomePage> {
         _engineCategoriesSiteId = '';
       });
     }
+  }
+
+  /// 短剧区切换弹窗的站表（与 [_openSiteList] 同一份过滤）：只列短剧站，
+  /// legado 导入站须有探索页（`hasExplore`）才进。
+  List<DramaSite> _shortDramaPickerSites() {
+    return SourceRegistry.instance
+        .visibleShortDramaSites(types: {ContentType.video, ContentType.mixed})
+        .where((site) {
+          final entry = SourceRegistry.instance.customById(site.id);
+          if (entry?.kind != SourceKind.legadoImport) return true;
+          return entry!.extra['hasExplore'] == true;
+        })
+        .toList();
   }
 
   /// 短剧站点的分类条：放在分类条下方、内容上方，只在短剧分类下出现。
@@ -717,7 +786,7 @@ class _HomePageState extends ConsumerState<HomePage> {
         : site.categories;
     return SliverToBoxAdapter(
       child: SizedBox(
-        height: 40,
+        height: 36,
         child: ListView(
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -729,7 +798,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                   onTap: () => setState(() => _dramaCategoryId = category.id),
                   child: Container(
                     alignment: Alignment.center,
-                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
                     decoration: BoxDecoration(
                       gradient: category.id == _dramaCategoryId
                           ? moyiSelectedGradient
@@ -742,7 +811,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                     child: Text(
                       category.displayName,
                       style: TextStyle(
-                        fontSize: 13,
+                        fontSize: 12,
                         color: category.id == _dramaCategoryId
                             ? Colors.white
                             : moyiBodyOnDark,
@@ -759,7 +828,7 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   /// 影视站点的分类条：放在分类条下方、内容上方，只在影视分类下出现。
   /// 分类随站点变化（客户端分类优先，取不到退回站点登记的分类）；
-  /// 点一项切分类，网格即换内容。分类还在取时先占 40 高防版式跳动。
+  /// 点一项切分类，网格即换内容。分类还在取时先占 36 高防版式跳动。
   Widget _filmCategoryStrip() {
     final siteId = _filmSiteId;
     if (siteId == null) return const SliverToBoxAdapter();
@@ -768,12 +837,12 @@ class _HomePageState extends ConsumerState<HomePage> {
     }
     final categories = _filmCategories;
     if (categories == null) {
-      return const SliverToBoxAdapter(child: SizedBox(height: 40));
+      return const SliverToBoxAdapter(child: SizedBox(height: 36));
     }
     if (categories.isEmpty) return const SliverToBoxAdapter();
     return SliverToBoxAdapter(
       child: SizedBox(
-        height: 40,
+        height: 36,
         child: ListView(
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -785,7 +854,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                   onTap: () => setState(() => _filmCategoryId = category.id),
                   child: Container(
                     alignment: Alignment.center,
-                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
                     decoration: BoxDecoration(
                       gradient: category.id == _filmCategoryId
                           ? moyiSelectedGradient
@@ -798,7 +867,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                     child: Text(
                       category.displayName,
                       style: TextStyle(
-                        fontSize: 13,
+                        fontSize: 12,
                         color: category.id == _filmCategoryId
                             ? Colors.white
                             : moyiBodyOnDark,
@@ -815,17 +884,17 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   /// 小说区合并分类条：放在分类条下方、内容上方，只在小说分类下出现。
   /// 分类是一般小说核心站按名合并的（与短剧条同款式，点一项进混排目录页，
-  /// 不在原地过滤）；取不到时不出现，加载中先占 40 高防版式跳动。
+  /// 不在原地过滤）；取不到时不出现，加载中先占 36 高防版式跳动。
   Widget _novelCategoryStrip() {
     if (_novelCategories == null) {
       unawaited(_refreshNovelCategories());
-      return const SliverToBoxAdapter(child: SizedBox(height: 40));
+      return const SliverToBoxAdapter(child: SizedBox(height: 36));
     }
     final categories = _novelCategories!;
     if (categories.isEmpty) return const SliverToBoxAdapter();
     return SliverToBoxAdapter(
       child: SizedBox(
-        height: 40,
+        height: 36,
         child: ListView(
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -841,7 +910,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                   ),
                   child: Container(
                     alignment: Alignment.center,
-                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
                     decoration: BoxDecoration(
                       color: moyiDarkCardFill,
                       borderRadius: BorderRadius.circular(20),
@@ -849,7 +918,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                     child: Text(
                       category.name,
                       style: const TextStyle(
-                        fontSize: 13,
+                        fontSize: 12,
                         color: moyiBodyOnDark,
                       ),
                     ),
@@ -879,7 +948,7 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   /// 横滑时「正在进来」的那一页。
   ///
-  /// 只铺内容区（搜索行、分类条由当前页的 [SwipeStationary] 钉住），并用
+  /// 只铺内容区（品牌行、分类条由当前页的 [SwipeStationary] 钉住），并用
   /// [_previewContentTop] 对齐到切换后内容所在的第一行——新分类从自己的
   /// 第一行开始显示，与 [HomeTabSwitch] 的落点一致。没进过的分类铺骨架，
   /// 至少不是一块底色。
@@ -906,8 +975,8 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   /// 切到邻页后，内容区第一行在屏幕上的 y。
   ///
-  /// 搜索行高度 + 分类条高度 - 落点。落点与 [HomeTabSwitch] 一致：滚过搜索行
-  /// 就停在搜索行高度（分类条吸顶），否则原地不动。
+  /// 顶栏高度 + 分类条高度 - 落点。落点与 [HomeTabSwitch] 一致：滚过顶栏
+  /// 就停在顶栏高度（分类条吸顶），否则原地不动。
   double _previewContentTop(double textScale) {
     final hero = _heroKey.currentContext?.size?.height ?? 0;
     final bar = HomeTabBarDelegate.extentFor(textScale);
@@ -1022,7 +1091,7 @@ class _HomePageState extends ConsumerState<HomePage> {
       }
       // `alx.xml` points its `SkeletonLayout` at `cmc`, so a cold first load
       // paints the skeleton rather than a spinner. 切分类不是冷启动：满屏脉冲
-      // 骨架 + 搜索行被带回来，正是「整页重新加载」的观感，用轻量提示代替。
+      // 骨架 + 顶栏被带回来，正是「整页重新加载」的观感，用轻量提示代替。
       if (_hadContent) {
         return const [SliverToBoxAdapter(child: HomeFeedLoading())];
       }

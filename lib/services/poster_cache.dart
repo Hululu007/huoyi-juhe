@@ -1,8 +1,28 @@
+import 'dart:async';
 import 'dart:io' as io;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:path_provider/path_provider.dart';
+
+/// 单次图片请求的超时：30 秒。
+///
+/// cached_network_image 4.0.3 / flutter_cache_manager 3.5.0 没有任何超时
+/// 参数，Config 也没有超时项；这里不改库，只用库公开的 Config.fileService
+/// 扩展点包一层：get() 30 秒内没回响应头就抛 TimeoutException，缓存库按
+/// 失败处理（不进缓存），StoryCover 收到失败后按退避重试。
+/// 注意：这只卡“拿到响应头”的时间，正文流中途卡住不在此限，仍靠系统 TCP 超时。
+class TimeoutFileService extends HttpFileService {
+  static const requestTimeout = Duration(seconds: 30);
+
+  TimeoutFileService({super.httpClient});
+
+  @override
+  Future<FileServiceResponse> get(
+    String url, {
+    Map<String, String>? headers,
+  }) => super.get(url, headers: headers).timeout(requestTimeout);
+}
 
 /// The app's single image cache.
 ///
@@ -34,6 +54,7 @@ class PosterCache extends CacheManager with ImageCacheManager {
           cacheKey,
           stalePeriod: stalePeriod,
           maxNrOfCacheObjects: maxEntries,
+          fileService: TimeoutFileService(),
         ),
       );
 

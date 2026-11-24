@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:cached_network_image/cached_network_image.dart';
@@ -36,7 +37,16 @@ String homeScoreText(double score) => score == score.roundToDouble()
     ? '${score.toStringAsFixed(0)}分'
     : '${score.toStringAsFixed(1)}分';
 
-class StoryCover extends StatelessWidget {
+/// 封面图：加载失败按退避重试，总共最多 3 次尝试（首次 + 2 次重试）。
+///
+/// 背景：慢网下单张封面要十几秒，一排卡片并行拉取很容易超时/断连；
+/// 以前失败一次就定格占位图。失败由 [CachedNetworkImage.errorListener]
+/// 触发（不在 build 里起副作用），每次重试换 key 强制图片组件重新拉取——
+/// 失败不进磁盘缓存，flutter_cache_manager 失败后也会把该条从内存中的
+/// 在途表里摘掉（WebHelper 失败分支 finally 里 `_memCache.remove(key)`），
+/// 所以重建真的会重新发请求，不会重放旧错误。
+/// 封面地址为空不重试；dispose 时取消待重试的 Timer。
+class StoryCover extends StatefulWidget {
   final MediaItem item;
   final int cacheWidth;
   final Alignment alignment;
@@ -51,27 +61,81 @@ class StoryCover extends StatelessWidget {
   /// video's `VideoFit.contain`).
   final BoxFit fit;
 
+  /// 每次失败后等多久再试，默认 2 秒、6 秒。只供测试缩短等待，产品代码不传。
+  final List<Duration> retryDelays;
+
+  /// 总尝试次数：首次 + 重试次数。
+  static const int maxAttempts = 3;
+
   const StoryCover({
     super.key,
     required this.item,
     required this.cacheWidth,
     this.alignment = Alignment.center,
     this.fit = BoxFit.cover,
+    this.retryDelays = const [
+      Duration(seconds: 2),
+      Duration(seconds: 6),
+    ],
   });
+
+  @override
+  State<StoryCover> createState() => _StoryCoverState();
+}
+
+class _StoryCoverState extends State<StoryCover> {
+  int _attempt = 0;
+  Timer? _retryTimer;
+
+  @override
+  void didUpdateWidget(StoryCover oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.item.cover != widget.item.cover) {
+      _cancelRetry();
+      _attempt = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _cancelRetry();
+    super.dispose();
+  }
+
+  void _cancelRetry() {
+    _retryTimer?.cancel();
+    _retryTimer = null;
+  }
+
+  void _onLoadError(Object _) {
+    if (!mounted) return;
+    if (widget.item.cover.isEmpty) return;
+    if (_attempt >= StoryCover.maxAttempts - 1) return;
+    if (_retryTimer != null) return; // 同一次失败只排一个重试
+    final delays = widget.retryDelays;
+    final delay = delays.isEmpty
+        ? Duration.zero
+        : delays[_attempt.clamp(0, delays.length - 1)];
+    _retryTimer = Timer(delay, () {
+      _retryTimer = null;
+      if (!mounted) return;
+      setState(() => _attempt++);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final fallback = CustomPaint(
-      painter: _CoverArtwork(item.kind),
+      painter: _CoverArtwork(widget.item.kind),
       child: Center(
         child: Icon(
-          homeKindIcon(item.kind),
+          homeKindIcon(widget.item.kind),
           color: Colors.white.withValues(alpha: 0.32),
           size: 38,
         ),
       ),
     );
-    if (item.cover.isEmpty) return fallback;
+    if (widget.item.cover.isEmpty) return fallback;
     // 蜘蛛给的封面形态不止一种：旧壳代理地址（127.0.0.1/proxy?p=）、
     // proxy://do=py 形态（danai 加密图）、http 明文图（系统禁明文直取）、
     // 回环 proxy 不透明形态（蜘蛛写死 9978 端口）。只解 p= 包的
@@ -79,21 +143,24 @@ class StoryCover extends StatelessWidget {
     // resolveCoverUrl 换成图片组件能直接取的地址；本地代理没起
     // 来时退化为老行为。
     final resolved = resolveCoverUrl(
-      item.cover,
+      widget.item.cover,
       proxyBase: LocalMediaProxy.instance.baseUrl,
     );
     return CachedNetworkImage(
+      // 换 key 强制重建：同一地址失败后不换 key，图片组件不会重新发请求。
+      key: ValueKey('story-cover-attempt-$_attempt'),
       cacheManager: PosterCache.instance,
       imageUrl: resolved.url,
       httpHeaders: resolved.headers,
-      fit: fit,
-      alignment: alignment,
-      memCacheWidth: cacheWidth.clamp(1, 1200),
+      fit: widget.fit,
+      alignment: widget.alignment,
+      memCacheWidth: widget.cacheWidth.clamp(1, 1200),
       fadeInDuration: MediaQuery.disableAnimationsOf(context)
           ? Duration.zero
           : const Duration(milliseconds: 220),
       placeholder: (_, _) => fallback,
       errorWidget: (_, _, _) => fallback,
+      errorListener: _onLoadError,
     );
   }
 }

@@ -6,11 +6,11 @@ import '../series_detail/moyi_detail_theme.dart';
 /// 首页 / 搜索 / 分类共用的胶囊筛选 chip（替换 Material 默认 ChoiceChip）。
 ///
 /// 规格取自搜索页的分类条：soft 底、ink 实心选中、StadiumBorder、无勾、
-/// 13sp。Material 默认 chip 在墨水屏下选中态用 `secondaryContainer`（白）
+/// 12sp。Material 默认 chip 在墨水屏下选中态用 `secondaryContainer`（白）
 /// 会和未选中态撞色，选中态直接消失；这里显式给出墨水屏分支：选中 =
 /// 黑底白字，未选中 = 白底黑字 + 1px 黑描边，保证可区分。
 ///
-/// 视觉高度 32dp，触控高度不小于 48dp（InkWell 铺满整块可点区域）。
+/// 视觉高度 28dp，触控高度不小于 48dp（InkWell 铺满整块可点区域）。
 class HomeChip extends StatelessWidget {
   const HomeChip({
     super.key,
@@ -21,7 +21,7 @@ class HomeChip extends StatelessWidget {
   });
 
   /// 视觉胶囊高度；触控高度见 [minTapTarget]。
-  static const double height = 32;
+  static const double height = 28;
 
   /// 触控区域最小高度（比视觉高度多出的部分是透明留白）。
   static const double minTapTarget = 48;
@@ -62,7 +62,7 @@ class HomeChip extends StatelessWidget {
               heightFactor: 1,
               child: Container(
                 height: height,
-                padding: const EdgeInsets.symmetric(horizontal: 14),
+                padding: const EdgeInsets.symmetric(horizontal: 10),
                 // 宽度必须收缩到文字宽度：Wrap / Center 给的是有限最大宽，
                 // 带 alignment 的 Container 会撑满整行，胶囊就变成整条。
                 decoration: ShapeDecoration(
@@ -76,7 +76,7 @@ class HomeChip extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      fontSize: 13,
+                      fontSize: 12,
                       height: 1.2,
                       fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
                       color: foreground,

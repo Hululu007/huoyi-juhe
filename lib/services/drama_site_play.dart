@@ -121,6 +121,14 @@ bool isForeignProxyUrl(String url) {
 /// localProxy）；解不出（不透明令牌）才走蜘蛛 localProxy 会话，蜘蛛没
 /// 实现就报诚实错误；dict 头非空的直链经 /r/ 带上；其余直链原样。
 /// 主地址与每个 variant 一起换，keyHex 与高度原样保留。
+///
+/// 混入验活的公开入口：推荐 feed 的混入取数在进卡前就要把已解析地址
+/// 映射成播放器可直接用的地址（与详情页/播放页同一套映射，不另起逻辑）。
+Future<DramaPlaySource> mapSitePlaySource(
+  DramaSiteContentClient client,
+  DramaPlaySource source,
+) => _proxyIfNeeded(client, source);
+
 Future<DramaPlaySource> _proxyIfNeeded(
   DramaSiteContentClient client,
   DramaPlaySource source,
@@ -838,6 +846,15 @@ Future<void> openDramaSiteItem(
             allowCatalogFallback: !isReadingSite,
           );
         },
+        // 影视区相关推荐（第二块“相关推荐”）：本站首页目录；详情页里
+        // 排除推荐视频区已展示的条目与当前这部。阅读站不传（详情 extra
+        // 是空的，首页兜底对“相关”毫无意义，还多抓一次上游）。
+        homeRelatedLoader: isReadingSite
+            ? null
+            : (id) async {
+                final page = await client.catalog('all', 1);
+                return page.items;
+              },
         onOpenRelatedFilm: (related) =>
             openDramaSiteItem(context, siteId, related),
         // 影视区分类标签点按：站名取注册名（定制站）/ 站表名（内置站），

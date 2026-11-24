@@ -9,6 +9,7 @@ import 'actress_multi_db_fallback.dart';
 import 'actress_json_fallback.dart';
 import 'actress_models.dart';
 import 'actress_neon.dart';
+import 'actress_tag_sheet.dart';
 import 'actress_widgets.dart';
 import 'actress_adapter_http.dart';
 import 'actress_adapter_models.dart';
@@ -39,6 +40,7 @@ class ActressDetailPage extends StatefulWidget {
     required this.store,
     required this.database,
     this.siteFilter = ActressSiteFilter.all,
+    this.initialTag = '',
     this.fallback,
     this.filmDb,
     this.verifyFetch,
@@ -52,6 +54,11 @@ class ActressDetailPage extends StatefulWidget {
 
   /// 列表页传来的站点筛选：兜底区只显示该站的条目（默认全部）。
   final ActressSiteFilter siteFilter;
+
+  /// 列表页传来的作品标签筛选（2026-11-24 标签筛选）：进页时作品
+  /// 列表只留带该标签的作品；页内可点“标签”换标签、点“清除”取消。
+  /// 只活在本页实例里，返回列表页后列表页自己的筛选不受影响。
+  final String initialTag;
 
   /// 测试注入：DB 行加载器；不传时现建。
   @visibleForTesting
@@ -107,6 +114,16 @@ class _ActressDetailPageState extends State<ActressDetailPage> {
   String? _selectedCategory;
   var _categories = <({String name, int count})>[];
 
+  /// 作品标签筛选（2026-11-24 标签筛选）：'' = 全部；其余只留带该
+  /// 标签的作品，与分类是 AND 关系。初始值来自列表页传来的
+  /// initialTag；页内点“标签”可换、点“清除”取消。选了标签时不补
+  /// json 作品（json 作品没有标签，补进来就不是“只留带标签的作品”了）。
+  var _selectedTag = '';
+
+  /// 传给 worksForPerson/countWorks 的标签参数：'' 转 null（= 全部）。
+  String? get _worksVideoTag =>
+      _selectedTag.isEmpty ? null : _selectedTag;
+
   /// 当前筛选下的作品数（翻页用）；头顶总数由人物行的 displayWorks
   /// 显示（只算入库总数，不受筛选影响），不在这里另记。
   var _filteredTotal = 0;
@@ -135,6 +152,7 @@ class _ActressDetailPageState extends State<ActressDetailPage> {
   @override
   void initState() {
     super.initState();
+    _selectedTag = widget.initialTag;
     _scrollController.addListener(_onScroll);
     _bootstrap();
   }
@@ -387,10 +405,12 @@ class _ActressDetailPageState extends State<ActressDetailPage> {
       offset: 0,
       limit: count,
       category: _selectedCategory,
+      videoTag: _worksVideoTag,
     );
     final filteredTotal = await widget.database.countWorks(
       person.localId,
       category: _selectedCategory,
+      videoTag: _worksVideoTag,
     );
     final freshPerson = await widget.database.personById(person.localId);
     if (!mounted || generation != _generation) return;
@@ -435,10 +455,12 @@ class _ActressDetailPageState extends State<ActressDetailPage> {
         offset: 0,
         limit: _pageSize,
         category: _selectedCategory,
+        videoTag: _worksVideoTag,
       );
       final filteredTotal = await widget.database.countWorks(
         person.localId,
         category: _selectedCategory,
+        videoTag: _worksVideoTag,
       );
       if (!mounted || generation != _generation) return;
       setState(() {
@@ -447,8 +469,10 @@ class _ActressDetailPageState extends State<ActressDetailPage> {
         _jsonWorksCount = 0;
         _filteredTotal = filteredTotal;
         // 无筛选时头顶总数就是数据库总数（json 补上后在 _supplementJsonWorks
-        // 里再加）；选了分类不改头顶总数。
-        if (_selectedCategory == null) _headerTotal = filteredTotal;
+        // 里再加）；选了分类/标签不改头顶总数。
+        if (_selectedCategory == null && _selectedTag.isEmpty) {
+          _headerTotal = filteredTotal;
+        }
         _hasMore = works.length < filteredTotal;
         _loading = false;
       });
@@ -464,6 +488,7 @@ class _ActressDetailPageState extends State<ActressDetailPage> {
       offset: _dbWorksCount,
       limit: _pageSize,
       category: _selectedCategory,
+      videoTag: _worksVideoTag,
     );
     if (!mounted || generation != _generation) return;
     setState(() {
@@ -486,8 +511,12 @@ class _ActressDetailPageState extends State<ActressDetailPage> {
   Future<void> _supplementJsonWorks() async {
     final person = _person;
     if (person == null) return;
-    // 选了分类不补；已补过不再补（翻页不重复）。
-    if (_selectedCategory != null || _jsonWorksCount > 0) return;
+    // 选了分类/标签不补；已补过不再补（翻页不重复）。
+    if (_selectedCategory != null ||
+        _selectedTag.isNotEmpty ||
+        _jsonWorksCount > 0) {
+      return;
+    }
     final generation = _generation;
     WhosJsonIndex index;
     try {
@@ -560,7 +589,7 @@ class _ActressDetailPageState extends State<ActressDetailPage> {
     if (extra.isEmpty) return;
     if (!mounted || generation != _generation) return;
     // 再确认一次筛选没变（用户可能在索引加载时切了分类）。
-    if (_selectedCategory != null) return;
+    if (_selectedCategory != null || _selectedTag.isNotEmpty) return;
     setState(() {
       _works = [..._works, ...extra];
       _jsonWorksCount = extra.length;
@@ -606,6 +635,7 @@ class _ActressDetailPageState extends State<ActressDetailPage> {
       offset: 0,
       limit: _works.length + 60,
       category: _selectedCategory,
+      videoTag: _worksVideoTag,
     );
     for (final candidate in works) {
       if (work.id != 0 && candidate.id == work.id) return candidate;
@@ -941,6 +971,8 @@ class _ActressDetailPageState extends State<ActressDetailPage> {
   /// 分类标签筛选行：横向滑动；第一个是“全部”，后面是该女优作品里
   /// 实际存在的分类（带部数，0 部的分类不出现）。点中只筛当前这个
   /// 女优的作品列表，头顶总数不动。
+  /// 2026-11-24 标签筛选：最前面同样放“标签”入口（点开底部弹窗
+  /// 换标签）；选了标签时显示“标签：<名>”+“清除”。
   Widget _buildCategoryFilter() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
@@ -948,6 +980,19 @@ class _ActressDetailPageState extends State<ActressDetailPage> {
         scrollDirection: Axis.horizontal,
         child: Row(
           children: [
+            _categoryChip(
+              label: _selectedTag.isEmpty
+                  ? '标签'
+                  : '标签：$_selectedTag',
+              selected: _selectedTag.isNotEmpty,
+              onTap: _openTagSheet,
+            ),
+            if (_selectedTag.isNotEmpty)
+              _categoryChip(
+                label: '清除',
+                selected: false,
+                onTap: () => _setTag(''),
+              ),
             _categoryChip(
               label: '全部',
               selected: _selectedCategory == null,
@@ -963,6 +1008,42 @@ class _ActressDetailPageState extends State<ActressDetailPage> {
         ),
       ),
     );
+  }
+
+  /// 打开标签筛选底部弹窗（与列表页同一份 ActressTagSheet）：
+  /// 列出数据库里的全部标签，点标签即筛本页作品，点“全部”即清空。
+  /// 没有标签也照常打开，如实显示“暂无标签”。
+  Future<void> _openTagSheet() async {
+    List<(String, int)> tags;
+    try {
+      tags = await widget.database.dbTags();
+    } catch (_) {
+      tags = const [];
+    }
+    if (!mounted) return;
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: Theme.of(context).colorScheme.surfaceContainerHigh,
+      builder: (sheetContext) => SizedBox(
+        height: MediaQuery.of(context).size.height * 0.75,
+        child: ActressTagSheet(
+          tags: tags,
+          selected: _selectedTag,
+          onSelected: (tag) => Navigator.of(sheetContext).pop(tag),
+        ),
+      ),
+    );
+    if (selected == null || !mounted) return;
+    await _setTag(selected);
+  }
+
+  Future<void> _setTag(String tag) async {
+    if (_selectedTag == tag) return;
+    setState(() => _selectedTag = tag);
+    if (_scrollController.hasClients) _scrollController.jumpTo(0);
+    await _loadPage(reset: true);
   }
 
   Widget _categoryChip({

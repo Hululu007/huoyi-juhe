@@ -4,10 +4,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fqapp/models/search_discovery.dart';
 import 'package:fqapp/widgets/home/home_hero.dart';
 
-/// 官方搜索框的热搜词位（`SearchWordDisplayView` + `VerticalFlipper`）与
-/// 右上角「分类」入口（`alx.xml` `i_y`）。这里钉住：轮换按
-/// `rotate_interval_ms` 走、无词回退静态提示语、loader 失败不冒泡、
-/// 分类入口按回调有无占位。框内「识剧」入口已按用户决定删除（2026-10-24）。
+/// 首页顶栏（品牌行）：右端三个 40dp 圆钮——搜索、刷新、分类；头像是站点
+/// 列表入口。2026-11-24 搜索行整行删除：搜索框胶囊、站点药丸、分类胶囊与
+/// 热搜词轮换一并去掉，这里钉住新布局——圆钮按回调有无占位、点头像调
+/// onSiteTap、标题点按不做任何事。
 void main() {
   Future<void> pump(
     WidgetTester tester,
@@ -20,97 +20,96 @@ void main() {
     await tester.pumpWidget(MaterialApp(home: Scaffold(body: child)));
   }
 
-  group('cue words', () {
-    testWidgets('rotate on the payload interval', (tester) async {
-      await pump(
-        tester,
-        HomeHero(
-          onSearch: () {},
-          cueLoader: () async =>
-              const SearchCue(words: ['热搜词一', '热搜词二'], rotateIntervalMs: 400),
-        ),
-      );
+  group('brand row buttons', () {
+    testWidgets('search button is always there and calls onSearch', (
+      tester,
+    ) async {
+      var searched = false;
+      await pump(tester, HomeHero(onSearch: () => searched = true));
 
-      // loader 的 future 在微任务里落定，先走一拍再断言首词。
-      await tester.pump();
-
-      expect(find.text('热搜词一'), findsOneWidget);
-      expect(find.text('热搜词二'), findsNothing);
-
-      // 一个翻页周期 + 淡入淡出动画走完（间隔要长于 300ms 的动画，否则
-      // 下一跳会在动画里把词又翻回去；轮换 Timer 常驻，不能用
-      // pumpAndSettle——它永远等不到静止）。
-      await tester.pump(const Duration(milliseconds: 400));
-      await tester.pump(const Duration(milliseconds: 300));
-      // 再走一帧让 AnimatedSwitcher 摘掉淡出完成的旧词。
-      await tester.pump(const Duration(milliseconds: 1));
-      expect(find.text('热搜词二'), findsOneWidget);
-      expect(find.text('热搜词一'), findsNothing);
+      expect(find.byKey(const Key('home_brand_search')), findsOneWidget);
+      expect(find.byTooltip('搜索'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('home_brand_search')));
+      expect(searched, isTrue);
     });
 
-    testWidgets('keep the static hint when the cue is empty', (tester) async {
-      await pump(
-        tester,
-        HomeHero(onSearch: () {}, cueLoader: () async => SearchCue.empty),
-      );
-      await tester.pumpAndSettle();
+    testWidgets('no refresh or category button without their callbacks', (
+      tester,
+    ) async {
+      await pump(tester, const HomeHero(onSearch: _Noop._));
 
-      expect(find.text(HomeHero.searchHint), findsOneWidget);
+      expect(find.byKey(const Key('home_brand_refresh')), findsNothing);
+      // 搜索圆钮常驻，分类圆钮只在给了回调时出现。
+      expect(find.byKey(const Key('home_brand_search')), findsOneWidget);
+      expect(find.byKey(const Key('home_brand_category')), findsNothing);
     });
 
-    testWidgets('keep the static hint when the loader throws', (tester) async {
-      await pump(
-        tester,
-        HomeHero(
-          onSearch: () {},
-          cueLoader: () async => throw StateError('offline'),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      expect(find.text(HomeHero.searchHint), findsOneWidget);
-      expect(tester.takeException(), isNull);
-    });
-
-    testWidgets('no loader means no rotation at all', (tester) async {
-      await pump(
-        tester,
-        const HomeHero(onSearch: _Noop._),
-      );
-      await tester.pump(const Duration(seconds: 30));
-
-      expect(find.text(HomeHero.searchHint), findsOneWidget);
-    });
-  });
-
-  group('search row has no midnight entry', () {
-    testWidgets('no midnight pill beside the search bar', (tester) async {
-      await pump(
-        tester,
-        const HomeHero(onSearch: _Noop._),
-      );
-
-      expect(find.text('午夜区'), findsNothing);
-      expect(find.byKey(const Key('home_category_button')), findsNothing);
-    });
-  });
-
-  group('category entry', () {
-    testWidgets('shows at the search row right end when a callback is given',
-        (tester) async {
+    testWidgets('category round button appears only with a callback', (
+      tester,
+    ) async {
       var tapped = false;
       await pump(
         tester,
-        HomeHero(
-          onSearch: _Noop._,
-          onCategory: () => tapped = true,
-        ),
+        HomeHero(onSearch: _Noop._, onCategory: () => tapped = true),
       );
 
-      expect(find.byKey(const Key('home_category_button')), findsOneWidget);
-      expect(find.text('分类'), findsOneWidget);
-      await tester.tap(find.byKey(const Key('home_category_button')));
-      expect(tapped, true);
+      expect(find.byKey(const Key('home_brand_category')), findsOneWidget);
+      expect(find.byTooltip('分类'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('home_brand_category')));
+      expect(tapped, isTrue);
+    });
+
+    testWidgets('buttons sit in search, refresh, category order', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        HomeHero(onSearch: _Noop._, onRefresh: () {}, onCategory: () {}),
+      );
+
+      final searchX = tester
+          .getCenter(find.byKey(const Key('home_brand_search')))
+          .dx;
+      final refreshX = tester
+          .getCenter(find.byKey(const Key('home_brand_refresh')))
+          .dx;
+      final categoryX = tester
+          .getCenter(find.byKey(const Key('home_brand_category')))
+          .dx;
+      expect(searchX, lessThan(refreshX));
+      expect(refreshX, lessThan(categoryX));
+    });
+  });
+
+  group('avatar is the site entry', () {
+    testWidgets('tapping the avatar calls onSiteTap', (tester) async {
+      var tapped = false;
+      await pump(
+        tester,
+        HomeHero(onSearch: _Noop._, onSiteTap: () => tapped = true),
+      );
+
+      expect(find.byKey(const Key('home_brand_avatar')), findsOneWidget);
+      expect(find.byTooltip('切换站点'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('home_brand_avatar')));
+      expect(tapped, isTrue);
+    });
+
+    testWidgets('avatar is not tappable without onSiteTap', (tester) async {
+      await pump(tester, const HomeHero(onSearch: _Noop._));
+
+      expect(find.byKey(const Key('home_brand_avatar')), findsOneWidget);
+      expect(find.byTooltip('切换站点'), findsNothing);
+      await tester.tap(find.byKey(const Key('home_brand_avatar')));
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  group('brand row has no midnight entry', () {
+    testWidgets('no midnight text in the top bar', (tester) async {
+      await pump(tester, const HomeHero(onSearch: _Noop._));
+
+      expect(find.text('午夜区'), findsNothing);
     });
   });
 

@@ -222,9 +222,8 @@ void main() {
   });
 
   group('HomeHero brand row', () {
-    testWidgets('shows our brand, site subtitle and both round buttons', (
-      tester,
-    ) async {
+    testWidgets('shows our brand, site subtitle and the three round buttons',
+        (tester) async {
       var searched = false;
       var refreshed = false;
       await pump(
@@ -233,7 +232,6 @@ void main() {
           onSearch: () => searched = true,
           onRefresh: () => refreshed = true,
           brandSubtitle: '红果',
-          siteName: '红果',
         ),
         size: const Size(400, 200),
       );
@@ -241,14 +239,16 @@ void main() {
 
       expect(find.text(HomeHero.brandName), findsOneWidget);
       expect(find.text('魔蚁box'), findsNothing);
-      expect(find.text('红果'), findsWidgets);
+      expect(find.text('红果'), findsOneWidget);
       expect(find.byKey(const Key('home_brand_avatar')), findsOneWidget);
+      // 右端三个圆钮：搜索、刷新、分类。搜索行已删，搜索走放大镜圆钮。
+      expect(find.byKey(const Key('home_brand_search')), findsOneWidget);
+      expect(find.byKey(const Key('home_brand_refresh')), findsOneWidget);
+      expect(find.byKey(const Key('home_brand_category')), findsNothing);
       await tester.tap(find.byKey(const Key('home_brand_search')));
       expect(searched, isTrue);
       await tester.tap(find.byKey(const Key('home_brand_refresh')));
       expect(refreshed, isTrue);
-      // 搜索框仍在：热搜提示语与分类入口都不动。
-      expect(find.text(HomeHero.searchHint), findsOneWidget);
     });
 
     testWidgets('no refresh button when onRefresh is null', (tester) async {
@@ -261,7 +261,9 @@ void main() {
 
       expect(find.text(HomeHero.brandName), findsOneWidget);
       expect(find.byKey(const Key('home_brand_refresh')), findsNothing);
+      // 搜索圆钮常驻，分类圆钮只在给了回调时出现。
       expect(find.byKey(const Key('home_brand_search')), findsOneWidget);
+      expect(find.byKey(const Key('home_brand_category')), findsNothing);
     });
   });
 }

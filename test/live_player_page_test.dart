@@ -50,10 +50,11 @@ Future<void> _openSheet(WidgetTester tester) async {
 }
 
 void main() {
-  test('内置直播源：秀果、欲火聚合、百年直播、成人点播（至尊 m3u）与 22 个合入 m3u 源与哔哩哔哩', () {
+  test('内置直播源：内置片库、秀果、欲火聚合、百年直播、成人点播（至尊 m3u）与 22 个合入 m3u 源与哔哩哔哩', () {
     expect(
       [for (final source in LiveSources.builtin) source.id],
       const [
+        'whos_lib',
         'xiuguo',
         'maiyoux',
         'bnzb',

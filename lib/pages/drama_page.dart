@@ -310,6 +310,7 @@ class DramaPage extends ConsumerStatefulWidget {
     this.hotCommentsLoader,
     this.seriesDetailLoader,
     this.seriesCommentLoader,
+    this.adultMixLoader,
     this.bottomInset,
   });
 
@@ -342,6 +343,11 @@ class DramaPage extends ConsumerStatefulWidget {
   /// 详情页剧评加载器（测试缝）。缺省走 `ApiClient.playletComments`。
   final Future<PlayletCommentPage> Function(String seriesId)?
   seriesCommentLoader;
+
+  /// 推荐 feed 混入取数加载器（测试缝）。缺省走 [fetchAdultMix]
+  /// （随机活站验活重挑）；测试传假条目，断言混入卡内联起播不断言真站。
+  final Future<List<AdultMixEntry>> Function({required int xp})?
+  adultMixLoader;
 
   /// 底部避让间距（主界面悬浮液态玻璃底栏），null 时按 context 动态计算。
   final double? bottomInset;
@@ -834,15 +840,13 @@ class _DramaPageState extends ConsumerState<DramaPage>
   ///
   /// A local channel (最近 / 收藏) has no feed, and returning null there is what
   /// makes [_syncInline] release the inline player instead of leaving it
-  /// decoding behind a list.
+  /// decoding behind a list. 混入卡也是当前卡：它的可播地址已在取数时
+  /// 验活过，[_syncInline] 走直接地址起播，与短剧卡一样全屏内联播。
   MediaItem? _currentItem() {
     if (!_current.playsInline) return null;
     final items = _visibleItems(ref.read(dramaProvider));
     if (items.isEmpty) return null;
     final item = items[_screenIndex.clamp(0, items.length - 1)];
-    // 混入卡是外站视频，不走番茄内联起播：回 null 让 _syncInline 释放
-    // 内联播放器（与本地频道无 feed 时同一路），卡片只显示封面。
-    if (_isAdultMixItem(item)) return null;
     return item;
   }
 
@@ -865,6 +869,11 @@ class _DramaPageState extends ConsumerState<DramaPage>
     // The session sets its target synchronously, so a card that is already
     // playing (or starting) is never kicked off again.
     if (_inline.activeId.value == item.id) return;
+    // 混入卡走直接地址起播（地址取数时已验活）；短剧卡走番茄目录/取流链。
+    if (_isAdultMixItem(item)) {
+      unawaited(_activateAdultMix(item));
+      return;
+    }
     unawaited(_inline.activate(item));
     final items = _visibleItems(ref.read(dramaProvider));
     if (widget.directoryLoader == null) {
@@ -879,6 +888,16 @@ class _DramaPageState extends ConsumerState<DramaPage>
     }
   }
 
+  /// 混入卡起播：地址已在取数时验活并映射过，直接交给内联会话建播放器；
+  /// 条目不在了 / 地址空了 / 滑走了就静默留在封面，不抛错、不转圈。
+  /// 失败时会话置 error，卡片错误层给重试（重试走同一条路）。
+  Future<void> _activateAdultMix(MediaItem item) async {
+    final entry = _adultMixById[item.id];
+    if (entry == null || entry.playUrl.isEmpty) return;
+    if (!mounted || _currentItem()?.id != item.id) return;
+    await _inline.activateDirect(item, entry.playUrl, keyHex: entry.keyHex);
+  }
+
   /// 推荐 feed 的混入取数：只在推荐频道取，修为快照只读、门禁逻辑不动。
   ///
   /// `force` 为 false 时只取首轮（已取过/正在取都是 no-op）；下拉刷新
@@ -890,9 +909,12 @@ class _DramaPageState extends ConsumerState<DramaPage>
     if (_adultMixLoaded && !force) return;
     _adultMixLoading = true;
     final generation = ++_adultMixGeneration;
-    final entries = await fetchAdultMix(
-      xp: CultivationService.instance.snapshot.totalXp,
-    );
+    final entries = await (widget.adultMixLoader?.call(
+          xp: CultivationService.instance.snapshot.totalXp,
+        ) ??
+        fetchAdultMix(
+          xp: CultivationService.instance.snapshot.totalXp,
+        ));
     if (!mounted || generation != _adultMixGeneration) return;
     setState(() {
       _adultMixLoading = false;
@@ -1018,7 +1040,12 @@ class _DramaPageState extends ConsumerState<DramaPage>
     // 用户手动接管播放/暂停：可见性暂停的记账作废。
     _inlineVisibilityPaused = false;
     if (_inline.activeId.value != item.id) {
-      unawaited(_inline.activate(item));
+      // 混入卡走直接地址起播，不能拿站方 id 去撞番茄激活。
+      if (_isAdultMixItem(item)) {
+        unawaited(_activateAdultMix(item));
+      } else {
+        unawaited(_inline.activate(item));
+      }
       return;
     }
     if (_inline.playing.value) {
@@ -1988,13 +2015,14 @@ class _DramaPageState extends ConsumerState<DramaPage>
           // Only the card on screen may own a texture. The layer itself waits
           // for this drama to be the session's target.
           final onScreen = index == _screenIndex;
-          // 混入卡是外站视频：不内联起播（无 playback = 无手势/进度条/药丸），
-          // 只显示封面；药丸与标题行都进原站详情页，不走番茄播放器/详情页。
+          // 混入卡是外站视频：地址取数时已验活，上屏就与短剧卡一样内联起播
+          // （playback/video 都给，含手势/进度条/药丸）；药丸与标题行仍
+          // 进原站详情页，不走番茄播放器/详情页；不拉番茄弹幕/热评。
           final isMix = _isAdultMixItem(item);
-          final inlineActive = onScreen && !isMix;
+          final inlineActive = onScreen;
           // 官方在 holder 绑定时拉热评；这里只在剧首次上屏时请求一次。
           // 混入卡不拉：站方 id 去撞番茄评论接口没有意义。
-          if (inlineActive) unawaited(_loadFeedHotComments(item));
+          if (inlineActive && !isMix) unawaited(_loadFeedHotComments(item));
           return _DramaFeedCard(
             item: item,
             bottomInset: _effectiveBottomInset(context),
@@ -2004,8 +2032,8 @@ class _DramaPageState extends ConsumerState<DramaPage>
                 ? _InlineVideoLayer(item: item, playback: _inline)
                 : null,
             // 弹幕与视频同裁剪（12dp 圆角内），清屏态整层不出现（与播放
-            // 页 chrome 的 `!_clearScreen` 同门）。
-            danmakuOverlay: inlineActive
+            // 页 chrome 的 `!_clearScreen` 同门）。混入卡没有番茄弹幕。
+            danmakuOverlay: inlineActive && !isMix
                 ? _FeedDanmakuOverlay(
                     item: item,
                     playback: _inline,
@@ -2019,7 +2047,9 @@ class _DramaPageState extends ConsumerState<DramaPage>
                 ? _InlineVideoError(
                     item: item,
                     playback: _inline,
-                    onRetry: () => unawaited(_inline.activate(item)),
+                    onRetry: isMix
+                        ? () => unawaited(_activateAdultMix(item))
+                        : () => unawaited(_inline.activate(item)),
                   )
                 : null,
             // 「观看全集·N集」药丸 = 进全页播放器（官方 `nk3.c.e` →
@@ -2046,7 +2076,7 @@ class _DramaPageState extends ConsumerState<DramaPage>
             onHotCommentTap: (comment) =>
                 unawaited(_openFeedComments(item, comment)),
             hotCommentActive:
-                onScreen && !_modalOpen && !_feedPanelOpen && !_paging,
+                onScreen && !isMix && !_modalOpen && !_feedPanelOpen && !_paging,
           );
         },
       ),

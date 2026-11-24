@@ -7,9 +7,10 @@
 // 不写库、不联网、不加关注按钮）。查不到元数据、或元数据里既无
 // 导演又无演员时什么都不画（不显示空字段）。
 //
-// 演员行样式按红果详情页截图：小头像 + 名字 + 主演/配角。
+// 演员行样式按红果详情页截图：小头像 + 只显示名字（2026-11-24
+// 用户令：去掉主演/配角，只留名字）。
 // 头像地址来自女优库（who's 头像），有地址显示真照片，没有地址时
-// ActressAvatar 回落到名字首字圆圈。角色：第一位演员是主演，其余是配角。
+// ActressAvatar 回落到名字首字圆圈。
 import 'package:flutter/material.dart';
 
 import 'actress_adapter_models.dart';
@@ -166,12 +167,11 @@ class _CodeMetaSectionState extends State<CodeMetaSection> {
             ),
           if (cast.isNotEmpty) ...[
             const SizedBox(height: 4),
-            for (var i = 0; i < cast.length; i++)
+            for (final actor in cast)
               _ActorRow(
-                key: ValueKey('code-meta-actor-$i-${cast[i].name}'),
-                name: cast[i].name,
-                avatarUrl: cast[i].avatarUrl,
-                role: i == 0 ? '主演' : '配角',
+                key: ValueKey('code-meta-actor-${actor.name}'),
+                name: actor.name,
+                avatarUrl: actor.avatarUrl,
               ),
           ],
         ],
@@ -180,22 +180,20 @@ class _CodeMetaSectionState extends State<CodeMetaSection> {
   }
 }
 
-/// 演员行：小头像（真照片，没有时回落名字首字圆圈）+ 名字 + 角色（主演/配角）。
+/// 演员行：小头像（真照片，没有时回落名字首字圆圈）+ 只显示名字
+///（2026-11-24 用户令：主演/配角去掉）。
 class _ActorRow extends StatelessWidget {
   const _ActorRow({
     super.key,
     required this.name,
     required this.avatarUrl,
-    required this.role,
   });
 
   final String name;
   final String avatarUrl;
-  final String role;
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
@@ -209,11 +207,6 @@ class _ActorRow extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.bodyMedium,
             ),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            role,
-            style: TextStyle(color: colors.onSurfaceVariant, fontSize: 12),
           ),
         ],
       ),

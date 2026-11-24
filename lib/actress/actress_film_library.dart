@@ -80,8 +80,7 @@ bool filmIsStrictVideosSchema(GenericDbSchema schema) {
   final works = schema.worksTable;
   if (works == null || works.table != 'videos') return false;
   final tables = {for (final t in schema.tables) t.table};
-  return tables.contains('video_actress') &&
-      tables.contains('video_category');
+  return tables.contains('video_actress') && tables.contains('video_category');
 }
 
 /// 影视库统一条目：严格路径 SQL 行与通用路径 [GenericDbWork] 都
@@ -181,9 +180,7 @@ class FilmLibraryStateStore {
   void _writeDoc(Map<String, dynamic> doc) {
     try {
       file.parent.createSync(recursive: true);
-      file.writeAsStringSync(
-        const JsonEncoder.withIndent('  ').convert(doc),
-      );
+      file.writeAsStringSync(const JsonEncoder.withIndent('  ').convert(doc));
     } catch (_) {
       // 状态存不下来不崩：本次仍用内存里的值。
     }
@@ -259,9 +256,7 @@ class FilmLibraryStateStore {
         for (final item in raw)
           if (item is Map<String, dynamic>) item,
     ];
-    marks.removeWhere(
-      (m) => m['site'] == site && m['code'] == code,
-    );
+    marks.removeWhere((m) => m['site'] == site && m['code'] == code);
     marks.insert(0, {
       'site': site,
       'code': code,
@@ -292,15 +287,9 @@ class FilmLibraryStateStore {
     return raw is Map<String, dynamic> ? raw : null;
   }
 
-  void saveLastRepair(
-    String fingerprint,
-    Map<String, dynamic> summary,
-  ) {
+  void saveLastRepair(String fingerprint, Map<String, dynamic> summary) {
     final entry = _entry(fingerprint);
-    entry['lastRepair'] = {
-      ...summary,
-      'at': DateTime.now().toIso8601String(),
-    };
+    entry['lastRepair'] = {...summary, 'at': DateTime.now().toIso8601String()};
     _saveEntry(fingerprint, entry);
   }
 
@@ -317,10 +306,7 @@ class FilmLibraryStateStore {
     Map<String, dynamic> checkpoint,
   ) {
     final entry = _entry(fingerprint);
-    entry['append'] = {
-      ...checkpoint,
-      'at': DateTime.now().toIso8601String(),
-    };
+    entry['append'] = {...checkpoint, 'at': DateTime.now().toIso8601String()};
     _saveEntry(fingerprint, entry);
   }
 }
@@ -440,11 +426,10 @@ class FilmLibraryWriter {
         final host = filmPlayHost(firstPlay);
         if (host.isNotEmpty) {
           final schema = await probeGenericDbSchema(db);
-          final stateFile = File(
-            path.join(path.dirname(dbPath), '影视库状态.json'),
-          );
-          FilmLibraryStateStore(file: stateFile)
-              .noteObservedDomain(schema.fingerprint, host);
+          final stateFile = File(path.join(path.dirname(dbPath), '影视库状态.json'));
+          FilmLibraryStateStore(
+            file: stateFile,
+          ).noteObservedDomain(schema.fingerprint, host);
         }
       } catch (_) {
         // 记域名失败不影响追加结果。
@@ -475,11 +460,7 @@ class FilmLibraryWriter {
     return null;
   }
 
-  Future<void> _linkActress(
-    Transaction txn,
-    String vodId,
-    String actor,
-  ) async {
+  Future<void> _linkActress(Transaction txn, String vodId, String actor) async {
     final name = actor.trim();
     if (name.isEmpty) return;
     await txn.rawInsert(
@@ -570,7 +551,7 @@ class FilmLibraryOpenResult {
 
 /// 影视库服务：打开绑定库、列表/筛选/计数、域名比对替换、现爬追加。
 /// 同时是兜底提供方（implements FilmDbFallbackProvider）：详情页/
- /// 播放兜底先查本库。
+/// 播放兜底先查本库。
 class FilmLibraryService implements FilmDbFallbackProvider {
   FilmLibraryService({required this.database, this.autoReplaceDomain = false});
 
@@ -592,8 +573,7 @@ class FilmLibraryService implements FilmDbFallbackProvider {
   bool get isOpen => _readDb != null;
 
   /// 严格结构（女优库 videos 表）时为 true。
-  bool get isStrict =>
-      _schema != null && filmIsStrictVideosSchema(_schema!);
+  bool get isStrict => _schema != null && filmIsStrictVideosSchema(_schema!);
 
   GenericDbSchema? get schema => _schema;
 
@@ -637,13 +617,15 @@ class FilmLibraryService implements FilmDbFallbackProvider {
         error: '库文件不存在或为空：$dbPath',
       );
     }
-    final db = await openDatabase(dbPath, readOnly: true, singleInstance: false);
+    final db = await openDatabase(
+      dbPath,
+      readOnly: true,
+      singleInstance: false,
+    );
     _readDb = db;
     final schema = await probeGenericDbSchema(db);
     _schema = schema;
-    final stateFile = File(
-      path.join(path.dirname(dbPath), '影视库状态.json'),
-    );
+    final stateFile = File(path.join(path.dirname(dbPath), '影视库状态.json'));
     final state = FilmLibraryStateStore(file: stateFile);
     _state = state;
     final strict = filmIsStrictVideosSchema(schema);
@@ -726,20 +708,14 @@ class FilmLibraryService implements FilmDbFallbackProvider {
   /// 批量替换播放地址域名：只换域名部分，路径与 hash 不动。
   /// 严格结构换 videos 三列 + actresses 头像 + index_categories 封面；
   /// 通用结构换映射里的播放地址列与封面列。返回每列改的行数。
-  Future<Map<String, int>> replaceDomain(
-    String oldHost,
-    String newHost,
-  ) async {
+  Future<Map<String, int>> replaceDomain(String oldHost, String newHost) async {
     if (oldHost.isEmpty ||
         newHost.isEmpty ||
         oldHost == newHost ||
         _dbPath == null) {
       return {};
     }
-    final writer = await openDatabase(
-      _dbPath!,
-      singleInstance: false,
-    );
+    final writer = await openDatabase(_dbPath!, singleInstance: false);
     try {
       final out = <String, int>{};
       if (isStrict) {
@@ -807,10 +783,7 @@ class FilmLibraryService implements FilmDbFallbackProvider {
       );
       return [
         for (final row in rows)
-          (
-            row['main_category'].toString(),
-            (row['c'] as num).toInt(),
-          ),
+          (row['main_category'].toString(), (row['c'] as num).toInt()),
       ];
     }
     final reader = _genericReader;
@@ -839,13 +812,135 @@ class FilmLibraryService implements FilmDbFallbackProvider {
     return [for (final row in rows) row['vod_play_from'].toString()];
   }
 
-  /// 列表：严格结构 SQL 直查（分类/站点/女优/关键词四筛）；
-  /// 通用结构走通用读出 + 内存里按分类筛（通用读出只有标题/番号搜）。
+  /// 类型文件夹（2026-11-24 文件夹视图）：按 videos.type_name
+  /// 分组计数（成人影片/国产精品/无码专区…，女优库 v3 实查 26 个
+  /// 类型，总和 449,068），从多到少。注意它与 video_category
+  /// 主分类（有码/无码/国产…）是两套不同的维度，别混。
+  /// 选了标签时 [videoTag] 只算带该标签的作品（video_tag 表
+  /// EXISTS 半连接；库里没有 video_tag 表时带标签的作品一条都
+  /// 筛不出来，回空、不抛错、不暗地里回未过滤的数）；[category]
+  /// 是 video_category 主分类（与标签 AND）。
+  /// 通用结构走读库的 [GenericDbReader.typeNameFacet]（作品表
+  /// 没有 type_name 列时回空，页里如实显示“暂无文件夹”）。
+  /// 一次全表聚合，调用方缓存着用，别每页都调。
+  Future<List<(String, int)>> typeFolders({
+    String videoTag = '',
+    String category = '',
+    String genericTagKey = '',
+  }) async {
+    final db = _readDb;
+    if (db == null) return [];
+    if (isStrict) {
+      if (videoTag.isNotEmpty && !await _hasVideoTagTable(db)) return [];
+      final where = <String>[
+        "v.type_name IS NOT NULL AND TRIM(v.type_name) <> ''",
+      ];
+      final args = <Object?>[];
+      if (videoTag.isNotEmpty) {
+        where.add(
+          'EXISTS (SELECT 1 FROM video_tag vt '
+          'WHERE vt.vod_id = v.vod_id AND vt.tag_name = ?)',
+        );
+        args.add(videoTag);
+      }
+      if (category.isNotEmpty) {
+        where.add(
+          'v.vod_id IN (SELECT vod_id FROM video_category '
+          'WHERE main_category = ?)',
+        );
+        args.add(category);
+      }
+      final rows = await db.rawQuery(
+        'SELECT v.type_name AS name, COUNT(*) AS c FROM videos v '
+        'WHERE ${where.join(' AND ')} '
+        'GROUP BY v.type_name ORDER BY c DESC',
+        args,
+      );
+      return [
+        for (final row in rows)
+          (row['name'].toString(), (row['c'] as num).toInt()),
+      ];
+    }
+    final reader = _genericReader;
+    if (reader == null) return [];
+    return reader.typeNameFacet(tagKey: genericTagKey, tag: videoTag);
+  }
+
+  /// 类型文件夹封面（2026-11-24 文件夹卡片用封面）：每个类型取
+  /// 该类型视频列表里第一条视频的 pic_url——与 [listFilms]
+  /// （typeName + videoTag + category）同一过滤、同一排序
+  /// （严格结构 ORDER BY vod_id，通用结构 ORDER BY rowid），即
+  /// 点开文件夹后列表里第一条视频的封面。第一条视频没封面
+  /// （pic_url 为空）或该类型一条视频都没有时回 ''，调用方
+  /// 回落到原来的文件夹图标。SQL 形状不变：直接复用
+  /// [listFilms]（limit 1），不另写取数 SQL。
+  /// 封面是装饰：调用方取不到也不该挡文件夹网格（页里包了
+  /// try/catch，失败时整份回空、卡片全回落图标）。
+  Future<Map<String, String>> typeFolderCovers({
+    required List<String> typeNames,
+    String videoTag = '',
+    String category = '',
+    String genericTagKey = '',
+  }) async {
+    final covers = <String, String>{};
+    for (final name in typeNames) {
+      final first = await listFilms(
+        typeName: name,
+        videoTag: videoTag,
+        category: category,
+        genericTagKey: genericTagKey,
+        offset: 0,
+        limit: 1,
+      );
+      covers[name] = first.isEmpty ? '' : first.first.coverUrl;
+    }
+    return covers;
+  }
+
+  /// 标签列表（2026-11-24 标签筛选）：严格结构读主库的
+  /// video_tag 表（与 SqfliteActressDatabase.dbTags 同口径）；
+  /// 通用结构走读库的 tagFacet。回的 key 就是筛选时传给
+  /// [typeFolders]/[listFilms] 的 genericTagKey（严格结构不用它，
+  /// key 固定是 `video_tag.tag_name`）。须在 [open] 之后调，
+  /// 没打开时回空。
+  Future<({String key, List<(String, int)> values})> tags() async {
+    if (_readDb == null) {
+      return (key: '', values: const <(String, int)>[]);
+    }
+    if (isStrict) {
+      final values = await database.dbTags();
+      return (key: 'video_tag.tag_name', values: values);
+    }
+    final reader = _genericReader;
+    if (reader == null) {
+      return (key: '', values: const <(String, int)>[]);
+    }
+    return reader.tagFacet();
+  }
+
+  Future<bool> _hasVideoTagTable(Database db) async {
+    final rows = await db.rawQuery(
+      "SELECT COUNT(*) AS c FROM sqlite_master "
+      "WHERE type = 'table' AND name = 'video_tag'",
+    );
+    return ((rows.first['c'] as num?)?.toInt() ?? 0) > 0;
+  }
+
+  /// 列表：严格结构 SQL 直查（分类/站点/女优/关键词四筛，再加
+  /// 类型名 [typeName] 与标签 [videoTag] 两筛）；通用结构走
+  /// 通用读出 + 内存里按分类筛（通用读出只有标题/番号搜）。
+  /// [genericTagKey] 是通用结构下标签筛选的 filters 键（[tags]
+  /// 回的 key）；通用结构下标签非空但 key 为空时回空（筛不出，
+  /// 不暗地里回未过滤的列表）；类型名非空但作品表没有 type_name
+  /// 列时同样回空。
   Future<List<FilmLibraryEntry>> listFilms({
     String category = '',
     String site = '',
     String actress = '',
     String query = '',
+    String typeName = '',
+    String videoTag = '',
+    String genericTagKey = '',
     required int offset,
     required int limit,
   }) async {
@@ -871,6 +966,18 @@ class FilmLibraryService implements FilmDbFallbackProvider {
           'WHERE cate_id = ?)',
         );
         args.add(actress);
+      }
+      if (typeName.isNotEmpty) {
+        where.add('v.type_name = ?');
+        args.add(typeName);
+      }
+      if (videoTag.isNotEmpty) {
+        if (!await _hasVideoTagTable(db)) return [];
+        where.add(
+          'EXISTS (SELECT 1 FROM video_tag vt '
+          'WHERE vt.vod_id = v.vod_id AND vt.tag_name = ?)',
+        );
+        args.add(videoTag);
       }
       final q = query.trim();
       if (q.isNotEmpty) {
@@ -899,10 +1006,21 @@ class FilmLibraryService implements FilmDbFallbackProvider {
     }
     final reader = _genericReader;
     if (reader == null) return [];
+    if (videoTag.isNotEmpty && genericTagKey.isEmpty) return [];
+    if (typeName.isNotEmpty) {
+      final worksTable = reader.schema.worksTable;
+      if (worksTable == null || !worksTable.allColumns.contains('type_name')) {
+        return [];
+      }
+    }
+    final filters = <String, List<String>>{};
+    if (typeName.isNotEmpty) filters['type_name'] = [typeName];
+    if (videoTag.isNotEmpty) filters[genericTagKey] = [videoTag];
     final works = await reader.works(
       offset: offset,
       limit: limit,
       query: query,
+      filters: filters,
     );
     final out = <FilmLibraryEntry>[];
     for (final work in works) {
@@ -917,6 +1035,9 @@ class FilmLibraryService implements FilmDbFallbackProvider {
     String site = '',
     String actress = '',
     String query = '',
+    String typeName = '',
+    String videoTag = '',
+    String genericTagKey = '',
   }) async {
     final db = _readDb;
     if (db == null) return 0;
@@ -941,6 +1062,18 @@ class FilmLibraryService implements FilmDbFallbackProvider {
         );
         args.add(actress);
       }
+      if (typeName.isNotEmpty) {
+        where.add('v.type_name = ?');
+        args.add(typeName);
+      }
+      if (videoTag.isNotEmpty) {
+        if (!await _hasVideoTagTable(db)) return 0;
+        where.add(
+          'EXISTS (SELECT 1 FROM video_tag vt '
+          'WHERE vt.vod_id = v.vod_id AND vt.tag_name = ?)',
+        );
+        args.add(videoTag);
+      }
       final q = query.trim();
       if (q.isNotEmpty) {
         final like = '%${q.replaceAll('%', '').replaceAll('_', '')}%';
@@ -956,7 +1089,17 @@ class FilmLibraryService implements FilmDbFallbackProvider {
     }
     final reader = _genericReader;
     if (reader == null) return 0;
-    return reader.countWorks(query: query);
+    if (videoTag.isNotEmpty && genericTagKey.isEmpty) return 0;
+    if (typeName.isNotEmpty) {
+      final worksTable = reader.schema.worksTable;
+      if (worksTable == null || !worksTable.allColumns.contains('type_name')) {
+        return 0;
+      }
+    }
+    final filters = <String, List<String>>{};
+    if (typeName.isNotEmpty) filters['type_name'] = [typeName];
+    if (videoTag.isNotEmpty) filters[genericTagKey] = [videoTag];
+    return reader.countWorks(query: query, filters: filters);
   }
 
   /// 直播内置片库（whos_lib）读库分页（2026-11-23 v58 验机）：
@@ -1141,11 +1284,7 @@ class FilmLibraryService implements FilmDbFallbackProvider {
         if (matched.isEmpty) return const [];
         final out = <ActressJsonEntry>[];
         for (final n in matched) {
-          final films = await listFilms(
-            actress: n,
-            offset: 0,
-            limit: 500,
-          );
+          final films = await listFilms(actress: n, offset: 0, limit: 500);
           out.addAll([for (final f in films) f.toJsonEntry()]);
         }
         return _filterFallbackSite(out, site);
@@ -1429,9 +1568,7 @@ class FilmLibraryService implements FilmDbFallbackProvider {
 
   /// 严格结构按主键批量取行（供 [entriesForCodes] 用）：
   /// vod_id 是主键，IN 一次取回，不走 LIKE 扫表。
-  Future<List<FilmLibraryEntry>> _strictFilmsByIds(
-    List<String> vodIds,
-  ) async {
+  Future<List<FilmLibraryEntry>> _strictFilmsByIds(List<String> vodIds) async {
     final db = _readDb;
     if (db == null || vodIds.isEmpty) return const [];
     final inList = List.filled(vodIds.length, '?').join(',');
@@ -1448,9 +1585,9 @@ class FilmLibraryService implements FilmDbFallbackProvider {
 
   FilmLibraryEntry _strictRowToEntry(Map<String, Object?> row) {
     String text(String key) => row[key]?.toString() ?? '';
-    final play = extractPlayUrl(text('m3u8_url').isNotEmpty
-        ? text('m3u8_url')
-        : text('vod_play_url'));
+    final play = extractPlayUrl(
+      text('m3u8_url').isNotEmpty ? text('m3u8_url') : text('vod_play_url'),
+    );
     final actresses = text('actresses');
     return FilmLibraryEntry(
       vodId: text('vod_id'),
@@ -1620,10 +1757,7 @@ class FilmLinkRepairService {
   /// 超时为死（用户口径：超时即失效）；没网这类本地错为 unknown。
   Future<FilmLinkProbe> probePlayUrl(String url) async {
     if (url.isEmpty) {
-      return const FilmLinkProbe(
-        status: FilmLinkStatus.dead,
-        reason: '无播放地址',
-      );
+      return const FilmLinkProbe(status: FilmLinkStatus.dead, reason: '无播放地址');
     }
     final uri = Uri.tryParse(url);
     if (uri == null || !uri.hasScheme) {
@@ -1635,9 +1769,7 @@ class FilmLinkRepairService {
     final client = _httpClient ?? HttpClient();
     final owned = _httpClient == null;
     try {
-      final request = await client
-          .getUrl(uri)
-          .timeout(probeTimeout);
+      final request = await client.getUrl(uri).timeout(probeTimeout);
       request.headers.set('Range', 'bytes=0-0');
       request.headers.set(
         'User-Agent',
@@ -1645,15 +1777,10 @@ class FilmLinkRepairService {
       );
       final response = await request.close().timeout(probeTimeout);
       // 只读状态行：不读 body，Range 响应只有 1 字节。
-      await response.drain<void>().timeout(
-        const Duration(seconds: 3),
-      );
+      await response.drain<void>().timeout(const Duration(seconds: 3));
       final code = response.statusCode;
       if (code == 200 || code == 206) {
-        return FilmLinkProbe(
-          status: FilmLinkStatus.alive,
-          httpCode: code,
-        );
+        return FilmLinkProbe(status: FilmLinkStatus.alive, httpCode: code);
       }
       if (code == 404 || code == 410 || code == 403) {
         return FilmLinkProbe(
@@ -1668,10 +1795,7 @@ class FilmLinkRepairService {
         reason: 'HTTP $code',
       );
     } on TimeoutException {
-      return const FilmLinkProbe(
-        status: FilmLinkStatus.dead,
-        reason: '超时',
-      );
+      return const FilmLinkProbe(status: FilmLinkStatus.dead, reason: '超时');
     } on SocketException catch (e) {
       return FilmLinkProbe(
         status: FilmLinkStatus.unknown,
@@ -1714,8 +1838,7 @@ class FilmLinkRepairService {
     final wantName = entry.site.trim().toLowerCase().replaceAll(' ', '');
     if (wantName.isNotEmpty) {
       for (final source in visibleSources) {
-        if (source.name.trim().toLowerCase().replaceAll(' ', '') ==
-            wantName) {
+        if (source.name.trim().toLowerCase().replaceAll(' ', '') == wantName) {
           return source.id;
         }
       }
@@ -1733,12 +1856,7 @@ class FilmLinkRepairService {
     final state = service.stateStore;
     final fingerprint = service.fingerprint;
     if (state == null || fingerprint.isEmpty) return;
-    state.markDead(
-      fingerprint,
-      site: site,
-      code: code,
-      reason: reason,
-    );
+    state.markDead(fingerprint, site: site, code: code, reason: reason);
   }
 
   /// 批量修复一批条目（调用方分页给，内存不一次全载）。
@@ -1882,9 +2000,7 @@ class FilmLinkRepairService {
     );
   }
 
-  Future<FilmRepairResult?> _repairWithSite(
-    FilmLibraryEntry entry,
-  ) async {
+  Future<FilmRepairResult?> _repairWithSite(FilmLibraryEntry entry) async {
     final siteId = filmMatchSiteId(entry, store.visibleSources);
     if (siteId == null) {
       return FilmRepairResult(
@@ -1931,27 +2047,15 @@ class FilmLinkRepairService {
       newPlayUrl: freshUrl,
     );
     if (!ok) {
-      return FilmRepairResult(
-        entry: entry,
-        outcome: 'failed',
-        reason: '写库失败',
-      );
+      return FilmRepairResult(entry: entry, outcome: 'failed', reason: '写库失败');
     }
     service.noteObservedPlayUrl(freshUrl);
     final state = service.stateStore;
     final fingerprint = service.fingerprint;
     if (state != null && fingerprint.isNotEmpty) {
-      state.clearDeadMark(
-        fingerprint,
-        filmSiteId(entry.site),
-        entry.code,
-      );
+      state.clearDeadMark(fingerprint, filmSiteId(entry.site), entry.code);
     }
-    return FilmRepairResult(
-      entry: entry,
-      outcome: 'fixed',
-      newUrl: freshUrl,
-    );
+    return FilmRepairResult(entry: entry, outcome: 'fixed', newUrl: freshUrl);
   }
 
   /// 站内搜新链：先番号后标题（调用方已排好顺序，这里只跑一次查询）。
@@ -1995,16 +2099,15 @@ class FilmLinkRepairService {
 }
 
 /// 去 HTML 标签（vod_content 是站方简介 + 标签列表的 HTML）。
-String filmPlainText(String html) =>
-    html
-        .replaceAll(RegExp(r'<[^>]*>'), ' ')
-        .replaceAll('&nbsp;', ' ')
-        .replaceAll('&amp;', '&')
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
+String filmPlainText(String html) => html
+    .replaceAll(RegExp(r'<[^>]*>'), ' ')
+    .replaceAll('&nbsp;', ' ')
+    .replaceAll('&amp;', '&')
+    .replaceAll(RegExp(r'\s+'), ' ')
+    .trim();
 
 /// 影视库页：按影片浏览绑定库里的全部作品（卡片：封面/标题/女优/
- /// 番号），分类/站点/女优/关键词筛选，点卡进详情页（不直播放）。
+/// 番号），分类/站点/女优/关键词筛选，点卡进详情页（不直播放）。
 class FilmLibraryPage extends StatefulWidget {
   const FilmLibraryPage({
     super.key,
@@ -2037,6 +2140,14 @@ class _FilmLibraryPageState extends State<FilmLibraryPage> {
   var _total = 0;
   var _loading = true;
   var _loadingMore = false;
+
+  /// 加载下一页失败了没有：失败时 [_loadingMore] 必须清掉，否则
+  /// 滚动守卫永远拦住、列表卡死；底脚改摆重试，点后才继续。
+  var _loadMoreFailed = false;
+
+  /// 已展示作品的 vodId：按偏移翻页时库里数据若有变动会重出
+  /// 同一条，追加时按 vodId 去重。
+  final Set<String> _seenVodIds = <String>{};
   var _hasMore = true;
   String _category = '';
   String _site = '';
@@ -2059,7 +2170,12 @@ class _FilmLibraryPageState extends State<FilmLibraryPage> {
   }
 
   void _onScroll() {
-    if (!_scrollController.hasClients || _loadingMore || !_hasMore) return;
+    if (!_scrollController.hasClients ||
+        _loadingMore ||
+        _loadMoreFailed ||
+        !_hasMore) {
+      return;
+    }
     final position = _scrollController.position;
     if (position.pixels < position.maxScrollExtent - 600) return;
     _loadMore();
@@ -2102,6 +2218,8 @@ class _FilmLibraryPageState extends State<FilmLibraryPage> {
     setState(() {
       _loading = true;
       _films = [];
+      _seenVodIds.clear();
+      _loadMoreFailed = false;
       _hasMore = true;
     });
     // 2026-11-22 加载优化：列表与总数并行取，不再串行等两遍。
@@ -2124,6 +2242,7 @@ class _FilmLibraryPageState extends State<FilmLibraryPage> {
     if (!mounted) return;
     setState(() {
       _films = films;
+      _seenVodIds.addAll(films.map((film) => film.vodId));
       _total = total;
       _loading = false;
       _hasMore = films.length >= _pageSize;
@@ -2131,30 +2250,46 @@ class _FilmLibraryPageState extends State<FilmLibraryPage> {
   }
 
   Future<void> _loadMore() async {
-    setState(() => _loadingMore = true);
-    final films = await _service.listFilms(
-      category: _category,
-      site: _site,
-      actress: _actress,
-      query: _query,
-      offset: _films.length,
-      limit: _pageSize,
-    );
-    if (!mounted) return;
+    if (_loadingMore || !_hasMore) return;
     setState(() {
-      _films = [..._films, ...films];
-      _loadingMore = false;
-      _hasMore = films.length >= _pageSize;
+      _loadingMore = true;
+      _loadMoreFailed = false;
     });
+    try {
+      final films = await _service.listFilms(
+        category: _category,
+        site: _site,
+        actress: _actress,
+        query: _query,
+        offset: _films.length,
+        limit: _pageSize,
+      );
+      if (!mounted) return;
+      final fresh = [
+        for (final film in films)
+          if (_seenVodIds.add(film.vodId)) film,
+      ];
+      setState(() {
+        _films = [..._films, ...fresh];
+        _loadingMore = false;
+        _hasMore = films.length >= _pageSize;
+      });
+    } catch (_) {
+      // 取下一页抛错：原来这里没接住，_loadingMore 永久为真、
+      // 滚动守卫永远拦住，列表滑到底就卡死。清掉标记、底脚摆重试。
+      if (!mounted) return;
+      setState(() {
+        _loadingMore = false;
+        _loadMoreFailed = true;
+      });
+    }
   }
 
   Future<void> _openFieldsPage() async {
     final reader = _service.genericReader;
     if (reader == null) return;
     final changed = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-        builder: (_) => ActressDbFieldsPage(reader: reader),
-      ),
+      MaterialPageRoute(builder: (_) => ActressDbFieldsPage(reader: reader)),
     );
     if (changed != true || !mounted) return;
     await _openLibrary();
@@ -2169,15 +2304,15 @@ class _FilmLibraryPageState extends State<FilmLibraryPage> {
     final stored = state.currentDomain(fingerprint);
     final observed = state.observedDomain(fingerprint);
     if (observed.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('还没见过新域名：爬虫取到新播放地址后才会记下')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('还没见过新域名：爬虫取到新播放地址后才会记下')));
       return;
     }
     if (stored == observed) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('域名一致，无需更新（当前：$stored）')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('域名一致，无需更新（当前：$stored）')));
       return;
     }
     final counts = await _service.replaceDomain(stored, observed);
@@ -2250,50 +2385,50 @@ class _FilmLibraryPageState extends State<FilmLibraryPage> {
       body: _loading && open == null
           ? const Center(child: CircularProgressIndicator())
           : open?.error != null
-              ? Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Text(
-                    '影视库打不开：${open!.error}',
-                    textAlign: TextAlign.center,
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  '影视库打不开：${open!.error}',
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            )
+          : Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '${open!.displayPath} · 共 $_total 部'
+                          '${open.strict ? '' : ' · 通用结构'}',
+                          style: Theme.of(context).textTheme.bodySmall,
+                          maxLines: 2,
+                        ),
+                      ),
+                      if (_actress.isNotEmpty)
+                        ActionChip(
+                          label: Text('女优：$_actress'),
+                          onPressed: () async {
+                            setState(() => _actress = '');
+                            await _reload();
+                          },
+                        ),
+                    ],
                   ),
                 ),
-              )
-              : Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            '${open!.displayPath} · 共 $_total 部'
-                            '${open.strict ? '' : ' · 通用结构'}',
-                            style: Theme.of(context).textTheme.bodySmall,
-                            maxLines: 2,
-                          ),
-                        ),
-                        if (_actress.isNotEmpty)
-                          ActionChip(
-                            label: Text('女优：$_actress'),
-                            onPressed: () async {
-                              setState(() => _actress = '');
-                              await _reload();
-                            },
-                          ),
-                      ],
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: TextField(
-                      controller: _searchController,
-                      decoration: InputDecoration(
-                        hintText: '搜标题 / 番号',
-                        prefixIcon: const Icon(Icons.search),
-                        suffixIcon: _query.isEmpty
-                            ? null
-                            : IconButton(
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: TextField(
+                    controller: _searchController,
+                    decoration: InputDecoration(
+                      hintText: '搜标题 / 番号',
+                      prefixIcon: const Icon(Icons.search),
+                      suffixIcon: _query.isEmpty
+                          ? null
+                          : IconButton(
                               icon: const Icon(Icons.clear),
                               onPressed: () async {
                                 _searchController.clear();
@@ -2301,98 +2436,111 @@ class _FilmLibraryPageState extends State<FilmLibraryPage> {
                                 await _reload();
                               },
                             ),
-                        border: const OutlineInputBorder(),
+                      border: const OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    textInputAction: TextInputAction.search,
+                    onSubmitted: (value) async {
+                      setState(() => _query = value.trim());
+                      await _reload();
+                    },
+                  ),
+                ),
+                if (_categories.isNotEmpty)
+                  SizedBox(
+                    height: 44,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      children: [
+                        _CategoryChip(
+                          label: '全部',
+                          selected: _category.isEmpty,
+                          onTap: () async {
+                            setState(() => _category = '');
+                            await _reload();
+                          },
+                        ),
+                        for (final (name, count) in _categories)
+                          _CategoryChip(
+                            label: '$name（$count）',
+                            selected: _category == name,
+                            onTap: () async {
+                              setState(() => _category = name);
+                              await _reload();
+                            },
+                          ),
+                      ],
+                    ),
+                  ),
+                if (_sites.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+                    child: DropdownButtonFormField<String>(
+                      initialValue: _site.isEmpty ? null : _site,
+                      decoration: const InputDecoration(
+                        labelText: '站点',
+                        border: OutlineInputBorder(),
                         isDense: true,
                       ),
-                      textInputAction: TextInputAction.search,
-                      onSubmitted: (value) async {
-                        setState(() => _query = value.trim());
+                      items: [
+                        const DropdownMenuItem(value: '', child: Text('全部站点')),
+                        for (final site in _sites)
+                          DropdownMenuItem(value: site, child: Text(site)),
+                      ],
+                      onChanged: (value) async {
+                        setState(() => _site = value ?? '');
                         await _reload();
                       },
                     ),
                   ),
-                  if (_categories.isNotEmpty)
-                    SizedBox(
-                      height: 44,
-                      child: ListView(
-                        scrollDirection: Axis.horizontal,
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        children: [
-                          _CategoryChip(
-                            label: '全部',
-                            selected: _category.isEmpty,
-                            onTap: () async {
-                              setState(() => _category = '');
-                              await _reload();
-                            },
-                          ),
-                          for (final (name, count) in _categories)
-                            _CategoryChip(
-                              label: '$name（$count）',
-                              selected: _category == name,
-                              onTap: () async {
-                                setState(() => _category = name);
-                                await _reload();
-                              },
-                            ),
-                        ],
-                      ),
-                    ),
-                  if (_sites.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
-                      child: DropdownButtonFormField<String>(
-                        initialValue: _site.isEmpty ? null : _site,
-                        decoration: const InputDecoration(
-                          labelText: '站点',
-                          border: OutlineInputBorder(),
-                          isDense: true,
-                        ),
-                        items: [
-                          const DropdownMenuItem(
-                            value: '',
-                            child: Text('全部站点'),
-                          ),
-                          for (final site in _sites)
-                            DropdownMenuItem(
-                              value: site,
-                              child: Text(site),
-                            ),
-                        ],
-                        onChanged: (value) async {
-                          setState(() => _site = value ?? '');
-                          await _reload();
-                        },
-                      ),
-                    ),
-                  Expanded(
-                    child: _loading
-                        ? const Center(child: CircularProgressIndicator())
-                        : _films.isEmpty
-                            ? const Center(child: Text('没有符合条件的作品'))
-                            : ListView.builder(
-                              controller: _scrollController,
-                              itemCount:
-                                  _films.length + (_hasMore ? 1 : 0),
-                              itemBuilder: (context, index) {
-                                if (index >= _films.length) {
-                                  return const Padding(
-                                    padding: EdgeInsets.all(16),
-                                    child: Center(
-                                      child: CircularProgressIndicator(),
+                Expanded(
+                  child: _loading
+                      ? const Center(child: CircularProgressIndicator())
+                      : _films.isEmpty
+                      ? const Center(child: Text('没有符合条件的作品'))
+                      : ListView.builder(
+                          controller: _scrollController,
+                          itemCount:
+                              _films.length +
+                              (_hasMore || _loadMoreFailed ? 1 : 0),
+                          itemBuilder: (context, index) {
+                            if (index >= _films.length) {
+                              // 底脚三态：加载中转圈；失败摆重试（点后
+                              // 取同一页）；有下一页但没在加载时不摆
+                              // 转圈，免得用户以为一直在加载。
+                              if (_loadMoreFailed) {
+                                return Padding(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Center(
+                                    child: TextButton(
+                                      key: const ValueKey('film_library_retry'),
+                                      onPressed: _loadMore,
+                                      child: const Text('加载失败，点我重试'),
                                     ),
-                                  );
-                                }
-                                final film = _films[index];
-                                return _FilmCard(
-                                  film: film,
-                                  onTap: () => _openFilm(film),
+                                  ),
                                 );
-                              },
-                            ),
-                  ),
-                ],
-              ),
+                              }
+                              if (_loadingMore) {
+                                return const Padding(
+                                  padding: EdgeInsets.all(16),
+                                  child: Center(
+                                    child: CircularProgressIndicator(),
+                                  ),
+                                );
+                              }
+                              return const SizedBox.shrink();
+                            }
+                            final film = _films[index];
+                            return _FilmCard(
+                              film: film,
+                              onTap: () => _openFilm(film),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
     );
   }
 }
@@ -2412,11 +2560,7 @@ class _CategoryChip extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-      child: ActressNeonPill(
-        label: label,
-        selected: selected,
-        onTap: onTap,
-      ),
+      child: ActressNeonPill(label: label, selected: selected, onTap: onTap),
     );
   }
 }
@@ -2451,23 +2595,23 @@ class _FilmCard extends StatelessWidget {
                       borderRadius: BorderRadius.circular(8),
                       child: film.coverUrl.isEmpty
                           ? Container(
-                            color: Neon.surfaceHigh,
-                            child: const Icon(
-                              Icons.movie_outlined,
-                              color: Neon.textDim,
-                            ),
-                          )
-                          : Image.network(
-                            film.coverUrl,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, _, _) => Container(
                               color: Neon.surfaceHigh,
                               child: const Icon(
                                 Icons.movie_outlined,
                                 color: Neon.textDim,
                               ),
+                            )
+                          : Image.network(
+                              film.coverUrl,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, _, _) => Container(
+                                color: Neon.surfaceHigh,
+                                child: const Icon(
+                                  Icons.movie_outlined,
+                                  color: Neon.textDim,
+                                ),
+                              ),
                             ),
-                          ),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -2481,8 +2625,9 @@ class _FilmCard extends StatelessWidget {
                             film.displayTitle,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.titleMedium
-                                ?.copyWith(color: Neon.text),
+                            style: Theme.of(
+                              context,
+                            ).textTheme.titleMedium?.copyWith(color: Neon.text),
                           ),
                           const SizedBox(height: 4),
                           Text(
@@ -2546,9 +2691,9 @@ class _FilmDetailPageState extends State<FilmDetailPage> {
   /// 死了就记失效并提示修复，不硬播。
   Future<void> _play() async {
     if (!_entry.playable) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('这条没有可播地址，可点右上角修复试试')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('这条没有可播地址，可点右上角修复试试')));
       return;
     }
     final state = widget.service.stateStore;
@@ -2612,9 +2757,9 @@ class _FilmDetailPageState extends State<FilmDetailPage> {
       entries: [_entry],
     );
     if (report != null && report.fixed > 0 && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已修好，返回列表重进即可播放')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('已修好，返回列表重进即可播放')));
     }
   }
 
@@ -2649,17 +2794,17 @@ class _FilmDetailPageState extends State<FilmDetailPage> {
                 aspectRatio: 16 / 9,
                 child: _entry.coverUrl.isEmpty
                     ? Container(
-                      color: colors.surfaceContainerHighest,
-                      child: const Icon(Icons.movie_outlined, size: 48),
-                    )
-                    : Image.network(
-                      _entry.coverUrl,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) => Container(
                         color: colors.surfaceContainerHighest,
                         child: const Icon(Icons.movie_outlined, size: 48),
+                      )
+                    : Image.network(
+                        _entry.coverUrl,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) => Container(
+                          color: colors.surfaceContainerHighest,
+                          child: const Icon(Icons.movie_outlined, size: 48),
+                        ),
                       ),
-                    ),
               ),
             ),
           ),
@@ -2678,8 +2823,7 @@ class _FilmDetailPageState extends State<FilmDetailPage> {
                 Chip(label: Text(_entry.category)),
               if (_entry.site.isNotEmpty) Chip(label: Text(_entry.site)),
               if (_entry.date.isNotEmpty) Chip(label: Text(_entry.date)),
-              if (_entry.remarks.isNotEmpty)
-                Chip(label: Text(_entry.remarks)),
+              if (_entry.remarks.isNotEmpty) Chip(label: Text(_entry.remarks)),
             ],
           ),
           if (actresses.isNotEmpty) ...[
@@ -2700,33 +2844,23 @@ class _FilmDetailPageState extends State<FilmDetailPage> {
           ],
           if (synopsis.isNotEmpty) ...[
             const SizedBox(height: 16),
-            Text(
-              '简介',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
+            Text('简介', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 6),
             Text(synopsis),
           ],
           const SizedBox(height: 16),
-          Text(
-            '播放线路',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
+          Text('播放线路', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
           ListTile(
             leading: const Icon(Icons.play_circle_fill),
             title: const Text('正片'),
-            subtitle: Text(
-              _entry.playable
-                  ? '直链播放（parse=0）'
-                  : '暂无可播地址',
-            ),
+            subtitle: Text(_entry.playable ? '直链播放（parse=0）' : '暂无可播地址'),
             trailing: _checking
                 ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
                 : const Icon(Icons.chevron_right),
             onTap: _checking ? null : _play,
           ),
@@ -2905,18 +3039,12 @@ Future<FilmAppendReport?> showFilmAppendDialog(
   return showDialog<FilmAppendReport>(
     context: context,
     barrierDismissible: false,
-    builder: (_) => _FilmAppendDialog(
-      service: service,
-      database: database,
-    ),
+    builder: (_) => _FilmAppendDialog(service: service, database: database),
   );
 }
 
 class _FilmAppendDialog extends StatefulWidget {
-  const _FilmAppendDialog({
-    required this.service,
-    required this.database,
-  });
+  const _FilmAppendDialog({required this.service, required this.database});
 
   final FilmLibraryService service;
   final ActressDatabase database;
@@ -2995,12 +3123,12 @@ class _FilmAppendDialogState extends State<_FilmAppendDialog> {
               Text(
                 report.done
                     ? '追加完成：扫了 ${report.scanned} 行，'
-                        '送进女优库 ${report.mirrored} 条，'
-                        '失败 ${report.failedBatches} 批。'
+                          '送进女优库 ${report.mirrored} 条，'
+                          '失败 ${report.failedBatches} 批。'
                     : '追加停下：扫了 ${report.scanned} 行，'
-                        '送进女优库 ${report.mirrored} 条，'
-                        '失败 ${report.failedBatches} 批，'
-                        '下次打开接着跑。',
+                          '送进女优库 ${report.mirrored} 条，'
+                          '失败 ${report.failedBatches} 批，'
+                          '下次打开接着跑。',
               ),
               const SizedBox(height: 8),
               const Text('回女优库列表刷新，就能看到数涨上去了；播放地址仍走数据库兜底。'),

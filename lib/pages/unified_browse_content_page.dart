@@ -197,109 +197,124 @@ class _UnifiedBrowseContentPageState extends State<UnifiedBrowseContentPage> {
                   final cardWidth =
                       (gridWidth - (columns - 1) * homeGridGap) / columns;
                   final scaler = MediaQuery.textScalerOf(context);
-                  return CustomScrollView(
-                    slivers: [
-                      for (final section in _sections) ...[
-                        SliverToBoxAdapter(
-                          child: Padding(
-                            padding: const EdgeInsets.fromLTRB(
-                              homeGutter,
-                              20,
-                              homeGutter,
-                              8,
-                            ),
-                            child: Text(
-                              '${section.siteName}（${section.items.length}）',
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
+                  // 往上滑到底自动取下一批站点：_loadBatch 自带
+                  // _loading/_loadingMore/_hasMoreSites 门，不会重复
+                  // 取同一批；失败时停住，底部按钮点重试（见 _retry）。
+                  // 内容不满一屏滑不动时，仍由底部按钮翻页。
+                  return NotificationListener<ScrollNotification>(
+                    onNotification: (notification) {
+                      if (notification is ScrollUpdateNotification ||
+                          notification is ScrollEndNotification) {
+                        if (notification.metrics.extentAfter < 400) {
+                          unawaited(_loadBatch());
+                        }
+                      }
+                      return false;
+                    },
+                    child: CustomScrollView(
+                      slivers: [
+                        for (final section in _sections) ...[
+                          SliverToBoxAdapter(
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(
+                                homeGutter,
+                                20,
+                                homeGutter,
+                                8,
                               ),
-                            ),
-                          ),
-                        ),
-                        SliverPadding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: homeGutter,
-                          ),
-                          sliver: SliverGrid(
-                            gridDelegate:
-                                SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: columns,
-                                  crossAxisSpacing: homeGridGap,
-                                  mainAxisSpacing: 20,
-                                  mainAxisExtent: homeCardExtent(
-                                    context,
-                                    cardWidth,
-                                    scaler,
-                                  ),
-                                ),
-                            delegate: SliverChildBuilderDelegate((
-                              context,
-                              index,
-                            ) {
-                              final item = section.items[index];
-                              return HomeMediaCard(
-                                item: MediaItem(
-                                  id: item.id,
-                                  title: item.title,
-                                  cover: item.cover,
-                                  author: '',
-                                  badge: '',
-                                  ep: item.remark,
-                                  kind: videoCardKindForSite(
-                                    section.siteId,
-                                    section.siteName,
-                                  ),
-                                ),
-                                coverWidth: cardWidth,
-                                onTap: () => openDramaSiteItem(
-                                  context,
-                                  section.siteId,
-                                  item,
-                                ),
-                              );
-                            }, childCount: section.items.length),
-                          ),
-                        ),
-                      ],
-                      if (_failed > 0)
-                        SliverToBoxAdapter(
-                          child: Padding(
-                            padding: const EdgeInsets.fromLTRB(
-                              homeGutter,
-                              16,
-                              homeGutter,
-                              0,
-                            ),
-                            child: Text(
-                              '$_failed 个站取不到，已跳过',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: moyiMutedOnDark,
-                              ),
-                            ),
-                          ),
-                        ),
-                      if (_hasMoreSites)
-                        SliverToBoxAdapter(
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: OutlinedButton(
-                              key: const ValueKey(
-                                'unified_browse_load_more_sites',
-                              ),
-                              onPressed: _loadingMore ? null : _loadBatch,
                               child: Text(
-                                _loadingMore
-                                    ? '加载中…'
-                                    : '加载更多站点（还剩 ${widget.entries.length - _fetched} 站）',
+                                '${section.siteName}（${section.items.length}）',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
                             ),
                           ),
-                        )
-                      else
-                        const SliverToBoxAdapter(child: SizedBox(height: 24)),
-                    ],
+                          SliverPadding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: homeGutter,
+                            ),
+                            sliver: SliverGrid(
+                              gridDelegate:
+                                  SliverGridDelegateWithFixedCrossAxisCount(
+                                    crossAxisCount: columns,
+                                    crossAxisSpacing: homeGridGap,
+                                    mainAxisSpacing: 20,
+                                    mainAxisExtent: homeCardExtent(
+                                      context,
+                                      cardWidth,
+                                      scaler,
+                                    ),
+                                  ),
+                              delegate: SliverChildBuilderDelegate((
+                                context,
+                                index,
+                              ) {
+                                final item = section.items[index];
+                                return HomeMediaCard(
+                                  item: MediaItem(
+                                    id: item.id,
+                                    title: item.title,
+                                    cover: item.cover,
+                                    author: '',
+                                    badge: '',
+                                    ep: item.remark,
+                                    kind: videoCardKindForSite(
+                                      section.siteId,
+                                      section.siteName,
+                                    ),
+                                  ),
+                                  coverWidth: cardWidth,
+                                  onTap: () => openDramaSiteItem(
+                                    context,
+                                    section.siteId,
+                                    item,
+                                  ),
+                                );
+                              }, childCount: section.items.length),
+                            ),
+                          ),
+                        ],
+                        if (_failed > 0)
+                          SliverToBoxAdapter(
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(
+                                homeGutter,
+                                16,
+                                homeGutter,
+                                0,
+                              ),
+                              child: Text(
+                                '$_failed 个站取不到，已跳过',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: moyiMutedOnDark,
+                                ),
+                              ),
+                            ),
+                          ),
+                        if (_hasMoreSites)
+                          SliverToBoxAdapter(
+                            child: Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: OutlinedButton(
+                                key: const ValueKey(
+                                  'unified_browse_load_more_sites',
+                                ),
+                                onPressed: _loadingMore ? null : _loadBatch,
+                                child: Text(
+                                  _loadingMore
+                                      ? '加载中…'
+                                      : '加载更多站点（还剩 ${widget.entries.length - _fetched} 站）',
+                                ),
+                              ),
+                            ),
+                          )
+                        else
+                          const SliverToBoxAdapter(child: SizedBox(height: 24)),
+                      ],
+                    ),
                   );
                 },
               ),

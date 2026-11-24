@@ -6,8 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fqapp/models/category_front.dart';
 import 'package:fqapp/pages/category_page.dart';
 import 'package:fqapp/services/app_theme.dart' show einkModeNotifier;
-import 'package:fqapp/widgets/home/home_design.dart';
 import 'package:fqapp/widgets/home/home_feed_states.dart';
+import 'package:fqapp/widgets/series_detail/moyi_detail_theme.dart';
 
 /// 官方 7.0.9.32 分类页形态：顶部频道 tab + 左侧维度栏 + 右侧分组堆叠的
 /// 等宽 chip 网格（手机三列，桌面按宽度加列）。左栏点击滚动定位分组，滚动
@@ -79,8 +79,8 @@ void main() {
     expect(rects[1].width, closeTo(rects[2].width, 0.5));
     expect(rects[1].left - rects[0].right, closeTo(7, 0.5));
     expect(rects[2].left - rects[1].right, closeTo(7, 0.5));
-    // 官方 chip 定高 30dp（上6下4 边距在 Padding 上，不含在 rect 内）。
-    expect(rects[0].height, 30);
+    // 官方 chip 定高 26dp（收小一号后；上5下3 边距在 Padding 上，不含在 rect 内）。
+    expect(rects[0].height, 26);
   });
 
   testWidgets('a desktop-width viewport adds columns instead of stretching', (
@@ -140,15 +140,15 @@ void main() {
         matching: find.byType(Text),
       ),
     );
-    // 初始：首项选中橙、次项黑。
-    expect(railText('category_dim_0').style?.color, HomePalette.accent);
-    expect(railText('category_dim_1').style?.color, isNot(HomePalette.accent));
+    // 初始：首项选中霓虹青、次项白 70%。
+    expect(railText('category_dim_0').style?.color, moyiCyan);
+    expect(railText('category_dim_1').style?.color, moyiBodyOnDark);
 
     await tester.tap(find.byKey(const ValueKey('category_dim_1')));
     await tester.pumpAndSettle();
 
     // 点击后：高亮切换 + 滚动定位到第二组（内容超出视口才有偏移）。
-    expect(railText('category_dim_1').style?.color, HomePalette.accent);
+    expect(railText('category_dim_1').style?.color, moyiCyan);
     final list = tester.widget<ListView>(
       find.byKey(const ValueKey('category_tile_list')),
     );

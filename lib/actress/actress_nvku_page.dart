@@ -12,6 +12,8 @@ import 'actress_database.dart';
 import 'actress_film_library.dart';
 import 'actress_list_page.dart';
 import 'actress_neon.dart';
+import 'actress_tag_sheet.dart';
+import 'actress_type_folders.dart';
 import 'whos_fallback.dart';
 import 'whos_local_library.dart';
 
@@ -33,12 +35,17 @@ class ActressNvkuPage extends StatefulWidget {
     required this.store,
     this.database,
     this.showTitle = true,
+    this.filmService,
   });
 
   final AppRepository repository;
   final LocalStore store;
   final ActressDatabase? database;
   final bool showTitle;
+
+  /// 影视库服务（文件夹/标签读库用）：不传时页内自己建一个
+  /// （绑 MYTV/db 的库）；测试可注入假服务，不碰真库。
+  final FilmLibraryService? filmService;
 
   @override
   State<ActressNvkuPage> createState() => _ActressNvkuPageState();
@@ -123,24 +130,296 @@ class _ActressNvkuPageState extends State<ActressNvkuPage> {
   var _favorites = <_FavItem>[];
   var _generation = 0;
 
+  /// 影视库服务（文件夹/标签读库）：注入的直接用，没注入的页内建
+  /// 一个（绑 MYTV/db 的库）；[_ownsFilmService] 为真时退出关掉。
+  FilmLibraryService? _filmService;
+  var _ownsFilmService = false;
+
+  /// 顶部库名标题（2026-11-24 文件夹视图）：当前读的是哪个库的
+  /// 文件名（例如“女优库.db”），只当标题/标识，不做分类；没绑上
+  /// 库、或库打不开时为空，顶栏回落显示“女优库”。
+  var _dbTitle = '';
+
+  /// 类型文件夹（2026-11-24 文件夹视图）：videos.type_name 分组
+  /// 计数，从多到少；[_foldersLoaded] 为真且列表为空 = 这个库没有
+  /// type_name 维度，页里如实显示“暂无文件夹”，不编。
+  var _folders = <(String, int)>[];
+  var _foldersLoading = false;
+  var _foldersLoaded = false;
+
+  /// 类型文件夹封面（2026-11-24 文件夹卡片用封面）：类型名 →
+  /// 该类型视频列表第一条视频的 pic_url；没封面的类型值为空，
+  /// 卡片回落文件夹图标。随文件夹一起重算（换标签时第一条
+  /// 带标签的视频可能变，封面跟着变）。
+  var _folderCovers = <String, String>{};
+
+  /// 当前打开的文件夹（类型名）：null = 文件夹网格；非空 = 该类型
+  /// 的视频列表（在分类 tab 里看）。点文件夹从首页进来时先切到
+  /// 分类 tab 再开（见 [_openFolder]）。
+  String? _openFolderName;
+  var _folderWorks = <FilmLibraryEntry>[];
+  var _folderTotal = -1; // -1 = 还没数过
+  var _folderLoading = false;
+  var _folderLoadingMore = false;
+  var _folderHasMore = false;
+  var _folderGeneration = 0;
+  static const _folderPageSize = 30;
+  final _folderScroll = ScrollController();
+
+  /// 标签筛选（2026-11-24，与列表页同一套）：[_videoTag] 是当前
+  /// 选中的标签（空 = 全部）；[_tagKey] 是通用结构下传给服务的
+  /// filters 键（[FilmLibraryService.tags] 回的 key）；[_tags]
+  /// 是弹窗里列的全部标签（带作品数）。
+  var _videoTag = '';
+  var _tagKey = '';
+  var _tags = <(String, int)>[];
+
   @override
   void initState() {
     super.initState();
     _scroll.addListener(_onScroll);
+    _folderScroll.addListener(_onFolderScroll);
+    _filmService = widget.filmService;
+    _ownsFilmService = _filmService == null;
+    _filmService ??= FilmLibraryService(
+      database: widget.database ?? SqfliteActressDatabase.instance,
+    );
     unawaited(_boot());
   }
 
   @override
   void dispose() {
     _scroll.dispose();
+    _folderScroll.dispose();
     _search.dispose();
+    final service = _filmService;
+    _filmService = null;
+    if (_ownsFilmService && service != null) {
+      unawaited(service.close());
+    }
     super.dispose();
   }
 
   Future<void> _boot() async {
     await _loadFavorites();
+    // 文件夹先于作品加载：文件夹在首页最顶，作品随后；库打不开时
+    // 这里直接回空，不挡后面的作品加载。
+    await _loadFilmLibrary();
     await _loadCategories();
     await _loadWorks(reset: true);
+  }
+
+  void _onFolderScroll() {
+    if (!_folderScroll.hasClients) return;
+    if (_folderScroll.position.pixels >=
+        _folderScroll.position.maxScrollExtent - 600) {
+      unawaited(_loadFolderWorks());
+    }
+  }
+
+  /// 打开影视库服务并取标签列表、类型文件夹（2026-11-24
+  /// 文件夹视图）：库打不开（没绑库/文件不存在）时文件夹留空，
+  /// 不抛错、不挡后面的作品加载。
+  Future<void> _loadFilmLibrary() async {
+    final service = _filmService;
+    if (service == null) return;
+    final result = await service.open();
+    if (!mounted) return;
+    if (result.error == null && result.displayPath.isNotEmpty) {
+      final name = result.displayPath.split('/').last.trim();
+      if (name.isNotEmpty) setState(() => _dbTitle = name);
+    }
+    await _loadTags();
+    await _loadFolders();
+  }
+
+  /// 标签列表：服务 open 之后调；严格结构读 video_tag 表，通用
+  /// 结构走 tagFacet。key 一起记下来，文件夹与视频列表筛选时传回。
+  Future<void> _loadTags() async {
+    final service = _filmService;
+    if (service == null) return;
+    final tags = await service.tags();
+    if (!mounted) return;
+    setState(() {
+      _tagKey = tags.key;
+      _tags = tags.values;
+    });
+  }
+
+  /// 类型文件夹：按 videos.type_name 分组计数；选了标签时计数只算
+  /// 带该标签的作品（与标签筛选 AND），反过来标签筛出的结果也就
+  /// 按 type_name 分得出文件夹（同一份计数）。封面随后按同一口径
+  /// 取（typeFolderCovers，第一条视频的 pic_url）；封面是装饰，
+  /// 取不到也不挡文件夹网格（那几张卡回落文件夹图标）。
+  Future<void> _loadFolders() async {
+    final service = _filmService;
+    if (service == null) return;
+    setState(() => _foldersLoading = true);
+    final folders = await service.typeFolders(
+      videoTag: _videoTag,
+      genericTagKey: _tagKey,
+    );
+    var covers = const <String, String>{};
+    try {
+      covers = await service.typeFolderCovers(
+        typeNames: [for (final f in folders) f.$1],
+        videoTag: _videoTag,
+        genericTagKey: _tagKey,
+      );
+    } catch (_) {
+      covers = const <String, String>{};
+    }
+    if (!mounted) return;
+    setState(() {
+      _folders = folders;
+      _folderCovers = covers;
+      _foldersLoading = false;
+      _foldersLoaded = true;
+    });
+  }
+
+  /// 点文件夹：切到分类 tab，在那里看该类型的视频列表。
+  Future<void> _openFolder(String name) async {
+    setState(() => _tab = 1);
+    if (_openFolderName == name) return;
+    setState(() => _openFolderName = name);
+    await _loadFolderWorks(reset: true);
+  }
+
+  /// 退回文件夹网格（“全部类型”）：清掉已开文件夹与它的视频列表。
+  void _closeFolder() {
+    setState(() {
+      _openFolderName = null;
+      _folderWorks = [];
+      _folderTotal = -1;
+      _folderHasMore = false;
+    });
+  }
+
+  /// 文件夹里的视频分页：类型名 + 标签两筛（与文件夹计数同一口径）；
+  /// 点卡开 FilmDetailPage 直接播，不绕站点取流。
+  Future<void> _loadFolderWorks({bool reset = false}) async {
+    final service = _filmService;
+    final folder = _openFolderName;
+    if (service == null || folder == null) return;
+    if (reset) {
+      final generation = ++_folderGeneration;
+      setState(() {
+        _folderLoading = true;
+        _folderWorks = [];
+        _folderTotal = -1;
+        _folderHasMore = false;
+      });
+      final rows = await service.listFilms(
+        typeName: folder,
+        videoTag: _videoTag,
+        genericTagKey: _tagKey,
+        offset: 0,
+        limit: _folderPageSize,
+      );
+      final total = await service.countFilms(
+        typeName: folder,
+        videoTag: _videoTag,
+        genericTagKey: _tagKey,
+      );
+      if (!mounted || generation != _folderGeneration) return;
+      setState(() {
+        _folderWorks = rows;
+        _folderTotal = total;
+        _folderLoading = false;
+        _folderHasMore = rows.length >= _folderPageSize;
+      });
+      return;
+    }
+    if (_folderLoadingMore || !_folderHasMore || _folderLoading) return;
+    final generation = _folderGeneration;
+    setState(() => _folderLoadingMore = true);
+    final rows = await service.listFilms(
+      typeName: folder,
+      videoTag: _videoTag,
+      genericTagKey: _tagKey,
+      offset: _folderWorks.length,
+      limit: _folderPageSize,
+    );
+    if (!mounted || generation != _folderGeneration) return;
+    setState(() {
+      _folderWorks = [..._folderWorks, ...rows];
+      _folderLoadingMore = false;
+      _folderHasMore = rows.length >= _folderPageSize;
+    });
+  }
+
+  Future<void> _openFolderFilm(FilmLibraryEntry entry) async {
+    final service = _filmService;
+    if (service == null) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => FilmDetailPage(
+          entry: entry,
+          database: widget.database ?? SqfliteActressDatabase.instance,
+          repository: widget.repository,
+          store: widget.store,
+          service: service,
+        ),
+      ),
+    );
+  }
+
+  /// 标签底部弹窗（2026-11-24，与列表页同一只弹窗）：标签列表由
+  /// 服务查好；没标签时弹窗如实显示“暂无标签”。点标签后文件夹
+  /// 计数与已开文件夹的视频列表一起按新标签重算。
+  Future<void> _openTagSheet() async {
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: Theme.of(context).colorScheme.surfaceContainerHigh,
+      builder: (sheetContext) => SizedBox(
+        height: MediaQuery.of(context).size.height * 0.75,
+        child: ActressTagSheet(
+          tags: _tags,
+          selected: _videoTag,
+          onSelected: (name) => Navigator.of(sheetContext).pop(name),
+        ),
+      ),
+    );
+    if (picked == null) return;
+    await _setVideoTag(picked);
+  }
+
+  Future<void> _setVideoTag(String tag) async {
+    if (_videoTag == tag) return;
+    setState(() => _videoTag = tag);
+    await _loadFolders();
+    if (_openFolderName != null) await _loadFolderWorks(reset: true);
+  }
+
+  /// 标签入口行：没选时只显示“标签”，选了显示“标签：<名>”高亮 +
+  /// “清除”一键清掉；与列表页同一套样式（霓虹药丸钮）。
+  Widget _buildTagRow() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+      child: Row(
+        children: [
+          ActressNeonPill(
+            key: const ValueKey('nvku-tag-open'),
+            label: _videoTag.isEmpty ? '标签' : '标签：$_videoTag',
+            selected: _videoTag.isNotEmpty,
+            onTap: _openTagSheet,
+          ),
+          if (_videoTag.isNotEmpty) ...[
+            const SizedBox(width: 8),
+            ActressNeonPill(
+              key: const ValueKey('nvku-tag-clear'),
+              label: '清除',
+              selected: false,
+              compact: true,
+              onTap: () => unawaited(_setVideoTag('')),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
   void _onScroll() {
@@ -439,13 +718,21 @@ class _ActressNvkuPageState extends State<ActressNvkuPage> {
           if (widget.showTitle) ...[
             Row(
             children: [
-              Text(
-                widget.showTitle ? '女优库' : '女优库',
-                style: const TextStyle(
-                  color: Neon.text,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: .5,
+              Flexible(
+                child: Text(
+                  // 2026-11-24 文件夹视图：顶栏标题显示当前数据库名
+                  // （例如“女优库.db”），只当标题/标识、说明现在读
+                  // 的是哪个库；库名不做分类（老令不变）。没绑上库时
+                  // 回落显示“女优库”。
+                  _dbTitle.isEmpty ? '女优库' : _dbTitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Neon.text,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: .5,
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
@@ -475,6 +762,35 @@ class _ActressNvkuPageState extends State<ActressNvkuPage> {
           ),
             const SizedBox(height: 8),
           ],
+          // 2026-11-24 文件夹视图：内嵌进片库顶栏时（showTitle=false）
+          // 宿主已有自己的顶栏，这里不另出标题行；但当前库名还是要让
+          // 用户在顶部一眼看到（说明现在读的是哪个库），只给一行小字
+          // 标识，不恢复被禁的那条“女优库 + 本地库 + 刷新”标题行。
+          if (!widget.showTitle && _dbTitle.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.folder_rounded,
+                    size: 13,
+                    color: Neon.textDim,
+                  ),
+                  const SizedBox(width: 4),
+                  Flexible(
+                    child: Text(
+                      '当前库：$_dbTitle',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Neon.textDim,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           Row(
             children: [
               Expanded(
@@ -612,6 +928,15 @@ class _ActressNvkuPageState extends State<ActressNvkuPage> {
     );
   }
 
+  /// 文件夹区右上角的说明：类型数 + 总部数；还没查出来时如实写
+  /// 加载中，库里没有 type_name 维度时如实写没有文件夹。
+  String _foldersSummary() {
+    if (!_foldersLoaded) return '加载中…';
+    if (_folders.isEmpty) return '这个库没有类型文件夹';
+    final total = _folders.fold<int>(0, (sum, f) => sum + f.$2);
+    return '${_folders.length} 个类型 · 共 $total 部';
+  }
+
   Widget _homeTab() {
     final cats = _allCategories();
     return RefreshIndicator(
@@ -622,6 +947,35 @@ class _ActressNvkuPageState extends State<ActressNvkuPage> {
         controller: _scroll,
         padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
         children: [
+          // 2026-11-24 文件夹视图：首页最顶是类型文件夹网格（一级
+          // 分类，照百合截图），点文件夹切到分类 tab 看该类型视频；
+          // 下面才是原来的分类胶囊 + 最新上架作品。搜的时候文件夹
+          // 先藏起来（文件夹计数不认搜索词，搜的是作品）。
+          if (_query.isEmpty) ...[
+            _sectionTitle('类型文件夹', _foldersSummary()),
+            _buildTagRow(),
+            if (_foldersLoading)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: Center(
+                  child: CircularProgressIndicator(color: _pk),
+                ),
+              )
+            else if (_folders.isEmpty && _foldersLoaded)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 16),
+                child: Text(
+                  '暂无文件夹：这个数据库没有 type_name 分类',
+                  style: TextStyle(color: Neon.textDim),
+                ),
+              )
+            else
+              ActressTypeFolderGrid(
+                folders: _folders,
+                covers: _folderCovers,
+                onOpen: (name) => unawaited(_openFolder(name)),
+              ),
+          ],
           // 2026-11-22 用户令「分类不是卡片」：分类改成一条横向胶囊
           // 标签，置顶放在作品前面（原来是排在作品下面的两列卡片
           // 网格，既占地方又不像分类）。
@@ -706,6 +1060,84 @@ class _ActressNvkuPageState extends State<ActressNvkuPage> {
   }
 
   Widget _categoryTab() {
+    // 2026-11-24 文件夹视图：从首页点文件夹进来时，分类 tab 显示
+    // 该类型的视频列表（“‹ 全部类型”退回）；修仙版分类页原来的
+    // 站点分类 + 作品网格原样保留，没开文件夹时照旧显示。
+    // 搜的时候显示搜索结果（原来的作品网格），文件夹计数不认搜索词。
+    final open = _openFolderName;
+    if (open != null && _query.isEmpty) {
+      return Column(
+        children: [
+          _buildTagRow(),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+            child: Row(
+              children: [
+                ActressNeonPill(
+                  key: const ValueKey('folder-back-all'),
+                  label: '‹ 全部类型',
+                  selected: false,
+                  onTap: _closeFolder,
+                ),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    _folderTotal < 0
+                        ? '$open · 加载中…'
+                        : '$open · 共$_folderTotal条',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Neon.text,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: _folderLoading
+                ? const Center(
+                    child: CircularProgressIndicator(color: _pk),
+                  )
+                : _folderWorks.isEmpty
+                ? const Center(
+                    child: Text(
+                      '这个类型里没有符合条件的作品',
+                      style: TextStyle(color: Neon.textDim),
+                    ),
+                  )
+                : GridView.builder(
+                    controller: _folderScroll,
+                    padding: const EdgeInsets.fromLTRB(12, 6, 12, 24),
+                    itemCount:
+                        _folderWorks.length + (_folderHasMore ? 1 : 0),
+                    gridDelegate:
+                        const SliverGridDelegateWithMaxCrossAxisExtent(
+                          maxCrossAxisExtent: 130,
+                          mainAxisSpacing: 12,
+                          crossAxisSpacing: 10,
+                          childAspectRatio: 0.56,
+                        ),
+                    itemBuilder: (context, index) {
+                      if (index >= _folderWorks.length) {
+                        return const Center(
+                          child: CircularProgressIndicator(color: _pk),
+                        );
+                      }
+                      final entry = _folderWorks[index];
+                      return ActressFolderVideoCard(
+                        entry: entry,
+                        onTap: () => unawaited(_openFolderFilm(entry)),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      );
+    }
     final cats = _allCategories();
     return Column(
       children: [

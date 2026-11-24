@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../home/home_design.dart';
+import '../series_detail/moyi_detail_theme.dart';
 
 /// 左侧维度栏宽度（官方 88dp 定值）。
 const double categoryDimRailWidth = 88;
@@ -9,17 +10,23 @@ const double categoryDimRailWidth = 88;
 /// 官方无指示条、无选中底色——`TabPageLeftCell` 只有颜色分支）。
 /// 墨水屏下两档都退化为黑色，靠选中加粗 + 左侧 2dp 黑指示条保留层级
 /// （否则选中维度完全不可见）。
+/// 霓虹模式（[neon]，分类页阅读分支在深紫蓝渐变底上用）：底透明（露出
+/// 渐变）、选中霓虹青加粗、未选白 70%。
 class CategoryDimRail extends StatelessWidget {
   const CategoryDimRail({
     super.key,
     required this.titles,
     required this.selectedIndex,
     required this.onSelect,
+    this.neon = false,
   });
 
   final List<String> titles;
   final int selectedIndex;
   final ValueChanged<int> onSelect;
+
+  /// 霓虹模式：深底配色；false 时走官方风老配色（选中品牌橙、未选墨）。
+  final bool neon;
 
   @override
   Widget build(BuildContext context) {
@@ -27,7 +34,7 @@ class CategoryDimRail extends StatelessWidget {
     return SizedBox(
       width: categoryDimRailWidth,
       child: ColoredBox(
-        color: palette.soft,
+        color: neon ? Colors.transparent : palette.soft,
         child: ListView.builder(
           padding: EdgeInsets.only(
             bottom: MediaQuery.paddingOf(context).bottom,
@@ -51,10 +58,14 @@ class CategoryDimRail extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 14,
                     // 墨屏黑字两档同色，选中只靠字重 + 指示条区分。
-                    fontWeight: einkSelected ? FontWeight.w700 : null,
+                    fontWeight: (einkSelected || (neon && selected))
+                        ? FontWeight.w700
+                        : null,
                     color: selected
-                        ? (palette.eink ? palette.ink : HomePalette.accent)
-                        : palette.ink,
+                        ? (palette.eink
+                              ? palette.ink
+                              : (neon ? moyiCyan : HomePalette.accent))
+                        : (neon ? moyiBodyOnDark : palette.ink),
                   ),
                 ),
               ),

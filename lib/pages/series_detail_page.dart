@@ -3,6 +3,9 @@ import 'dart:async';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
+import '../actress/actress_widgets.dart';
+import '../actress/code_meta_section.dart';
+import '../actress/jav_code_meta.dart';
 import '../models/media_item.dart';
 import '../models/playlet_comment.dart';
 import '../models/series_detail.dart'
@@ -84,6 +87,7 @@ class SeriesDetailPage extends StatefulWidget {
     this.siteDetailLoader,
     this.contentLoader,
     this.relatedLoader,
+    this.homeRelatedLoader,
     this.onOpenRelatedFilm,
     this.onOpenRelatedSeries,
     this.onFilmCategoryTap,
@@ -148,8 +152,17 @@ class SeriesDetailPage extends StatefulWidget {
   contentLoader;
 
   /// 影视区专属：同站相关推荐加载器（`openDramaSiteItem` 传，按详情
-  /// 分类匹配同分类目录，取不到退本站首页）。为空时不画推荐区。
+  /// 分类匹配同分类目录，取不到退本站首页）。为空时不画推荐视频区。
+  /// 推荐视频取本站同分类（魔蚁 `_recommendedSection` / `_loadRecommended`
+  /// 同一套算法：同分类优先、凑不满 6 个用本站其他补、排除当前这部）。
   final Future<List<DramaSiteItem>> Function(String seriesId)? relatedLoader;
+
+  /// 影视区专属：本站首页相关推荐加载器（`openDramaSiteItem` 传本站
+  /// 首页目录）。魔蚁的相关推荐取详情接口自带的 `related` 列表，
+  /// 修仙版站详情解析里没有 `related` 字段，改取本站首页、并排除
+  /// 推荐视频区已展示的条目与当前这部。为空时不画相关推荐区。
+  final Future<List<DramaSiteItem>> Function(String seriesId)?
+  homeRelatedLoader;
 
   /// 影视区专属：点推荐卡片的打开方式（`openDramaSiteItem` 传，调
   /// `openDramaSiteItem` 进新详情页）。为空时点卡片不做事。
@@ -195,15 +208,28 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
   bool _filmDetailDone = false;
   bool _filmDetailFailed = false;
 
-  /// 影视区同站相关推荐：只在影视区入口加载；没回来或取不到时
-  /// 整块不占位，不留空白块。
+  /// 影视区头区演员行匹配结果（番号 → 演员与导演）：站详情回来后按
+  /// 番号查三站元数据 + who's 索引（与 CodeMetaSection 同一份匹配，
+  /// 见 actress/code_meta_section.dart）。null = 未匹配到或尚未查完，
+  /// 头区不画演员行。只在影视区入口查，短剧没有番号不查。
+  CodeMeta? _codeMeta;
+  int _codeMetaGeneration = 0;
+
+  /// 影视区推荐视频：同站同分类（relatedLoader 那套算法），取 6 个；
+  /// 没回来或取不到时整块不占位，不留空白块。
+  List<DramaSiteItem> _recommendedItems = const [];
+  bool _recommendedDone = false;
+  bool _recommendedStarted = false;
+
+  /// 影视区相关推荐：本站首页（homeRelatedLoader），排除推荐视频区
+  /// 已展示的条目与当前这部，取 6 个；没回来或取不到时整块不占位。
   List<DramaSiteItem> _relatedItems = const [];
   bool _relatedDone = false;
   bool _relatedStarted = false;
 
-  /// 相关推荐卡片宽：横排卡片固定宽，高度按 HomeMediaCard 的
-  /// homeCardExtent 算（封面 5:7 + 标题两行 + 一行副标题）。
-  static const _relatedCardWidth = 120.0;
+  /// 推荐区卡片列宽档：与魔蚁详情页同一档（列宽 150→85；390 宽手机
+  /// 4 列、单卡约 82 宽，原横排卡 120 宽）。两块推荐区共用。
+  static const _recommendColumnWidth = 85.0;
 
   /// 有站详情加载器 = 影视区入口；短剧入口 loader 为空。
   bool get _isFilmSite => widget.siteDetailLoader != null;
@@ -323,21 +349,99 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
         _filmDetailFailed = true;
       });
     }
-    _loadRelated();
+    _loadCodeMeta();
+    _loadRecommended();
   }
 
-  /// 影视区同站相关推荐：站详情回来后才拉（推荐按详情分类匹配，
-  /// 与详情请求共用缓存，不多发一次详情请求）。只拉一次；
-  /// 取不到整块不画，不留空白块。
-  Future<void> _loadRelated() async {
+  /// 影视区头区演员行：站详情回来后按番号查三站元数据 + who's 索引
+  ///（与 CodeMetaSection 同一份匹配）。代次守卫：重试后旧结果不再
+  /// 写回。查不到时 _codeMeta 为 null，头区不画演员行、简介区演员照常。
+  Future<void> _loadCodeMeta() async {
+    if (!_isFilmSite) return;
+    final generation = ++_codeMetaGeneration;
+    final meta = await loadCodeMetaForDrama(
+      dramaId: widget.seriesId,
+      title: _titleText,
+      sourceId: widget.engineSiteId,
+    );
+    if (!mounted || generation != _codeMetaGeneration) return;
+    setState(() => _codeMeta = meta);
+  }
+
+  /// 名字归一（与魔蚁详情页同一口径）：去首尾空白；“々”展开成前一字
+  ///（佐々木 → 佐佐木）。简介区演员去重用。
+  String _normalizeName(String name) {
+    final out = StringBuffer();
+    for (var i = 0; i < name.length; i++) {
+      final ch = name[i];
+      if (ch == '々' && out.isNotEmpty) {
+        out.write(name[i - 1]);
+      } else {
+        out.write(ch);
+      }
+    }
+    return out.toString().trim();
+  }
+
+  /// 头像地址是否“像能加载”：与演员库汇总同一口径——非空、且 URI 的
+  /// path 不是空也不是只有 `/`（裸域名如 https://v.hersav.me/ 跳过，
+  /// 当成没有头像、回落首字圆圈）。
+  static String _validAvatarUrl(String url) {
+    if (url.isEmpty) return '';
+    final path = Uri.tryParse(url)?.path ?? '';
+    if (path.isEmpty || path == '/') return '';
+    return url;
+  }
+
+  /// 影视区推荐视频：同站同分类（relatedLoader 那套算法），取 6 个；
+  /// 取不到整块不画。只拉一次；拉完再拉相关推荐（去重要排除这里的 id）。
+  Future<void> _loadRecommended() async {
     final loader = widget.relatedLoader;
-    if (loader == null || _relatedStarted) return;
-    _relatedStarted = true;
+    if (loader == null) {
+      // 没有推荐加载器 = 推荐视频区不存在，仍要放行相关推荐去重。
+      if (mounted) setState(() => _recommendedDone = true);
+      _loadRelated();
+      return;
+    }
+    if (_recommendedStarted) return;
+    _recommendedStarted = true;
     try {
       final items = await _request(() => loader(widget.seriesId));
       if (!mounted) return;
       setState(() {
-        _relatedItems = items;
+        _recommendedItems = items.take(6).toList(growable: false);
+        _recommendedDone = true;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _recommendedDone = true);
+    }
+    _loadRelated();
+  }
+
+  /// 影视区相关推荐：本站首页（homeRelatedLoader），排除推荐视频区
+  /// 已展示的条目与当前这部，取 6 个；取不到整块不画，不留空白块。
+  /// 只拉一次；推荐视频还没回来时先等它（去重要排除那边的 id）。
+  Future<void> _loadRelated() async {
+    final loader = widget.homeRelatedLoader;
+    if (loader == null || _relatedStarted) return;
+    if (!_recommendedDone) return;
+    _relatedStarted = true;
+    try {
+      final items = await _request(() => loader(widget.seriesId));
+      if (!mounted) return;
+      final shown = _recommendedItems.map((item) => item.id).toSet();
+      final picked = <DramaSiteItem>[];
+      for (final item in items) {
+        if (item.id == widget.seriesId) continue;
+        if (item.title.isEmpty) continue;
+        if (shown.contains(item.id)) continue;
+        if (picked.any((other) => other.id == item.id)) continue;
+        picked.add(item);
+        if (picked.length >= 6) break;
+      }
+      setState(() {
+        _relatedItems = picked;
         _relatedDone = true;
       });
     } catch (_) {
@@ -399,11 +503,15 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
   }
 
   /// 影视区演员：站原字段 `actor` / `actress`，逗号 / 顿号分隔。
+  /// 头区演员行已显示的人这里不再重复（魔蚁 `_visibleTags` 同一口径：
+  /// 名字归一后比对，头区有的名字从简介区演员行里去掉）。
   List<CastMember> _filmCast() {
     final seen = <String>{};
     final result = <CastMember>[];
+    final codeCast = _codeMeta?.cast.map(_normalizeName).toSet() ?? const {};
     for (final key in const ['actor', 'actress']) {
       for (final name in _splitFilmField(_filmExtra(key))) {
+        if (codeCast.contains(_normalizeName(name))) continue;
         if (seen.add(name)) result.add(CastMember(actor: name));
       }
     }
@@ -542,7 +650,8 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
     unawaited(_inlinePlayerKey.currentState?.playEpisode(target));
   }
 
-  /// 切集后把播放器滚回可见处（选集区在详情页下方，播起来看不见）。
+  /// 切集后把详情内容滚回顶部（播放器已固定在顶部常驻，滚回 0 是
+  /// 让选集区回到播放器正下方）。
   void _scrollToPlayer() {
     if (!_scroll.hasClients) return;
     unawaited(
@@ -689,19 +798,26 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
                     SeriesDetailTopBar(
                       onBack: () => Navigator.of(context).maybePop(),
                     ),
+                  // 影视区：内联播放器固定在顶部，不进滚动区（2026-11-24
+                  // 用户令：详情页上下滑时播放器跟着走，要固定住）。只有
+                  // 下面的详情内容（魔蚁详情 / 剧照 / 推荐）可以上下滑。
+                  if (_isFilmSite) _pinnedFilmPlayer(),
                   Expanded(
                     child: CustomScrollView(
                       key: const ValueKey('series-detail-content'),
                       controller: _scroll,
                       slivers: [
                         if (_isFilmSite) ...[
-                          // 影视区新顺序（照火蚁TV播放详情页）：内联播放器 →
-                          // 魔蚁详情（海报 / 标题 / 集数 / 站源 / 加入追剧 /
-                          // 选集 / 简介）→ 本片剧照。播放线路折进「站源」行，不再单
-                          // 独成区；剧评 / 原著是短剧专属，影视区没有。
-                          SliverToBoxAdapter(child: _filmPlayer()),
+                          // 影视区新顺序（照火蚁TV播放详情页）：魔蚁详情（海报 /
+                          // 标题 / 集数 / 站源 / 加入追剧 / 选集 / 简介）→
+                          // 本片剧照 → 相关推荐；内联播放器已固定在滚动区外，
+                          // 不在这里。播放线路折进「站源」行，不再单独成区；
+                          // 剧评 / 原著是短剧专属，影视区没有。
                           SliverToBoxAdapter(child: _filmMoyiDetail()),
                           SliverToBoxAdapter(child: _filmStillsSection()),
+                          SliverToBoxAdapter(
+                            child: _filmRecommendedSection(),
+                          ),
                           SliverToBoxAdapter(child: _filmRelatedSection()),
                         ] else ...[
                           SliverToBoxAdapter(child: _hero()),
@@ -852,6 +968,22 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
     onRetry: () => unawaited(_loadFilmDetail()),
   );
 
+  /// 影视区顶部内联播放器：固定在详情页顶部，不跟详情内容一起滑走
+  /// （2026-11-24 用户令）。竖屏按 16:9 全宽；横屏时 16:9 全宽会
+  /// 超出可用高，限高到屏高的 62% 并居中，保证下面的滚动区仍有
+  /// 空间、Column 不溢出。
+  Widget _pinnedFilmPlayer() {
+    final size = MediaQuery.sizeOf(context);
+    final player = _filmPlayer();
+    if (size.width <= size.height) return player;
+    return Center(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: size.height * 0.62),
+        child: player,
+      ),
+    );
+  }
+
   /// 影视区顶部内联播放器（照火蚁TV播放详情页）：16:9 黑色播放器，
   /// 点海报直接播；全屏走整页播放器，选集钮把选集区滚到可见处。
   Widget _filmPlayer() => FilmInlinePlayer(
@@ -941,6 +1073,9 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
                       ),
                     ],
                   ),
+                  // 头区演员行（番号匹配）：演员小头像 + 只留名字，放在
+                  // 分类标签行下面、站源卡片上面；查不到不画本行。
+                  ..._filmActorRow(),
                   const SizedBox(height: 12),
                   // 站源卡片：圆角卡片 + 紫色描边，线路名在卡片里各占一行。
                   Container(
@@ -1052,6 +1187,72 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
     );
   }
 
+  /// 头区演员行（番号匹配，魔蚁 `_castChipsRow` 同一套）：演员小头像 +
+  /// 只留名字（不带角色），点名字走站内标签搜索（与分类标签同一入口）；
+  /// 导演跟一只“导演：X” chip。查不到元数据、或既无导演又无演员时
+  /// 不占位。放在分类标签行下面、站源卡片上面。
+  List<Widget> _filmActorRow() {
+    final meta = _codeMeta;
+    if (meta == null) return const [];
+    final cast = meta.castWithAvatars;
+    if (cast.isEmpty && meta.director.isEmpty) return const [];
+    final onTap = widget.onFilmCategoryTap;
+    return [
+      const SizedBox(height: 10),
+      Wrap(
+        key: const ValueKey('film-detail-cast-row'),
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (final actor in cast)
+            _filmActorChip(actor.name, actor.avatarUrl, onTap),
+          if (meta.director.isNotEmpty)
+            Chip(
+              key: const ValueKey('film-detail-director'),
+              label: Text('导演：${meta.director}'),
+              backgroundColor: moyiPurple.withValues(alpha: 0.35),
+              side: BorderSide(color: moyiPurple.withValues(alpha: 0.6)),
+              labelStyle: const TextStyle(fontSize: 12, color: Colors.white),
+            ),
+        ],
+      ),
+    ];
+  }
+
+  /// 一颗演员 chip：小头像（真照片，没有时回落名字首字圆圈）+ 只留名字。
+  /// 回调在时可点（站内搜这个演员），回调为空时只展示。
+  Widget _filmActorChip(
+    String name,
+    String avatarUrl,
+    ValueChanged<String>? onTap,
+  ) {
+    final avatar = ActressAvatar(
+      avatarUrl: _validAvatarUrl(avatarUrl),
+      name: name,
+      radius: 12,
+    );
+    const labelStyle = TextStyle(fontSize: 12, color: Colors.white);
+    if (onTap == null) {
+      return Chip(
+        key: ValueKey('film-detail-cast-$name'),
+        avatar: avatar,
+        label: Text(name),
+        backgroundColor: moyiPurple.withValues(alpha: 0.35),
+        side: BorderSide(color: moyiPurple.withValues(alpha: 0.6)),
+        labelStyle: labelStyle,
+      );
+    }
+    return ActionChip(
+      key: ValueKey('film-detail-cast-$name'),
+      avatar: avatar,
+      label: Text(name),
+      onPressed: () => onTap(name),
+      backgroundColor: moyiPurple.withValues(alpha: 0.35),
+      side: BorderSide(color: moyiPurple.withValues(alpha: 0.6)),
+      labelStyle: labelStyle,
+    );
+  }
+
   /// 「站源」行：首行带「站源：」前缀，多线路各占一行（照目标图
   /// MissAV / MissAV镜像两行的样子）。线路名取站原字段，无线路
   /// 信息默认「在线播放」。
@@ -1160,38 +1361,81 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
     );
   }
 
-  /// 影视区相关推荐：同站视频横排卡片（封面 + 标题，复用影视网格的
-  /// HomeMediaCard）。推荐没回来或取不到时整块不占位，不留空白块；
-  /// 点卡片进该视频的详情页（走 onOpenRelatedFilm）。
+  /// 影视区推荐视频：本站同分类（relatedLoader 那套算法），取 6 个，
+  /// 小卡片网格（与魔蚁 `_recommendedSection` 同一套列宽档）。
+  /// 没回来或取不到时整块不占位，不留空白块；点卡片进详情页。
+  Widget _filmRecommendedSection() {
+    if (!_recommendedDone || _recommendedItems.isEmpty) {
+      return const SizedBox.shrink(
+        key: ValueKey('series-detail-recommended-section'),
+      );
+    }
+    return _recommendGrid(
+      sectionKey: 'series-detail-recommended-section',
+      cardPrefix: 'film-recommended-card',
+      title: '推荐视频',
+      items: _recommendedItems,
+    );
+  }
+
+  /// 影视区相关推荐：本站首页（homeRelatedLoader），排除推荐视频区
+  /// 已展示的条目与当前这部，取 6 个，小卡片网格。
+  /// 没回来或取不到时整块不占位，不留空白块；点卡片进详情页。
   Widget _filmRelatedSection() {
     if (!_relatedDone || _relatedItems.isEmpty) {
       return const SizedBox.shrink(
         key: ValueKey('series-detail-related-section'),
       );
     }
+    return _recommendGrid(
+      sectionKey: 'series-detail-related-section',
+      cardPrefix: 'film-related-card',
+      title: '相关推荐',
+      items: _relatedItems,
+    );
+  }
+
+  /// 推荐区小卡片网格（两块推荐区共用，魔蚁 `_recommendedSection` /
+  /// `_relatedSection` 同一套列宽档）：列宽档 150→85，390 宽手机 4 列、
+  /// 单卡约 82 宽（原横排卡 120 宽）；卡片是影视网格的 HomeMediaCard
+  ///（封面 5:7 + 标题两行 + 一行副标题，卡高按 homeCardExtent 算）。
+  Widget _recommendGrid({
+    required String sectionKey,
+    required String cardPrefix,
+    required String title,
+    required List<DramaSiteItem> items,
+  }) {
     final scaler = MediaQuery.textScalerOf(context);
     return SeriesSection(
-      key: const ValueKey('series-detail-related-section'),
+      key: ValueKey(sectionKey),
       bottom: 8,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const SeriesSectionHeader(title: '相关推荐'),
-          SizedBox(
-            height: homeCardExtent(context, _relatedCardWidth, scaler),
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: _relatedItems.length,
-              separatorBuilder: (_, _) => const SizedBox(width: 12),
-              itemBuilder: (_, index) {
-                final item = _relatedItems[index];
-                // 横滑列表主轴（宽）无界，HomeMediaCard 的 coverWidth 只
-                // 是图片缓存宽、不约束布局；这里包一层定宽，卡片里的
-                // AspectRatio（5:7）才算得出高。
-                return SizedBox(
-                  width: _relatedCardWidth,
-                  child: HomeMediaCard(
-                    key: ValueKey('film-related-card-${item.id}'),
+          SeriesSectionHeader(title: title),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final columns =
+                  (constraints.maxWidth / _recommendColumnWidth).floor().clamp(
+                    2,
+                    6,
+                  );
+              final tileWidth =
+                  (constraints.maxWidth - (columns - 1) * 10) / columns;
+              return GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: columns,
+                  crossAxisSpacing: 10,
+                  mainAxisSpacing: 10,
+                  mainAxisExtent: homeCardExtent(context, tileWidth, scaler),
+                ),
+                itemCount: items.length,
+                itemBuilder: (_, index) {
+                  final item = items[index];
+                  return HomeMediaCard(
+                    key: ValueKey('$cardPrefix-${item.id}'),
                     item: MediaItem(
                       id: item.id,
                       title: item.title,
@@ -1201,16 +1445,28 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
                       ep: item.remark,
                       kind: 'film',
                     ),
-                    coverWidth: _relatedCardWidth,
-                    onTap: () => widget.onOpenRelatedFilm?.call(item),
-                  ),
-                );
-              },
-            ),
+                    coverWidth: tileWidth,
+                    onTap: () => _openRelatedFilm(item),
+                  );
+                },
+              );
+            },
           ),
         ],
       ),
     );
+  }
+
+  /// 点推荐卡进详情页：正在播时先停当前这部（内联播放器停播），
+  /// 再走 onOpenRelatedFilm 进新详情页（魔蚁 `_openRelated` 同一套：
+  /// 播着片点推荐先停当前，否则旧片音频继续）；没在播时照旧只进详情页。
+  Future<void> _openRelatedFilm(DramaSiteItem item) async {
+    try {
+      await _inlinePlayerKey.currentState?.session.pause();
+    } catch (_) {
+      // 播放器还没起播或已销毁时 pause 不挡进详情页。
+    }
+    widget.onOpenRelatedFilm?.call(item);
   }
 
   void _openStill(String url) {

@@ -1,4 +1,3 @@
-import 'services/api_client.dart';
 import 'services/audio_downloader.dart';
 import 'widgets/desktop_app_frame.dart';
 import 'widgets/reader/reader_material_localizations.dart';
@@ -988,7 +987,7 @@ class _RootShellState extends State<RootShell>
                   onOpenDramaTab: () => desktopTab.value = 2,
                   onSwitchToVideo: () => _flipToTab(3),
                 ),
-                HomePage(cueLoader: () => ApiClient.instance.searchCue()),
+                const HomePage(),
                 const DramaPage(),
                 _actressLibraryTab(),
                 const LivePage(),
@@ -1189,7 +1188,6 @@ class _RootShellState extends State<RootShell>
               ),
               HomePage(
                 scrollController: _homeScroll,
-                cueLoader: () => ApiClient.instance.searchCue(),
               ),
               const DramaPage(),
               _actressLibraryTab(),

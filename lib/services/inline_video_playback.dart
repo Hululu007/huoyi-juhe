@@ -338,37 +338,7 @@ class InlineVideoPlayback {
     }
 
     // Reuse path: the pool still holds this drama's paused decoder.
-    final parked = pool.acquire(contentId);
-    if (parked != null) {
-      final player = parked.player;
-      try {
-        await player.pause();
-      } catch (_) {
-        // A parked player is already paused; a refusal is not fatal.
-      }
-      if (!_current(generation) || !player.isCreated) {
-        // The entry went stale while the request was in flight.
-        await player.dispose();
-      } else {
-        _player = player;
-        _reusedFromPool = true;
-        // 还原这部剧入池时的目录与集号：`_persistProgress` 要靠它们把
-        // 进度写到正确的 episodeId 下（见 [_parkedPlayback]）。
-        final restored = _parkedPlayback.remove(contentId);
-        _episodes = restored?.episodes ?? const [];
-        _activeIndex = restored?.index;
-        activeVid.value = activeEpisode?.itemId;
-        _subscribe(player, generation);
-        textureId.value = player.textureId;
-        _adoptVideoSize(player);
-        rotation.value = player.videoRotationCorrection ~/ 90;
-        position.value = player.position;
-        duration.value = player.duration;
-        if (player.firstFrameRendered) _onFirstFrame(player, generation);
-        await _resumeReused(player, generation);
-        return;
-      }
-    }
+    if (await _reuseParked(contentId, generation) != null) return;
 
     // Restart the value notifiers now: either nothing was parked, or the parked
     // entry above was rejected.
@@ -473,6 +443,107 @@ class InlineVideoPlayback {
         await _fail(failure);
       } else if (candidate != null) {
         // A superseded activation must not leave a native allocation behind.
+        await candidate.dispose();
+      }
+    }
+  }
+
+  /// Start [series] from an already verified playable address.
+  ///
+  /// 混入成人卡的起播口：地址是取数时验活过的（详情有集 + 取流回视频
+  /// 直链 + 本地代理映射），不再走番茄目录/取流链——混入卡没有番茄
+  /// 目录，拿站方 id 去撞番茄接口只会失败。除取流外与 [activate] 同
+  /// 合同：同一时刻最多一个原生播放器、滑走入池、滑回接回池里那台、
+  /// 世代作废晚到的创建；静音/倍速仍走会话级偏好（与短剧卡同默认）。
+  /// 没有目录与集号：进度不写历史（混入卡也不记冷启动续接），弹幕
+  /// vid 保持空（不拉番茄弹幕/热评）。地址本身非法时按失败处理
+  /// （卡片显示错误层、可重试），不抛错。
+  Future<void> activateDirect(
+    MediaItem series,
+    String url, {
+    String keyHex = '',
+  }) async {
+    if (_disposed) return;
+    final generation = ++_generation;
+    final contentId = _poolKey(series);
+    final previous = _player;
+    final previousId = _active == null ? null : _poolKey(_active!);
+    if (previous != null) unawaited(_persistProgress());
+    _active = series;
+    _hasDisplayed = false;
+    _wantsPlay = true;
+    _playIssued = false;
+    _reusedFromPool = false;
+    activeId.value = series.id;
+    firstFrame.value = false;
+    error.value = null;
+    playing.value = false;
+    _detachSubscriptions();
+    _player = null;
+    if (previous != null && previousId != null && previousId != contentId) {
+      _parkWithState(previousId, previous);
+    } else if (previous != null && previousId == contentId) {
+      _retire(previous);
+    }
+
+    // 地址非法时在这里才报失败：旧播放器已经入池/退役，[_fail] 不会
+    // 误删正在播的上一张卡的解码器；错误挂在这张卡名下，卡片显示
+    // 错误层、可重试，不抛错。
+    final uri = Uri.tryParse(url.trim());
+    if (uri == null ||
+        (uri.scheme != 'http' && uri.scheme != 'https') ||
+        uri.host.isEmpty) {
+      await _fail(const ApiException('获取播放地址失败'));
+      return;
+    }
+
+    // Reuse path: the pool still holds this card's paused decoder.
+    if (await _reuseParked(contentId, generation) != null) return;
+
+    _activeIndex = null;
+    rotation.value = 0;
+    videoSize.value = Size.zero;
+    // 换卡即换片源，横竖结论跟着作废。
+    landscapeSource.value = null;
+    position.value = Duration.zero;
+    duration.value = Duration.zero;
+    // 直接地址没有目录：进度写回（[_persistProgress]）与弹幕 vid 都按
+    // 「无集」处理，不写历史、不拉弹幕。
+    _episodes = const [];
+    activeVid.value = null;
+    _currentSource = EpisodeSource(url, keyHex);
+    final release = _releases;
+
+    NativePlayer? candidate;
+    try {
+      await release;
+      if (!_current(generation)) return;
+      final player = candidate = playerFactory?.call() ?? NativePlayer();
+      _player = player;
+      await player.create(url, keyHex);
+      if (!_current(generation, player)) {
+        if (identical(_player, player)) _player = null;
+        await player.dispose();
+        return;
+      }
+      if (player.lastError case final Object failure) throw failure;
+      _subscribe(player, generation);
+      textureId.value = player.textureId;
+      _adoptVideoSize(player);
+      rotation.value = player.videoRotationCorrection ~/ 90;
+      await _applyPlaybackPrefs(player);
+      if (!_current(generation, player)) return;
+      if (player.firstFrameRendered) _onFirstFrame(player, generation);
+      if (_wantsPlay) {
+        _playIssued = true;
+        await player.play();
+        if (!_current(generation, player)) return;
+        playing.value = _playbackRequested(player);
+      }
+    } catch (failure) {
+      if (_current(generation)) {
+        await _fail(failure);
+      } else if (candidate != null) {
         await candidate.dispose();
       }
     }
@@ -601,6 +672,46 @@ class InlineVideoPlayback {
     } catch (_) {
       // Speculative prefetch errors are silent.
     }
+  }
+
+  /// Take back a decoder this card left in [pool] (swiped away and back):
+  /// its texture, size and position survive, so the card resumes from the
+  /// paused frame instead of rebuilding a player. Returns the player on
+  /// success, null when nothing was parked or the parked entry went stale
+  /// (disposed there). Shared by [activate] and [activateDirect]: a mix
+  /// card parks with no episodes, so the restored directory is empty and
+  /// [activeVid] stays null for it.
+  Future<NativePlayer?> _reuseParked(String contentId, int generation) async {
+    final parked = pool.acquire(contentId);
+    if (parked == null) return null;
+    final player = parked.player;
+    try {
+      await player.pause();
+    } catch (_) {
+      // A parked player is already paused; a refusal is not fatal.
+    }
+    if (!_current(generation) || !player.isCreated) {
+      // The entry went stale while the request was in flight.
+      await player.dispose();
+      return null;
+    }
+    _player = player;
+    _reusedFromPool = true;
+    // 还原这部剧入池时的目录与集号：`_persistProgress` 要靠它们把
+    // 进度写到正确的 episodeId 下（见 [_parkedPlayback]）。
+    final restored = _parkedPlayback.remove(contentId);
+    _episodes = restored?.episodes ?? const [];
+    _activeIndex = restored?.index;
+    activeVid.value = activeEpisode?.itemId;
+    _subscribe(player, generation);
+    textureId.value = player.textureId;
+    _adoptVideoSize(player);
+    rotation.value = player.videoRotationCorrection ~/ 90;
+    position.value = player.position;
+    duration.value = player.duration;
+    if (player.firstFrameRendered) _onFirstFrame(player, generation);
+    await _resumeReused(player, generation);
+    return player;
   }
 
   /// Drop the player subscriptions without touching the player itself. Used

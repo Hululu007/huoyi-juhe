@@ -6,6 +6,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 enum LiveProtocol { pingtai, list, api }
 
+/// 内置片库源 id：与 services/whos_live_bridge.dart 的桥层共用。
+/// 常量放这里（源表要先用 id），避免 live_sources ↔ bridge 循环引用。
+const whosLibSourceId = 'whos_lib';
+
+/// 内置片库的直播源地址前缀：走本地库，不联网拉清单。
+const whosLibScheme = 'whoslib://';
+
 class LiveSource {
   const LiveSource({
     required this.id,
@@ -166,6 +173,21 @@ class LiveSources {
   LiveSources._();
 
   static const builtin = <LiveSource>[
+    // 内置片库（2026-11-24 与魔蚁对齐，登记表第 1 项）：优先读本地
+    // 数据库 MYTV/db/女优库.db（34 万+，全是 m3u8 直链），没库才读
+    // documents/actress_json/ 里的两个 JSON；包里不带任何种子。
+    // 走 whoslib:// 由本地库出频道，不联网、不用订阅，分类是最新 /
+    // 排行榜 / 厂牌、按页取频道（见 services/whos_live_bridge.dart）。
+    // 魔蚁同款，id/端点/顺序一致；名字沿修仙版既有写法不带 🔞 前缀。
+    LiveSource(
+      id: whosLibSourceId,
+      name: '内置片库',
+      description: '装机自带片库 · 按厂牌分类 · 点开就播',
+      protocol: LiveProtocol.list,
+      endpoints: ['${whosLibScheme}all'],
+      group: '内置片库',
+      adult: true,
+    ),
     LiveSource(
       id: 'xiuguo',
       name: '秀果',

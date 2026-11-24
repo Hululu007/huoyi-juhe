@@ -139,7 +139,7 @@ void main() {
     );
   });
 
-  test('统一影视区站表：内置导入视频站在 jar 站之后', () {
+  test('统一影视区站表：用户导入视频站在内置三路之后', () {
     final entries = [
       _entry(
         id: 'jar:zakatv:demo',
@@ -164,10 +164,16 @@ void main() {
     final ids = unified.map((site) => site.id).toList();
     expect(ids, contains('jar:zakatv:demo'));
     expect(ids, contains('seed_91crdjai'));
-    expect(ids, isNot(contains('import_user_py')));
+    // 自 2026-11-24 起用户导入的影视站进统一表第四路（导入区·视频组），
+    // 不再被排除；顺序在内置三路之后。
+    expect(ids, contains('import_user_py'));
     expect(
       ids.indexOf('seed_91crdjai'),
       greaterThan(ids.indexOf('jar:zakatv:demo')),
+    );
+    expect(
+      ids.indexOf('import_user_py'),
+      greaterThan(ids.indexOf('seed_91crdjai')),
     );
   });
 

@@ -395,7 +395,7 @@ void main() {
   });
 
   for (final scale in [1.0, 1.8]) {
-    testWidgets('search hint fits a narrow phone at text scale $scale', (
+    testWidgets('brand row fits a narrow phone at text scale $scale', (
       tester,
     ) async {
       await tester.binding.setSurfaceSize(const Size(320, 900));
@@ -432,11 +432,15 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      final hint = find.text(HomeHero.searchHint);
-      expect(hint, findsOneWidget);
-      // 官方顶栏搜索框右侧没有常驻按钮（`h4f`/`gpe` 均 gone，「识剧」入口
-      // 也已删除），提示文案要能在窄屏上完整放下、不出溢出。
-      expect(tester.getRect(hint).right, lessThanOrEqualTo(320));
+      // 搜索行已删：窄屏下品牌行（标题 + 三个圆钮）要能放下、不出溢出；
+      // 标题放不下时省略号收尾，不把右端圆钮顶出屏。
+      final brand = find.text(HomeHero.brandName);
+      expect(brand, findsOneWidget);
+      expect(tester.getRect(brand).right, lessThanOrEqualTo(320));
+      expect(
+        tester.getRect(find.byKey(const Key('home_brand_category'))).right,
+        lessThanOrEqualTo(320),
+      );
       expect(tester.takeException(), isNull);
     });
   }
@@ -489,8 +493,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text(message), findsOneWidget);
     expect(tester.takeException(), isNull);
-    // 冷启动失败不再整页替换：搜索行和分类条还在，用户可以直接换个分类。
-    expect(find.text(HomeHero.searchHint), findsOneWidget);
+    // 冷启动失败不再整页替换：品牌行和分类条还在，用户可以直接换个分类。
+    expect(find.text(HomeHero.brandName), findsOneWidget);
     expect(find.byKey(const ValueKey('home_category_0')), findsOneWidget);
     final scrollable = find.byWidgetPredicate(
       (widget) =>

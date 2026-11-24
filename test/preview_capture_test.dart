@@ -19,8 +19,8 @@ import 'package:fqapp/widgets/home/home_design.dart';
 /// 成人小说 / 成人漫画 / 成人听书（AdultNovelsPage + loader 假数据）、
 /// 小说混排目录页（CoreNovelCategoryPage + loader 假数据）、
 /// 小说分类条（不泵 HomePage，单独渲染与 home_page.dart 里同款式的
-/// 药丸横排：40 高横滚、左右 16 间距、药丸右间距 8、圆角 20、
-/// 13 号字；这张只是条的独立渲染，不是首页实截）。
+/// 药丸横排：36 高横滚、左右 16 间距、药丸右间距 8、圆角 20、
+/// 12 号字；这张只是条的独立渲染，不是首页实截）。
 /// 第 20 轮新增 3 张：小说 / 漫画 / 听书 tab 顶部的成人卡片轨道
 /// （AdultCardRailSliver + loader 假数据，排行榜版式：横向轨道、
 /// 封面 + TOP 角标 + 标题 + 热度行，右端「更多」）。

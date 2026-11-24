@@ -1059,23 +1059,31 @@ class GenericDbReader {
     required this.schema,
     required this.mappingStore,
   }) : _db = db,
-       _testWorks = null;
+       _testWorks = null,
+       _testWorkTags = const {};
 
   GenericDbReader.test({
     required List<GenericDbWork> works,
     GenericDbSchema? schema,
+    Map<String, Set<String>> workTags = const {},
   }) : _db = null,
        schema =
            schema ?? const GenericDbSchema(tables: [], fingerprint: 'test'),
        mappingStore = GenericDbMappingStore(
          file: File('/tmp/actress_generic_db_test_mapping.json'),
        ),
-       _testWorks = works;
+       _testWorks = works,
+       _testWorkTags = workTags;
 
   final Database? _db;
   GenericDbSchema schema;
   final GenericDbMappingStore mappingStore;
   final List<GenericDbWork>? _testWorks;
+
+  /// 测试用：作品番号（code 原样）→ 该作品带的标签集合。只供
+  /// [GenericDbReader.test] 的标签过滤用（真库走 video_tag 表，
+  /// GenericDbWork 本身没有标签字段）。
+  final Map<String, Set<String>> _testWorkTags;
 
   static String _quote(String identifier) =>
       '"${identifier.replaceAll('"', '""')}"';
@@ -1645,6 +1653,44 @@ class GenericDbReader {
     return out;
   }
 
+  /// 标签维度（2026-11-24 标签筛选）：取 [facets] 里标签那一维。
+  /// 优先 `video_tag.tag_name`（女优库 video_tag 表）；没有时退到
+  /// 作品表里含 tag 的列（如 tags 列）；都没有回 key 空、values 空，
+  /// 调用方如实显示“暂无标签”，不编。values 按作品数倒序；
+  /// [maxValues] 默认 2000（全库 1,229 个标签一次取完，facets()
+  /// 默认 30 只够分类用）。
+  /// 返回的 key 就是筛选时传给 [works]/[countWorks] 的 filters 键
+  /// （`video_tag.tag_name` 或作品表列名）。
+  Future<({String key, List<(String, int)> values})> tagFacet({
+    int maxValues = 2000,
+  }) async {
+    final all = await facets(maxValues: maxValues);
+    GenericDbFacet? picked;
+    for (final facet in all) {
+      if (facet.column == 'video_tag.tag_name') {
+        picked = facet;
+        break;
+      }
+    }
+    if (picked == null) {
+      for (final facet in all) {
+        if (facet.column.toLowerCase().contains('tag')) {
+          picked = facet;
+          break;
+        }
+      }
+    }
+    if (picked == null) {
+      return (key: '', values: const <(String, int)>[]);
+    }
+    return (
+      key: picked.column,
+      values: [
+        for (final v in picked.values) (v.value, v.count),
+      ],
+    );
+  }
+
   /// 把 `SELECT ... AS v, COUNT(*) AS c` 的行转成取值列表。
   List<GenericDbFacetValue> _facetValues(List<Map<String, Object?>> rows) {
     final values = <GenericDbFacetValue>[];
@@ -1660,6 +1706,68 @@ class GenericDbReader {
       );
     }
     return values;
+  }
+
+  /// 类型文件夹维度（2026-11-24 文件夹视图）：作品表里字面
+  /// `type_name` 列的取值分组计数（女优库 videos.type_name，如
+  /// 成人影片/国产精品/无码专区…）。注意它与 video_category 主分类
+  /// （有码/无码/国产…）是两套不同的维度，别混成一套：这里只认
+  /// 作品表自己的 type_name 列，不认副表、不认映射后的分类列。
+  /// 作品表没有 type_name 列时回空——调用方如实显示“暂无文件夹”，
+  /// 不编。values 按作品数倒序；[maxValues] 默认 2000（女优库
+  /// v3 实查 26 个类型，一次取完）。选了标签时 [tagKey]/[tag]
+  /// 传进来（tagFacet 回的 key），文件夹计数只算带该标签的作品
+  /// （与标签筛选 AND，见 [_where]）。
+  /// 测试构造器按给定作品的 category 字段分组（与 categories()
+  /// 的测试分支同一口径：测试作品没有独立的 typeName 字段）；
+  /// 标签过滤按测试构造器给的 workTags（番号 → 标签集）算，
+  /// 没给 workTags 时带标签的作品一条都筛不出来（不是“不过滤”，
+  /// 是测试数据里没有标签信息）。真库的标签过滤以 Python 重放为准）。
+  Future<List<(String, int)>> typeNameFacet({
+    int maxValues = 2000,
+    String tagKey = '',
+    String tag = '',
+  }) async {
+    final testWorks = _testWorks;
+    if (testWorks != null) {
+      final counts = <String, int>{};
+      for (final work in testWorks) {
+        if (work.category.isEmpty) continue;
+        if (tagKey.isNotEmpty &&
+            tag.isNotEmpty &&
+            !(_testWorkTags[work.code]?.contains(tag) ?? false)) {
+          continue;
+        }
+        counts[work.category] = (counts[work.category] ?? 0) + 1;
+      }
+      final list = counts.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+      return [for (final e in list.take(maxValues)) (e.key, e.value)];
+    }
+    final mapping = schema.worksTable;
+    final db = _db;
+    if (mapping == null || db == null) return const [];
+    if (!mapping.allColumns.contains('type_name')) return const [];
+    final filters = <String, List<String>>{};
+    if (tagKey.isNotEmpty && tag.isNotEmpty) {
+      filters[tagKey] = [tag];
+    }
+    final (where, args) = _where('', filters);
+    final clauses = <String>[
+      if (where != null) '($where)',
+      '"type_name" IS NOT NULL AND TRIM(CAST("type_name" AS TEXT)) <> \'\'',
+    ];
+    final rows = await db.rawQuery(
+      'SELECT CAST("type_name" AS TEXT) AS name, COUNT(*) AS c '
+      'FROM ${_quote(mapping.table)} '
+      'WHERE ${clauses.join(' AND ')} '
+      'GROUP BY CAST("type_name" AS TEXT) ORDER BY c DESC LIMIT ?',
+      [...args, maxValues],
+    );
+    return [
+      for (final row in rows)
+        (row['name'].toString(), (row['c'] as num).toInt()),
+    ];
   }
 
   /// 主表行缺地址/封面时，按关联副表一次性补上（每个主表 id 取副表

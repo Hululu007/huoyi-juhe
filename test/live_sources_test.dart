@@ -23,6 +23,7 @@ notaurl
     expect(
       LiveSources.builtin.map((source) => source.id),
       [
+        'whos_lib',
         'xiuguo',
         'maiyoux',
         'bnzb',

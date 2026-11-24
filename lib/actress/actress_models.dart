@@ -155,13 +155,24 @@ class ActressSiteFilter {
   int get hashCode => siteId.hashCode;
 }
 
-/// 第二排册别筛选：按名册自带的标签字段筛（潮流名册 c 字段）。
+/// 第二排册别筛选：名册库按名册自带的标签字段筛（潮流名册 c 字段）；
+/// 视频库（女优库.db）没有名册标签列，按视频主分类筛人（见
+/// ActressDatabase.listPersons 视频库分支：tag 值当 main_category 用）。
 /// 无标签的人物（whos/MissAV 名册不带标签）只进 [all]，不进分册。
+/// 2026-11-24 用户令：数据库里有的分类全进这排，接在欧美后面平铺
+/// （国产/4K/动漫/三级/其他，值取自 video_category.main_category
+/// 在重合并库里的 DISTINCT 值，空值不单独成类）；名册里没有这些
+/// 标签，名册库上点它们是空列表（不是 bug，是名册没这个维度）。
 enum ActressTagFilter {
   all('三册全部', ''),
   coded('有码', '有码'),
   uncoded('无码', '无码'),
-  western('欧美', '欧美');
+  western('欧美', '欧美'),
+  domestic('国产', '国产'),
+  fourK('4K', '4K'),
+  anime('动漫', '动漫'),
+  sanji('三级', '三级'),
+  other('其他', '其他');
 
   const ActressTagFilter(this.label, this.tagValue);
 
@@ -267,6 +278,31 @@ class RosterFilm {
 
   String get codeKey => normalizeAvCode(code);
   String get titleKey => actressTitleKey(title.isEmpty ? code : title);
+}
+
+/// 头像地址是否“像能加载”：非空、http(s)、有 host、路径不是根。
+/// 裸域名（`https://v.hersav.me/`、`https://v.hersav.me`）没有可请求
+/// 的图片路径，Image.network 必失败——这种地址不许占住归并里的坑位。
+/// （2026-11-24 头像修复：新库里 13,770 行头像是裸域名，行序在前会
+/// 先赢；回退路 SQL 里的 LIKE '%://%/%_' 是同一口径的 SQL 写法。）
+bool isLoadableAvatarUrl(String url) {
+  final trimmed = url.trim();
+  if (trimmed.isEmpty) return false;
+  final uri = Uri.tryParse(trimmed);
+  if (uri == null) return false;
+  if (uri.scheme != 'http' && uri.scheme != 'https') return false;
+  if (uri.host.isEmpty) return false;
+  final path = uri.path;
+  if (path.isEmpty || path == '/') return false;
+  return true;
+}
+
+/// 头像归并：现有已有效时保留；现有无效、新候选有效时取新候选；
+/// 两个都无效时保留现有（调用方决定留空还是旧值）。
+String preferLoadableAvatar(String current, String candidate) {
+  if (isLoadableAvatarUrl(current)) return current;
+  if (isLoadableAvatarUrl(candidate)) return candidate;
+  return current;
 }
 
 /// 本地库里合并后的一位演员：三家来源合并为一条，来源身份只存内部
@@ -484,9 +520,7 @@ ActressPerson mergeRosterIntoPerson(
     displayName: displayName,
     aliases: aliases,
     sex: existing.sex.isNotEmpty ? existing.sex : roster.sex,
-    avatarUrl: existing.avatarUrl.isNotEmpty
-        ? existing.avatarUrl
-        : roster.avatarUrl,
+    avatarUrl: preferLoadableAvatar(existing.avatarUrl, roster.avatarUrl),
     tags: tags,
     rosterWorks: roster.worksHint > existing.rosterWorks
         ? roster.worksHint

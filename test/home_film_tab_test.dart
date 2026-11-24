@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fqapp/pages/home_page.dart';
 import 'package:fqapp/pages/home_provider.dart';
 import 'package:fqapp/services/api_client.dart';
+import 'package:fqapp/widgets/home/home_hero.dart';
 import 'package:fqapp/widgets/home/home_tab_bar.dart';
 
 /// 首页顶部「影视」tab：短剧与漫剧之间多一个影视 tab，点进去左上角
@@ -84,7 +85,7 @@ void main() {
     expect(identity.tabType, isNull);
   });
 
-  testWidgets('点影视 tab：左上角药丸切成影视站，点药丸弹出影视站切换器', (
+  testWidgets('点影视 tab：品牌行副标题切成影视站，点头像弹出影视站切换器', (
     tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(320, 850));
@@ -102,18 +103,19 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(filmTab);
     await tester.pumpAndSettle();
-    // 药丸显示当前影视站名（不是短剧站名）；药丸内限定，避免与
-    // 另一处同名 11px 副文本重名。
+    // 副标题显示当前影视站名（不是短剧站名）；站点入口已并入头像，
+    // 搜索行左端的药丸随搜索行一起删了。限定在 HomeHero 内，避免与
+    // 影视区内容里同名站名重名。
     expect(
       find.descendant(
-        of: find.byKey(const Key('home_site_button')),
+        of: find.byType(HomeHero),
         matching: find.text('测试影视'),
       ),
       findsOneWidget,
     );
     expect(tester.takeException(), isNull);
-    // 点药丸弹出影视站切换器（站表来自影视区统一表）。
-    await tester.tap(find.byKey(const Key('home_site_button')));
+    // 点头像弹出影视站切换器（站表来自影视区统一表）。
+    await tester.tap(find.byKey(const Key('home_brand_avatar')));
     await tester.pumpAndSettle();
     expect(find.text('切换站点'), findsOneWidget);
     expect(find.text('测试影视'), findsWidgets);

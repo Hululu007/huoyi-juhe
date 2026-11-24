@@ -37,6 +37,12 @@ import 'unified_browse_content_page.dart';
 ///   30dp、圆角 6dp、底 #ECECEC、上6下4行距、7dp 列距、14sp 黑字居中，
 ///   热门项左侧 16dp 近黑火苗。官方在手机上固定三列；桌面窗口宽，这里按
 ///   [_chipTargetWidth] 加列（手机仍夹在三列），否则 chip 会被拉成横条。
+///   霓虹模式（非墨水屏，2026-11-24 起）：整页改走与首页 / 影视频道
+///   同一套深紫蓝渐变底（MoyiPageBackground），顶栏选中霓虹青、未选
+///   白 70%，左栏选中霓虹青、未选白 70%，组头白 55%，chip 白 8% 底 +
+///   白 14% 描边 + 淡紫白字，顶栏下与左栏右各一条白 14% 分隔线；chip
+///   同时收小一号（定高 26dp、13sp 字、上5下3行距）。墨水屏仍走上面
+///   的官方风纯黑白。
 /// * 左栏点击 → 滚动定位到对应分组（官方 `TabPageScrollEffect`），滚动
 ///   反向同步左栏高亮（官方 `c1` 按 firstVisibleItem 反查）。
 ///
@@ -953,7 +959,8 @@ class _CategoryPageState extends State<CategoryPage> {
   @override
   Widget build(BuildContext context) {
     // 影视频道走魔蚁风：深紫蓝渐变底 + 大标题 + 筛选行 + 左栏分类 +
-    // 右侧 2 列大卡；阅读模式（图书分类）仍走下面的官方风老布局。
+    // 右侧 2 列大卡；阅读模式（图书分类）非墨水屏时同样走魔蚁风深紫蓝
+    // 渐变底（见下面 neon 分支），墨水屏才走官方风老布局。
     if (_isVideoTab) {
       // 魔蚁风影视频道底：与首页同一套深紫蓝渐变（共享值，不另起深浅）。
       return Scaffold(
@@ -963,13 +970,28 @@ class _CategoryPageState extends State<CategoryPage> {
     }
     final palette = HomePalette.of(context);
     final front = _front;
-    return Scaffold(
-      backgroundColor: palette.canvas,
-      body: SafeArea(
-        bottom: false,
-        child: Column(
-          children: [
-            _TopBar(
+    // 霓虹同步：阅读分支（图书分类）不再跟随系统浅色主题——非墨水屏时
+    // 与首页 / 影视频道走同一套深紫蓝渐变底（MoyiPageBackground），
+    // 顶栏 / 左栏 / chips 各自按深底配色（neon 旗标往下传）。
+    // 墨水屏仍走纯黑白老布局（palette.eink 时 neon 为 false）。
+    final neon = !palette.eink;
+    final body = SafeArea(
+      bottom: false,
+      child: Column(
+        children: [
+          Container(
+            // 霓虹下顶栏与内容区的分隔线：白 14% 细线（与影视频道
+            // pill 的描边同一档）；浅色 / 墨水屏不要这条线。
+            decoration: neon
+                ? BoxDecoration(
+                    border: Border(
+                      bottom: BorderSide(
+                        color: Colors.white.withValues(alpha: 0.14),
+                      ),
+                    ),
+                  )
+                : null,
+            child: _TopBar(
               // 顶部频道：服务端频道表 + 本地影视频道；服务端表未拿到
               // 且落在影视频道时用兜底频道表，免得顶栏空着。
               tabs: [
@@ -983,11 +1005,17 @@ class _CategoryPageState extends State<CategoryPage> {
               onSelect: (v) => _load(tab: v),
               onSearch: _onTopSearchTap,
               videoTabKey: _videoTabKey,
+              neon: neon,
             ),
+          ),
             if (_loading)
               Padding(
                 padding: const EdgeInsets.only(top: 120),
-                child: CircularProgressIndicator(color: HomePalette.accent),
+                // 霓虹深底上转圈用霓虹青（与影视频道分支同值），墨水屏
+                // 仍走官方金，避免深金在深底上发暗。
+                child: CircularProgressIndicator(
+                  color: neon ? moyiCyan : HomePalette.accent,
+                ),
               )
             else if (_error != null)
               Expanded(
@@ -1017,19 +1045,36 @@ class _CategoryPageState extends State<CategoryPage> {
                           _columns = columns;
                           return Row(
                             children: [
-                              CategoryDimRail(
-                                titles: [
-                                  for (final section in _sections)
-                                    section.title,
-                                ],
-                                selectedIndex: _selected,
-                                onSelect: _scrollToSection,
+                              Container(
+                                // 霓虹下左栏与内容区的分隔线：白 14% 竖线
+                                // （与顶栏分隔线同一档）。
+                                decoration: neon
+                                    ? BoxDecoration(
+                                        border: Border(
+                                          right: BorderSide(
+                                            color: Colors.white.withValues(
+                                              alpha: 0.14,
+                                            ),
+                                          ),
+                                        ),
+                                      )
+                                    : null,
+                                child: CategoryDimRail(
+                                  titles: [
+                                    for (final section in _sections)
+                                      section.title,
+                                  ],
+                                  selectedIndex: _selected,
+                                  onSelect: _scrollToSection,
+                                  neon: neon,
+                                ),
                               ),
                               Expanded(
                                 child: _SectionList(
                                   state: this,
                                   columns: columns,
                                   onTileTap: _onTileTap,
+                                  neon: neon,
                                 ),
                               ),
                             ],
@@ -1042,7 +1087,10 @@ class _CategoryPageState extends State<CategoryPage> {
               ),
           ],
         ),
-      ),
+      );
+    return Scaffold(
+      backgroundColor: neon ? Colors.transparent : palette.canvas,
+      body: neon ? MoyiPageBackground(child: body) : body,
     );
   }
 
@@ -1666,6 +1714,7 @@ class _TopBar extends StatelessWidget {
     required this.onSelect,
     required this.onSearch,
     this.videoTabKey,
+    this.neon = false,
   });
 
   final List<CategoryTab> tabs;
@@ -1675,6 +1724,10 @@ class _TopBar extends StatelessWidget {
 
   /// 影视 tab 的 key：首开影视时靠它把 tab 滚进视野。
   final Key? videoTabKey;
+
+  /// 霓虹模式：深紫蓝渐变底上的配色（选中霓虹青、未选白 70%）；
+  /// false 时走官方风老配色（选中墨、未选 #8C8C8C 灰）。
+  final bool neon;
 
   @override
   Widget build(BuildContext context) {
@@ -1693,7 +1746,7 @@ class _TopBar extends StatelessWidget {
               icon: Icon(
                 LucideIcons.chevron_left,
                 size: 24,
-                color: palette.ink,
+                color: neon ? Colors.white : palette.ink,
               ),
               onPressed: () => Navigator.maybePop(context),
             ),
@@ -1730,10 +1783,14 @@ class _TopBar extends StatelessWidget {
                                           ? FontWeight.w700
                                           : FontWeight.w400,
                                       color: isSelected
-                                          ? palette.ink
-                                          : (palette.eink
-                                                ? palette.ink
-                                                : const Color(0xFF8C8C8C)),
+                                          ? (neon ? moyiCyan : palette.ink)
+                                          : (neon
+                                                ? moyiBodyOnDark
+                                                : (palette.eink
+                                                      ? palette.ink
+                                                      : const Color(
+                                                          0xFF8C8C8C,
+                                                        ))),
                                     ),
                                   ),
                                 ),
@@ -1747,7 +1804,11 @@ class _TopBar extends StatelessWidget {
           ),
           IconButton(
             key: const Key('category_search'),
-            icon: Icon(LucideIcons.search, size: 20, color: palette.ink),
+            icon: Icon(
+              LucideIcons.search,
+              size: 20,
+              color: neon ? Colors.white : palette.ink,
+            ),
             tooltip: '搜索',
             onPressed: onSearch,
           ),
@@ -1765,18 +1826,23 @@ class _SectionList extends StatelessWidget {
     required this.state,
     required this.columns,
     required this.onTileTap,
+    this.neon = false,
   });
 
   final _CategoryPageState state;
   final int columns;
   final ValueChanged<CategoryTile> onTileTap;
 
+  /// 霓虹模式：内容区透明、露出底下的深紫蓝渐变；false 时是官方风
+  /// 浅色画布（palette.canvas）。
+  final bool neon;
+
   @override
   Widget build(BuildContext context) {
     final palette = HomePalette.of(context);
     return Container(
       decoration: BoxDecoration(
-        color: palette.canvas,
+        color: neon ? Colors.transparent : palette.canvas,
         borderRadius: const BorderRadius.horizontal(left: Radius.circular(12)),
       ),
       clipBehavior: Clip.antiAlias,
@@ -1796,6 +1862,7 @@ class _SectionList extends StatelessWidget {
           section: state._sections[index],
           columns: columns,
           onTileTap: onTileTap,
+          neon: neon,
         ),
       ),
     );
@@ -1809,6 +1876,7 @@ class _SectionView extends StatelessWidget {
     required this.section,
     required this.columns,
     required this.onTileTap,
+    this.neon = false,
   });
 
   final _CategoryPageState state;
@@ -1816,6 +1884,9 @@ class _SectionView extends StatelessWidget {
   final _Section section;
   final int columns;
   final ValueChanged<CategoryTile> onTileTap;
+
+  /// 霓虹模式：往组头与 chip 行透传。
+  final bool neon;
 
   @override
   Widget build(BuildContext context) {
@@ -1832,12 +1903,14 @@ class _SectionView extends StatelessWidget {
           collapsible: collapsible,
           expanded: state._expanded.contains(index),
           onToggle: () => state._toggle(index),
+          neon: neon,
         ),
         for (var i = 0; i < visible.length; i += columns)
           _ChipRow(
             tiles: visible.sublist(i, (i + columns).clamp(0, visible.length)),
             columns: columns,
             onTileTap: onTileTap,
+            neon: neon,
           ),
       ],
     );
@@ -1853,6 +1926,7 @@ class _SectionHeader extends StatelessWidget {
     required this.collapsible,
     required this.expanded,
     required this.onToggle,
+    this.neon = false,
   });
 
   final int keyIndex;
@@ -1861,12 +1935,17 @@ class _SectionHeader extends StatelessWidget {
   final bool expanded;
   final VoidCallback onToggle;
 
+  /// 霓虹模式：组头灰字提亮为白 55%（moyiMutedOnDark）。
+  final bool neon;
+
   @override
   Widget build(BuildContext context) {
     final palette = HomePalette.of(context);
-    final gray = palette.dark || palette.eink
-        ? palette.muted
-        : const Color(0xFF969696);
+    final gray = neon
+        ? moyiMutedOnDark
+        : (palette.dark || palette.eink
+              ? palette.muted
+              : const Color(0xFF969696));
     return Padding(
       padding: const EdgeInsets.only(top: 16),
       child: SizedBox(
@@ -1912,11 +1991,15 @@ class _ChipRow extends StatelessWidget {
     required this.tiles,
     required this.columns,
     required this.onTileTap,
+    this.neon = false,
   });
 
   final List<CategoryTile> tiles;
   final int columns;
   final ValueChanged<CategoryTile> onTileTap;
+
+  /// 霓虹模式：往 chip 透传。
+  final bool neon;
 
   @override
   Widget build(BuildContext context) {
@@ -1926,7 +2009,11 @@ class _ChipRow extends StatelessWidget {
       cells.add(
         Expanded(
           child: i < tiles.length
-              ? _CategoryChip(tile: tiles[i], onTap: () => onTileTap(tiles[i]))
+              ? _CategoryChip(
+                  tile: tiles[i],
+                  onTap: () => onTileTap(tiles[i]),
+                  neon: neon,
+                )
               : const SizedBox(),
         ),
       );
@@ -1935,44 +2022,64 @@ class _ChipRow extends StatelessWidget {
   }
 }
 
-/// 一颗分类 chip：定宽（由 `_ChipRow` 的 Expanded 决定）、定高 30dp、
-/// 圆角 6dp、底 #ECECEC、上下边距 6/4；内容水平居中，热门项左侧 16dp
+/// 一颗分类 chip：定宽（由 `_ChipRow` 的 Expanded 决定）、定高 26dp、
+/// 圆角 6dp、底 #ECECEC、上下边距 5/3；内容水平居中，热门项左侧 16dp
 /// 近黑火苗（真机像素取证：官方火苗非橙，与文字同色系）。
+/// 霓虹模式下与本页影视频道 pill 同一套深底配色：白 8% 底 + 白 14%
+/// 描边、淡紫白字，尺寸与浅色态一致（26dp 高、13sp 字）。
 class _CategoryChip extends StatelessWidget {
-  const _CategoryChip({required this.tile, required this.onTap});
+  const _CategoryChip({required this.tile, required this.onTap, this.neon = false});
 
   final CategoryTile tile;
   final VoidCallback onTap;
 
+  /// 霓虹模式：深底配色；false 时走官方风浅色（#ECECEC 底黑字）。
+  final bool neon;
+
   @override
   Widget build(BuildContext context) {
     final palette = HomePalette.of(context);
+    // 霓虹深底上的 chip 字色与影视频道 pill 的未选字同值（淡紫白）。
+    const neonText = Color(0xFFD8D2EE);
     return Padding(
-      padding: const EdgeInsets.only(top: 6, bottom: 4),
+      padding: const EdgeInsets.only(top: 5, bottom: 3),
       child: HomePressable(
         onTap: onTap,
         borderRadius: BorderRadius.circular(6),
         semanticLabel: '搜索${tile.name}分类',
         child: Container(
           key: ValueKey('category_tile_${tile.id}_${tile.name}'),
-          height: 30,
+          height: 26,
           decoration: BoxDecoration(
-            color: palette.eink
-                ? Colors.white
-                : (palette.dark ? palette.soft : const Color(0xFFECECEC)),
+            color: neon
+                ? Colors.white.withValues(alpha: 0.08)
+                : (palette.eink
+                      ? Colors.white
+                      : (palette.dark
+                            ? palette.soft
+                            : const Color(0xFFECECEC))),
             borderRadius: BorderRadius.circular(6),
-            border: palette.eink ? Border.all(color: palette.line) : null,
+            border: neon
+                ? Border.all(color: Colors.white.withValues(alpha: 0.14))
+                : (palette.eink ? Border.all(color: palette.line) : null),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               if (tile.hot) ...[
-                Icon(LucideIcons.flame, size: 16, color: palette.ink),
+                Icon(
+                  LucideIcons.flame,
+                  size: 16,
+                  color: neon ? neonText : palette.ink,
+                ),
                 const SizedBox(width: 2),
               ],
               Text(
                 tile.name,
-                style: TextStyle(fontSize: 14, color: palette.ink),
+                style: TextStyle(
+                  fontSize: 13,
+                  color: neon ? neonText : palette.ink,
+                ),
               ),
             ],
           ),

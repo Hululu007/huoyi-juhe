@@ -9,6 +9,8 @@ import '../services/live_sleep_timer.dart';
 import '../services/live_sources.dart';
 import '../services/live_store.dart';
 import '../services/native_player.dart';
+import '../services/whos_live_bridge.dart';
+import '../source_picker_sheet.dart';
 import '../widgets/series_detail/moyi_detail_theme.dart';
 import 'live_player_page.dart';
 import 'live_status_panel.dart';
@@ -48,9 +50,6 @@ class _LivePageState extends State<LivePage> {
   List<LiveChannel> _importedChannels = const [];
   bool _importLoading = true;
   String? _importError;
-  // 已存导入 m3u 的地址：切换源框里给“导入的频道”当副标题，
-  // 让用户认得出存的是哪一个 m3u（例如至尊那条）。
-  String _importedM3uUrl = '';
 
   final _searchController = TextEditingController();
   String _query = '';
@@ -65,6 +64,17 @@ class _LivePageState extends State<LivePage> {
   List<LiveChannel> _channels = const [];
   int _page = 1;
   bool _hasMore = false;
+
+  /// 内置片库（whoslib://）远端是否还有页：本地表滑到底且它为真时
+  /// 续载下一页；m3u 源整表一次拉回，它恒为 false。
+  bool _whosLibHasMore = false;
+
+  /// 内置片库正在续载远端下一页：滚动通知连续触发时只发一次，
+  /// 否则同一页会重复追加（_whosLibNextPage 在回来前不变）。
+  bool _whosLibAppending = false;
+
+  /// 内置片库下一页页码：已加载条数 / 每页 120 条 + 1。
+  int get _whosLibNextPage => _allChannels.length ~/ whosLibPageSize + 1;
   ({String group, List<LiveChannel> channels})? _lastGood;
   int _index = 0;
   bool _loading = false;
@@ -136,11 +146,6 @@ class _LivePageState extends State<LivePage> {
         _importedChannels = channels;
         _importLoading = false;
       });
-      unawaited(
-        LiveSources.loadImportedM3uUrl().then((url) {
-          if (mounted) setState(() => _importedM3uUrl = url);
-        }),
-      );
       if (CultivationService.instance.snapshot.unlockedVideo) {
         unawaited(_loadSource(_source));
       }
@@ -263,7 +268,6 @@ class _LivePageState extends State<LivePage> {
       setState(() {
         _importedChannels = channels;
         _importError = null;
-        _importedM3uUrl = url.trim();
       });
       unawaited(_loadSource(_importedSource));
     } catch (e) {
@@ -284,6 +288,8 @@ class _LivePageState extends State<LivePage> {
       _channels = const [];
       _page = 1;
       _hasMore = false;
+      _whosLibHasMore = false;
+      _whosLibAppending = false;
       _lastGood = null;
       _index = 0;
       _playerError = null;
@@ -292,6 +298,12 @@ class _LivePageState extends State<LivePage> {
       _searchController.clear();
     });
     try {
+      // 内置片库（whoslib://）不走 m3u 整表：库里 34 万部一次拉不完，
+      // 按魔蚁走分类 + 按页取频道（见 whos_live_bridge.dart）。
+      if (source.endpoint.startsWith(whosLibScheme)) {
+        await _loadPlatforms(generation: generation);
+        return;
+      }
       if (source.protocol == LiveProtocol.list) {
         final channels = source.id == 'imported'
             ? _importedChannels
@@ -329,10 +341,15 @@ class _LivePageState extends State<LivePage> {
       _lastGood = null;
       _page = 1;
       _hasMore = false;
+      _whosLibHasMore = false;
+      _whosLibAppending = false;
     });
     try {
-      // api 源（bilibili）走 B 站公开接口取分区，pingtai 源走平台接口。
-      final platforms = source.protocol == LiveProtocol.api
+      // 内置片库走本地库出分类（最新 / 排行榜 / 厂牌）；api 源
+      // （bilibili）走 B 站公开接口取分区，pingtai 源走平台接口。
+      final platforms = source.endpoint.startsWith(whosLibScheme)
+          ? await fetchWhosLibPlatforms()
+          : source.protocol == LiveProtocol.api
           ? await fetchApiPlatforms(source)
           : await fetchPingtaiPlatforms(source);
       if (!mounted || gen != _loadGeneration) return;
@@ -358,11 +375,29 @@ class _LivePageState extends State<LivePage> {
 
   /// 列表型源（m3u）取数接口没有分页参数：整表一次拉回，
   /// 按 60 条一页展示追加，与火蚁TV 的滚动续载行为一致。
+  /// 内置片库是远端分页：本地表滑到底且远端还有页时也要续载。
   void _applyPage() {
     setState(() {
       _channels = _allChannels.take(_page * _pageSize).toList();
-      _hasMore = _source.paginated && _allChannels.length > _page * _pageSize;
+      _hasMore = _source.paginated &&
+          (_allChannels.length > _page * _pageSize || _whosLibHasMore);
     });
+  }
+
+  /// 滑到底续载：本地表还有未显示的只翻本地页；内置片库本地表滑到底
+  /// 且远端还有页时调 _loadChannels append 续一页。
+  void _loadMore() {
+    if (_page * _pageSize < _allChannels.length) {
+      _page++;
+      _applyPage();
+      return;
+    }
+    if (_source.endpoint.startsWith(whosLibScheme) &&
+        _whosLibHasMore &&
+        !_loading &&
+        !_whosLibAppending) {
+      unawaited(_loadChannels(_group, append: true));
+    }
   }
 
   Future<void> _loadChannels(String id, {bool append = false}) async {
@@ -380,6 +415,8 @@ class _LivePageState extends State<LivePage> {
         _loading = false;
         _page = 1;
         _hasMore = false;
+        _whosLibHasMore = false;
+        _whosLibAppending = false;
       });
       return;
     }
@@ -400,19 +437,34 @@ class _LivePageState extends State<LivePage> {
         _allChannels = const [];
         _query = '';
         _searchController.clear();
+      } else if (source.endpoint.startsWith(whosLibScheme)) {
+        _whosLibAppending = true;
       }
     });
     try {
       // api 源（bilibili）按分区调房间列表接口，只拉第 1 页（每页 30 条）；
-      // pingtai 源走平台接口。
-      final channels = source.protocol == LiveProtocol.api
+      // pingtai 源走平台接口；内置片库按页读库（120 条/页，append 续载）。
+      final isWhosLib = source.endpoint.startsWith(whosLibScheme);
+      final channels = isWhosLib
+          ? await fetchWhosLibChannels(
+              platform,
+              page: append ? _whosLibNextPage : 1,
+            )
+          : source.protocol == LiveProtocol.api
           ? await fetchApiChannels(source, platform)
           : await fetchPingtaiChannels(source, platform);
       if (!mounted || gen != _loadGeneration) return;
       if (!append) _lastGood = (group: id, channels: channels);
       setState(() {
-        _allChannels = channels;
-        _page = 1;
+        if (append && isWhosLib) {
+          // 续载：新一页追加到已加载表尾，不重置 _page（滚动位置不变）。
+          _allChannels = [..._allChannels, ...channels];
+        } else {
+          _allChannels = channels;
+          _page = 1;
+        }
+        if (isWhosLib) _whosLibHasMore = channels.length >= whosLibPageSize;
+        _whosLibAppending = false;
         _loading = false;
       });
       _applyPage();
@@ -424,6 +476,7 @@ class _LivePageState extends State<LivePage> {
           !append && restore != null && restore.channels.isNotEmpty;
       setState(() {
         _loading = false;
+        _whosLibAppending = false;
         if (fallback) {
           _group = restore.group;
           _allChannels = restore.channels;
@@ -451,6 +504,12 @@ class _LivePageState extends State<LivePage> {
     await _loadPlatforms(keepGroup: _group);
   }
 
+  /// 切换直播源：调公共站点切换弹窗（与魔蚁 live_screen._pickSource
+  /// 同款：sectionName 传“直播”，不传 enableZoneFlip、不分区翻页）。
+  /// 修仙版直播页没有 greenMode 概念：全量内置 + 导入，成人源不靠
+  /// 弹窗过滤，整页由元婴境界门禁守着。
+  /// 注意：旧弹窗里「导入的频道」那行的副标题（已存频道数 / m3u 地址）
+  /// 在公共弹窗里没有位置，随这次对齐去掉，与魔蚁版一致。
   Future<void> _pickSource() async {
     final sources = [
       ...LiveSources.builtin,
@@ -465,85 +524,28 @@ class _LivePageState extends State<LivePage> {
         if (source.id == 'imported') source,
     ];
     final grouped = builtin.isNotEmpty && imported.isNotEmpty;
-    final picked = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: moyiSheetFill,
-        titleTextStyle: const TextStyle(
-          fontSize: 18,
-          fontWeight: FontWeight.w600,
-          color: Colors.white,
-        ),
-        contentTextStyle: const TextStyle(color: moyiBodyOnDark),
-        title: const Text('切换直播源'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (grouped) ...[
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(16, 4, 16, 4),
-                  child: Text(
-                    '平台源',
-                    style: TextStyle(fontSize: 12, color: moyiMutedOnDark),
-                  ),
-                ),
-              ],
+    final picked = await showSitePickerDialog(
+      context,
+      sectionName: '直播',
+      currentId: _source.id,
+      groups: [
+        if (builtin.isNotEmpty)
+          SourcePickerGroup(
+            title: grouped ? '平台源' : '',
+            entries: [
               for (final source in builtin)
-                ListTile(
-                  title: Text(
-                    source.name,
-                    style: const TextStyle(color: moyiBodyOnDark),
-                  ),
-                  trailing: source.id == _source.id
-                      ? const Icon(Icons.check, color: moyiCyan)
-                      : null,
-                  onTap: () => Navigator.pop(dialogContext, source.id),
-                ),
-              if (imported.isNotEmpty) ...[
-                if (grouped)
-                  const Padding(
-                    padding: EdgeInsets.fromLTRB(16, 4, 16, 4),
-                    child: Text(
-                      '导入源',
-                      style: TextStyle(fontSize: 12, color: moyiMutedOnDark),
-                    ),
-                  ),
-                for (final source in imported)
-                  ListTile(
-                    title: Text(
-                      source.name,
-                      style: const TextStyle(color: moyiBodyOnDark),
-                    ),
-                    subtitle: _importedM3uUrl.isEmpty
-                        ? Text(
-                            '已存 ${_importedChannels.length} 个频道',
-                            style: const TextStyle(color: moyiMutedOnDark),
-                          )
-                        : Text(
-                            _importedM3uUrl,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(color: moyiMutedOnDark),
-                          ),
-                    trailing: source.id == _source.id
-                        ? const Icon(Icons.check, color: moyiCyan)
-                        : null,
-                    onTap: () => Navigator.pop(dialogContext, source.id),
-                  ),
-              ],
+                SourcePickerEntry(id: source.id, name: source.name),
             ],
           ),
-        ),
-        actions: [
-          TextButton(
-            style: TextButton.styleFrom(foregroundColor: moyiCyan),
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('取消'),
+        if (imported.isNotEmpty)
+          SourcePickerGroup(
+            title: grouped ? '导入源' : '',
+            entries: [
+              for (final source in imported)
+                SourcePickerEntry(id: source.id, name: source.name),
+            ],
           ),
-        ],
-      ),
+      ],
     );
     if (picked == null || !mounted) return;
     final source = sources.where((item) => item.id == picked).firstOrNull;
@@ -733,8 +735,9 @@ class _LivePageState extends State<LivePage> {
   @override
   Widget build(BuildContext context) {
     // 直播页整页由 unlockedVideo（元婴期 3000 修为）门禁守着：修为不到
-    // 不显示，修为到了才列出来。22 个 m3u 源与 3 个平台源全是成人，
-    // bilibili 是唯一非成人源，目前也随整页上锁（拆分门禁待定，见报告）。
+    // 不显示，修为到了才列出来。22 个 m3u 源、3 个平台源与内置片库全是
+    // 成人，bilibili 是唯一非成人源，目前也随整页上锁（拆分门禁待定，
+    // 见报告）。
     final unlocked = CultivationService.instance.snapshot.unlockedVideo;
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -885,12 +888,16 @@ class _LivePageState extends State<LivePage> {
               ),
             ),
             const SizedBox(width: 10),
-            Text(
-              channel.title,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
+            Flexible(
+              child: Text(
+                channel.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
             if (channel.subtitle.isNotEmpty) ...[
@@ -1245,8 +1252,7 @@ class _LivePageState extends State<LivePage> {
         if (notification.metrics.extentAfter < 600 &&
             _hasMore &&
             _group != _favouritesId) {
-          _page++;
-          _applyPage();
+          _loadMore();
         }
         return false;
       },
@@ -1271,21 +1277,10 @@ class _LivePageState extends State<LivePage> {
                 color: selected ? null : Colors.transparent,
                 borderRadius: BorderRadius.circular(10),
               ),
-              // 用户定的三段式：左边站点名，中间频道名，右边入口。
+              // 频道行只剩频道名 + 入口：源名不重复显示（源名只在切换
+              // 弹窗与报错标题里出现；2026-11-24 用户令）。
               child: Row(
                 children: [
-                  SizedBox(
-                    width: 64,
-                    child: Text(
-                      _source.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: selected ? Colors.white : moyiMutedOnDark,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       channel.title,

@@ -247,10 +247,10 @@ void main() {
         ),
         greaterThan(260),
       );
-      // 搜索行另有上限，不会撑成一条 2500 宽的灰带。
+      // 品牌行另有上限（刷新圆钮是最右一项），不会撑成一条 2500 宽的灰带。
       expect(
-        tester.getSize(find.byKey(const Key('home_search_button'))).width,
-        lessThanOrEqualTo(HomeHero.maxToolbarWidth),
+        tester.getRect(find.byKey(const Key('home_brand_refresh'))).right,
+        lessThanOrEqualTo(16 + HomeHero.maxToolbarWidth),
       );
       expect(tester.takeException(), isNull);
     } finally {
