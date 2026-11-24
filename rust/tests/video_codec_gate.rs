@@ -301,6 +301,16 @@ async fn stream_variants_merge_the_fallback_list_so_the_top_tier_survives() {
     let v5_calls = Arc::new(AtomicUsize::new(0));
     let v5_calls_for_mock = Arc::clone(&v5_calls);
     let upstream = MockUpstream::start(move |req| {
+        // The anonymous door uses the same path with a trailing slash. It
+        // must fail here: a process that managed a real device registration
+        // (reachable from CI, unreachable from a sandboxed dev box) would
+        // otherwise let anon succeed against this mock's default arm and V5
+        // would never be hit, so the V5 retry assertions below would be
+        // environment-dependent. A 503 (empty body) parks anon after one
+        // re-probe and the ladder falls through to V5 deterministically.
+        if req.path == "/novel/player/multi_video_model/player/v1/" {
+            return MockReply::status(503);
+        }
         if req.path == "/novel/player/multi_video_model/player/v1"
             && v5_calls_for_mock.fetch_add(1, Ordering::SeqCst) == 0
         {
@@ -333,6 +343,9 @@ async fn stream_variants_merge_the_fallback_list_so_the_top_tier_survives() {
     .await;
     let dir = TempDir::new("video-variant-merge");
     let server = build_server(&dir, Some(upstream.origin.clone()), &[], &[], &pool_json(5)).await;
+    // Door health is process-wide: a sibling scenario's cooldowns must not
+    // park V5 out of this scenario's plan.
+    fqapi_core::upstream::reset_playback_route_state_for_tests();
     let (status, body) = request_video(&server, "mode=stream").await;
     assert_eq!(status, 200, "{body}");
     let names: Vec<&str> = body["variants"]

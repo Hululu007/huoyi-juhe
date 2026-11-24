@@ -50,7 +50,7 @@ Future<void> _openSheet(WidgetTester tester) async {
 }
 
 void main() {
-  test('内置直播源：秀果、欲火聚合、百年直播、成人点播（至尊 m3u）与 20 个合入 m3u 源', () {
+  test('内置直播源：秀果、欲火聚合、百年直播、成人点播（至尊 m3u）与 22 个合入 m3u 源与哔哩哔哩', () {
     expect(
       [for (final source in LiveSources.builtin) source.id],
       const [
@@ -78,11 +78,14 @@ void main() {
         'm3u_mingxing',
         'm3u_zipai',
         'm3u_avxiongdi',
+        'm3u_guochanse',
+        'm3u_riben2',
+        'bilibili',
       ],
     );
     expect(
       LiveSources.builtin.map((source) => source.adult).toSet(),
-      {true},
+      {true, false},
     );
   });
 

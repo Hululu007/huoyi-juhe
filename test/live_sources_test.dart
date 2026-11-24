@@ -47,6 +47,9 @@ notaurl
         'm3u_mingxing',
         'm3u_zipai',
         'm3u_avxiongdi',
+        'm3u_guochanse',
+        'm3u_riben2',
+        'bilibili',
       ],
     );
     final userM3u = LiveSources.byId('user_m3u')!;
