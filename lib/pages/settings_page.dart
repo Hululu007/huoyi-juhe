@@ -288,6 +288,9 @@ class SettingsPage extends StatelessWidget {
   }) async {
     var text = '';
     var pickedName = '';
+    // 选文件失败的文案：直接写在弹窗里（弹窗盖在页上，SnackBar 会被
+    // 弹窗挡住看不见），与“选文件失败：原因”同款前缀。
+    var pickError = '';
     final urlController = TextEditingController();
     final confirmed = await showDialog<bool>(
       context: context,
@@ -304,15 +307,20 @@ class SettingsPage extends StatelessWidget {
             children: [
               OutlinedButton.icon(
                 onPressed: () async {
-                  final picked = await pickTextFile(
-                    label: 'JSON',
-                    extensions: ['json'],
-                  );
-                  if (picked == null) return;
-                  setDialogState(() {
-                    text = picked.content;
-                    pickedName = picked.name;
-                  });
+                  try {
+                    final picked = await pickTextFile(
+                      label: 'JSON',
+                      extensions: ['json'],
+                    );
+                    if (picked == null) return;
+                    setDialogState(() {
+                      text = picked.content;
+                      pickedName = picked.name;
+                      pickError = '';
+                    });
+                  } catch (e) {
+                    setDialogState(() => pickError = '选文件失败：$e');
+                  }
                 },
                 icon: const Icon(Icons.folder_open),
                 label: const Text('选择 JSON 文件'),
@@ -322,6 +330,16 @@ class SettingsPage extends StatelessWidget {
                 pickedName.isEmpty ? '未选择文件' : '已选：$pickedName',
                 style: const TextStyle(fontSize: 12, color: moyiMutedOnDark),
               ),
+              if (pickError.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  pickError,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Colors.redAccent,
+                  ),
+                ),
+              ],
               if (!jsonOnly) ...[
                 const SizedBox(height: 12),
                 TextField(

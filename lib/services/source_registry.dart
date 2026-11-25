@@ -32,6 +32,9 @@ enum SourceKind {
   jarImport,
   xbpqImport,
   legadoImport,
+  // 本地 HTML 站源：只存文件、应用内浏览器打开看原文，不解析成站
+  // （树里没有 HTML 解析器，见 addHtmlImport）。
+  htmlImport,
 }
 
 extension SourceKindLabel on SourceKind {
@@ -44,6 +47,7 @@ extension SourceKindLabel on SourceKind {
     SourceKind.jarImport => 'Jar 导入',
     SourceKind.xbpqImport => 'XBPQ 规则',
     SourceKind.legadoImport => '阅读书源',
+    SourceKind.htmlImport => '本地网页',
   };
 }
 
@@ -765,6 +769,17 @@ class SourceRegistry {
     return cleaned.isEmpty ? 'site' : cleaned;
   }
 
+  static int _importSequence = 0;
+
+  /// 导入站 id：毫秒时间戳后跟进程内自增序号。批量导入同毫秒内连调
+  /// 多次会撞 id（原来只有毫秒时间戳），同毫秒也不重；沿用 import_
+  /// 前缀，不动既有 id 形态。
+  String _nextImportId([String? suffix]) {
+    final base =
+        'import_${DateTime.now().millisecondsSinceEpoch}_${++_importSequence}';
+    return suffix == null ? base : '${base}_$suffix';
+  }
+
   static Future<void> _deleteQuietly(String path) async {
     try {
       final file = File(path);
@@ -817,12 +832,68 @@ class SourceRegistry {
     if (response.statusCode != 200) {
       throw StateError('远程 JSON 拉取失败：HTTP ${response.statusCode}');
     }
-    final decoded = jsonDecode(response.body);
+    final dynamic decoded;
+    try {
+      decoded = jsonDecode(response.body);
+    } on FormatException {
+      throw StateError('远程 JSON 不是有效的 JSON');
+    }
     final parsed = parseTvboxConfig(decoded);
     if (parsed.sites.isEmpty) {
       throw StateError('远程配置里没有可展开的站点');
     }
-    final configId = customIdForUrl(trimmed);
+    return _expandTvboxConfig(
+      configId: customIdForUrl(trimmed),
+      displayName: name.trim().isEmpty ? trimmed : name.trim(),
+      address: trimmed,
+      parsed: parsed,
+      originDetail: '来自远程配置',
+    );
+  }
+
+  /// 本地 TVBox 配置 JSON 文件版：与 addRemoteJson 共用同一套按站展开
+  /// 循环（见 [_expandTvboxConfig]），只差来源是文件内容不是 URL 拉取。
+  /// 文件名定配置号：同名文件重导会替换上一次展开的子站，不重复建站。
+  Future<SourceEntry> addLocalTvboxConfig(
+    String jsonText, {
+    String? fileName,
+  }) async {
+    await load();
+    final dynamic decoded;
+    try {
+      decoded = jsonDecode(jsonText.trim());
+    } on FormatException {
+      throw StateError('本地配置不是有效的 JSON');
+    }
+    final parsed = parseTvboxConfig(decoded);
+    if (parsed.sites.isEmpty) {
+      throw StateError('本地配置里没有可展开的站点');
+    }
+    final rawBase = (fileName ?? 'tvbox').split('/').last.split('\\').last;
+    final stem = rawBase.contains('.')
+        ? rawBase.substring(0, rawBase.lastIndexOf('.'))
+        : rawBase;
+    final slug = _sanitizeFileBase(stem);
+    final display = fileName?.trim() ?? '';
+    return _expandTvboxConfig(
+      configId: 'localtvbox_$slug',
+      displayName: display.isEmpty ? '本地 TVBox 配置' : display,
+      address: display,
+      parsed: parsed,
+      originDetail: '来自本地 JSON 配置',
+    );
+  }
+
+  /// TVBox 配置按站展开（远程与本地共用）：先清掉同一配置号的上一次
+  /// 展开，再按 xbpq/jar/api/py 四种逐站展开；单个子站失败只记进
+  /// skipped、不掀整批；全部展开失败才抛错。
+  Future<SourceEntry> _expandTvboxConfig({
+    required String configId,
+    required String displayName,
+    required String address,
+    required TvboxConfigParse parsed,
+    required String originDetail,
+  }) async {
     final skipped = [...parsed.skipped];
     _custom = [
       for (final existing in _custom)
@@ -880,7 +951,7 @@ class SourceRegistry {
                 name: site.name,
                 kind: SourceKind.xbpqImport,
                 address: '$id.json',
-                detail: '来自远程配置',
+                detail: originDetail,
                 extra: {
                   'path': file.path,
                   'remoteConfigId': configId,
@@ -898,7 +969,7 @@ class SourceRegistry {
               name: site.name,
               kind: SourceKind.jarImport,
               address: site.jarUrl,
-              detail: '来自远程配置',
+              detail: originDetail,
               extra: {
                 'configId': configId,
                 'className': site.className,
@@ -917,7 +988,7 @@ class SourceRegistry {
               name: site.name,
               kind: SourceKind.customMaccms,
               address: site.apiUrl,
-              detail: '来自远程配置 · 接口地址已转站首页抓取',
+              detail: '$originDetail · 接口地址已转站首页抓取',
               extra: {'remoteConfigId': configId, 'contentType': 'video'},
             ),
           );
@@ -941,7 +1012,7 @@ class SourceRegistry {
                 name: site.name,
                 kind: SourceKind.pyImport,
                 address: site.apiUrl,
-                detail: '来自远程配置',
+                detail: originDetail,
                 extra: {
                   'path': file.path,
                   'ext': site.ext,
@@ -956,13 +1027,13 @@ class SourceRegistry {
       }
     }
     if (children.isEmpty) {
-      throw StateError('远程配置的站点全部展开失败');
+      throw StateError('配置里的站点全部展开失败');
     }
     final entry = SourceEntry(
       id: configId,
-      name: name.trim().isEmpty ? trimmed : name.trim(),
+      name: displayName,
       kind: SourceKind.remoteJson,
-      address: trimmed,
+      address: address,
       detail: '已展开 ${children.length} 个站'
           '${skipped.isEmpty ? '' : '，跳过 ${skipped.length} 个'}',
     );
@@ -984,7 +1055,7 @@ class SourceRegistry {
     if (text.isEmpty) {
       throw StateError('蜘蛛源码不能为空');
     }
-    final id = 'import_${DateTime.now().millisecondsSinceEpoch}';
+    final id = _nextImportId();
     final directory = await getApplicationSupportDirectory();
     final dir = Directory('${directory.path}/imported_js');
     if (!await dir.exists()) await dir.create(recursive: true);
@@ -1023,7 +1094,7 @@ class SourceRegistry {
     if (text.isEmpty) {
       throw StateError('蜘蛛源码不能为空');
     }
-    final id = 'import_${DateTime.now().millisecondsSinceEpoch}';
+    final id = _nextImportId();
     final directory = await getApplicationSupportDirectory();
     final dir = Directory('${directory.path}/imported_py');
     if (!await dir.exists()) await dir.create(recursive: true);
@@ -1179,7 +1250,7 @@ class SourceRegistry {
       }
       resolvedClass = first.className;
     }
-    final id = 'import_${DateTime.now().millisecondsSinceEpoch}';
+    final id = _nextImportId();
     final entry = SourceEntry(
       id: id,
       name: name.trim().isEmpty ? resolvedClass.split('.').last : name.trim(),
@@ -1220,7 +1291,7 @@ class SourceRegistry {
     if (rule.base.isEmpty && rule.cateUrl.isEmpty) {
       throw StateError('XBPQ 规则缺少主页地址与分类地址，无法使用');
     }
-    final id = 'import_${DateTime.now().millisecondsSinceEpoch}';
+    final id = _nextImportId();
     final directory = await getApplicationSupportDirectory();
     final dir = Directory('${directory.path}/imported_xbpq');
     if (!await dir.exists()) await dir.create(recursive: true);
@@ -1238,6 +1309,48 @@ class SourceRegistry {
     _registerCustomSites();
     await _persist();
     _triggerCategoryExtraction(entry.id);
+    return entry;
+  }
+
+  /// 本地 HTML 站源：树里没有 HTML 解析器，也没有“本地文件当站首页”
+  /// 的现成能力（WebView 只在 web_page_fetch 里离屏取远程页，从没
+  /// 读过本地文件），所以最小可用版只做两件事：文件存进
+  /// imported_html，登记一条本地网页条目，站源管理里点“打开”用
+  /// 应用内浏览器看原文。不解析成站、不进影视区、不提供分类与播放。
+  Future<SourceEntry> addHtmlImport(
+    String name,
+    String htmlText, {
+    String? fileBaseName,
+  }) async {
+    await load();
+    final text = htmlText.trim();
+    if (text.isEmpty) {
+      throw StateError('HTML 文件内容为空');
+    }
+    final id = _nextImportId();
+    final directory = await getApplicationSupportDirectory();
+    final dir = Directory('${directory.path}/imported_html');
+    if (!await dir.exists()) await dir.create(recursive: true);
+    var base = _sanitizeFileBase(fileBaseName ?? id);
+    var fileName = '$base.html';
+    var counter = 2;
+    while (await File('${dir.path}/$fileName').exists()) {
+      fileName = '${base}_$counter.html';
+      counter++;
+    }
+    final file = File('${dir.path}/$fileName');
+    await file.writeAsString(text);
+    final entry = SourceEntry(
+      id: id,
+      name: name.trim().isEmpty ? fileName : name.trim(),
+      kind: SourceKind.htmlImport,
+      address: fileName,
+      detail: '本地网页 · 已保存，点“打开”在应用内查看',
+      extra: {'path': file.path, 'contentType': 'mixed'},
+    );
+    _custom = [..._custom, entry];
+    _registerCustomSites();
+    await _persist();
     return entry;
   }
 
@@ -1267,7 +1380,7 @@ class SourceRegistry {
       final type = contentType == ContentType.mixed
           ? contentTypeForLegadoSource(source)
           : contentType;
-      final id = 'import_${DateTime.now().millisecondsSinceEpoch}_${entries.length}';
+      final id = _nextImportId('${entries.length}');
       final file = File('${dir.path}/$id.json');
       await file.writeAsString(jsonEncode(raw));
       entries.add(
@@ -1333,6 +1446,12 @@ class SourceRegistry {
       final path = removed?.extra['path'] as String? ?? '';
       if (path.isNotEmpty) {
         await PyBridge.dispose(path);
+        await _deleteQuietly(path);
+      }
+    }
+    if (removed?.kind == SourceKind.htmlImport) {
+      final path = removed?.extra['path'] as String? ?? '';
+      if (path.isNotEmpty) {
         await _deleteQuietly(path);
       }
     }

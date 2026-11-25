@@ -12,6 +12,7 @@ import 'actress_database.dart';
 import 'actress_film_library.dart';
 import 'actress_list_page.dart';
 import 'actress_neon.dart';
+import 'actress_nvku_cache.dart';
 import 'actress_tag_sheet.dart';
 import 'actress_type_folders.dart';
 import 'whos_fallback.dart';
@@ -89,6 +90,15 @@ String nvkuVideoCategoryFor(
   return '';
 }
 
+/// 只在本地库里有意义的分类 id（排行榜 / 主分类 / 厂牌）：
+/// 在线 nvku 站源没有这些分类，蜘蛛收到未知 tid 会静默回落到
+/// “最新上架”分片（nvku.py `_cat_index`），导致点分类出的却是
+/// 首页最新——分类与首页看起来颠倒。这类分类不走在线，直接走本地库。
+bool nvkuCategoryIsLocalOnly(String category) =>
+    category == 'rank' ||
+    category.startsWith('main:') ||
+    category.startsWith('brand:');
+
 /// 全部可点标签：站点分类打头，本地分类（最新/排行/厂牌）随后，
 /// 库里主分类补在最后——站点已有的主分类（同名）不重复摆，
 /// 站被挡时主分类标签照样全在。
@@ -140,6 +150,15 @@ class _ActressNvkuPageState extends State<ActressNvkuPage> {
   /// 库、或库打不开时为空，顶栏回落显示“女优库”。
   var _dbTitle = '';
 
+  /// 库文件指纹（NvkuEntryCache.dbStamp）：文件夹/标签/分类缓存的
+  /// key 成分，开库后记；库文件一变缓存自然失效。开库失败时为空，
+  /// 缓存只按路径分。
+  var _dbStamp = '';
+
+  /// 女优 tab 是否已打开过：IndexedStack 懒加载门控，第一次点到
+  /// 才建列表页，不提前跑它的开库流程；建好后常驻，切走不卸载。
+  var _actressTabVisited = false;
+
   /// 类型文件夹（2026-11-24 文件夹视图）：videos.type_name 分组
   /// 计数，从多到少；[_foldersLoaded] 为真且列表为空 = 这个库没有
   /// type_name 维度，页里如实显示“暂无文件夹”，不编。
@@ -162,6 +181,13 @@ class _ActressNvkuPageState extends State<ActressNvkuPage> {
   var _folderLoading = false;
   var _folderLoadingMore = false;
   var _folderHasMore = false;
+
+  /// 文件夹加载失败文案（空 = 没失败）：取数抛错时摆出来 + 重试，
+  /// 不让转圈永久转下去（之前这里没接住抛错，_folderLoading 永久
+  /// 为真、页上只有一个转圈）。翻页失败另记 [_folderLoadMoreFailed]，
+  /// 底脚摆重试，不堵已出的列表。
+  var _folderError = '';
+  var _folderLoadMoreFailed = false;
   var _folderGeneration = 0;
   static const _folderPageSize = 30;
   final _folderScroll = ScrollController();
@@ -200,7 +226,10 @@ class _ActressNvkuPageState extends State<ActressNvkuPage> {
     super.dispose();
   }
 
-  Future<void> _boot() async {
+  Future<void> _boot({bool refresh = false}) async {
+    // 手动刷新（下拉刷新、顶栏刷新钮）才清会话缓存、重查全部；
+    // 平常进库走缓存（见 [NvkuEntryCache]），第二次进不再全量重查。
+    if (refresh) NvkuEntryCache.clear();
     await _loadFavorites();
     // 文件夹先于作品加载：文件夹在首页最顶，作品随后；库打不开时
     // 这里直接回空，不挡后面的作品加载。
@@ -224,6 +253,9 @@ class _ActressNvkuPageState extends State<ActressNvkuPage> {
     final service = _filmService;
     if (service == null) return;
     final result = await service.open();
+    // 开库后记下库文件指纹：文件夹/标签/分类缓存的 key 成分，库文件
+    // 一变（同步写库、用户换文件）缓存就自然失效、重查。
+    _dbStamp = NvkuEntryCache.dbStamp(result.dbPath);
     if (!mounted) return;
     if (result.error == null && result.displayPath.isNotEmpty) {
       final name = result.displayPath.split('/').last.trim();
@@ -235,10 +267,25 @@ class _ActressNvkuPageState extends State<ActressNvkuPage> {
 
   /// 标签列表：服务 open 之后调；严格结构读 video_tag 表，通用
   /// 结构走 tagFacet。key 一起记下来，文件夹与视频列表筛选时传回。
+  /// 进库不重载：命中会话缓存直接用，不再跑 video_tag 全表聚合。
   Future<void> _loadTags() async {
     final service = _filmService;
     if (service == null) return;
+    final cached = NvkuEntryCache.tags(_dbStamp, strict: service.isStrict);
+    if (cached != null) {
+      if (!mounted) return;
+      setState(() {
+        _tagKey = cached.key;
+        _tags = cached.values;
+      });
+      return;
+    }
     final tags = await service.tags();
+    NvkuEntryCache.putTags(
+      _dbStamp,
+      strict: service.isStrict,
+      value: tags,
+    );
     if (!mounted) return;
     setState(() {
       _tagKey = tags.key;
@@ -251,9 +298,26 @@ class _ActressNvkuPageState extends State<ActressNvkuPage> {
   /// 按 type_name 分得出文件夹（同一份计数）。封面随后按同一口径
   /// 取（typeFolderCovers，第一条视频的 pic_url）；封面是装饰，
   /// 取不到也不挡文件夹网格（那几张卡回落文件夹图标）。
+  /// 进库不重载：文件夹与封面按同一份 key 一起缓存，命中直接用，
+  /// 不再跑全表 GROUP BY 与取封面查询。
   Future<void> _loadFolders() async {
     final service = _filmService;
     if (service == null) return;
+    final cached = NvkuEntryCache.folders(
+      _dbStamp,
+      videoTag: _videoTag,
+      genericTagKey: _tagKey,
+    );
+    if (cached != null) {
+      if (!mounted) return;
+      setState(() {
+        _folders = cached.folders;
+        _folderCovers = cached.covers;
+        _foldersLoading = false;
+        _foldersLoaded = true;
+      });
+      return;
+    }
     setState(() => _foldersLoading = true);
     final folders = await service.typeFolders(
       videoTag: _videoTag,
@@ -269,6 +333,13 @@ class _ActressNvkuPageState extends State<ActressNvkuPage> {
     } catch (_) {
       covers = const <String, String>{};
     }
+    NvkuEntryCache.putFolders(
+      _dbStamp,
+      videoTag: _videoTag,
+      genericTagKey: _tagKey,
+      folders: folders,
+      covers: covers,
+    );
     if (!mounted) return;
     setState(() {
       _folders = folders;
@@ -298,6 +369,18 @@ class _ActressNvkuPageState extends State<ActressNvkuPage> {
 
   /// 文件夹里的视频分页：类型名 + 标签两筛（与文件夹计数同一口径）；
   /// 点卡开 FilmDetailPage 直接播，不绕站点取流。
+  /// 取数抛错要接住：之前没接，_folderLoading 永久为真、页上只有一个
+  /// 转圈（群交淫乱文件夹一直转就是这个形态）；现在失败摆文案 + 重试。
+  /// 总数是全表 COUNT，比取页慢得多，先摆出第一页再补总数，不让它
+  /// 挡住列表（冷库上 COUNT(DISTINCT) 还要临时 B 树，见 countFilms）。
+  /// 2026-11-25 群报二次进入卡死根因：翻页标志 [_folderLoadingMore]
+  /// 只在翻页成功/失败时清——翻页进行中切文件夹、代际顶掉后提前
+  /// return 时不清，reset 开头也不清，新文件夹滑到底的翻页会被守卫
+  /// 直接挡掉，底下转圈永久转、必须重启。修法：reset 开头就清掉
+  /// 翻页标志；取数加 15 秒超时，挂住的查询也走失败分支不永久转圈；
+  /// 总数与列表拆开 try，总数失败不把已出的列表换成失败页。
+  static const _folderLoadTimeout = Duration(seconds: 15);
+
   Future<void> _loadFolderWorks({bool reset = false}) async {
     final service = _filmService;
     final folder = _openFolderName;
@@ -309,44 +392,84 @@ class _ActressNvkuPageState extends State<ActressNvkuPage> {
         _folderWorks = [];
         _folderTotal = -1;
         _folderHasMore = false;
+        _folderError = '';
+        _folderLoadMoreFailed = false;
+        // 上一个文件夹没跑完的翻页到这里必须清掉：它要是还真，
+        // 新文件夹滑到底的翻页会被守卫直接挡掉（2026-11-25 群报根因）。
+        _folderLoadingMore = false;
       });
-      final rows = await service.listFilms(
-        typeName: folder,
-        videoTag: _videoTag,
-        genericTagKey: _tagKey,
-        offset: 0,
-        limit: _folderPageSize,
-      );
-      final total = await service.countFilms(
-        typeName: folder,
-        videoTag: _videoTag,
-        genericTagKey: _tagKey,
-      );
+      List<FilmLibraryEntry> rows;
+      try {
+        rows = await service
+            .listFilms(
+              typeName: folder,
+              videoTag: _videoTag,
+              genericTagKey: _tagKey,
+              offset: 0,
+              limit: _folderPageSize,
+            )
+            .timeout(_folderLoadTimeout);
+      } catch (_) {
+        if (!mounted || generation != _folderGeneration) return;
+        setState(() {
+          _folderLoading = false;
+          _folderError = '这个类型暂时取不到作品，点下面重试';
+        });
+        return;
+      }
       if (!mounted || generation != _folderGeneration) return;
       setState(() {
         _folderWorks = rows;
-        _folderTotal = total;
         _folderLoading = false;
         _folderHasMore = rows.length >= _folderPageSize;
       });
+      // 总数是装饰：取不到/超时都不挡已出的列表，只让标题一直
+      // 显示“加载中…”；之前总数和列表包在一个 try 里，总数一抛
+      // 错整页变失败页（已出的列表也被换掉）。
+      try {
+        final total = await service
+            .countFilms(
+              typeName: folder,
+              videoTag: _videoTag,
+              genericTagKey: _tagKey,
+            )
+            .timeout(_folderLoadTimeout);
+        if (!mounted || generation != _folderGeneration) return;
+        setState(() => _folderTotal = total);
+      } catch (_) {
+        // 总数拿不到不报错、不清列表。
+      }
       return;
     }
     if (_folderLoadingMore || !_folderHasMore || _folderLoading) return;
     final generation = _folderGeneration;
-    setState(() => _folderLoadingMore = true);
-    final rows = await service.listFilms(
-      typeName: folder,
-      videoTag: _videoTag,
-      genericTagKey: _tagKey,
-      offset: _folderWorks.length,
-      limit: _folderPageSize,
-    );
-    if (!mounted || generation != _folderGeneration) return;
     setState(() {
-      _folderWorks = [..._folderWorks, ...rows];
-      _folderLoadingMore = false;
-      _folderHasMore = rows.length >= _folderPageSize;
+      _folderLoadingMore = true;
+      _folderLoadMoreFailed = false;
     });
+    try {
+      final rows = await service
+          .listFilms(
+            typeName: folder,
+            videoTag: _videoTag,
+            genericTagKey: _tagKey,
+            offset: _folderWorks.length,
+            limit: _folderPageSize,
+          )
+          .timeout(_folderLoadTimeout);
+      if (!mounted || generation != _folderGeneration) return;
+      setState(() {
+        _folderWorks = [..._folderWorks, ...rows];
+        _folderLoadingMore = false;
+        _folderHasMore = rows.length >= _folderPageSize;
+      });
+    } catch (_) {
+      if (!mounted || generation != _folderGeneration) return;
+      setState(() {
+        _folderLoadingMore = false;
+        _folderLoadMoreFailed = true;
+      });
+    }
   }
 
   Future<void> _openFolderFilm(FilmLibraryEntry entry) async {
@@ -362,6 +485,20 @@ class _ActressNvkuPageState extends State<ActressNvkuPage> {
           service: service,
         ),
       ),
+    );
+  }
+
+  /// 文件夹卡片墙播放键：与详情页海报/“正片”行同一条链（见
+  /// [playFilmEntry]），点键直接播，不进详情；卡片主体仍进详情。
+  Future<void> _playFolderFilm(FilmLibraryEntry entry) async {
+    final service = _filmService;
+    if (service == null || !entry.playable) return;
+    await playFilmEntry(
+      context,
+      entry: entry,
+      service: service,
+      repository: widget.repository,
+      store: widget.store,
     );
   }
 
@@ -424,12 +561,34 @@ class _ActressNvkuPageState extends State<ActressNvkuPage> {
 
   void _onScroll() {
     if (!_scroll.hasClients) return;
-    if (_scroll.position.pixels >= _scroll.position.maxScrollExtent - 600) {
+    // IndexedStack 下首页 ListView 与分类页 GridView 同时挂在树里、
+    // 共用 _scroll：_scroll.position 要求恰好挂一个位置，两个都挂
+    // 着时直接取会抛错；改走 positions，任一位置触底都翻页。
+    final nearBottom = _scroll.positions.any(
+      (position) =>
+          position.pixels >= position.maxScrollExtent - 600,
+    );
+    if (nearBottom) {
       unawaited(_loadWorks());
     }
   }
 
   Future<void> _loadCategories() async {
+    // 进库不重载：三份分类都在会话缓存里（站点按站 id、本地/主分类
+    // 按库文件指纹），命中直接用，不走网络、不跑 GROUP BY。
+    final siteCached = NvkuEntryCache.siteCategories(nvkuSourceId);
+    final localCached = NvkuEntryCache.localCategories(_dbStamp);
+    final mainCached = NvkuEntryCache.mainCategories(_dbStamp);
+    if (siteCached != null && localCached != null && mainCached != null) {
+      if (!mounted) return;
+      _applyCategories(
+        site: siteCached.items,
+        local: localCached,
+        mains: mainCached,
+        offline: siteCached.offline,
+      );
+      return;
+    }
     var online = const <CatalogCategory>[];
     var offline = false;
     try {
@@ -447,21 +606,45 @@ class _ActressNvkuPageState extends State<ActressNvkuPage> {
     final mains = loaded
         ? await library.mainCategoriesAsync()
         : const <({String name, int count})>[];
+    final mainCats = [
+      for (final row in mains)
+        CatalogCategory('main:${row.name}', '${row.name} · ${row.count}'),
+    ];
+    NvkuEntryCache.putSiteCategories(
+      nvkuSourceId,
+      online,
+      offline: offline || online.isEmpty,
+    );
+    NvkuEntryCache.putLocalCategories(_dbStamp, local);
+    NvkuEntryCache.putMainCategories(_dbStamp, mainCats);
     if (!mounted) return;
+    _applyCategories(
+      site: online,
+      local: local,
+      mains: mainCats,
+      offline: offline || online.isEmpty,
+    );
+  }
+
+  /// 三份分类落到状态里（取数与缓存共用同一份落点，别各写一份）：
+  /// 选中分类不在新分类里时回落到“最新”，不留一个指不到的分类。
+  void _applyCategories({
+    required List<CatalogCategory> site,
+    required List<CatalogCategory> local,
+    required List<CatalogCategory> mains,
+    required bool offline,
+  }) {
     setState(() {
-      _siteCategories = online;
+      _siteCategories = site;
       _localCategories = local;
-      _mainCategories = [
-        for (final row in mains)
-          CatalogCategory('main:${row.name}', '${row.name} · ${row.count}'),
-      ];
-      _offline = offline || online.isEmpty;
+      _mainCategories = mains;
+      _offline = offline;
       if (_category.isEmpty ||
           ![
             'new',
-            ...online.map((c) => c.id),
+            ...site.map((c) => c.id),
             ...local.map((c) => c.id),
-            ..._mainCategories.map((c) => c.id),
+            ...mains.map((c) => c.id),
           ].contains(_category)) {
         _category = 'new';
       }
@@ -473,14 +656,51 @@ class _ActressNvkuPageState extends State<ActressNvkuPage> {
   Future<void> _loadWorks({bool reset = false}) async {
     if (reset) {
       final generation = ++_generation;
+      // 进库不重载：5 分钟内的第一页缓存直接上、不取网络；过期了
+      // 先上旧页、后台悄悄刷一遍再换新页（不转圈、不清列表）。
+      final cached = NvkuEntryCache.worksFirstPage(_category, _query);
+      if (cached != null) {
+        setState(() {
+          _works = cached.rows;
+          _page = 2;
+          _hasMore = cached.hasMore;
+          _loading = false;
+          // 同 _loadFolderWorks 的翻页标志卡死：切分类/搜索时上一次
+          // 没跑完的翻页要是还真，滑到底再也翻不了页（2026-11-25
+          // 群报文件夹同款根因），reset 开头就清掉。
+          _loadingMore = false;
+        });
+        if (cached.isFresh) return;
+        final rows = await _fetchPage(1);
+        if (!mounted || generation != _generation) return;
+        NvkuEntryCache.putWorksFirstPage(
+          _category,
+          _query,
+          rows: rows,
+          hasMore: rows.length >= _pageSize,
+        );
+        setState(() {
+          _works = rows;
+          _hasMore = rows.length >= _pageSize;
+        });
+        return;
+      }
       setState(() {
         _loading = true;
         _works = [];
         _page = 1;
         _hasMore = true;
+        // 同上：reset 开头清掉上一次没跑完的翻页标志。
+        _loadingMore = false;
       });
       final rows = await _fetchPage(1);
       if (!mounted || generation != _generation) return;
+      NvkuEntryCache.putWorksFirstPage(
+        _category,
+        _query,
+        rows: rows,
+        hasMore: rows.length >= _pageSize,
+      );
       setState(() {
         _works = rows;
         _page = 2;
@@ -505,17 +725,22 @@ class _ActressNvkuPageState extends State<ActressNvkuPage> {
   static const _pageSize = 30;
 
   Future<List<Drama>> _fetchPage(int page) async {
-    try {
-      final result = await widget.repository.catalog(
-        nvkuSourceId,
-        page: page,
-        query: _query,
-        category: _category,
-      );
-      if (result.items.isNotEmpty) return result.items;
-      if (_query.isNotEmpty || page > 1) return result.items;
-    } catch (_) {
-      if (mounted && !_offline) setState(() => _offline = true);
+    // 本地专属分类（排行榜/主分类/厂牌）不走在线：站源没有这些分类，
+    // 蜘蛛会静默回落到“最新”分片，点分类出的却是首页最新。搜词时保持
+    // 原样（搜索本来就是全站搜，不认分类）。
+    if (!(_query.isEmpty && nvkuCategoryIsLocalOnly(_category))) {
+      try {
+        final result = await widget.repository.catalog(
+          nvkuSourceId,
+          page: page,
+          query: _query,
+          category: _category,
+        );
+        if (result.items.isNotEmpty) return result.items;
+        if (_query.isNotEmpty || page > 1) return result.items;
+      } catch (_) {
+        if (mounted && !_offline) setState(() => _offline = true);
+      }
     }
     // 本地兜底：站被挡/取不到时用本地 whos 库与视频库顶上，分类照旧可用。
     final library = WhosLocalLibrary.shared;
@@ -683,18 +908,35 @@ class _ActressNvkuPageState extends State<ActressNvkuPage> {
           children: [
             _topBar(),
             Expanded(
-              child: switch (_tab) {
-                1 => _categoryTab(),
-                2 => _actressTab(),
-                3 => _favoriteTab(),
-                _ => _homeTab(),
-              },
+              // 进库不重载（内层）：四个页签用 IndexedStack 常驻，切走
+              // 再回来状态还在——女优列表页不再每次重跑 _bootstrap，
+              // 首页/分类的滚动位置也保住。女优 tab 第一次点到时才建
+              // （_actressTabVisited），不提前跑它的开库流程。
+              child: IndexedStack(
+                index: _tab,
+                children: [
+                  _homeTab(),
+                  _categoryTab(),
+                  _actressTabVisited
+                      ? _actressTab()
+                      : const SizedBox.shrink(),
+                  _favoriteTab(),
+                ],
+              ),
             ),
           ],
         ),
       ),
       bottomNavigationBar: _bottomTabs(),
     );
+  }
+
+  /// 底部四页签切换：点到女优 tab 时记下已访问（下次起常驻）。
+  void _selectTab(int index) {
+    setState(() {
+      if (index == 2) _actressTabVisited = true;
+      _tab = index;
+    });
   }
 
   /// 顶栏（2026-11-22 霓虹化：照活树改版走霓虹配色——深紫底 +
@@ -756,7 +998,7 @@ class _ActressNvkuPageState extends State<ActressNvkuPage> {
                 tooltip: '刷新',
                 visualDensity: VisualDensity.compact,
                 icon: const Icon(Icons.refresh_rounded, color: Neon.textDim, size: 20),
-                onPressed: () => unawaited(_boot()),
+                onPressed: () => unawaited(_boot(refresh: true)),
               ),
             ],
           ),
@@ -873,7 +1115,7 @@ class _ActressNvkuPageState extends State<ActressNvkuPage> {
             for (var i = 0; i < items.length; i++)
               Expanded(
                 child: InkWell(
-                  onTap: () => setState(() => _tab = i),
+                  onTap: () => _selectTab(i),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 9),
                     child: Column(
@@ -942,7 +1184,7 @@ class _ActressNvkuPageState extends State<ActressNvkuPage> {
     return RefreshIndicator(
       color: _pk,
       backgroundColor: Neon.surface,
-      onRefresh: _boot,
+      onRefresh: () => _boot(refresh: true),
       child: ListView(
         controller: _scroll,
         padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
@@ -1102,6 +1344,25 @@ class _ActressNvkuPageState extends State<ActressNvkuPage> {
                 ? const Center(
                     child: CircularProgressIndicator(color: _pk),
                   )
+                : _folderError.isNotEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          _folderError,
+                          style: const TextStyle(color: Neon.textDim),
+                        ),
+                        const SizedBox(height: 12),
+                        TextButton(
+                          key: const ValueKey('folder-retry'),
+                          onPressed: () =>
+                              unawaited(_loadFolderWorks(reset: true)),
+                          child: const Text('点我重试'),
+                        ),
+                      ],
+                    ),
+                  )
                 : _folderWorks.isEmpty
                 ? const Center(
                     child: Text(
@@ -1123,6 +1384,16 @@ class _ActressNvkuPageState extends State<ActressNvkuPage> {
                         ),
                     itemBuilder: (context, index) {
                       if (index >= _folderWorks.length) {
+                        if (_folderLoadMoreFailed) {
+                          return Center(
+                            child: TextButton(
+                              key: const ValueKey('folder-load-more-retry'),
+                              onPressed: () =>
+                                  unawaited(_loadFolderWorks()),
+                              child: const Text('加载失败，点我重试'),
+                            ),
+                          );
+                        }
                         return const Center(
                           child: CircularProgressIndicator(color: _pk),
                         );
@@ -1131,6 +1402,9 @@ class _ActressNvkuPageState extends State<ActressNvkuPage> {
                       return ActressFolderVideoCard(
                         entry: entry,
                         onTap: () => unawaited(_openFolderFilm(entry)),
+                        onPlay: entry.playable
+                            ? () => unawaited(_playFolderFilm(entry))
+                            : null,
                       );
                     },
                   ),
@@ -1231,6 +1505,9 @@ class _ActressNvkuPageState extends State<ActressNvkuPage> {
                             ),
                     ),
                   ),
+                  // 首页卡片本来点主体就直接播（不进详情），这里只补一个
+                  // 可见的播放键样子，不改点按行为。
+                  const Center(child: PosterPlayBadge(size: 48)),
                   Positioned(
                     right: 2,
                     top: 2,

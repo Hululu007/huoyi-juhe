@@ -570,6 +570,12 @@ class FilmLibraryService implements FilmDbFallbackProvider {
   GenericDbReader? _genericReader;
   FilmLibraryStateStore? _state;
 
+  /// video_tag 表存在性探测缓存（2026-11-25 读库提速：表结构探测
+  /// 的映射）：typeFolders/listFilms/countFilms 每次都查一次
+  /// sqlite_master，同一连接上表结构不会变，记下来只探一次；
+  /// close() 时清掉，下次 open 重探。
+  bool? _hasVideoTagTableCache;
+
   bool get isOpen => _readDb != null;
 
   /// 严格结构（女优库 videos 表）时为 true。
@@ -621,6 +627,7 @@ class FilmLibraryService implements FilmDbFallbackProvider {
       dbPath,
       readOnly: true,
       singleInstance: false,
+      onOpen: applyActressDbReadPragmas,
     );
     _readDb = db;
     final schema = await probeGenericDbSchema(db);
@@ -668,6 +675,7 @@ class FilmLibraryService implements FilmDbFallbackProvider {
     _genericReader = null;
     _state = null;
     _filmActressNames = null;
+    _hasVideoTagTableCache = null;
     await db?.close();
   }
 
@@ -872,8 +880,13 @@ class FilmLibraryService implements FilmDbFallbackProvider {
   /// （严格结构 ORDER BY vod_id，通用结构 ORDER BY rowid），即
   /// 点开文件夹后列表里第一条视频的封面。第一条视频没封面
   /// （pic_url 为空）或该类型一条视频都没有时回 ''，调用方
-  /// 回落到原来的文件夹图标。SQL 形状不变：直接复用
-  /// [listFilms]（limit 1），不另写取数 SQL。
+  /// 回落到原来的文件夹图标。
+  /// 严格结构 2026-11-25 结构性修法（读库提速）：原来每类型一次
+  /// listFilms(limit 1) + 一次女优拼接 = 26 个类型 52 次查询，
+  /// 无 type_name 索引时每次全表扫（实测 5.4–10.3 秒）；现在一次
+  /// GROUP BY 取每类型最小 vod_id（与 listFilms 同过滤、同排序，
+  /// 首条即最小 vod_id）+ 一次 IN 批量取封面，共 2 次查询。
+  /// 通用结构没有聚合接口，保持原来逐条复用 listFilms。
   /// 封面是装饰：调用方取不到也不该挡文件夹网格（页里包了
   /// try/catch，失败时整份回空、卡片全回落图标）。
   Future<Map<String, String>> typeFolderCovers({
@@ -883,6 +896,64 @@ class FilmLibraryService implements FilmDbFallbackProvider {
     String genericTagKey = '',
   }) async {
     final covers = <String, String>{};
+    if (typeNames.isEmpty) return covers;
+    if (isStrict) {
+      final db = _readDb;
+      if (db == null) return covers;
+      if (videoTag.isNotEmpty && !await _hasVideoTagTable(db)) {
+        return {for (final name in typeNames) name: ''};
+      }
+      final where = <String>[
+        "v.type_name IS NOT NULL AND TRIM(v.type_name) <> ''",
+      ];
+      final args = <Object?>[];
+      if (videoTag.isNotEmpty) {
+        where.add(
+          'EXISTS (SELECT 1 FROM video_tag vt '
+          'WHERE vt.vod_id = v.vod_id AND vt.tag_name = ?)',
+        );
+        args.add(videoTag);
+      }
+      if (category.isNotEmpty) {
+        where.add(
+          'v.vod_id IN (SELECT vod_id FROM video_category '
+          'WHERE main_category = ?)',
+        );
+        args.add(category);
+      }
+      final firstRows = await db.rawQuery(
+        'SELECT v.type_name AS name, MIN(v.vod_id) AS first_id '
+        'FROM videos v '
+        'WHERE ${where.join(' AND ')} GROUP BY v.type_name',
+        args,
+      );
+      final firstByType = <String, String>{
+        for (final row in firstRows)
+          row['name'].toString(): row['first_id'].toString(),
+      };
+      final wanted = <String>[
+        for (final name in typeNames)
+          if (firstByType[name] != null) firstByType[name]!,
+      ];
+      if (wanted.isEmpty) {
+        return {for (final name in typeNames) name: ''};
+      }
+      final placeholders = List.filled(wanted.length, '?').join(',');
+      final coverRows = await db.rawQuery(
+        'SELECT vod_id, pic_url FROM videos '
+        'WHERE vod_id IN ($placeholders)',
+        wanted,
+      );
+      final coverById = <String, String>{
+        for (final row in coverRows)
+          row['vod_id'].toString(): (row['pic_url']?.toString() ?? ''),
+      };
+      for (final name in typeNames) {
+        final firstId = firstByType[name];
+        covers[name] = firstId == null ? '' : (coverById[firstId] ?? '');
+      }
+      return covers;
+    }
     for (final name in typeNames) {
       final first = await listFilms(
         typeName: name,
@@ -919,11 +990,15 @@ class FilmLibraryService implements FilmDbFallbackProvider {
   }
 
   Future<bool> _hasVideoTagTable(Database db) async {
+    final cached = _hasVideoTagTableCache;
+    if (cached != null) return cached;
     final rows = await db.rawQuery(
       "SELECT COUNT(*) AS c FROM sqlite_master "
       "WHERE type = 'table' AND name = 'video_tag'",
     );
-    return ((rows.first['c'] as num?)?.toInt() ?? 0) > 0;
+    final has = ((rows.first['c'] as num?)?.toInt() ?? 0) > 0;
+    _hasVideoTagTableCache = has;
+    return has;
   }
 
   /// 列表：严格结构 SQL 直查（分类/站点/女优/关键词四筛，再加
@@ -1080,8 +1155,10 @@ class FilmLibraryService implements FilmDbFallbackProvider {
         where.add('(v.title LIKE ? OR v.vod_id LIKE ?)');
         args.addAll([like, like]);
       }
+      // COUNT(*) 与 COUNT(DISTINCT vod_id) 等价：这里没有 JOIN，不会
+      // 产生重复行；DISTINCT 会逼出临时 B 树，冷库全表扫时更慢。
       final rows = await db.rawQuery(
-        'SELECT COUNT(DISTINCT v.vod_id) AS c FROM videos v '
+        'SELECT COUNT(*) AS c FROM videos v '
         '${where.isEmpty ? '' : 'WHERE ${where.join(' AND ')}'}',
         args,
       );
@@ -2325,6 +2402,19 @@ class _FilmLibraryPageState extends State<FilmLibraryPage> {
     await _reload();
   }
 
+  /// 列表行封面上的播放键：与详情页同一条链（见 [playFilmEntry]），
+  /// 点键直接播；行主体仍进详情。
+  Future<void> _playFilm(FilmLibraryEntry entry) async {
+    if (!entry.playable) return;
+    await playFilmEntry(
+      context,
+      entry: entry,
+      service: _service,
+      repository: widget.repository,
+      store: widget.store,
+    );
+  }
+
   Future<void> _openFilm(FilmLibraryEntry entry) async {
     final actress = await Navigator.of(context).push<String?>(
       MaterialPageRoute(
@@ -2535,6 +2625,9 @@ class _FilmLibraryPageState extends State<FilmLibraryPage> {
                             return _FilmCard(
                               film: film,
                               onTap: () => _openFilm(film),
+                              onPlay: film.playable
+                                  ? () => unawaited(_playFilm(film))
+                                  : null,
                             );
                           },
                         ),
@@ -2566,10 +2659,14 @@ class _CategoryChip extends StatelessWidget {
 }
 
 class _FilmCard extends StatelessWidget {
-  const _FilmCard({required this.film, required this.onTap});
+  const _FilmCard({required this.film, required this.onTap, this.onPlay});
 
   final FilmLibraryEntry film;
   final VoidCallback onTap;
+
+  /// 封面上的播放键（可空）：只在有可播地址时摆；点键直接播，
+  /// 行主体仍进详情。不传时不摆键，老行为不变。
+  final VoidCallback? onPlay;
 
   @override
   Widget build(BuildContext context) {
@@ -2591,27 +2688,39 @@ class _FilmCard extends StatelessWidget {
                   SizedBox(
                     width: 96,
                     height: 128,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: film.coverUrl.isEmpty
-                          ? Container(
-                              color: Neon.surfaceHigh,
-                              child: const Icon(
-                                Icons.movie_outlined,
-                                color: Neon.textDim,
-                              ),
-                            )
-                          : Image.network(
-                              film.coverUrl,
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, _, _) => Container(
-                                color: Neon.surfaceHigh,
-                                child: const Icon(
-                                  Icons.movie_outlined,
-                                  color: Neon.textDim,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: film.coverUrl.isEmpty
+                              ? Container(
+                                  color: Neon.surfaceHigh,
+                                  child: const Icon(
+                                    Icons.movie_outlined,
+                                    color: Neon.textDim,
+                                  ),
+                                )
+                              : Image.network(
+                                  film.coverUrl,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, _, _) => Container(
+                                    color: Neon.surfaceHigh,
+                                    child: const Icon(
+                                      Icons.movie_outlined,
+                                      color: Neon.textDim,
+                                    ),
+                                  ),
                                 ),
-                              ),
+                        ),
+                        if (onPlay != null && film.playable)
+                          Center(
+                            child: PosterPlayBadge(
+                              onPressed: onPlay,
+                              size: 44,
                             ),
+                          ),
+                      ],
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -2660,6 +2769,65 @@ class _FilmCard extends StatelessWidget {
   }
 }
 
+/// 影视库条目直播（详情页海报/“正片”行、卡片墙播放键共用同一条链）：
+/// 地址是库里刚取的直链（[FilmLibraryEntry.toDramaDetail] 标 direct），
+/// resolve 时原样直通、不绕站源解析；域名与库当前域名不一样时先轻量
+/// 探活，死了记失效并提示、不硬播。调用方须先确认 entry.playable。
+/// 海报播放键播不了与“正片”行播不了是同一根因，不另起取流路。
+Future<void> playFilmEntry(
+  BuildContext context, {
+  required FilmLibraryEntry entry,
+  required FilmLibraryService service,
+  required AppRepository repository,
+  required LocalStore store,
+}) async {
+  final state = service.stateStore;
+  final fingerprint = service.fingerprint;
+  final host = filmPlayHost(entry.playUrl);
+  final current = state == null || fingerprint.isEmpty
+      ? ''
+      : state.currentDomain(fingerprint);
+  if (host.isNotEmpty && current.isNotEmpty && host != current) {
+    final repair = FilmLinkRepairService(
+      service: service,
+      repository: repository,
+      store: store,
+    );
+    final probe = await repair.probePlayUrl(entry.playUrl);
+    if (probe.status != FilmLinkStatus.alive) {
+      repair.markDead(
+        site: entry.site,
+        code: entry.code,
+        reason: probe.reason,
+      );
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('这条播不了（${probe.reason}），已记失效'),
+          action: SnackBarAction(
+            label: '去修复',
+            onPressed: () => showFilmLinkRepairDialog(
+              context,
+              service: service,
+              repository: repository,
+              store: store,
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+  }
+  if (!context.mounted) return;
+  await pushPlayer<void>(
+    context,
+    detail: entry.toDramaDetail(),
+    initialIndex: 0,
+    repository: repository,
+    store: store,
+  );
+}
+
 /// 影视库详情页：FongMiTV 式（海报 + 头项 + 简介 + 播放线路行），
 /// 点卡只进详情不直播放；播放从海报或“正片”行点，播放器自带暂停。
 class FilmDetailPage extends StatefulWidget {
@@ -2687,8 +2855,8 @@ class _FilmDetailPageState extends State<FilmDetailPage> {
 
   FilmLibraryEntry get _entry => widget.entry;
 
-  /// 点播：地址是库里刚取的。域名与库当前域名不一样时先轻量探活；
-  /// 死了就记失效并提示修复，不硬播。
+  /// 点播：与卡片墙播放键同一条链（见 [playFilmEntry]），点海报、
+  /// 点海报上的播放键、点“正片”行都走这里。
   Future<void> _play() async {
     if (!_entry.playable) {
       ScaffoldMessenger.of(
@@ -2696,50 +2864,12 @@ class _FilmDetailPageState extends State<FilmDetailPage> {
       ).showSnackBar(const SnackBar(content: Text('这条没有可播地址，可点右上角修复试试')));
       return;
     }
-    final state = widget.service.stateStore;
-    final fingerprint = widget.service.fingerprint;
-    final host = filmPlayHost(_entry.playUrl);
-    final current = state == null || fingerprint.isEmpty
-        ? ''
-        : state.currentDomain(fingerprint);
     if (mounted) setState(() => _checking = true);
     try {
-      if (host.isNotEmpty && current.isNotEmpty && host != current) {
-        final repair = FilmLinkRepairService(
-          service: widget.service,
-          repository: widget.repository,
-          store: widget.store,
-        );
-        final probe = await repair.probePlayUrl(_entry.playUrl);
-        if (probe.status != FilmLinkStatus.alive) {
-          repair.markDead(
-            site: _entry.site,
-            code: _entry.code,
-            reason: probe.reason,
-          );
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('这条播不了（${probe.reason}），已记失效'),
-              action: SnackBarAction(
-                label: '去修复',
-                onPressed: () => showFilmLinkRepairDialog(
-                  context,
-                  service: widget.service,
-                  repository: widget.repository,
-                  store: widget.store,
-                ),
-              ),
-            ),
-          );
-          return;
-        }
-      }
-      if (!mounted) return;
-      await pushPlayer<void>(
+      await playFilmEntry(
         context,
-        detail: _entry.toDramaDetail(),
-        initialIndex: 0,
+        entry: _entry,
+        service: widget.service,
         repository: widget.repository,
         store: widget.store,
       );
@@ -2792,19 +2922,32 @@ class _FilmDetailPageState extends State<FilmDetailPage> {
               borderRadius: BorderRadius.circular(12),
               child: AspectRatio(
                 aspectRatio: 16 / 9,
-                child: _entry.coverUrl.isEmpty
-                    ? Container(
-                        color: colors.surfaceContainerHighest,
-                        child: const Icon(Icons.movie_outlined, size: 48),
-                      )
-                    : Image.network(
-                        _entry.coverUrl,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, _, _) => Container(
-                          color: colors.surfaceContainerHighest,
-                          child: const Icon(Icons.movie_outlined, size: 48),
-                        ),
-                      ),
+                // 海报上的透明播放键：点海报或点键都走同一个 _play（正片
+                // 直链）；没地址时不摆键，免得误导。不是“立即播放”按钮，
+                // 播放/暂停在播放器里。
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    _entry.coverUrl.isEmpty
+                        ? Container(
+                            color: colors.surfaceContainerHighest,
+                            child: const Icon(Icons.movie_outlined, size: 48),
+                          )
+                        : Image.network(
+                            _entry.coverUrl,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, _, _) => Container(
+                              color: colors.surfaceContainerHighest,
+                              child: const Icon(
+                                Icons.movie_outlined,
+                                size: 48,
+                              ),
+                            ),
+                          ),
+                    if (_entry.playable)
+                      const Center(child: PosterPlayBadge()),
+                  ],
+                ),
               ),
             ),
           ),

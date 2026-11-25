@@ -8,6 +8,7 @@ import '../services/api_client.dart';
 import '../services/cultivation.dart';
 import '../services/drama_sites.dart';
 import '../services/drama_site_content.dart';
+import '../services/local_file_import.dart';
 import '../services/source_registry.dart';
 import '../services/video_zone_display_names.dart';
 import '../widgets/home/drama_site_grid.dart';
@@ -393,6 +394,26 @@ class _VideoPageState extends State<VideoPage> {
     );
   }
 
+  /// 切换弹窗默认打开的区：平时是当前站所在的区（没有当前站时内置区）；
+  /// 刚批量导进视频站时一次性打开导入区，让用户直接看到新站
+  /// （站源管理批量导入成功后写一次标记，见
+  /// [consumeSiteGridOpenImportZoneOnce]，读一次即清掉，不影响
+  /// 以后的默认区）。
+  Future<SiteGridZone> _resolveInitialZone(
+    List<SiteGridEntry> entries,
+  ) async {
+    final openImportOnce = await consumeSiteGridOpenImportZoneOnce();
+    if (openImportOnce &&
+        entries.any((entry) => entry.zone == SiteGridZone.import)) {
+      return SiteGridZone.import;
+    }
+    return entries
+            .where((entry) => entry.id == _videoZoneId)
+            .firstOrNull
+            ?.zone ??
+        SiteGridZone.builtin;
+  }
+
   /// 午夜区站切换（午夜区就是影视区，统一表含核心影视站 + 午夜
   /// jar 视频站 + 内置导入视频站 + 用户导入的影视站）：点药丸弹居中弹窗，站点四列网格，点一项即切换
   /// 并持久化。分类走右上角分类按钮进分类页（卡片上方不再放分类
@@ -401,16 +422,13 @@ class _VideoPageState extends State<VideoPage> {
     final xp = CultivationService.instance.snapshot.totalXp;
     final entries = videoZoneSiteEntries(SourceRegistry.instance.custom, xp);
     if (entries.isEmpty || !mounted) return;
+    final initialZone = await _resolveInitialZone(entries);
+    if (!mounted) return;
     final picked = await showSiteGridDialog(
       context: context,
       sites: entries,
       selectedId: _videoZoneId,
-      initialZone:
-          entries
-              .where((entry) => entry.id == _videoZoneId)
-              .firstOrNull
-              ?.zone ??
-          SiteGridZone.builtin,
+      initialZone: initialZone,
       onDeleteSite: deleteSiteGridEntry,
     );
     if (!mounted) return;

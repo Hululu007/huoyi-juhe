@@ -28,6 +28,25 @@ String actressReloadErrorText(String error) =>
         ? error
         : '数据库重读失败：$error（仍用旧库）';
 
+/// 读库提速三件套（2026-11-25 读库提速，参考文件加强版的 PRAGMA
+/// 补丁里可用的三项）：cache_size 8MB 页缓存、mmap 256MB 内存映射、
+/// temp_store 进内存（GROUP BY / ORDER BY 的临时排序不再落盘）。
+/// 三项只影响本连接的缓存与临时表行为，不动 journal、不改同步级别，
+/// 读写库照常用；实测见 SPEEDUP_REPORT.md。
+/// 红线：这里绝不加 synchronous=OFF、journal_mode 改 WAL/OFF——
+/// 女优库是读写库（同步/现爬/叠加/镜像都写库），关同步有断电丢
+/// 数据、坏库的风险。设不上也不挡读（个别 PRAGMA 在只读连接上
+/// 可能被拒绝），调用方开库处统一调一次即可。
+Future<void> applyActressDbReadPragmas(Database db) async {
+  try {
+    await db.execute('PRAGMA cache_size = -8000');
+    await db.execute('PRAGMA mmap_size = 268435456');
+    await db.execute('PRAGMA temp_store = MEMORY');
+  } catch (_) {
+    // 设不上也不挡读。
+  }
+}
+
 /// 同步断点：每源每阶段一条，记录下次接着跑的位置。
 class ActressSyncCheckpoint {
   const ActressSyncCheckpoint({
@@ -711,7 +730,11 @@ class SqfliteActressDatabase implements ActressDatabase {
       // 只读开外来库时不跑迁移（_openActressDb 会建表/升版写盘），
       // 直接只读打开，结构不对读的时候再报错。
       final db = readOnly
-          ? await openDatabase(filePath, readOnly: true)
+          ? await openDatabase(
+              filePath,
+              readOnly: true,
+              onOpen: applyActressDbReadPragmas,
+            )
           : await _openActressDb(filePath);
       // 强制读一次文件头：损坏文件 open 时不一定报错，第一次查询
       // 才抛；这里验出来就关掉重抛，不开坏库。
@@ -729,8 +752,15 @@ class SqfliteActressDatabase implements ActressDatabase {
     // 再重抛，不留错标志。
     if (await _looksLikeVideoLibraryDb(filePath)) {
       final db = readOnly
-          ? await openDatabase(filePath, readOnly: true)
-          : await openDatabase(filePath);
+          ? await openDatabase(
+              filePath,
+              readOnly: true,
+              onOpen: applyActressDbReadPragmas,
+            )
+          : await openDatabase(
+              filePath,
+              onOpen: applyActressDbReadPragmas,
+            );
       _videoLibraryMode = true;
       try {
         await db.rawQuery('SELECT COUNT(*) FROM sqlite_master');
@@ -754,8 +784,15 @@ class SqfliteActressDatabase implements ActressDatabase {
     }
     _videoLibraryMode = false;
     final db = readOnly
-        ? await openDatabase(filePath, readOnly: true)
-        : await openDatabase(filePath);
+        ? await openDatabase(
+            filePath,
+            readOnly: true,
+            onOpen: applyActressDbReadPragmas,
+          )
+        : await openDatabase(
+            filePath,
+            onOpen: applyActressDbReadPragmas,
+          );
     // 强制读一次文件头：损坏文件 open 时不一定报错，第一次查询
     // 才抛；这里验出来就关掉重抛，不开坏库。
     try {
@@ -900,6 +937,10 @@ class SqfliteActressDatabase implements ActressDatabase {
       'CREATE INDEX IF NOT EXISTS idx_moyi_v_pubdate ON videos(vod_pubdate)',
       'CREATE INDEX IF NOT EXISTS idx_moyi_vc_vod ON video_category(vod_id)',
       'CREATE INDEX IF NOT EXISTS idx_moyi_vc_cat ON video_category(main_category)',
+      // 2026-11-25 文件夹加载：类型文件夹（typeFolders GROUP BY
+      // type_name、listFilms/countFilms WHERE type_name）在 44.9 万行
+      // 上全表扫，冷库上转圈很久；建索引后走索引计数/取页。只加索引。
+      'CREATE INDEX IF NOT EXISTS idx_moyi_v_type ON videos(type_name)',
     ]) {
       try {
         await db.execute(sql);
@@ -1118,6 +1159,7 @@ class SqfliteActressDatabase implements ActressDatabase {
   Future<Database> _openActressDb(String filePath) {    return openDatabase(
       filePath,
       version: 4,
+      onOpen: applyActressDbReadPragmas,
       onCreate: (db, version) async {
         await db.execute(
           'CREATE TABLE persons('

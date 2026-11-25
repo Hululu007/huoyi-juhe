@@ -3,13 +3,17 @@
 // - 文件夹网格 widget 渲染与点开；
 // - 文件夹卡片封面（2026-11-24 13:42 令）：每卡用该类型视频列表
 //   第一条视频的 pic_url，没封面的回落文件夹图标；
+//   2026-11-25 起真服务不再逐条复用 listFilms(limit: 1)，改一次
+//   GROUP BY 取每类型最小 vod_id + 一次 IN 批量取封面（见
+//   actress_film_library.dart typeFolderCovers），假服务仍按旧
+//   形状回固定封面，不影响本文件断言。
 // - nvku 页首页/分类文件夹流（假影视库服务，不碰真库）；
 // - 女优 tab 不动：演员列表原样渲染，文件夹区不在女优 tab 里。
 // 真库 SQL（typeFolders/listFilms/countFilms 的严格结构原文 +
 // typeNameFacet 通用结构原文）见 verify/replay_folder_sql.py，
 // 用 Python sqlite3 对女优库.db 副本重放（flutter test 里
-// sqflite 打不开真库）。封面取数复用 listFilms(limit: 1)，
-// 其 SQL 原文见 verify/replay_folder_cover_sql.py。
+// sqflite 打不开真库）。封面取数 2026-11-25 起改一次聚合 +
+// 一次批量取（replay_folder_cover_sql.py 是旧形状，仅供对照）。
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -19,6 +23,7 @@ import 'package:fqapp/actress/actress_database.dart';
 import 'package:fqapp/actress/actress_film_library.dart';
 import 'package:fqapp/actress/actress_generic_db.dart';
 import 'package:fqapp/actress/actress_mytv_bind.dart';
+import 'package:fqapp/actress/actress_nvku_cache.dart';
 import 'package:fqapp/actress/actress_nvku_page.dart';
 import 'package:fqapp/actress/actress_type_folders.dart';
 import 'package:fqapp/actress/actress_adapter_store.dart';
@@ -132,8 +137,10 @@ class _FakeFilmService extends FilmLibraryService {
     return videoTag.isEmpty ? folders : tagFolders;
   }
 
-  /// 文件夹封面：与真实现同一口径——每类型取 listFilms(limit: 1)
-  /// 第一行的封面；第一行没封面、或该类型没视频时回 ''。
+  /// 文件夹封面：与真实现同一口径——每类型取该类型第一条视频
+  /// （ORDER BY vod_id 首行）的封面；第一行没封面、或该类型没
+  /// 视频时回 ''。假服务仍按旧形状逐条取，真服务已改一次聚合 +
+  /// 一次批量取（结果同一口径）。
   @override
   Future<Map<String, String>> typeFolderCovers({
     required List<String> typeNames,
@@ -448,6 +455,9 @@ void main() {
 
     setUp(() async {
       SharedPreferences.setMockInitialValues({});
+      // 静态会话缓存跨测试串味：每个用例开始前清掉，否则前一个
+      // 用例的假数据会让本用例的服务一次都不被调到。
+      NvkuEntryCache.clearForTest();
       store = LocalStore();
       db = MemoryActressDatabase();
       service = _FakeFilmService(database: db);

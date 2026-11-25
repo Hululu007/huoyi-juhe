@@ -16,6 +16,7 @@ import 'package:fqapp/actress/actress_database.dart';
 import 'package:fqapp/actress/actress_film_library.dart';
 import 'package:fqapp/actress/actress_generic_db.dart';
 import 'package:fqapp/actress/actress_mytv_bind.dart';
+import 'package:fqapp/actress/actress_nvku_cache.dart';
 import 'package:fqapp/actress/actress_nvku_page.dart';
 import 'package:fqapp/actress/actress_adapter_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -284,6 +285,8 @@ void main() {
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
+    // 静态会话缓存跨测试串味：每个用例开始前清掉。
+    NvkuEntryCache.clearForTest();
     store = LocalStore();
     db = MemoryActressDatabase();
     service = _PreviewFilmService(database: db);

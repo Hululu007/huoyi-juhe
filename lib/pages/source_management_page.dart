@@ -2,10 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../services/live_sources.dart';
-import '../services/source_registry.dart';
 import '../services/file_text_picker.dart';
+import '../services/live_sources.dart';
+import '../services/local_file_import.dart';
+import '../services/source_registry.dart';
 import '../widgets/series_detail/moyi_detail_theme.dart';
+import 'local_html_viewer_page.dart';
 import 'site_browse_page.dart';
 
 /// 站源管理的一级技术分组：按技术分，空组也保留（页里显示“暂无…”）。
@@ -48,6 +50,11 @@ managementTechGroups(List<SourceEntry> custom) {
       title: 'XBPQ',
       emptyTitle: '暂无 XBPQ 规则',
       entries: byKind(SourceKind.xbpqImport),
+    ),
+    (
+      title: '本地网页',
+      emptyTitle: '暂无本地网页',
+      entries: byKind(SourceKind.htmlImport),
     ),
     (
       title: '阅读书源',
@@ -249,22 +256,31 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
     );
     if (result != true || !mounted) return;
     try {
+      String message;
       if (kind == SourceKind.customMaccms) {
-        await SourceRegistry.instance.addCustomMaccms(
+        final entry = await SourceRegistry.instance.addCustomMaccms(
           nameController.text,
           addressController.text,
         );
+        message = '已添加站源：${entry.name}';
       } else if (kind == SourceKind.legadoImport) {
-        await SourceRegistry.instance.addLegadoRemote(
+        final entries = await SourceRegistry.instance.addLegadoRemote(
           addressController.text,
         );
+        message = '已导入 ${entries.length} 个书源';
       } else {
-        await SourceRegistry.instance.addRemoteJson(
+        final entry = await SourceRegistry.instance.addRemoteJson(
           nameController.text,
           addressController.text,
         );
+        message = '已添加远程配置：${entry.detail}';
       }
       await _refresh();
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(message)));
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -283,6 +299,9 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
     final extController = TextEditingController();
     var kind = SourceKind.pyImport;
     var contentType = ContentType.mixed;
+    // 选文件失败的文案：直接写在弹窗里（弹窗盖在页上，SnackBar 会被
+    // 弹窗挡住看不见），与“选文件失败：原因”同款前缀。
+    var pickError = '';
     final result = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
@@ -415,14 +434,21 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
                     alignment: Alignment.centerLeft,
                     child: OutlinedButton.icon(
                       onPressed: () async {
-                        final picked = await pickTextFile(
-                          label: 'Python',
-                          extensions: ['py'],
-                        );
-                        if (picked == null) return;
-                        setDialogState(
-                          () => sourceController.text = picked.content,
-                        );
+                        try {
+                          final picked = await pickTextFile(
+                            label: 'Python',
+                            extensions: ['py'],
+                          );
+                          if (picked == null) return;
+                          setDialogState(() {
+                            sourceController.text = picked.content;
+                            pickError = '';
+                          });
+                        } catch (e) {
+                          setDialogState(
+                            () => pickError = '选文件失败：$e',
+                          );
+                        }
                       },
                       style: OutlinedButton.styleFrom(
                         foregroundColor: moyiGold,
@@ -432,6 +458,17 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
                       label: const Text('选择 .py 文件'),
                     ),
                   ),
+                  if (pickError.isNotEmpty)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        pickError,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.redAccent,
+                        ),
+                      ),
+                    ),
                   TextField(
                     controller: sourceController,
                     maxLines: 8,
@@ -521,40 +558,54 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
     );
     if (result != true || !mounted) return;
     try {
+      List<SourceEntry> added;
       if (kind == SourceKind.pyImport) {
-        await SourceRegistry.instance.addPyImport(
-          nameController.text,
-          sourceController.text,
-          contentType: contentType,
-        );
+        added = [
+          await SourceRegistry.instance.addPyImport(
+            nameController.text,
+            sourceController.text,
+            contentType: contentType,
+          ),
+        ];
       } else if (kind == SourceKind.jarImport) {
-        await SourceRegistry.instance.addJarImport(
-          nameController.text,
-          jarUrlController.text,
-          classController.text,
-          md5Controller.text,
-          extController.text,
-          contentType: contentType,
-        );
+        added = [
+          await SourceRegistry.instance.addJarImport(
+            nameController.text,
+            jarUrlController.text,
+            classController.text,
+            md5Controller.text,
+            extController.text,
+            contentType: contentType,
+          ),
+        ];
       } else if (kind == SourceKind.xbpqImport) {
-        await SourceRegistry.instance.addXbpqImport(
-          nameController.text,
-          sourceController.text,
-          contentType: contentType,
-        );
+        added = [
+          await SourceRegistry.instance.addXbpqImport(
+            nameController.text,
+            sourceController.text,
+            contentType: contentType,
+          ),
+        ];
       } else if (kind == SourceKind.legadoImport) {
-        await SourceRegistry.instance.addLegadoImport(
+        added = await SourceRegistry.instance.addLegadoImport(
           sourceController.text,
           contentType: contentType,
         );
       } else {
-        await SourceRegistry.instance.addJsImport(
-          nameController.text,
-          sourceController.text,
-          contentType: contentType,
-        );
+        added = [
+          await SourceRegistry.instance.addJsImport(
+            nameController.text,
+            sourceController.text,
+            contentType: contentType,
+          ),
+        ];
       }
       await _refresh();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(describeImportedEntries(added))),
+        );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -562,6 +613,54 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
         ).showSnackBar(SnackBar(content: Text(e.toString())));
       }
     }
+  }
+
+  /// 本地文件批量导入（统一入口）：一次多选 py/json/html/js，逐个按
+  /// 扩展名 + 内容嗅探分流到现有解析器，单个失败不中断整批，最后
+  /// 弹一次汇总（成功几个、失败几个、失败原因、每个站分到哪个区）。
+  /// 选文件器本身起不来/读不到时弹“选文件失败：原因”，不静默。
+  Future<void> _importLocalFiles() async {
+    List<PickedTextFile> picked;
+    try {
+      picked = await pickTextFiles(
+        label: '本地源文件',
+        extensions: ['py', 'json', 'html', 'htm', 'js'],
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('选文件失败：$e')));
+      return;
+    }
+    if (picked.isEmpty) return;
+    final result =
+        await LocalFileImportService.instance.importPickedFiles(picked);
+    await _refresh();
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: moyiSheetFill,
+        title: const Text(
+          '批量导入结果',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: SingleChildScrollView(
+          child: Text(
+            result.summaryText,
+            style: const TextStyle(color: Colors.white),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            style: TextButton.styleFrom(foregroundColor: moyiGold),
+            child: const Text('知道了'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -663,7 +762,7 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
                     ),
                   ),
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                     child: OutlinedButton(
                       onPressed: _addImportDialog,
                       style: OutlinedButton.styleFrom(
@@ -671,6 +770,27 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
                         side: const BorderSide(color: moyiDarkCardBorder),
                       ),
                       child: const Text('导入 Python / Jar / JS / XBPQ'),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                    child: OutlinedButton(
+                      onPressed: _importLocalFiles,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: moyiGold,
+                        side: const BorderSide(color: moyiDarkCardBorder),
+                      ),
+                      child: const Text('批量导入本地文件（.py / .json / .html）'),
+                    ),
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(16, 0, 16, 24),
+                    child: Text(
+                      '一次可选多个文件；单个失败不中断整批，导完汇总一次告诉你每个站分到了影视区还是小说区；导进影视区的站，下次打开影视区切换弹窗时直接切到导入区。',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: moyiMutedOnDark,
+                      ),
                     ),
                   ),
                 ],
@@ -818,6 +938,24 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
                 ),
                 style: TextButton.styleFrom(foregroundColor: moyiGold),
                 child: const Text('浏览'),
+              ),
+            if (entry.kind == SourceKind.htmlImport)
+              TextButton(
+                onPressed: () {
+                  final path = entry.extra['path'] as String?;
+                  if (path == null || path.isEmpty) return;
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => LocalHtmlViewerPage(
+                        title: entry.name,
+                        filePath: path,
+                      ),
+                    ),
+                  );
+                },
+                style: TextButton.styleFrom(foregroundColor: moyiGold),
+                child: const Text('打开'),
               ),
             PopupMenuButton<ContentType>(
               icon: const Icon(

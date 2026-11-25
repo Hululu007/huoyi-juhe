@@ -123,3 +123,38 @@ AppBar actressNeonAppBar({
 /// 胶囊栏：排行榜 / 帧探索 / 专题 / 演员库 / 影片库）是活树的 5 页签
 /// 形态，主聊明说不搬——主树保留 4 页签（首页/分类/女优/收藏），
 /// 5 页签胶囊栏不在本次合并范围内，故此处不保留该类。
+
+/// 海报上的透明播放键（详情页海报、卡片墙共用）：半透明黑圆底 + 白三角。
+/// 不带文字、不是“立即播放”按钮；播放/暂停在播放器里。
+/// - 不传 onPressed 时只是视觉提示，点按由外层（海报整块的手势）接；
+/// - 传了 onPressed 时它是独立的 InkWell，点按直接播（卡片墙上点键
+///   直接播、点卡片主体仍进详情，内层 InkWell 赢手势竞争）。
+class PosterPlayBadge extends StatelessWidget {
+  const PosterPlayBadge({super.key, this.onPressed, this.size = 56});
+
+  final VoidCallback? onPressed;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final badge = Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: .45),
+        shape: BoxShape.circle,
+      ),
+      child: Icon(Icons.play_arrow, color: Colors.white, size: size * .62),
+    );
+    final pressed = onPressed;
+    if (pressed == null) return badge;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: pressed,
+        child: badge,
+      ),
+    );
+  }
+}

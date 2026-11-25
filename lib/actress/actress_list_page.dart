@@ -19,6 +19,7 @@ import 'actress_models.dart';
 import 'actress_multi_db_fallback.dart';
 import 'actress_mytv_bind.dart';
 import 'actress_neon.dart';
+import 'actress_nvku_cache.dart';
 import 'actress_ranking_page.dart';
 import 'actress_roster_sources.dart';
 import 'actress_search.dart';
@@ -1240,6 +1241,10 @@ class _ActressListPageState extends State<ActressListPage> {
     }
     _clearWorksStartIfIdle();
     if (!progress.done) return;
+    // 现爬完成写了库：进库会话缓存跟着作废（这条回调原来只重读兜底
+    // 与列表，不走 _refreshAfterSync、不清任何缓存，是现成的缺口；
+    // 只补清缓存一行，列表重读保持原样）。
+    NvkuEntryCache.clear();
     // 现爬写了新的本地 JSON：重读兜底再刷新列表，爬到的条目立刻可见。
     unawaited(
       _fallback.load().then((_) {
@@ -1703,10 +1708,13 @@ class _ActressListPageState extends State<ActressListPage> {
   /// 清掉全部易变缓存（列表第一页 + 分类 + 标签）：库内容变了就调——热换库、
   /// 同步/现爬/叠加完成、手动刷新。漏清会显示旧数据。只清缓存，不清
   /// 已选的标签（同库内容更新，标签筛选本身还有效）。
+  /// 进库会话缓存（NvkuEntryCache）也在这里一起清：同步/现爬/叠加/
+  /// 镜像完成、手动重读时，首页的进库缓存跟着作废，下次进库重查。
   void _clearListCaches() {
     _pageCache.clear();
     _dbTagsCacheKey = null;
     _dbTagsCache = null;
+    NvkuEntryCache.clear();
   }
 
   /// 通用模式的标签筛选条件（2026-11-24 标签筛选）：空 = 不筛；

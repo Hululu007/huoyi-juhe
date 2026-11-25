@@ -161,10 +161,15 @@ class ActressFolderVideoCard extends StatelessWidget {
     super.key,
     required this.entry,
     required this.onTap,
+    this.onPlay,
   });
 
   final FilmLibraryEntry entry;
   final VoidCallback onTap;
+
+  /// 封面上的播放键（可空）：只在有可播地址时摆；点键直接播，
+  /// 卡片主体仍进详情。不传时不摆键，老行为不变。
+  final VoidCallback? onPlay;
 
   @override
   Widget build(BuildContext context) {
@@ -179,25 +184,35 @@ class ActressFolderVideoCard extends StatelessWidget {
             child: Container(
               decoration: actressNeonCardDecoration(radius: 10),
               clipBehavior: Clip.antiAlias,
-              child: Container(
-                color: Neon.surface,
-                width: double.infinity,
-                height: double.infinity,
-                child: entry.coverUrl.isEmpty
-                    ? Center(
-                        child: Text(
-                          entry.code.isEmpty ? 'NV' : entry.code,
-                          style: const TextStyle(
-                            color: Neon.textDim,
-                            fontSize: 12,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Container(
+                    color: Neon.surface,
+                    width: double.infinity,
+                    height: double.infinity,
+                    child: entry.coverUrl.isEmpty
+                        ? Center(
+                            child: Text(
+                              entry.code.isEmpty ? 'NV' : entry.code,
+                              style: const TextStyle(
+                                color: Neon.textDim,
+                                fontSize: 12,
+                              ),
+                            ),
+                          )
+                        : Image.network(
+                            entry.coverUrl,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, _, _) =>
+                                const SizedBox.shrink(),
                           ),
-                        ),
-                      )
-                    : Image.network(
-                        entry.coverUrl,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, _, _) => const SizedBox.shrink(),
-                      ),
+                  ),
+                  if (onPlay != null && entry.playable)
+                    Center(
+                      child: PosterPlayBadge(onPressed: onPlay, size: 48),
+                    ),
+                ],
               ),
             ),
           ),

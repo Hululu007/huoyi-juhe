@@ -38,6 +38,7 @@ void main() {
       ),
       _entry('jar1', '我的 Jar 站', SourceKind.jarImport),
       _entry('x1', '我的 XBPQ 规则', SourceKind.xbpqImport),
+      _entry('h1', '我的本地网页', SourceKind.htmlImport),
       _entry(
         'l1',
         '我的阅读书源',
@@ -48,14 +49,15 @@ void main() {
     ]);
     expect(
       groups.map((g) => g.title),
-      ['JSON 网页源', 'JS 内容源', 'Python 内容源', 'Jar 内容源', 'XBPQ', '阅读书源'],
+      ['JSON 网页源', 'JS 内容源', 'Python 内容源', 'Jar 内容源', 'XBPQ', '本地网页', '阅读书源'],
     );
     expect(groups[0].entries.map((e) => e.id), ['m1', 'r1']);
     expect(groups[1].entries.map((e) => e.id), ['j1']);
     expect(groups[2].entries.map((e) => e.id), ['p1']);
     expect(groups[3].entries.map((e) => e.id), ['jar1']);
     expect(groups[4].entries.map((e) => e.id), ['x1']);
-    expect(groups[5].entries.map((e) => e.id), ['l1']);
+    expect(groups[5].entries.map((e) => e.id), ['h1']);
+    expect(groups[6].entries.map((e) => e.id), ['l1']);
     // 旧的按类型分组名不在新分组里。
     expect(
       groups.map((g) => g.title),

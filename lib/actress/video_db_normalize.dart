@@ -126,6 +126,10 @@ class VideoDbStandards {
     'CREATE INDEX IF NOT EXISTS idx_moyi_v_pubdate ON videos(vod_pubdate)',
     'CREATE INDEX IF NOT EXISTS idx_moyi_vc_vod ON video_category(vod_id)',
     'CREATE INDEX IF NOT EXISTS idx_moyi_v_play_from ON videos(vod_play_from)',
+    // 2026-11-25 文件夹加载：类型文件夹（typeFolders GROUP BY
+    // type_name、listFilms/countFilms WHERE type_name）在 44.9 万行
+    // 上全表扫，冷库上转圈很久；建索引后走索引计数/取页。只加索引。
+    'CREATE INDEX IF NOT EXISTS idx_moyi_v_type ON videos(type_name)',
   ];
 
   static String _quote(String identifier) =>
