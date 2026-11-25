@@ -16,6 +16,7 @@ class BuiltinImportedSeed {
     required this.fileName,
     required this.name,
     required this.kind,
+    this.contentTypeKey,
   });
 
   final String seedId;
@@ -23,6 +24,12 @@ class BuiltinImportedSeed {
   final String fileName;
   final String name;
   final SourceKind kind;
+
+  /// 显式内容分型（ContentType.key）：种子登记时写进条目 extra，
+  /// 替代默认的 'video'。音乐/听书类 py 靠机器检测分不开
+  /// （同是音频标记），必须靠种子显式选型区分；为空时按旧口径
+  /// 登记为 'video'。
+  final String? contentTypeKey;
 }
 
 const builtinImportedSeeds = [
@@ -1494,6 +1501,48 @@ const builtinImportedSeeds = [
     asset: 'assets/builtin_sites/youzidj.py',
     fileName: 'youzidj.py',
     name: '🔞柚子短剧',
+    kind: SourceKind.pyImport,
+  ),
+  BuiltinImportedSeed(
+    seedId: 'youguo',
+    asset: 'assets/builtin_sites/youguo.py',
+    fileName: 'youguo.py',
+    name: '🔞柚果',
+    kind: SourceKind.pyImport,
+  ),
+  BuiltinImportedSeed(
+    seedId: 'manman',
+    asset: 'assets/builtin_sites/manman.py',
+    fileName: 'manman.py',
+    name: '🔞漫果',
+    kind: SourceKind.pyImport,
+  ),
+  BuiltinImportedSeed(
+    seedId: 'luguo',
+    asset: 'assets/builtin_sites/luguo.py',
+    fileName: 'luguo.py',
+    name: '🔞露果',
+    kind: SourceKind.pyImport,
+  ),
+  BuiltinImportedSeed(
+    seedId: 'liuguo',
+    asset: 'assets/builtin_sites/liuguo.py',
+    fileName: 'liuguo.py',
+    name: '🔞榴果',
+    kind: SourceKind.pyImport,
+  ),
+  BuiltinImportedSeed(
+    seedId: 'liguo',
+    asset: 'assets/builtin_sites/liguo.py',
+    fileName: 'liguo.py',
+    name: '🔞荔果',
+    kind: SourceKind.pyImport,
+  ),
+  BuiltinImportedSeed(
+    seedId: 'ningguo',
+    asset: 'assets/builtin_sites/ningguo.py',
+    fileName: 'ningguo.py',
+    name: '🔞柠果',
     kind: SourceKind.pyImport,
   ),
 ];

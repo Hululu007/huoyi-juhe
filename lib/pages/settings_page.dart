@@ -13,15 +13,21 @@ import '../services/app_theme.dart';
 import '../services/audio_preferences.dart';
 import '../services/native_player.dart';
 import '../services/player_preferences.dart';
+import '../services/playback_fallback.dart';
 import '../services/player_layout_preferences.dart';
 import '../services/source_registry.dart';
 import '../services/file_text_picker.dart';
 import '../services/book_open_preferences.dart';
 import '../services/drama_mute_preferences.dart';
 import '../services/library_store.dart';
+import '../services/live_settings.dart';
+import '../services/site_health.dart';
+import '../services/hls_ad_filter.dart';
+import '../services/intro_outro_skip.dart';
 import '../widgets/settings/settings_widgets.dart';
 import '../widgets/series_detail/moyi_detail_theme.dart';
 import 'api_service_page.dart';
+import 'app_update_page.dart';
 import 'cached_books_page.dart';
 import 'cached_dramas_page.dart';
 import 'cultivation_titles_page.dart';
@@ -42,6 +48,7 @@ class SettingsPage extends StatelessWidget {
   Widget build(BuildContext context) {
     // 开关读的是 ValueNotifier：先把持久化的值读出来，读到后自动重绘。
     unawaited(BookOpenPreferences.instance.load());
+    unawaited(LiveSettingsStore.instance.load());
     final categories = <SettingsCategory>[
       SettingsCategory(
         icon: LucideIcons.palette,
@@ -103,8 +110,23 @@ class SettingsPage extends StatelessWidget {
         subtitle: '播放',
         items: [
           _muteWhenColdStartItem(),
+          _introOutroSkipItem(),
+          _adBlockItem(),
+          _fallbackModeItem(),
           if (!isWindowsDesktop) _floatingWindowItem(),
           if (!isWindowsDesktop) _videoDecoderItem(),
+        ],
+      ),
+      SettingsCategory(
+        icon: LucideIcons.tv,
+        title: '直播设置',
+        subtitle: '解码模式、睡眠定时默认时长',
+        // builder：解码与睡眠默认都是可变偏好，分类页每次重建
+        // 重新生成行，改完回来即是新值。
+        itemsBuilder: (context) => [
+          _videoDecoderItem(),
+          _liveSleepDefaultItem(),
+          _liveResetDefaultsItem(),
         ],
       ),
       SettingsCategory(
@@ -168,6 +190,9 @@ class SettingsPage extends StatelessWidget {
               MaterialPageRoute(builder: (_) => const OneKeyPyPage()),
             ),
           ),
+          _siteHealthEnabledItem(),
+          _siteHealthPickerSortItem(),
+          _siteHealthClearItem(),
         ],
       ),
       SettingsCategory(
@@ -231,6 +256,22 @@ class SettingsPage extends StatelessWidget {
         subtitle: '本地接口地址与可用端点',
         pageBuilder: (_) => const ApiServicePage(),
         items: const [],
+      ),
+      SettingsCategory(
+        icon: LucideIcons.info,
+        title: '关于',
+        subtitle: '软件更新与版本',
+        items: [
+          SettingsItem(
+            icon: LucideIcons.refresh_cw,
+            title: '软件更新',
+            subtitle: '检查新版本、下载并安装',
+            onTap: (context, _) => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const AppUpdatePage()),
+            ),
+          ),
+        ],
       ),
     ];
 
@@ -661,7 +702,19 @@ class SettingsPage extends StatelessWidget {
   Future<void> _applyBackgroundPick(BuildContext context, String pick) async {
     String? imagePath;
     if (pick == 'custom') {
-      final file = await ImagePicker().pickImage(source: ImageSource.gallery);
+      // 选图器本身可能起不来（权限被拒/容器无相册桥）：单独套 try，
+      // 失败给明确提示，不让异常从点击处理里裸奔出去（B3 核查补）。
+      XFile? file;
+      try {
+        file = await ImagePicker().pickImage(source: ImageSource.gallery);
+      } catch (e) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('选图失败：$e')));
+        }
+        return;
+      }
       if (file == null) return;
       try {
         final docs = await getApplicationDocumentsDirectory();
@@ -1008,6 +1061,127 @@ class SettingsPage extends StatelessWidget {
 
   /// 官方设置项「开启应用时默认静音」（`GlobalMuteConfig` 标题，持久层
   /// `open_mute_when_cold_start`，默认 false＝有声起播）。
+  /// 跳过片头片尾总开关（同步批 A7）：按剧秒数在播放页「播放
+  /// 控制」里设，这里只管总开关。总开关的进程内镜像进页时同步
+  /// 一次落盘值（SettingsPage 是无状态页，照默认静音的套路走）。
+  SettingsItem _introOutroSkipItem() => SettingsItem(
+    icon: LucideIcons.fast_forward,
+    title: '跳过片头片尾',
+    subtitle: '秒数在播放页「播放控制」里按剧设置；关掉后全部不跳',
+    trailingBuilder: (context) {
+      unawaited(IntroOutroSkipStore.syncEnabledListenable());
+      return ValueListenableBuilder<bool>(
+        valueListenable: IntroOutroSkipStore.enabledListenable,
+        builder: (context, value, _) => SettingsSwitch(
+          value: value,
+          semanticLabel: '跳过片头片尾',
+          onChanged: (v) => unawaited(IntroOutroSkipStore.setEnabled(v)),
+        ),
+      );
+    },
+    onTap: (context, setState) {
+      unawaited(
+        IntroOutroSkipStore.setEnabled(
+          !IntroOutroSkipStore.enabledListenable.value,
+        ),
+      );
+    },
+  );
+
+  /// 播放去广告开关（同步批 B1）：默认开；过滤挂在本地媒体代理
+  /// 的清单改写前，只对经代理的 HLS 清单生效。副标题照魔蚁口径。
+  SettingsItem _adBlockItem() => SettingsItem(
+    icon: LucideIcons.ban,
+    title: '播放去广告',
+    subtitle: '个别片源出现缺集或跳段时关掉重试',
+    trailingBuilder: (context) {
+      unawaited(AdBlockPreference.load());
+      return ValueListenableBuilder<bool>(
+        valueListenable: AdBlockPreference.enabledListenable,
+        builder: (context, value, _) => SettingsSwitch(
+          value: value,
+          semanticLabel: '播放去广告',
+          onChanged: (v) => unawaited(AdBlockPreference.setEnabled(v)),
+        ),
+      );
+    },
+    onTap: (context, setState) {
+      unawaited(
+        AdBlockPreference.setEnabled(
+          !AdBlockPreference.enabledListenable.value,
+        ),
+      );
+    },
+  );
+
+  /// 播放失败自动回退档位（同步批 A6）：四档单选，存
+  /// playerCoreFallbackMode，进播放页时读一次。
+  SettingsItem _fallbackModeItem() => SettingsItem(
+    icon: LucideIcons.life_buoy,
+    title: '播放失败自动回退',
+    subtitle: '失败后自动换地址、换清晰度、换解码重试的范围',
+    trailingBuilder: (context) => FutureBuilder<PlaybackFallbackMode>(
+      future: PlaybackFallbackMode.load(),
+      builder: (context, snapshot) {
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              (snapshot.data ?? PlaybackFallbackMode.all).label,
+              style: TextStyle(fontSize: 13, color: moyiMutedOnDark),
+            ),
+            const SizedBox(width: 4),
+            Icon(LucideIcons.chevron_right, size: 18, color: moyiMutedOnDark),
+          ],
+        );
+      },
+    ),
+    onTap: (context, setState) => _showFallbackModeDialog(context, setState),
+  );
+
+  Future<void> _showFallbackModeDialog(
+    BuildContext context,
+    StateSetter refresh,
+  ) async {
+    final current = await PlaybackFallbackMode.load();
+    if (!context.mounted) return;
+    final selected = await showDialog<PlaybackFallbackMode>(
+      context: context,
+      builder: (c) => SimpleDialog(
+        backgroundColor: moyiSheetFill,
+        title: const Text('播放失败自动回退', style: TextStyle(color: Colors.white)),
+        children: [
+          RadioGroup<PlaybackFallbackMode>(
+            groupValue: current,
+            onChanged: (v) {
+              if (v != null) Navigator.pop(c, v);
+            },
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final value in PlaybackFallbackMode.values)
+                  RadioListTile<PlaybackFallbackMode>(
+                    value: value,
+                    title: Text(
+                      value.label,
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                    subtitle: Text(
+                      value.description,
+                      style: TextStyle(color: moyiMutedOnDark),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    if (selected == null) return;
+    await PlaybackFallbackMode.save(selected);
+    refresh(() {});
+  }
+
   SettingsItem _muteWhenColdStartItem() => SettingsItem(
     icon: LucideIcons.volume_x,
     title: '开启应用时默认静音',
@@ -1108,6 +1282,104 @@ class SettingsPage extends StatelessWidget {
     refresh(() {});
   }
 
+  // ── 直播设置 ──────────────────────────────────────────────────────────
+  // 解码模式行直接复用 _videoDecoderItem（全局 PlayerPreferences /
+  // DecoderPreferenceCache，直播与点播共用那份、经 NativePlayer
+  // 真实生效，不另立直播专用键）；这里只补睡眠默认与恢复默认。
+
+  /// 睡眠定时默认时长：进直播页/全屏页时按这个默认自动起算
+  ///（0 = 关闭）。落盘在 LiveSettingsStore（juhe_live_sleep_minutes）。
+  SettingsItem _liveSleepDefaultItem() => SettingsItem(
+    icon: LucideIcons.moon,
+    title: '睡眠定时',
+    subtitle: '进入直播时自动起算的默认时长，到时暂停播放',
+    trailingBuilder: (context) => AnimatedBuilder(
+      animation: LiveSettingsStore.instance,
+      builder: (context, _) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            LiveSettingsStore.instance.sleepDefaultLabel,
+            style: TextStyle(fontSize: 13, color: moyiMutedOnDark),
+          ),
+          const SizedBox(width: 4),
+          Icon(LucideIcons.chevron_right, size: 18, color: moyiMutedOnDark),
+        ],
+      ),
+    ),
+    onTap: (context, setState) => _showLiveSleepDefaultDialog(context, setState),
+  );
+
+  Future<void> _showLiveSleepDefaultDialog(
+    BuildContext context,
+    StateSetter refresh,
+  ) async {
+    await LiveSettingsStore.instance.load();
+    if (!context.mounted) return;
+    final current = LiveSettingsStore.instance.sleepDefaultMinutes;
+    final selected = await showDialog<int>(
+      context: context,
+      builder: (c) => SimpleDialog(
+        backgroundColor: moyiSheetFill,
+        title: const Text('睡眠定时', style: TextStyle(color: Colors.white)),
+        children: [
+          RadioGroup<int>(
+            groupValue: current,
+            onChanged: (v) {
+              if (v != null) Navigator.pop(c, v);
+            },
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final minutes in LiveSettingsStore.sleepOptions)
+                  RadioListTile<int>(
+                    value: minutes,
+                    title: Text(
+                      minutes <= 0 ? '关闭' : '$minutes 分钟',
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    if (selected == null) return;
+    await LiveSettingsStore.instance.setSleepDefaultMinutes(selected);
+    refresh(() {});
+  }
+
+  /// 恢复默认：本分类涉及的偏好全复位——解码模式回自动
+  ///（全局那份，走 DecoderPreferenceCache.set 同步进程内缓存）、
+  /// 睡眠默认时长回关闭。
+  SettingsItem _liveResetDefaultsItem() => SettingsItem(
+    icon: LucideIcons.rotate_ccw,
+    title: '恢复默认',
+    subtitle: '解码模式回自动、睡眠定时回关闭',
+    onTap: (context, setState) {
+      unawaited(_resetLiveSettings(context, setState));
+    },
+  );
+
+  Future<void> _resetLiveSettings(
+    BuildContext context,
+    StateSetter refresh,
+  ) async {
+    await LiveSettingsStore.instance.resetDefaults();
+    try {
+      await DecoderPreferenceCache.set(VideoDecoderPreference.automatic);
+    } catch (_) {
+      // 解码偏好落盘失败不挡另一半复位；睡眠默认已复位。
+    }
+    refresh(() {});
+    if (context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('直播设置已恢复默认')));
+    }
+  }
+
   // ── 数据 ──────────────────────────────────────────────────────────────
 
   SettingsItem _clearHistItem() => SettingsItem(
@@ -1119,6 +1391,61 @@ class SettingsPage extends StatelessWidget {
       '清空历史',
       '确定清空全部阅读/播放历史与累计时长吗？',
       LibraryStore.instance.clearReadingData,
+    ),
+  );
+
+  // ── 站源：站点健康学习（魔蚁同步批 A3）────────────────────────
+
+  /// 总开关（默认开）：按搜索 / 详情 / 播放成功率学习站点健康度，
+  /// 供搜索调度与选站弹窗状态点使用；关时不打点不排序。
+  SettingsItem _siteHealthEnabledItem() => SettingsItem(
+    icon: LucideIcons.activity,
+    title: '站点健康排序',
+    subtitle: '按搜索 / 详情 / 播放成功率优先调度健康站',
+    trailingBuilder: (context) => ValueListenableBuilder<bool>(
+      valueListenable: SiteHealthPrefs.instance.enabled,
+      builder: (context, value, _) => SettingsSwitch(
+        value: value,
+        semanticLabel: '站点健康排序',
+        onChanged: (v) => unawaited(SiteHealthPrefs.instance.setEnabled(v)),
+      ),
+    ),
+    onTap: (context, setState) {
+      final current = SiteHealthPrefs.instance.enabled.value;
+      unawaited(SiteHealthPrefs.instance.setEnabled(!current));
+    },
+  );
+
+  /// 选站弹窗按健康排序（默认关）：开了弹窗里组内站点按健康分
+  /// 降序；默认关保持登记表里的站点顺序。
+  SettingsItem _siteHealthPickerSortItem() => SettingsItem(
+    icon: LucideIcons.arrow_down_wide_narrow,
+    title: '选站弹窗按健康排序',
+    subtitle: '切换站点时把更稳的站排前面，默认关',
+    trailingBuilder: (context) => ValueListenableBuilder<bool>(
+      valueListenable: SiteHealthPrefs.instance.pickerSort,
+      builder: (context, value, _) => SettingsSwitch(
+        value: value,
+        semanticLabel: '选站弹窗按健康排序',
+        onChanged: (v) => unawaited(SiteHealthPrefs.instance.setPickerSort(v)),
+      ),
+    ),
+    onTap: (context, setState) {
+      final current = SiteHealthPrefs.instance.pickerSort.value;
+      unawaited(SiteHealthPrefs.instance.setPickerSort(!current));
+    },
+  );
+
+  /// 清空健康记录：删掉已学习的成败计数，全部站回到未知。
+  SettingsItem _siteHealthClearItem() => SettingsItem(
+    icon: LucideIcons.trash,
+    title: '清空健康记录',
+    subtitle: '删除已学习的站点成败记录，全部站回到未知',
+    onTap: (context, setState) => _confirmClear(
+      context,
+      '清空健康记录',
+      '将删除已学习的站点成败记录，全部站回到未知状态。',
+      () => SiteHealthStore.instance.clear(),
     ),
   );
 

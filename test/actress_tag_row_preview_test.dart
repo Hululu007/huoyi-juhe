@@ -16,8 +16,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fqapp/actress/actress_database.dart';
 import 'package:fqapp/actress/actress_list_page.dart';
 import 'package:fqapp/actress/actress_models.dart';
-import 'package:fqapp/actress/actress_roster_sources.dart';
-import 'package:fqapp/actress/actress_sync.dart';
 import 'package:fqapp/actress/actress_adapter_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -28,12 +26,6 @@ const _previewDir = '/home/hatch/workspace/xiuxian_actress_port_20261124/preview
 /// 新库里男优头像的真地址（2026-11-24 实查：258 位男优全有头像，
 /// 都是 c0.jdbstatic.com 这个域名，与女优同一路）。
 const _maleAvatarUrl = 'https://c0.jdbstatic.com/avatars/mm/MmXaX.jpg';
-
-Future<ActressHttpResponse> _unusedFetch(
-  String url, {
-  Map<String, String> headers = const {},
-  Duration timeout = const Duration(seconds: 20),
-}) async => throw UnimplementedError('fake source must not fetch');
 
 ThemeData _previewTheme() {
   final base = ThemeData.dark();
@@ -189,12 +181,6 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     addTearDown(store.dispose);
-    final sync = ActressSyncService(
-      db: db,
-      sources: const [],
-      fetch: _unusedFetch,
-    );
-    addTearDown(sync.dispose);
     final key = GlobalKey();
     await tester.pumpWidget(
       RepaintBoundary(
@@ -213,7 +199,6 @@ void main() {
                       repository: FixtureRepository(),
                       store: store,
                       database: db,
-                      syncService: sync,
                     ),
                   ),
                 ],

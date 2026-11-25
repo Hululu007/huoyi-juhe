@@ -1101,9 +1101,19 @@ class _AudioPlayer extends ControlledNativePlayer {
   _AudioPlayer({super.createGate, super.releaseGate});
 
   @override
-  Future<int> create(String cdnUrl, String keyHex, {int? startMs}) {
+  Future<int> create(
+    String cdnUrl,
+    String keyHex, {
+    int? startMs,
+    List<ExternalSubtitle> subtitles = const [],
+  }) {
     keys.add(keyHex);
-    return super.create(cdnUrl, keyHex, startMs: startMs);
+    return super.create(
+      cdnUrl,
+      keyHex,
+      startMs: startMs,
+      subtitles: subtitles,
+    );
   }
 }
 

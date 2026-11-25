@@ -640,18 +640,25 @@ const adultTierRealmNames = <String>['元婴期', '化神期', '炼虚期', '合
 /// 口径不变。总数 201→273，104 个原有站换档且全部是提前一档解锁
 /// （1→0 计 18 站、2→1 计 36 站、3→2 计 50 站），无一站推迟解锁；
 /// 换档清单见 ~/workspace/moyi_tier_20261122/REPORT.md。
+///
+/// 2026-11-26 删 3 站（MissAV 收拢：MissAV 只留 py 种子一个站，摘掉
+/// missavoff、mirror 两个 jar 重复登记与 missavt，详见
+/// ~/workspace/xiuxian_missav_20261126/IMPL_REPORT.md）。新总数 275，
+/// 四档 67/69/69/70（missav、javrate 仍钉第 4 档末尾）；存量站只有
+/// 4 站换档且全是提前一档解锁（airav 1→0、shunvwang 2→1、
+/// heitaoduanju 2→1、danaizizy 3→2），无一站推迟。
 const adultVideoSiteOrder = <String>[
   'mjv011', 'huangguo', 'huangguotv', 'hgtvim', 'huai', 'hl365', 'sex8', 'hgdjv',
   'km2', 'cucumber', 'haijiao', 'md', 'utube', 'av91', 'lxs', 'javrate',
   'xszav', 'txfans', 'juyin', '99jj', 'dayday', 'dsav', 'kuaihuo', 'jack20',
   'gqck', 'wuyetv', 'hjw', 'pigav', 'sihucdn', 'sihu', 'xx9',
   '69vj', 'avcnn', 'javhd', 'fq', 'wnzs', 'tudou', 'xjh5', 'xj2',
-  'missav', 'hddj', 'jm', 'getav', 'hsck', 'missavoff', 'mirror', '123av',
+  'missav', 'hddj', 'jm', 'getav', 'hsck', '123av',
   'dsd', 'lissav', 'xhamster', 'rou', 'pb', 'rouav', 'av18av', 'dage',
   'sporn', 'okxxx', '591av', 'avjoy', 'hanime', 'xvideo', 'ptt01', 'cporn',
   'xanimu', 'xx01', 'netflav', 'goodav', 'av6k', 'jav', 'jav777', 'airav',
   'go2av', 'mmtv7', 'zggjav', 'avbigplat', 'xhy11', 'pj5ti', 'thdh', 'hjapp',
-  '17rip', 'javplay', 'javguru', 'missavt', 'wukong', 'chengren91', 'badyi', 'aiye',
+  '17rip', 'javplay', 'javguru', 'wukong', 'chengren91', 'badyi', 'aiye',
   'av18avmcg', 'avtoday', 'hohoj', 'jptt', 'xojav', 'px8x', 'tinyav', 'pachub',
   'ssis', 'aisxpc', '321av', 'porncgw', 'xlook', 'hgdj', 'javmap', 'madao',
   'chinax', 'swagr', 'tanhua91', 'theporny', 'aimove', 'henhenlu', 'pandatv', 'mianfeiai',
@@ -676,6 +683,7 @@ const adultVideoSiteOrder = <String>[
   'qinav', 'qipaosp', 'souavzy', 'sp91', 'subozy', 'suonizy', 'tanhuavip14', 'taohuazy',
   'tasexy', 'tianyazy', 'wsyzy', 'wujinzy', 'xhongyan', 'xiguazy', 'xingbazy', 'xingyezy',
   'yayazy', 'yinghuazy', 'yuanlibzy', 'yutuzy', 'zuidazy', 'zy360', 'hstv', 'eroshort', 'whos', 'youzidj', 'yzaikan', 'one', 'tgpianku',
+  'youguo', 'manman', 'luguo', 'liuguo', 'liguo', 'ningguo',
 ];
 
 /// 成人站档位：按在核心登记表里的下标均分 4 档。

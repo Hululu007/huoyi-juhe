@@ -9,6 +9,7 @@ import '../services/cultivation.dart';
 import '../services/drama_sites.dart';
 import '../services/drama_site_content.dart';
 import '../services/local_file_import.dart';
+import '../services/site_thumb_cache.dart';
 import '../services/source_registry.dart';
 import '../services/video_zone_display_names.dart';
 import '../widgets/home/drama_site_grid.dart';
@@ -430,6 +431,9 @@ class _VideoPageState extends State<VideoPage> {
       selectedId: _videoZoneId,
       initialZone: initialZone,
       onDeleteSite: deleteSiteGridEntry,
+      // 站点透视（C1）：片库 / 影视 / 短剧选站弹窗启用站内封面。
+      thumbCache: SiteThumbCache.instance,
+      thumbFetcher: fetchSiteHomeCover,
     );
     if (!mounted) return;
     if (picked == null) {

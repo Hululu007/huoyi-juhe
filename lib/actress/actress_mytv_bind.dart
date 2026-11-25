@@ -227,10 +227,12 @@ class ActressMytvBind {
 
   static Future<Directory?> _defaultExternalRoot() async {
     // 1）平台通道拿真根目录（MainActivity 的 moyi/device 通道）。
+    // 平台通道调用一律 5 秒超时：鸿蒙卓易通容器里通道迟迟不回时，
+    // 开库链（直播首屏、女优库）不能跟着无限等，超时走下面的推导。
     try {
-      final root = await _deviceChannel.invokeMethod<String>(
-        'externalStorageRoot',
-      );
+      final root = await _deviceChannel
+          .invokeMethod<String>('externalStorageRoot')
+          .timeout(const Duration(seconds: 5));
       if (root != null && root.isNotEmpty) {
         final dir = Directory(root);
         if (dir.existsSync()) return dir;
@@ -242,7 +244,9 @@ class ActressMytvBind {
     // <包名>/files → /storage/emulated/0。鸿蒙卓易通容器里这条
     // 路径可能没有 /Android/data/ 标记，推导失败回 null 降级。
     try {
-      final ext = await getExternalStorageDirectory();
+      final ext = await getExternalStorageDirectory().timeout(
+        const Duration(seconds: 5),
+      );
       if (ext == null) return null;
       const marker = '/Android/data/';
       final idx = ext.path.indexOf(marker);
@@ -375,4 +379,54 @@ class ActressMytvBind {
       note: note,
     );
   }
+}
+
+/// 共用站点库文件名（MYTV/db/站点库.db）：只记播过的片，是播放
+/// 记录库，不当女优库源扫（见 [collectDbMirrorTargets] 的排除），
+/// 多库勾选里单独补回、默认不勾。原定义在已删的 actress_site_db
+///（写库死代码，2026-11-26 删），常量随读侧扫描一起搬来这里。
+const siteDbFileName = '站点库.db';
+
+/// 收集可合并/可勾选的外来 .db 文件（只读扫描，不写任何文件）：
+/// 主目录 MYTV/db 只扫一层 + 补充目录递归扫；排除主库本身、
+/// 应用库与站点库（播放记录库绝不当女优库源）。原定义在已删的
+/// actress_db_mirror（镜像写库，2026-11-26 删），扫描逻辑是读侧
+/// 的，多库合并与多库勾选共用，搬来绑定层。
+List<File> collectDbMirrorTargets({
+  required Directory dbDir,
+  required String libraryPath,
+  List<Directory> extraDirs = const [],
+}) {
+  final seen = <String>{};
+  final targets = <File>[];
+  void add(File file) {
+    final normalized = path.normalize(file.path);
+    if (!file.path.toLowerCase().endsWith('.db')) return;
+    if (path.equals(normalized, path.normalize(libraryPath))) return;
+    final baseName = path.basename(file.path);
+    if (baseName == '女优库应用.db' || baseName == 'actress.db') return;
+    // 共用站点库（MYTV/db/站点库.db）只记播过的片，绝不当女优库
+    // 源扫进来——勾选页单独把它补回（默认不勾）。
+    if (baseName == siteDbFileName) return;
+    if (!seen.add(normalized)) return;
+    targets.add(file);
+  }
+
+  try {
+    for (final entity in dbDir.listSync()) {
+      if (entity is File) add(entity);
+    }
+  } catch (_) {
+    // 主目录扫失败：返回已收集到的（可能为空），不抛错。
+  }
+  for (final dir in extraDirs) {
+    try {
+      for (final entity in dir.listSync(recursive: true)) {
+        if (entity is File) add(entity);
+      }
+    } catch (_) {
+      // 该目录不存在/扫失败：跳过，不影响其他目录。
+    }
+  }
+  return targets;
 }

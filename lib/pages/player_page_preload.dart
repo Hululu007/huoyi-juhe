@@ -156,7 +156,11 @@ extension _PlayerPagePreload on _PlayerPageState {
         if (warm.dropped) return false;
         warm.source = source;
         warm.renditionHeight = height;
-        await warm.player.create(source.url, source.keyHex);
+        await warm.player.create(
+          source.url,
+          source.keyHex,
+          subtitles: source.subs,
+        );
         return !warm.dropped && warm.player.lastError == null;
       } catch (_) {
         return false;
@@ -225,28 +229,40 @@ extension _PlayerPagePreload on _PlayerPageState {
     return warm;
   }
 
-  /// 还没出过画面的这一集失败时先静默重来，加载封面不撤：第一次换新地址，
-  /// 第二次再换一档清晰度。CDN 偶发卡住、某一档流坏掉时，用户只是多等
-  /// 一会儿，看不到「播放失败」。已经在播的集中途出错不在这里重来：那时
-  /// 续播点还在异步落盘，重建会从旧进度开始。返回 true 表示已接手。
+  /// 还没出过画面的这一集失败时先静默重来，加载封面不撤：按回退
+  /// 阶梯（A6）依次换新地址、换一档清晰度、换解码路，每步只试
+  /// 一次，档位不允许该类失败或阶梯走完就交给报错界面。CDN 偶发
+  /// 卡住、某一档流坏掉时，用户只是多等一会儿，看不到「播放失败」。
+  /// 已经在播的集中途出错不在这里重来（走 _fail 的出画后解码回退）。
   bool _retrySilently() {
-    if (_silentRetriesLeft <= 0 ||
-        DateTime.now().isAfter(_silentRetryUntil) ||
+    if (DateTime.now().isAfter(_silentRetryUntil) ||
         _hasDisplayed ||
         _switchingSeries ||
         !mounted) {
       return false;
     }
-    final second = _silentRetriesLeft == 1;
-    _silentRetriesLeft--;
-    unawaited(
-      _loadVideo(
-        refresh: true,
-        autoplay: _lastAutoplay,
-        silent: true,
-        avoidVariant: second ? _currentVariantName() : null,
-      ),
-    );
+    final step = _fallback.advance(_lastFailureKind);
+    if (step == null) return false;
+    switch (step) {
+      case PlaybackFallbackStep.refreshSource:
+        unawaited(
+          _loadVideo(refresh: true, autoplay: _lastAutoplay, silent: true),
+        );
+      case PlaybackFallbackStep.switchVariant:
+        unawaited(
+          _loadVideo(
+            refresh: true,
+            autoplay: _lastAutoplay,
+            silent: true,
+            avoidVariant: _currentVariantName(),
+          ),
+        );
+      case PlaybackFallbackStep.decoderSoft:
+        _engageSessionSoftwareDecoder();
+        unawaited(
+          _loadVideo(refresh: true, autoplay: _lastAutoplay, silent: true),
+        );
+    }
     return true;
   }
 

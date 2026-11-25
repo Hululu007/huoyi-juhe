@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../home/home_sheet.dart';
+import '../../services/intro_outro_skip.dart';
 import '../../services/player_display_preferences.dart';
 import '../../services/player_sleep_timer.dart';
 
@@ -25,10 +26,15 @@ Future<void> showPlayerPlaybackExtras({
   required bool seasonAutoplay,
   required ValueChanged<bool> onSeasonAutoplayChanged,
   required bool autoAdvance,
+  IntroOutroSkipSettings? skipSettings,
+  ValueChanged<IntroOutroSkipSettings>? onSkipSettingsChanged,
+  VoidCallback? onOpenTracks,
 }) {
   var mode = displayMode;
   var rotationValue = rotation;
   var season = seasonAutoplay;
+  var introSeconds = skipSettings?.introSeconds ?? 0;
+  var outroSeconds = skipSettings?.outroSeconds ?? 0;
   return showHomeSheet<void>(
     context: context,
     title: '播放控制',
@@ -88,6 +94,48 @@ Future<void> showPlayerPlaybackExtras({
                   onSeasonAutoplayChanged(value);
                 },
               ),
+              if (onOpenTracks != null)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.subtitles_outlined),
+                  title: const Text('音轨与字幕'),
+                  subtitle: const Text('切换音轨、内嵌字幕与外挂字幕'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    onOpenTracks();
+                  },
+                ),
+              if (skipSettings != null &&
+                  onSkipSettingsChanged != null) ...[
+                const _SectionTitle('跳过片头片尾（本剧）'),
+                _SkipStepperRow(
+                  label: '片头',
+                  seconds: introSeconds,
+                  onChanged: (value) {
+                    setSheetState(() => introSeconds = value);
+                    onSkipSettingsChanged(
+                      IntroOutroSkipSettings(
+                        introSeconds: value,
+                        outroSeconds: outroSeconds,
+                      ),
+                    );
+                  },
+                ),
+                _SkipStepperRow(
+                  label: '片尾',
+                  seconds: outroSeconds,
+                  onChanged: (value) {
+                    setSheetState(() => outroSeconds = value);
+                    onSkipSettingsChanged(
+                      IntroOutroSkipSettings(
+                        introSeconds: introSeconds,
+                        outroSeconds: value,
+                      ),
+                    );
+                  },
+                ),
+              ],
             ],
           );
         },
@@ -111,6 +159,50 @@ class _SectionTitle extends StatelessWidget {
           context,
         ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
       ),
+    );
+  }
+}
+
+/// 片头/片尾秒数步进器（同步批 A7）：步长 5 秒、改完即存、
+/// 没有保存钮；0 显示「关」，钳 0..3600。
+class _SkipStepperRow extends StatelessWidget {
+  const _SkipStepperRow({
+    required this.label,
+    required this.seconds,
+    required this.onChanged,
+  });
+
+  final String label;
+  final int seconds;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(child: Text(label)),
+        IconButton(
+          icon: const Icon(Icons.remove),
+          tooltip: '减少 5 秒',
+          onPressed: seconds > 0
+              ? () => onChanged(clampIntroOutroSeconds(seconds - 5))
+              : null,
+        ),
+        SizedBox(
+          width: 72,
+          child: Text(
+            seconds <= 0 ? '关' : '$seconds 秒',
+            textAlign: TextAlign.center,
+          ),
+        ),
+        IconButton(
+          icon: const Icon(Icons.add),
+          tooltip: '增加 5 秒',
+          onPressed: seconds < introOutroMaxSeconds
+              ? () => onChanged(clampIntroOutroSeconds(seconds + 5))
+              : null,
+        ),
+      ],
     );
   }
 }

@@ -44,6 +44,8 @@ class MainActivity : FlutterActivity() {
         flutterEngine.plugins.add(EinkRefreshPlugin())
         // 小米澎湃 OS 公平运行内存：收 TRIM/KILL 广播，转发 Dart 处理后回系统。
         flutterEngine.plugins.add(FairMemoryPlugin())
+        // 软件内更新桥（fqapp/appupdate）：读包版本、调系统安装器、开浏览器。
+        flutterEngine.plugins.add(AppUpdatePlugin())
         // 系统代理读取：读手机的系统代理交给 Rust 核心当出口代理，见
         // SystemProxyPlugin（通道 fqapp/system-proxy）。
         flutterEngine.plugins.add(SystemProxyPlugin())

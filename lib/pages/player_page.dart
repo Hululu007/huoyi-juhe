@@ -19,6 +19,7 @@ import '../services/backend_transport.dart' show BackendRequest;
 import '../services/cultivation.dart';
 import '../services/decoder_compatibility.dart';
 import '../services/hongguo_account_sync.dart';
+import '../services/intro_outro_skip.dart';
 import '../services/playback_resume.dart';
 import '../services/player_panel_preferences.dart';
 import '../services/playlet_interaction_posting.dart';
@@ -33,6 +34,8 @@ import '../services/connectivity_status.dart';
 import 'drama_download_sheet.dart';
 import '../services/library_store.dart';
 import '../services/native_player.dart';
+import '../services/playback_fallback.dart';
+import '../services/player_tracks.dart';
 import '../services/playback_issue.dart';
 import '../services/player_history.dart';
 import '../services/player_layout_preferences.dart';
@@ -53,6 +56,7 @@ import '../widgets/player/playlet_danmaku_loader.dart';
 import '../widgets/player/playlet_danmaku_settings.dart';
 import '../widgets/player/player_persistent_progress.dart';
 import '../widgets/player/player_playback_extras_sheet.dart';
+import '../widgets/player/player_track_picker.dart';
 import '../widgets/player/story_player_panel.dart';
 import '../widgets/player/player_feedback.dart';
 import '../widgets/player/player_split_panel.dart';
@@ -77,6 +81,11 @@ class PlayerPage extends StatefulWidget {
   final ReaderStore? historyStore;
   final SeriesDetail? initialSeriesDetail;
   final PlayerLoadDiagnostics? loadDiagnostics;
+
+  /// 引擎站作用域 id（站点 id）：跳过片头片尾按「站::剧」存设置时
+  /// 用它拼剧键。站内入口（drama_site_play）传；其余入口不传，
+  /// 只按 bookId 存（平台剧 id 本身全局唯一）。
+  final String? sourceScopeId;
 
   /// 底部 band 装饰数据的可注入 loader（默认走 ApiClient，best-effort：
   /// 失败就缺省，不打扰播放）。测试注入用。
@@ -138,6 +147,7 @@ class PlayerPage extends StatefulWidget {
     this.playerFactory,
     this.historyStore,
     this.loadDiagnostics,
+    this.sourceScopeId,
     this.seriesLoader,
     this.initialSeriesDetail,
     this.danmakuFetcher,
@@ -213,13 +223,19 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   int? _renditionHeight;
   int? _prefetchAttemptedGeneration;
 
-  /// 还没出画面的这一集失败后，还能静默重来几次（见 [_retrySilently]）。
-  int _silentRetriesLeft = 0;
-
   /// 静默重试只在这之前发起：网络整个卡死时，加载封面不能一直挂着，
-  /// 到点就把错误和「重试」交给用户。
+  /// 到点就把错误和「重试」交给用户。重试次数由回退阶梯（A6）
+  /// 的已试集合封顶，不再单独计数。
   DateTime _silentRetryUntil = DateTime.now();
   static const _silentRetryWindow = Duration(seconds: 20);
+
+  /// 播放失败自动回退会话（同步批 A6）：一集一份，装载时 reset；
+  /// 最近一次失败的分类由 _fail 写入，静默重试按它问阶梯。
+  final PlaybackFallbackController _fallback = PlaybackFallbackController();
+  PlaybackFailureKind _lastFailureKind = PlaybackFailureKind.other;
+
+  /// 会话内切软解前记住的解码偏好：退出播放页时恢复，不落盘。
+  VideoDecoderPreference? _decoderBeforeFallback;
   bool _lastAutoplay = true;
 
   /// 当前集快播完时在后台建好的下一集播放器（见 [_updateWarmNext]）。
@@ -281,6 +297,16 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   /// 自动连播（对照 `autoNext`，跨季的另一道门）。
   bool _seasonAutoplay = false;
   bool _autoAdvance = true;
+
+  /// 跳过片头片尾（同步批 A7）：本剧设置 + 总开关，进页时随播放
+  /// 控制偏好一起读；片尾每集只触发一次，触发过的集记在这里。
+  IntroOutroSkipSettings _skipSettings = const IntroOutroSkipSettings();
+  bool _skipEnabled = true;
+  final Set<String> _outroSkipFiredFor = <String>{};
+
+  String get _skipDramaKey => widget.sourceScopeId == null
+      ? widget.bookId
+      : '${widget.sourceScopeId}::${widget.bookId}';
 
   /// 官方「默认静音」：**不落盘**，只在进程内（`tm3/b.java:17-20`）。
   bool _defaultMute = PlayerPanelPreferences.defaultMute;
@@ -367,6 +393,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     // 进度心跳每秒喂一次调度器：进预取区间补拉下一批、落未覆盖处补数。
     // 不挂在 200ms 进度流上，也不逐帧（上批逐帧滚动只属于渲染层）。
     _danmakuProgressTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      _maybeSkipOutro();
       if (!_danmakuEnabled || !_playing || !_appActive) return;
       final player = _player;
       if (player == null || player.buffering || _paging || _error != null) {
@@ -374,6 +401,70 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       }
       _danmakuLoader.onProgress(player.position.inMilliseconds);
     });
+  }
+
+  /// 跳过片尾（同步批 A7）：1 秒心跳里判触发点，每集只触发一次；
+  /// 命中后 seek 到总时长，走 completedStream 的既有完播流程
+  /// （落进度、修为、定时停止、自动连播都在那条路上，不另起切集）。
+  void _maybeSkipOutro() {
+    if (!_playing || !_appActive || _paging || _error != null) return;
+    final player = _player;
+    if (player == null || player.buffering) return;
+    if (_index < 0 || _index >= widget.eps.length) return;
+    final episodeKey = '${widget.bookId}:${widget.eps[_index].itemId}';
+    if (_outroSkipFiredFor.contains(episodeKey)) return;
+    final durationMs = player.duration.inMilliseconds;
+    if (!outroSkipDue(
+      enabled: _skipEnabled,
+      settings: _skipSettings,
+      positionMs: player.position.inMilliseconds,
+      durationMs: durationMs,
+      hasNextEpisode: _index + 1 < widget.eps.length,
+    )) {
+      return;
+    }
+    _outroSkipFiredFor.add(episodeKey);
+    unawaited(player.seek(Duration(milliseconds: durationMs)));
+  }
+
+  void _setSkipSettings(IntroOutroSkipSettings settings) {
+    setState(() => _skipSettings = settings);
+    unawaited(IntroOutroSkipStore.saveFor(_skipDramaKey, settings));
+  }
+
+  /// 外挂字幕默认挂载（同步批 A8）：轨道是宿主异步就绪的，轮询
+  /// 几次等外挂轨出现，按语言偏好挑一条选中；已选中或超时都
+  /// 静默收工，任何失败不挡播放（魔蚁同口径）。
+  Future<void> _applyDefaultSubtitle(
+    NativePlayer player,
+    int generation,
+    List<ExternalSubtitle> subs,
+  ) async {
+    final preferred = pickDefaultExternalSubtitle(subs);
+    if (preferred == null) return;
+    for (var attempt = 0; attempt < 6; attempt++) {
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      if (!_current(generation, player)) return;
+      try {
+        final tracks = await player.getTracks();
+        for (final track in tracks.subtitles) {
+          if (track.externalUrl != preferred.url) continue;
+          if (!track.selected) {
+            await player.selectSubtitleTrack(track.id);
+          }
+          return;
+        }
+      } catch (_) {
+        return;
+      }
+    }
+  }
+
+  /// 音轨/字幕轨选择层（A8）：实时向宿主枚举轨道，点选即切。
+  void _openTrackPicker() {
+    final player = _player;
+    if (player == null) return;
+    unawaited(showPlayerTrackPicker(context: context, player: player));
   }
 
   /// 热评（官方 `SeriesHotCommentView`）：与评论计数同源，来自
@@ -830,6 +921,9 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     final autoAdvance = await PlayerPreferences.loadAutoAdvance().catchError(
       (Object _) => true,
     );
+    final skipEnabled = await IntroOutroSkipStore.loadEnabled();
+    final skipSettings = await IntroOutroSkipStore.loadFor(_skipDramaKey);
+    final fallbackMode = await PlaybackFallbackMode.load();
     if (!mounted) return;
     setState(() {
       // 存过的 90°/270° 本次还渲染不了（要 chrome 重新排矩形），
@@ -837,6 +931,9 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       _userRotation = PlayerRotation.appliableNow(rotation) ? rotation : 0;
       _seasonAutoplay = seasonAutoplay;
       _autoAdvance = autoAdvance;
+      _skipEnabled = skipEnabled;
+      _skipSettings = skipSettings;
+      _fallback.mode = fallbackMode;
     });
   }
 
@@ -934,6 +1031,9 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
         seasonAutoplay: _seasonAutoplay,
         onSeasonAutoplayChanged: _setSeasonAutoplay,
         autoAdvance: _autoAdvance,
+        skipSettings: _skipSettings,
+        onSkipSettingsChanged: _setSkipSettings,
+        onOpenTracks: _openTrackPicker,
       ),
     );
   }
@@ -1084,6 +1184,11 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    // 会话内切软解（A6）只在本页有效：退出时把解码偏好缓存恢复原值。
+    if (_decoderBeforeFallback != null) {
+      DecoderPreferenceCache.current = _decoderBeforeFallback!;
+      _decoderBeforeFallback = null;
+    }
     WidgetsBinding.instance.removeObserver(this);
     _unregisterFairMemoryFlush?.call();
     _unregisterFairMemoryFlush = null;
@@ -1525,8 +1630,9 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     final index = _index;
     final episode = widget.eps[index];
     if (!silent) {
-      _silentRetriesLeft = 2;
       _silentRetryUntil = DateTime.now().add(_silentRetryWindow);
+      // 新的一集一次回退会话（A6）：阶梯已试清零，档位保持已读值。
+      _fallback.reset();
     }
     _lastAutoplay = autoplay;
     final trace = _loadTrace = _diagnostics.begin(
@@ -1600,6 +1706,18 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       // （取流顺序变成 2、3、1…），慢接口下还会拖首帧。
       _prefetchUpcomingSources(index, upcoming);
       _currentSource = source;
+      // 回退阶梯按本集实际条件收窄（A6）：没有第二路流就去掉
+      // 换变体步；当前已是软解就去掉换解码路步。
+      _fallback.configure(
+        ladder: <PlaybackFallbackStep>[
+          PlaybackFallbackStep.refreshSource,
+          if (source.variants.any((v) => v.url != source.url))
+            PlaybackFallbackStep.switchVariant,
+          if (DecoderPreferenceCache.current !=
+              VideoDecoderPreference.software)
+            PlaybackFallbackStep.decoderSoft,
+        ],
+      );
       // 取流响应携带的分集方向：目录里没有时由它补上「全屏观看」的判据。
       if (source.vertical case final bool vertical) {
         _episodeVerticals[episode.itemId] = vertical;
@@ -1696,7 +1814,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
           ? entryPoint.durationMs.toDouble()
           : savedDuration * 1000;
       // 记录已播到末尾的不给起播位置（从头播）；记录没时长时由首个时长事件再校正。
-      final startMs =
+      var startMs =
           (listenResumeMs >= 0 ||
                   initialPosition != null ||
                   resumeEpisodeIndex(saved, widget.eps) == index ||
@@ -1707,12 +1825,27 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
               (resumeDurationMs <= 0 || requestedMs < resumeDurationMs)
           ? requestedMs.round()
           : null;
+      // 跳过片头（A7）：起播位置落在片头内时直接改写初始位置，
+      // 省掉开流后再 seek 的一次往返；续播点已越过片头时判定
+      // 返回 null，不回拉。总时长只知存档值，未知时片头先行。
+      final introTarget = introSkipTargetMs(
+        enabled: _skipEnabled,
+        settings: _skipSettings,
+        startMs: startMs ?? 0,
+        durationMs: resumeDurationMs.round(),
+      );
+      if (introTarget != null) startMs = introTarget;
       trace.stage('create');
       final player = candidate =
           adopted ?? widget.playerFactory?.call() ?? NativePlayer();
       _player = player;
       if (adopted == null) {
-        await player.create(source.url, source.keyHex, startMs: startMs);
+        await player.create(
+          source.url,
+          source.keyHex,
+          startMs: startMs,
+          subtitles: source.subs,
+        );
       } else if (startMs != null) {
         // 预热时还不知道续播点，按 0 建的；有续播点就在起播前跳过去。
         await player.seek(Duration(milliseconds: startMs));
@@ -1726,6 +1859,11 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       trace.stage('initialize');
       _subscribe(player, generation, startMs: startMs);
       _onFirstFrame(player, generation);
+      // 外挂字幕默认挂载（A8）：按语言偏好挑一条，轨道就绪后选中；
+      // 全程 best-effort，失败不挡播放。
+      if (source.subs.isNotEmpty) {
+        unawaited(_applyDefaultSubtitle(player, generation, source.subs));
+      }
       setState(() {});
       var rate = 1.0;
       try {
@@ -1811,6 +1949,8 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
 
   void _fail(Object error, int generation) {
     if (!_current(generation)) return;
+    // 回退阶梯（A6）按这次失败的分类走，先记下来。
+    _lastFailureKind = classifyPlaybackFailure(error);
     // 解码失败记一条教训：当前档位下次起播直接跳过（跨启动生效）。
     if (PlaybackIssue.fromError(error) == PlaybackIssue.decoding) {
       _recordDecoderLesson();
@@ -1824,6 +1964,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     _loadTrace?.fail(errorCode: errorCode, httpStatusCode: httpStatusCode);
     _sources.invalidate(widget.eps[_index].itemId);
     if (_retrySilently()) return;
+    if (_tryPostDisplayDecoderFallback()) return;
     _prefetchTimer?.cancel();
     _prefetchTimer = null;
     ++_loadGeneration;
@@ -1840,6 +1981,33 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       _initVideo = false;
       _playing = false;
     });
+  }
+
+  /// 会话内切软解（A6 的 decoderSoft 步）：只改内存里的解码偏好
+  /// 缓存，不落盘；原值记下来，退出播放页时恢复。
+  void _engageSessionSoftwareDecoder() {
+    _decoderBeforeFallback ??= DecoderPreferenceCache.current;
+    DecoderPreferenceCache.current = VideoDecoderPreference.software;
+  }
+
+  /// 已出画面的集中途失败（A6）：静默重试只管出画前；出画后还剩
+  /// 「换解码路」一步可走——阶梯里排在前面的换地址/换变体步对
+  /// 已出画的集不再适用，advance 时顺手消费掉，直到拿到
+  /// decoderSoft 或走完。命中后先落进度再重建，从存档点续播。
+  bool _tryPostDisplayDecoderFallback() {
+    if (!_hasDisplayed || _switchingSeries || !mounted) return false;
+    while (true) {
+      final step = _fallback.advance(_lastFailureKind);
+      if (step == null) return false;
+      if (step == PlaybackFallbackStep.decoderSoft) {
+        _engageSessionSoftwareDecoder();
+        unawaited(_persistProgress());
+        unawaited(
+          _loadVideo(refresh: true, autoplay: _lastAutoplay, silent: true),
+        );
+        return true;
+      }
+    }
   }
 
   /// The source the current player was created from (includes the rendition
@@ -1896,7 +2064,12 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       // Note: 换档清空 `_activeIndex` 引发的四个后果与本位置的取值依据 —
       // 见 .agents/notes/implemented/bug-fix/2026-10-14-quality-switch-clears-active-index.md
       _activeIndex = _index;
-      await fresh.create(variant.url, variant.keyHex, startMs: resumeMs);
+      await fresh.create(
+        variant.url,
+        variant.keyHex,
+        startMs: resumeMs,
+        subtitles: source.subs,
+      );
       if (!_current(generation, fresh)) {
         await fresh.dispose();
         return;

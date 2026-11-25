@@ -11,19 +11,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fqapp/actress/actress_database.dart';
 import 'package:fqapp/actress/actress_list_page.dart';
 import 'package:fqapp/actress/actress_models.dart';
-import 'package:fqapp/actress/actress_roster_sources.dart';
-import 'package:fqapp/actress/actress_sync.dart';
 import 'package:fqapp/actress/actress_widgets.dart';
 import 'package:fqapp/actress/actress_adapter_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'actress_fixtures.dart';
-
-Future<ActressHttpResponse> _unusedFetch(
-  String url, {
-  Map<String, String> headers = const {},
-  Duration timeout = const Duration(seconds: 20),
-}) async => throw UnimplementedError('fake source must not fetch');
 
 Future<LocalStore> _makeStore() async {
   SharedPreferences.setMockInitialValues({});
@@ -143,19 +135,12 @@ void main() {
     }
 
     Future<void> pumpPage(WidgetTester tester) async {
-      final sync = ActressSyncService(
-        db: db,
-        sources: const [],
-        fetch: _unusedFetch,
-      );
-      addTearDown(sync.dispose);
       await tester.pumpWidget(
         MaterialApp(
           home: ActressListPage(
             repository: FixtureRepository(),
             store: store,
             database: db,
-            syncService: sync,
           ),
         ),
       );

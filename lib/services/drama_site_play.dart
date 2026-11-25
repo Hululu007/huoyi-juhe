@@ -631,6 +631,7 @@ Future<void> openDramaSitePlayback(
         MaterialPageRoute<void>(
           builder: (_) => PlayerPage(
             bookId: seriesId,
+            sourceScopeId: siteId,
             kind: 'video',
             title: title,
             cover: cover,
@@ -659,6 +660,8 @@ String engineShelfKindFor(ContentType type) {
     case ContentType.comic:
       return 'manga';
     case ContentType.audio:
+      return 'audio';
+    case ContentType.music:
       return 'audio';
     default:
       return 'book';

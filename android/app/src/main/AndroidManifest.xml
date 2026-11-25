@@ -1,6 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- 访问本地后端 127.0.0.1 与上游 API -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- 软件内更新（B8）：调起系统安装器装下载好的新版安装包 -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <!-- 听视频（listen mode）：前台服务保活 + 13+ 通知（通知被拒只影响可见性，服务照常跑） -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
@@ -52,6 +54,17 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- 软件内更新（B8）：把应用支持目录里的新版安装包以 content URI
+             交给系统安装器，authority 与 AppUpdatePlugin 里拼的一致。 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

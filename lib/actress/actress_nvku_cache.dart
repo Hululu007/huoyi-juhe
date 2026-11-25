@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import 'actress_adapter_models.dart';
+import 'actress_models.dart';
 
 /// 女优库模块进库会话缓存（2026-11-25 进库不重载，照魔蚁
 /// nvku-keepalive 批移植；修仙版外层底部导航已是常驻
@@ -17,17 +18,22 @@ import 'actress_adapter_models.dart';
 ///
 /// 缓存只覆盖“进库重查”的那几份数据，不碰写路径：
 /// - 文件夹/封面/标签：key 含库文件指纹（路径 + mtime + 大小），
-///   库文件一变（同步/现爬/镜像写库、用户在外面换了文件）就自然
-///   失效、重查；标签切换时 key 里标签变了，旧 key 不影响新查。
+///   库文件一变（用户在外面换了文件）就自然失效、重查；标签切换
+///   时 key 里标签变了，旧 key 不影响新查。
 /// - 分类：站点分类按站 id 缓存（会话内不变）；本地/主分类按库
 ///   文件指纹缓存。
 /// - 作品第一页：key = 分类 + 搜索词，5 分钟内再进直接用、不取；
 ///   过期了先上旧页、后台悄悄刷一遍再换新页（不转圈、不清列表）。
+/// - 人物名单第一页（2026-11-26 新增名单槽）：key = 库文件指纹 +
+///   筛选全维度（由列表页拼，含已勾选库路径段）；bootstrap 先查
+///   槽先上屏，切区回来不再整页重查。App 内的写路径已整套删除
+///   （2026-11-26），文件戳只会被外部换库顶变，失效来源只剩
+///   外部换库与手动刷新。
 ///
 /// 失效（只在“数据真变了”时清，不在每次进库时清）：
 /// - 用户主动刷新（下拉刷新、顶栏刷新钮）→ [clear] 全清再查；
-/// - 列表页同步/现爬/叠加/镜像完成、手动重读 → 列表页
-///   `_clearListCaches` 里调 [clear]，一处清就全覆盖。
+/// - 列表页手动重读/重新绑定 → 列表页 `_clearListCaches` 里调
+///   [clear]，一处清就全覆盖。
 /// 文件指纹是 mtime + 大小（schema 指纹不认内容变化，不能用它）。
 class NvkuEntryCache {
   NvkuEntryCache._();
@@ -49,6 +55,11 @@ class NvkuEntryCache {
   static final _localCategories = <String, List<CatalogCategory>>{};
   static final _mainCategories = <String, List<CatalogCategory>>{};
   static final _works = <String, NvkuWorksEntry>{};
+  static final _persons = <String, NvkuPersonsEntry>{};
+
+  /// 人物名单第一页最多留 8 个 key（指纹 + 筛选维度组合），超了
+  /// 淘汰最久没用的一个；一页 60 人，内存可忽略。
+  static const _maxPersonsKeys = 8;
 
   /// 库文件指纹（路径 + mtime + 大小）：文件打不开/不存在时回 ''，
   /// 调用方仍按路径分 key，只是不再靠指纹防内容变化。
@@ -175,6 +186,29 @@ class NvkuEntryCache {
     );
   }
 
+  /// 人物名单第一页缓存（key 由列表页拼：库文件指纹 + 筛选全
+  /// 维度 + 已勾选库路径段）。未命中回 null；命中但过期也回记录，
+  /// 由调用方先上屏、TTL 外才后台刷新。
+  static NvkuPersonsEntry? personsFirstPage(String key) => _persons[key];
+
+  static void putPersonsFirstPage(
+    String key, {
+    required List<ActressPerson> persons,
+    required bool hasMore,
+    required int rawOffset,
+  }) {
+    _persons.remove(key);
+    while (_persons.length >= _maxPersonsKeys) {
+      _persons.remove(_persons.keys.first);
+    }
+    _persons[key] = NvkuPersonsEntry(
+      persons: persons,
+      hasMore: hasMore,
+      rawOffset: rawOffset,
+      savedAt: DateTime.now(),
+    );
+  }
+
   /// 手动刷新 / 库内容变了时全清，下次进库重查。
   /// 只清缓存，不碰数据库连接与页面状态。
   static void clear() {
@@ -184,6 +218,7 @@ class NvkuEntryCache {
     _localCategories.clear();
     _mainCategories.clear();
     _works.clear();
+    _persons.clear();
   }
 
   /// 测试用：清掉会话缓存，免得一个测试的缓存漏到下一个。
@@ -204,6 +239,29 @@ class NvkuWorksEntry {
   final DateTime savedAt;
 
   /// 5 分钟内算新鲜：再进直接用、不取网络。
+  bool get isFresh =>
+      DateTime.now().difference(savedAt) < NvkuEntryCache.worksTtl;
+}
+
+/// 人物名单第一页缓存项：第一页人物 + 有没有下一页 + 查库时的
+/// 原始偏移（翻页用）+ 滚动偏移（切回来恢复位置用）+ 存入时间。
+class NvkuPersonsEntry {
+  NvkuPersonsEntry({
+    required this.persons,
+    required this.hasMore,
+    required this.rawOffset,
+    required this.savedAt,
+  });
+
+  final List<ActressPerson> persons;
+  final bool hasMore;
+  final int rawOffset;
+  final DateTime savedAt;
+
+  /// 切换前存的滚动偏移；恢复时等网格布局完再跳，越界时钳制。
+  double scrollOffset = 0;
+
+  /// 与作品第一页同一 TTL：5 分钟内算新鲜。
   bool get isFresh =>
       DateTime.now().difference(savedAt) < NvkuEntryCache.worksTtl;
 }

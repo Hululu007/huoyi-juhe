@@ -4,6 +4,7 @@ import 'dart:convert';
 import '../models/media_item.dart';
 import 'api_client.dart';
 import 'drama_playback.dart';
+import 'player_tracks.dart';
 
 class EpisodeVariant {
   final String name;
@@ -33,15 +34,20 @@ class EpisodeSource {
   /// false 一样当作「不竖屏」，保留「全屏观看」。
   final bool? vertical;
 
+  /// 外挂字幕（同步批 A8）：取流响应的 `subs` 归一结果，随源带到
+  /// 播放页起播时下发宿主挂载；无字幕时为空表。
+  final List<ExternalSubtitle> subs;
+
   const EpisodeSource(
     this.url, [
     this.keyHex = '',
     this.variants = const [],
     this.vertical,
+    this.subs = const [],
   ]);
 
   EpisodeSource withVariant(EpisodeVariant variant) =>
-      EpisodeSource(variant.url, variant.keyHex, variants, vertical);
+      EpisodeSource(variant.url, variant.keyHex, variants, vertical, subs);
 
   factory EpisodeSource.fromResponse(Map<String, dynamic> response) {
     final data = response['data'] is Map
@@ -90,6 +96,7 @@ class EpisodeSource {
       (data['key_hex'] ?? '').toString().trim(),
       variants,
       _verticalOf(data['vertical'] ?? response['vertical']),
+      parseExternalSubtitles(data['subs'] ?? response['subs']),
     );
   }
 }

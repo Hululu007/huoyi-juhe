@@ -18,6 +18,7 @@ import 'package:fqapp/actress/actress_neon.dart';
 import 'package:fqapp/actress/actress_nvku_cache.dart';
 import 'package:fqapp/actress/actress_nvku_page.dart';
 import 'package:fqapp/actress/actress_type_folders.dart';
+import 'package:fqapp/actress/whos_local_library.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// 在线站源替身：catalog 对任何分类都回同一条“在线最新剧”——
@@ -265,11 +266,19 @@ void main() {
       expect(repository.catalogCategories, contains('new'));
 
       // 点排行榜：不调在线 catalog，网格里也没有在线冒名那条。
+      // 2026-11-26 口径变更（无库时内置 who's JSON 顶上）：本用例
+      // 没绑外置库，本地库由内置目录顶着，排行榜出的是内置作品
+      // 流，不再是旧口径的「暂时取不到作品」空态。
       await tester.tap(find.text('排行榜 · 449329'));
       await _settle(tester);
       expect(repository.catalogCategories, isNot(contains('rank')));
       expect(find.text('在线最新剧'), findsNothing);
-      expect(find.text('暂时取不到作品'), findsOneWidget);
+      expect(find.text('暂时取不到作品'), findsNothing);
+      expect(WhosLocalLibrary.shared.isAssetBacked, isTrue);
+      expect(
+        await WhosLocalLibrary.shared.countForAsync(category: 'rank'),
+        greaterThan(0),
+      );
 
       // 点回最新上架：在线剧回来（2026-11-25 进库缓存：同一分类 +
       // 搜索词的第一页 5 分钟内走缓存，不再调在线 catalog，所以

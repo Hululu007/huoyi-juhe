@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- 软件内更新下载的安装包放在应用支持目录（filesDir/app_update），
+         经 FileProvider 交给系统安装器读取。 -->
+    <files-path name="app_files" path="." />
+    <cache-path name="app_cache" path="." />
+</paths>

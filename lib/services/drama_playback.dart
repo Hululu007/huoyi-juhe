@@ -1,4 +1,5 @@
 import '../models/media_item.dart';
+import 'player_tracks.dart';
 
 /// 所有短剧站点共用原始站点的播放流程：同一个 PlayerPage、同一套选集
 /// Chapter、同一个 EpisodeSource，不给任何站另起播放器。
@@ -37,17 +38,24 @@ class DramaPlaySource {
   /// 媒体代理带上（见 drama_site_play 的 _proxyIfNeeded）。
   final Map<String, String> headers;
 
+  /// 外挂字幕（同步批 A8）：playerContent 的 `subs` 归一后随源下发，
+  /// 起播时交给宿主挂载；没有字幕的站恒为空表。
+  final List<ExternalSubtitle> subs;
+
   const DramaPlaySource({
     required this.url,
     this.keyHex = '',
     this.variants = const [],
     this.headers = const {},
+    this.subs = const [],
   });
 
   Map<String, dynamic> toResponse() => {
     'video_url': url,
     'key_hex': keyHex,
     'variants': [for (final variant in variants) variant.toMap()],
+    if (subs.isNotEmpty)
+      'subs': [for (final sub in subs) sub.toJson()],
   };
 }
 

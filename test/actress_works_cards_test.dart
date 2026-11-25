@@ -11,8 +11,6 @@ import 'package:fqapp/actress/actress_detail_page.dart';
 import 'package:fqapp/actress/actress_json_fallback.dart';
 import 'package:fqapp/actress/actress_models.dart';
 import 'package:fqapp/actress/actress_play.dart';
-import 'package:fqapp/actress/actress_roster_sources.dart';
-import 'package:fqapp/actress/actress_search.dart';
 import 'package:fqapp/actress/actress_crosssite_probe.dart';
 import 'package:fqapp/pages/player_page.dart';
 import 'package:fqapp/actress/actress_adapter_http.dart';
@@ -177,38 +175,6 @@ class _CardsFilmDb implements FilmDbFallbackProvider {
 
 void main() {
   group('同步时取 MissAV 封面', () {
-    test('parseMissavFilms 取出封面与详情地址', () {
-      const html = '''
-<div class="grid relative">
-  <a href="/dm16/cn/ssis00123"><img class="lozad" alt="SSIS-00123 测试标题" data-src="https://cdn.example.com/cover1.jpg"></a>
-</div>
-<div class="grid relative">
-  <a href="/dm16/cn/abw00456"><img class="lozad" alt="ABW-456 另一部" src="https://cdn.example.com/cover2.jpg"></a>
-</div>
-<div class="grid relative">
-  <a href="/dm16/cn/fc2ppv7890123"><img class="lozad" alt="FC2-PPV-7890123 第三部" data-srcset="https://cdn.example.com/cover3.jpg 100w, https://cdn.example.com/cover3b.jpg 200w"></a>
-</div>
-<div class="grid relative">
-  <a href="/dm16/cn/nocover"><img class="lozad" alt="SSIS-00999 无图的一部"></a>
-</div>
-''';
-      final films = parseMissavFilms(html);
-      expect(films, hasLength(4));
-      expect(films[0].code, 'SSIS-00123');
-      expect(films[0].coverUrl, 'https://cdn.example.com/cover1.jpg');
-      expect(films[0].detailUrl, '/dm16/cn/ssis00123');
-      // src 回落。
-      expect(films[1].coverUrl, 'https://cdn.example.com/cover2.jpg');
-      expect(films[1].detailUrl, '/dm16/cn/abw00456');
-      // data-srcset 只取首个地址。
-      expect(films[2].coverUrl, 'https://cdn.example.com/cover3.jpg');
-      expect(films[2].detailUrl, '/dm16/cn/fc2ppv7890123');
-      // 无图地址时两字段为空，不影响标题与番号。
-      expect(films[3].code, 'SSIS-00999');
-      expect(films[3].coverUrl, isEmpty);
-      expect(films[3].detailUrl, '/dm16/cn/nocover');
-    });
-
     test('upsertWorks 按来源站写封面：MissAV 有封面、whos 语义不变', () async {
       final db = MemoryActressDatabase();
       final person = (await db.upsertRosterPerson(
@@ -260,117 +226,6 @@ void main() {
       final dropped = works.firstWhere((w) => w.codeDisplay == 'ABC-999');
       expect(dropped.hasCover, isFalse);
       expect(dropped.coverSource, isEmpty);
-    });
-  });
-
-  group('补封面提速', () {
-    late MemoryActressDatabase db;
-    late _CardsRepository repository;
-    late LocalStore store;
-
-    setUp(() async {
-      _registerCardsTestSites();
-      addTearDown(_unregisterCardsTestSites);
-      db = MemoryActressDatabase();
-      repository = _CardsRepository();
-      store = await _makeCardsStore();
-    });
-
-    Future<ActressPerson> seedPersonWithWorks(List<RosterFilm> films) async {
-      final person = (await db.upsertRosterPerson(
-        const RosterPerson(
-          source: ActressRosterSourceId.chaoliu,
-          sourceId: 'X1',
-          name: '测试女优',
-          sex: 'female',
-        ),
-      ))!;
-      await db.upsertWorks(person.localId, films);
-      return (await db.personById(person.localId))!;
-    }
-
-    test('名字路流式：首站结果一到就贴封面，不等整轮', () async {
-      final person = await seedPersonWithWorks(const [
-        RosterFilm(code: 'SSIS-00123', date: '2024-01-01'),
-        RosterFilm(code: 'ABW-00456', date: '2024-01-02'),
-      ]);
-      // 假流式：先报 A 站命中，停 50ms 后再报 B 站；断言 A 站
-      // 的封面在 B 站到达前已经落库。
-      var attachedAfterFirstSite = false;
-      repository.progressiveHandler =
-          (sources, query, {required onSite, shouldStop}) async {
-            onSite('test-cover-a', [
-              const Drama(
-                id: 'a-ssis',
-                source: 'test-cover-a',
-                title: 'SSIS-00123 测试标题',
-                cover: 'https://cover/a.jpg',
-              ),
-            ]);
-            await Future.delayed(const Duration(milliseconds: 50));
-            final works = await db.worksForPerson(
-              person.localId,
-              offset: 0,
-              limit: 100,
-            );
-            attachedAfterFirstSite = works
-                .firstWhere((w) => w.codeDisplay == 'SSIS-00123')
-                .hasCover;
-            onSite('test-cover-a', [
-              const Drama(
-                id: 'a-abw',
-                source: 'test-cover-a',
-                title: 'ABW-00456 测试标题',
-                cover: 'https://cover/b.jpg',
-              ),
-            ]);
-          };
-      final completed = await ActressEnrichment(
-        repository: repository,
-        store: store,
-        db: db,
-      ).enrichPerson(person);
-      expect(completed, isTrue);
-      expect(attachedAfterFirstSite, isTrue);
-      final works = await db.worksForPerson(
-        person.localId,
-        offset: 0,
-        limit: 100,
-      );
-      expect(
-        works.firstWhere((w) => w.codeDisplay == 'ABW-00456').hasCover,
-        isTrue,
-      );
-    });
-
-    test('番号路墙钟上限：超时不再起跑新作品，本轮记未完成', () async {
-      final films = [
-        for (var i = 0; i < 12; i++)
-          RosterFilm(code: 'SSIS-00${100 + i}', date: '2024-01-01'),
-      ];
-      final person = await seedPersonWithWorks(films);
-      // 名字路无命中（搜不到），番号路每部作品搜一次、每次 2 秒
-      // （兜底站一段 + 全站一段）；并发 6、墙钟上限 500ms：
-      // 第一批 6 部跑完即停，剩下 6 部不再起跑，本轮返回未完成。
-      repository.searchDelay = const Duration(seconds: 2);
-      repository.delayedQueries = {for (final film in films) film.code};
-      final enrichment = ActressEnrichment(
-        repository: repository,
-        store: store,
-        db: db,
-        codeRoundBudget: const Duration(milliseconds: 500),
-      );
-      final stopwatch = Stopwatch()..start();
-      final completed = await enrichment.enrichPerson(person);
-      stopwatch.stop();
-      expect(completed, isFalse);
-      // 12 部里只起跑了第一批 6 部（去重后的番号查询数）；
-      // 兜底站与全站两段搜索会让同一番号出现两次，不按调用次数计。
-      final codeQueries = repository.searchQueries
-          .where((q) => q.startsWith('SSIS-'))
-          .toSet();
-      expect(codeQueries.length, 6);
-      expect(stopwatch.elapsed, lessThan(const Duration(seconds: 10)));
     });
   });
 

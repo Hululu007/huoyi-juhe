@@ -28,6 +28,7 @@ import '../services/library_store.dart';
 import '../services/media_history_store.dart';
 import '../services/reader_history.dart';
 import '../services/shelf_store.dart';
+import '../services/source_registry.dart';
 import '../services/update_check_gate.dart';
 import '../widgets/bookshelf_card.dart';
 import '../widgets/home/home_design.dart';
@@ -51,10 +52,23 @@ part 'library_shelf_widgets.dart';
 /// 6.0 以前的版本在这里存的是列数 (2..6)，读取时迁移成宫格。
 const _bookshelfLayoutPreference = 'bookshelf_layout';
 
-/// 顶栏一级 tab：小说 / 漫画 / 听书——只放加入书架的书、漫画、听书，
-/// 按 kind 分流；视频类（短剧 / 漫剧）不进书架，追剧仍走短剧页收藏频道
-/// （同一批 [ShelfStore] 数据）；浏览历史不在书架页设 tab。
-const _tabTitles = ['小说', '漫画', '听书'];
+/// 顶栏一级 tab：小说 / 漫画 / 听书 / 音乐——只放加入书架的书、漫画、听书，
+/// 按 kind 分流；音乐与听书同是音频 kind，靠条目来源站的内容分型
+/// （ContentType.music）再分一刀。视频类（短剧 / 漫剧）不进书架，追剧仍走
+/// 短剧页收藏频道（同一批 [ShelfStore] 数据）；浏览历史不在书架页设 tab。
+const _tabTitles = ['小说', '漫画', '听书', '音乐'];
+
+/// 音乐条目判据：音频 kind 里，来源站登记的内容分型是音乐的。
+/// 站内条目的 source 形如 `engine:<条目id>`，拿 id 回登记表查分型；
+/// 查不到（核心站 / 番茄条目）一律不算音乐，留在听书 tab。
+bool _isMusicItem(MediaItem item) {
+  final source = item.source;
+  if (!source.startsWith('engine:')) return false;
+  final entry = SourceRegistry.instance.customById(
+    source.substring('engine:'.length),
+  );
+  return entry?.contentType == ContentType.music;
+}
 
 enum _MenuAction {
   importBook('导入图书', null, LucideIcons.plus),
@@ -132,6 +146,7 @@ mixin _LibraryPageStateBase on State<LibraryPage>, WidgetsBindingObserver {
   List<_ShelfEntry> _novels = const [];
   List<_ShelfEntry> _comics = const [];
   List<_ShelfEntry> _audios = const [];
+  List<_ShelfEntry> _musics = const [];
   bool _visible = false;
   final Map<String, int> _latestChapterCounts = {};
   final _updateChecks = UpdateCheckGate();
@@ -255,7 +270,11 @@ mixin _LibraryPageStateBase on State<LibraryPage>, WidgetsBindingObserver {
       ], history);
       _audios = _shelfEntries([
         for (final record in records)
-          if (record.item.kind == 'audio') record,
+          if (record.item.kind == 'audio' && !_isMusicItem(record.item)) record,
+      ], history);
+      _musics = _shelfEntries([
+        for (final record in records)
+          if (record.item.kind == 'audio' && _isMusicItem(record.item)) record,
       ], history);
       // 选中集合随数据回真：条目在别处被移出 / 删除后，它的键不该继续占着
       // 「已选择 N 本」，也不该把全选判定带偏。
@@ -263,6 +282,7 @@ mixin _LibraryPageStateBase on State<LibraryPage>, WidgetsBindingObserver {
         for (final entry in switch (_tab) {
           1 => _comics,
           2 => _audios,
+          3 => _musics,
           _ => _novels,
         })
           entry.selectionKey,

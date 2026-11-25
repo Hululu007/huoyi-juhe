@@ -5,13 +5,11 @@ import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
 
 import 'actress_database.dart';
-import 'actress_db_mirror.dart';
 import 'actress_film_library.dart';
 import 'actress_generic_db.dart';
 import 'actress_json_fallback.dart';
 import 'actress_mytv_bind.dart';
 import 'actress_models.dart';
-import 'video_db_normalize.dart';
 
 /// 三库合并内置兜底（2026-11-21 用户令「这三个合并内置兜底」）：
 /// 主库（MYTV/db 里绑定的女优库，严格结构）+ MYTV/db 与补充目录里
@@ -226,11 +224,8 @@ class MultiDbFilmFallback implements FilmDbFallbackProvider {
     }
     Database? db;
     try {
-      // 2026-11-23：外来库也补索引（只加索引，不动行；后台跑不堵读）。
-      // 主库开库时已补（_ensureVideoIndexes），但 MYTV/db/ 下别的 .db
-      // 走这里只读打开，从来没人给它们补过——大库上 LIKE 扫表就是
-      // 详情页地址池建不起来的原因之一。建过一次后直接跳过。
-      unawaited(ensureVideoDbIndexes(filePath));
+      // 外来库只读打开、不补任何索引（2026-11-26 只读化：原先这里
+      // 后台给外来库补索引是开库自写的一部分，已删）。
       db = await openDatabase(
         filePath,
         readOnly: true,

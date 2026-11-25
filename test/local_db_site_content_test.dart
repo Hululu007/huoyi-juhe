@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fqapp/services/drama_site_content.dart';
 import 'package:fqapp/services/drama_site_search.dart';
 import 'package:fqapp/services/local_db_site_content.dart';
+import 'package:fqapp/services/site_health_tracking_client.dart';
 import 'package:fqapp/services/source_registry.dart';
 import 'package:fqapp/services/m3u_export_db.dart';
 import 'package:fqapp/services/midnight_gate.dart';
@@ -218,13 +219,12 @@ void main() {
 
   group('接线', () {
     test('clientFor 的 localdb: 前缀回本地库客户端，不走登记表', () async {
-      final client =
-          await SourceRegistry.instance.clientFor('localdb:py_site');
-      expect(client, isA<LocalDbContentClient>());
-      expect(
-        (client as LocalDbContentClient).dbSiteId,
-        'id:py_site',
+      // clientFor 出口统一包健康记录层（A3），断言时先拆包。
+      final client = unwrapSiteClient(
+        (await SourceRegistry.instance.clientFor('localdb:py_site'))!,
       );
+      expect(client, isA<LocalDbContentClient>());
+      expect((client as LocalDbContentClient).dbSiteId, 'id:py_site');
     });
   });
 

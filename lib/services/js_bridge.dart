@@ -40,13 +40,15 @@ String buildJsDriverScript({
       call = 'fn()';
       break;
     case 'category':
-      call = 'fn(${jsonEncode(tid)}, $page, false, {})';
+      // pg 与 jar 路同一口径传字符串（A2 核查）：不少 JS 蜘蛛按
+      // TVBox 约定把 pg 当字符串做拼接/比较，传数字会静默出错。
+      call = 'fn(${jsonEncode(tid)}, ${jsonEncode('$page')}, false, {})';
       break;
     case 'detail':
       call = 'fn([${jsonEncode(vodId)}])';
       break;
     case 'search':
-      call = 'fn(${jsonEncode(query)}, false, $page)';
+      call = 'fn(${jsonEncode(query)}, false, ${jsonEncode('$page')})';
       break;
     case 'player':
       call = 'fn(${jsonEncode(flag)}, ${jsonEncode(playId)}, [])';

@@ -15,6 +15,7 @@ import 'engine_site_content.dart';
 import 'jar_bridge.dart';
 import 'local_db_site_content.dart';
 import 'm3u_export_db.dart';
+import 'site_health_tracking_client.dart';
 import 'site_identity.dart';
 import 'zakatv_builtin.dart';
 import 'js_bridge.dart';
@@ -51,7 +52,7 @@ extension SourceKindLabel on SourceKind {
   };
 }
 
-enum ContentType { video, novel, comic, audio, mixed }
+enum ContentType { video, novel, comic, audio, mixed, music }
 
 extension ContentTypeLabel on ContentType {
   String get label => switch (this) {
@@ -60,6 +61,7 @@ extension ContentTypeLabel on ContentType {
     ContentType.comic => '漫画',
     ContentType.audio => '听书',
     ContentType.mixed => '综合',
+    ContentType.music => '音乐',
   };
 
   String get key => switch (this) {
@@ -68,6 +70,7 @@ extension ContentTypeLabel on ContentType {
     ContentType.comic => 'comic',
     ContentType.audio => 'audio',
     ContentType.mixed => 'mixed',
+    ContentType.music => 'music',
   };
 
   static ContentType fromKey(String? key) => switch (key) {
@@ -75,6 +78,7 @@ extension ContentTypeLabel on ContentType {
     'novel' => ContentType.novel,
     'comic' => ContentType.comic,
     'audio' => ContentType.audio,
+    'music' => ContentType.music,
     _ => ContentType.mixed,
   };
 }
@@ -157,7 +161,8 @@ BookSourceImportKind classifyBookSourceInput(String input) {
 bool isBookSourceEntry(SourceEntry entry) =>
     entry.contentType == ContentType.novel ||
     entry.contentType == ContentType.comic ||
-    entry.contentType == ContentType.audio;
+    entry.contentType == ContentType.audio ||
+    entry.contentType == ContentType.music;
 
 class SourceEntry {
   const SourceEntry({
@@ -493,7 +498,7 @@ class SourceRegistry {
             extra: {
               'path': file.path,
               'ext': '',
-              'contentType': 'video',
+              'contentType': seed.contentTypeKey ?? 'video',
               'builtin': true,
               'seedId': seed.seedId,
               if (seed.kind == SourceKind.legadoImport) 'hasExplore': true,
@@ -1515,7 +1520,19 @@ class SourceRegistry {
     return null;
   }
 
+  /// 全树唯一的站点客户端出口（魔蚁同步批 A3 打点落点）：拿到
+  /// 客户端后统一包一层 [SiteHealthTrackingClient]，详情 / 搜索 /
+  /// 播放（取流）的最终成败在这里记一次。包装透明：返回值、异常、
+  /// LocalProxyCapable 语义都原样透传。本类内部的递归调用也走这
+  /// 个出口，一并打点。
   Future<DramaSiteContentClient?> clientFor(String siteId) async {
+    final client = await _clientForRaw(siteId);
+    if (client == null) return null;
+    if (client is SiteHealthTrackingClient) return client;
+    return SiteHealthTrackingClient(siteId: siteId, inner: client);
+  }
+
+  Future<DramaSiteContentClient?> _clientForRaw(String siteId) async {
     if (siteId.startsWith('localdb:')) {
       // 本地库入口按归一键读库：同一站点的多入口（内置、采集、
       // 书源）读同一批记录；localdb: 后已是归一键时直接透传

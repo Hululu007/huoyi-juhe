@@ -33,8 +33,6 @@ import 'package:fqapp/actress/actress_adapter_store.dart';
 import 'package:fqapp/actress/actress_database.dart';
 import 'package:fqapp/actress/actress_list_page.dart';
 import 'package:fqapp/actress/actress_models.dart';
-import 'package:fqapp/actress/actress_roster_sources.dart';
-import 'package:fqapp/actress/actress_sync.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'actress_fixtures.dart';
@@ -176,12 +174,6 @@ class _StrictFakeImageOverrides extends HttpOverrides {
       _StrictFakeHttpClient(images);
 }
 
-Future<ActressHttpResponse> _unusedFetch(
-  String url, {
-  Map<String, String> headers = const {},
-  Duration timeout = const Duration(seconds: 20),
-}) async => throw UnimplementedError('fake source must not fetch');
-
 ThemeData _previewTheme() {
   final base = ThemeData.dark();
   TextStyle? cjk(TextStyle? style) => style?.copyWith(fontFamily: 'PreviewCJK');
@@ -231,7 +223,6 @@ Future<void> _settle(WidgetTester tester) async {
 
 late LocalStore _previewStore;
 late MemoryActressDatabase _previewDb;
-late ActressSyncService _previewSync;
 // 假图字节：toImage 要走真异步光栅，在 widget 测试的 FakeAsync 区里会
 // 挂住；放 setUpAll（真实异步区）里现画，测试体内只取用。
 late Map<String, Uint8List> _previewImages;
@@ -273,11 +264,6 @@ Future<void> _seed() async {
       );
     }
   }
-  _previewSync = ActressSyncService(
-    db: _previewDb,
-    sources: const [],
-    fetch: _unusedFetch,
-  );
 }
 
 void main() {
@@ -345,7 +331,6 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     addTearDown(_previewStore.dispose);
-    addTearDown(_previewSync.dispose);
     final key = GlobalKey();
     await tester.pumpWidget(
       RepaintBoundary(
@@ -379,7 +364,6 @@ void main() {
                       repository: FixtureRepository(),
                       store: _previewStore,
                       database: _previewDb,
-                      syncService: _previewSync,
                     ),
                   ),
                 ],

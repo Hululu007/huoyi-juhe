@@ -1,8 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../services/cultivation.dart';
+import '../services/site_health.dart';
+import '../services/site_thumb_cache.dart';
 import '../services/source_registry.dart';
 import 'series_detail/moyi_detail_theme.dart';
+import 'site_thumb_image.dart';
 
 /// 站点在哪个区：builtin 内置区 / import 导入区。
 ///
@@ -85,6 +90,12 @@ Future<String?> showSiteGridDialog({
   /// 的统一表自 2026-11-24 起含用户导入站（见 `videoZoneSiteEntries`），
   /// 导入一个视频站就会出现在这里，两个调用点不再覆盖短提示。
   String emptyImportHint = '导入区还没有站，去「站源管理」导入一个',
+
+  /// 站点透视（魔蚁同步批 C1）的注入缝：不传用真实单例
+  /// （SiteThumbCache.instance + 首页取封面）；测试 / 预览传假的。
+  SiteThumbCache? thumbCache,
+  SiteThumbFetcher? thumbFetcher,
+  Widget Function(String url)? thumbImageBuilder,
 }) async {
   if (sites.isEmpty) return null;
   final screenHeight = MediaQuery.of(context).size.height;
@@ -98,6 +109,9 @@ Future<String?> showSiteGridDialog({
         onDeleteSite: onDeleteSite,
         emptyImportHint: emptyImportHint,
         maxHeight: screenHeight * 0.6,
+        thumbCache: thumbCache,
+        thumbFetcher: thumbFetcher,
+        thumbImageBuilder: thumbImageBuilder,
       );
     },
   );
@@ -112,6 +126,9 @@ class SiteGridDialog extends StatefulWidget {
     this.onDeleteSite,
     this.emptyImportHint = '导入区还没有站，去「站源管理」导入一个',
     this.maxHeight = 500,
+    this.thumbCache,
+    this.thumbFetcher,
+    this.thumbImageBuilder,
   });
 
   final List<SiteGridEntry> sites;
@@ -120,6 +137,11 @@ class SiteGridDialog extends StatefulWidget {
   final Future<bool> Function(SiteGridEntry entry)? onDeleteSite;
   final String emptyImportHint;
   final double maxHeight;
+
+  /// 站点透视注入缝（见 [showSiteGridDialog] 同名参数）。
+  final SiteThumbCache? thumbCache;
+  final SiteThumbFetcher? thumbFetcher;
+  final Widget Function(String url)? thumbImageBuilder;
 
   @override
   State<SiteGridDialog> createState() => _SiteGridDialogState();
@@ -147,12 +169,24 @@ class _SiteGridDialogState extends State<SiteGridDialog> {
     super.initState();
     _entries = List.of(widget.sites);
     _zoneIndex = _zones.indexOf(widget.initialZone);
+    // 健康学习（A3）：进弹窗先把偏好与记录表加载进来，到了之后
+    // 靠 revision / pickerSort 监听重画状态点与排序。
+    unawaited(SiteHealthPrefs.instance.load());
+    unawaited(SiteHealthStore.instance.load());
+    SiteHealthStore.instance.revision.addListener(_onHealthChanged);
+    SiteHealthPrefs.instance.pickerSort.addListener(_onHealthChanged);
   }
 
   @override
   void dispose() {
+    SiteHealthStore.instance.revision.removeListener(_onHealthChanged);
+    SiteHealthPrefs.instance.pickerSort.removeListener(_onHealthChanged);
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _onHealthChanged() {
+    if (mounted) setState(() {});
   }
 
   /// 切区：点区签或左右滑触发；记下翻页方向给滑动动画用。
@@ -411,6 +445,23 @@ class _SiteGridDialogState extends State<SiteGridDialog> {
         ),
       );
     }
+    // 选站弹窗按健康排序（A3，设置里默认关）：组内按健康分降序、
+    // 同分保原序；总开关关时分数恒中性，自然退化回原顺序。
+    final healthSort =
+        SiteHealthPrefs.instance.enabled.value &&
+        SiteHealthPrefs.instance.pickerSort.value;
+    List<SiteGridEntry> groupEntries(SiteGridGroup group) {
+      final entries = [
+        for (final entry in filtered)
+          if (entry.group == group) entry,
+      ];
+      if (!healthSort) return entries;
+      return stableHealthSort(
+        entries,
+        (entry) => SiteHealthStore.instance.scoreOf(entry.id),
+      );
+    }
+
     return ListView(
       shrinkWrap: true,
       children: [
@@ -420,7 +471,7 @@ class _SiteGridDialogState extends State<SiteGridDialog> {
               padding: const EdgeInsets.only(top: 12, bottom: 4),
               child: Text(
                 // 组标题纯文本「名 + 空格 + 数」，不用括号。
-                '${group.label} ${filtered.where((entry) => entry.group == group).length}',
+                '${group.label} ${groupEntries(group).length}',
                 style: const TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
@@ -428,23 +479,28 @@ class _SiteGridDialogState extends State<SiteGridDialog> {
                 ),
               ),
             ),
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 4,
-              mainAxisSpacing: 8,
-              crossAxisSpacing: 8,
-              childAspectRatio: 1.4,
-            ),
-            itemCount: filtered
-                .where((entry) => entry.group == group)
-                .length,
-            itemBuilder: (ctx, index) {
-              final entry = filtered
-                  .where((item) => item.group == group)
-                  .toList()[index];
-              return _tile(entry, selectedColor);
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final width = constraints.maxWidth;
+              final columns = width >= 500 ? 4 : 3;
+              const spacing = 8.0;
+              final tileWidth = (width - spacing * (columns - 1)) / columns;
+              // 卡高：16:9 封面区 + 站名区（间距 4 + 两行站名约 34）。
+              final extent = tileWidth * 9 / 16 + 42;
+              final entries = groupEntries(group);
+              return GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: columns,
+                  mainAxisSpacing: 10,
+                  crossAxisSpacing: spacing,
+                  mainAxisExtent: extent,
+                ),
+                itemCount: entries.length,
+                itemBuilder: (ctx, index) =>
+                    _tile(entries[index], selectedColor),
+              );
             },
           ),
         ],
@@ -452,36 +508,108 @@ class _SiteGridDialogState extends State<SiteGridDialog> {
     );
   }
 
+  /// 站卡（站点透视 C1 + 健康点 A3）：上 16:9 封面区（站内随机
+  /// 视频封面，可见才懒加载；取不到回落首字块、卡片不塌），下站名。
+  /// 健康点只在该站已有学习记录时画（没学过的站不铺灰点）。
+  /// 成人站的境界门禁在调用方组表时已过滤（未解锁根本不入表），
+  /// 这里不取、不露未解锁站的封面。
   Widget _tile(SiteGridEntry entry, Color selectedColor) {
     final selected = entry.id == widget.selectedId;
+    final firstChar = entry.name.isEmpty ? '?' : entry.name.characters.first;
+    final tier = SiteHealthPrefs.instance.enabled.value
+        ? SiteHealthStore.instance.tierOf(entry.id)
+        : null;
     return InkWell(
       key: ValueKey('site-grid-row-${entry.id}'),
       onTap: () => Navigator.pop(context, entry.id),
       onLongPress: _canDelete(entry) ? () => _confirmDelete(entry) : null,
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(12),
       child: Container(
-        alignment: Alignment.center,
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: selected ? selectedColor : moyiDarkCardBorder,
             width: selected ? 2 : 1,
           ),
           color: selected ? selectedColor.withValues(alpha: 0.12) : null,
         ),
-        child: Text(
-          entry.name,
-          textAlign: TextAlign.center,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: selected ? FontWeight.w600 : null,
-            color: selected ? selectedColor : moyiBodyOnDark,
-          ),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            AspectRatio(
+              aspectRatio: 16 / 9,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  SiteThumbImage(
+                    siteId: entry.id,
+                    // 没传取数缝时不拉缩图（只显示回落块）：与魔蚁
+                    // 同口径——只有片库 / 影视调用方传缓存 + 取数
+                    // 函数才启用透视，其余弹窗与测试零副作用。
+                    cache: widget.thumbCache,
+                    fetcher: widget.thumbFetcher,
+                    imageBuilder: widget.thumbImageBuilder,
+                    fallback: Container(
+                      color: moyiDarkCardFill,
+                      alignment: Alignment.center,
+                      child: Text(
+                        firstChar,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (tier != null)
+                    Positioned(
+                      top: 6,
+                      left: 6,
+                      child: Container(
+                        key: ValueKey('site-grid-health-dot-${entry.id}'),
+                        width: 10,
+                        height: 10,
+                        decoration: BoxDecoration(
+                          color: _healthTierColor(tier),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: moyiSheetFill, width: 1.5),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 4),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Text(
+                entry.name,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: entry.name.length > 12
+                      ? 9.5
+                      : entry.name.length > 8
+                      ? 10.5
+                      : 12,
+                  fontWeight: selected ? FontWeight.w600 : null,
+                  color: selected ? selectedColor : moyiBodyOnDark,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
+
+  static Color _healthTierColor(SiteHealthTier tier) => switch (tier) {
+    SiteHealthTier.good => const Color(0xFF2EAF4F),
+    SiteHealthTier.fair => const Color(0xFFE3A008),
+    SiteHealthTier.bad => const Color(0xFFD64541),
+    SiteHealthTier.unknown => const Color(0xFF9E9E9E),
+  };
 }

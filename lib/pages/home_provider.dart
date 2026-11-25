@@ -309,6 +309,7 @@ MediaItem adultRecommendItem(DramaSiteItem item, SourceEntry entry) =>
       kind: switch (entry.contentType) {
         ContentType.comic => 'manga',
         ContentType.audio => 'audio',
+        ContentType.music => 'audio',
         _ => 'book',
       },
       seriesId: item.id,
@@ -332,6 +333,7 @@ MediaItem coreReadingRecommendItem(
       kind: switch (type) {
         ContentType.comic => 'manga',
         ContentType.audio => 'audio',
+        ContentType.music => 'audio',
         _ => 'book',
       },
       seriesId: item.id,

@@ -160,8 +160,6 @@ const dramaSites = [
   DramaSite('jm', '🔞JAV目錄'),
   DramaSite('getav', '🔞帝皇影视'),
   DramaSite('hsck', '🔞帝皇影视·黄色仓库②'),
-  DramaSite('missavoff', '🔞MissAV官方·原生'),
-  DramaSite('mirror', '🔞MissAV镜像'),
   DramaSite('123av', '🔞123AV'),
   DramaSite('dsd', '🔞懂色帝'),
   DramaSite('lissav', '🔞麻豆视频·LissAV'),
@@ -200,7 +198,6 @@ const dramaSites = [
   DramaSite('17rip', '🔞17rip'),
   DramaSite('javplay', '🔞JavPlay'),
   DramaSite('javguru', '🔞JavGuru'),
-  DramaSite('missavt', '🔞MissAVt'),
   DramaSite('wukong', '🔞悟空传媒'),
   DramaSite('chengren91', '🔞91成人'),
   DramaSite('badyi', '🔞八度影院'),
@@ -344,6 +341,14 @@ const dramaSites = [
   DramaSite('xandaskday', '🔞AI不用钱'),
   DramaSite('huangguomanju', '🔞黄果漫剧'),
   DramaSite('youzidj', '🔞柚子短剧'),
+  // 2026-11-26 真果鉴内置批：种子 py 独占的短剧站（苹果CMS 接口型，
+  // 全链实测后进），裸行占位 + shortDramaSiteIds 归短剧区。
+  DramaSite('youguo', '🔞柚果'),
+  DramaSite('manman', '🔞漫果'),
+  DramaSite('luguo', '🔞露果'),
+  DramaSite('liuguo', '🔞榴果'),
+  DramaSite('liguo', '🔞荔果'),
+  DramaSite('ningguo', '🔞柠果'),
 ];
 
 List<DramaSite> _extraDramaSites = const [];
@@ -375,6 +380,12 @@ const shortDramaSiteIds = <String>{
   'aiyinhang',
   'sexaix',
   'xandaskday',
+  'youguo',
+  'manman',
+  'luguo',
+  'liuguo',
+  'liguo',
+  'ningguo',
 };
 
 /// 该站是不是短剧站：裸 id 在短剧集里，或显示名带「短剧」/「漫剧」。

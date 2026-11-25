@@ -24,9 +24,12 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.BaseDataSource
@@ -493,6 +496,8 @@ class NativePlayerPlugin internal constructor(
                     // 起播位置：在 prepare() 之前交给 ExoPlayer，等于「初始播放
                     // 位置」而不是「已准备完再 seek」。负值/缺省当 0。
                     call.argument<Number>("startPositionMs")?.toLong()?.coerceAtLeast(0L) ?: 0L,
+                    // 外挂字幕（同步批 A8）：随 create 下发，仅直链路径挂载。
+                    parseSubtitleArgs(call.argument<List<*>>("subtitles")),
                     result
                 )
             }
@@ -549,6 +554,37 @@ class NativePlayerPlugin internal constructor(
                 val id = call.requiredArgument<Int>("id", result) ?: return
                 val rate = call.requiredArgument<Number>("rate", result)?.toFloat() ?: return
                 players[id]?.player?.playbackParameters = PlaybackParameters(rate)
+                result.success(null)
+            }
+
+            // 音轨/字幕轨（同步批 A8）：枚举走 currentTracks，切换走
+            // TrackSelectionOverride；字幕关闭 = 禁用 TEXT 轨类型。
+            "getTracks" -> {
+                val id = call.requiredArgument<Int>("id", result) ?: return
+                result.success(collectTracks(players[id]?.player))
+            }
+
+            "selectAudioTrack" -> {
+                val id = call.requiredArgument<Int>("id", result) ?: return
+                players[id]?.player?.let { player ->
+                    selectTrack(player, call.argument<String>("trackId"), reenableText = false)
+                }
+                result.success(null)
+            }
+
+            "selectSubtitleTrack" -> {
+                val id = call.requiredArgument<Int>("id", result) ?: return
+                val trackId = call.argument<String>("trackId")
+                players[id]?.player?.let { player ->
+                    if (trackId == null) {
+                        player.trackSelectionParameters =
+                            player.trackSelectionParameters.buildUpon()
+                                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                                .build()
+                    } else {
+                        selectTrack(player, trackId, reenableText = true)
+                    }
+                }
                 result.success(null)
             }
 
@@ -812,7 +848,7 @@ class NativePlayerPlugin internal constructor(
         }
     }
 
-    private fun handleCreate(cdnUrl: String, keyHex: String, options: PlayerBuildOptions, startPositionMs: Long, result: MethodChannel.Result) {
+    private fun handleCreate(cdnUrl: String, keyHex: String, options: PlayerBuildOptions, startPositionMs: Long, subtitles: List<SubtitleArg>, result: MethodChannel.Result) {
         // Note: deferred CDN I/O — see .agents/notes/implemented/bug-fix/2026-09-17-reviewed-runtime-boundaries.md.
         val playerId = nextId.getAndIncrement()
         pendingPlayerIds.add(playerId)
@@ -820,7 +856,7 @@ class NativePlayerPlugin internal constructor(
 
         if (keyHex.isEmpty()) {
             handler.post {
-                createPlayerWithUri(playerId, cdnUrl, options, startPositionMs)
+                createPlayerWithUri(playerId, cdnUrl, options, startPositionMs, subtitles)
             }
         } else {
             try {
@@ -843,10 +879,82 @@ class NativePlayerPlugin internal constructor(
         }
     }
 
-    private fun createPlayerWithUri(playerId: Int, uri: String, options: PlayerBuildOptions, startPositionMs: Long) {
+    private fun createPlayerWithUri(playerId: Int, uri: String, options: PlayerBuildOptions, startPositionMs: Long, subtitles: List<SubtitleArg>) {
         createPlayer(playerId, options) { player ->
-            player.setMediaItem(MediaItem.fromUri(uri), startPositionMs)
+            // 外挂字幕挂载（A8）：格式没有 ExoPlayer 渲染器的（lrc 等）
+            // 跳过；挂载只是多挂 SubtitleConfiguration，失败不挡播放。
+            // 加密流路径（createPlayerWithCrypto）不挂载外挂字幕，
+            // 内嵌轨的枚举/切换不受影响。
+            val item = MediaItem.Builder()
+                .setUri(uri)
+                .setSubtitleConfigurations(
+                    subtitles.mapNotNull { sub ->
+                        val mime = subtitleMimeType(sub.format) ?: return@mapNotNull null
+                        MediaItem.SubtitleConfiguration.Builder(Uri.parse(sub.url))
+                            .setMimeType(mime)
+                            .setId("ext:${sub.url}")
+                            .apply {
+                                if (sub.lang.isNotEmpty()) setLanguage(sub.lang)
+                                if (sub.name.isNotEmpty()) setLabel(sub.name)
+                            }
+                            .build()
+                    }
+                )
+                .build()
+            player.setMediaItem(item, startPositionMs)
         }
+    }
+
+    // 轨道枚举（A8）：id 编「组序:轨序」，选择时按同一编号回查
+    /// currentTracks（同一次时间线内稳定）。外挂字幕的 formatId
+    /// 为挂载时写死的 `ext:<url>`，Dart 侧据此认外挂轨。
+    private fun collectTracks(player: ExoPlayer?): Map<String, Any> {
+        if (player == null) {
+            return mapOf("audio" to emptyList<Any>(), "text" to emptyList<Any>())
+        }
+        val audio = mutableListOf<Map<String, Any>>()
+        val text = mutableListOf<Map<String, Any>>()
+        val groups = player.currentTracks.groups
+        for (g in groups.indices) {
+            val group = groups[g]
+            if (group.type != C.TRACK_TYPE_AUDIO && group.type != C.TRACK_TYPE_TEXT) {
+                continue
+            }
+            for (t in 0 until group.length) {
+                if (!group.isTrackSupported(t)) continue
+                val format = group.getTrackFormat(t)
+                val entry = mapOf<String, Any>(
+                    "id" to "g$g:t$t",
+                    "label" to (format.label ?: ""),
+                    "language" to (format.language ?: ""),
+                    "formatId" to (format.id ?: ""),
+                    "selected" to group.isTrackSelected(t)
+                )
+                if (group.type == C.TRACK_TYPE_AUDIO) audio.add(entry) else text.add(entry)
+            }
+        }
+        return mapOf("audio" to audio, "text" to text)
+    }
+
+    // 轨道切换（A8）：按「组序:轨序」定位 TrackGroup 后下
+    /// TrackSelectionOverride；选字幕时同时把 TEXT 轨类型从
+    /// 禁用态放回来（关闭字幕走的是 setTrackTypeDisabled）。
+    private fun selectTrack(player: ExoPlayer, trackId: String?, reenableText: Boolean) {
+        if (trackId == null) return
+        val parts = trackId.split(":")
+        if (parts.size != 2) return
+        val g = parts[0].removePrefix("g").toIntOrNull() ?: return
+        val t = parts[1].removePrefix("t").toIntOrNull() ?: return
+        val groups = player.currentTracks.groups
+        if (g !in groups.indices) return
+        val group = groups[g]
+        if (t !in 0 until group.length) return
+        var builder = player.trackSelectionParameters.buildUpon()
+            .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, listOf(t)))
+        if (reenableText) {
+            builder = builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+        }
+        player.trackSelectionParameters = builder.build()
     }
 
     private fun createPlayerWithCrypto(playerId: Int, cdnUrl: String, keyHex: String, options: PlayerBuildOptions, startPositionMs: Long) {
@@ -1494,6 +1602,43 @@ internal data class PlayerBuildOptions(
     /** 真正生效的变速引擎：视频播放器永远强制内建变速。 */
     val effectiveRateEngine: AudioRateEngine
         get() = if (audioOnly) rateEngine else AudioRateEngine.BUILT_IN
+}
+
+/** 外挂字幕一条（同步批 A8）：Dart 侧 `subs` 归一后随 create 下发。 */
+internal data class SubtitleArg(
+    val url: String,
+    val name: String,
+    val lang: String,
+    val format: String
+)
+
+/** 解析 create 的 subtitles 参数：坏条目跳过，不让字幕拖垮建播放器。 */
+internal fun parseSubtitleArgs(raw: List<*>?): List<SubtitleArg> {
+    if (raw == null) return emptyList()
+    val out = mutableListOf<SubtitleArg>()
+    for (entry in raw) {
+        val map = entry as? Map<*, *> ?: continue
+        val url = (map["url"] as? String)?.trim().orEmpty()
+        if (url.isEmpty()) continue
+        out.add(
+            SubtitleArg(
+                url = url,
+                name = (map["name"] as? String)?.trim().orEmpty(),
+                lang = (map["lang"] as? String)?.trim().orEmpty(),
+                format = (map["format"] as? String)?.trim()?.lowercase().orEmpty()
+            )
+        )
+    }
+    return out
+}
+
+/** 字幕格式 → ExoPlayer 渲染器 MIME；没有渲染器的格式（lrc 等）回 null 不挂载。 */
+internal fun subtitleMimeType(format: String): String? = when (format) {
+    "srt" -> MimeTypes.APPLICATION_SUBRIP
+    "vtt" -> MimeTypes.TEXT_VTT
+    "ass", "ssa" -> MimeTypes.TEXT_SSA
+    "ttml", "xml" -> MimeTypes.APPLICATION_TTML
+    else -> null
 }
 
 /**

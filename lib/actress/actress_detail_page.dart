@@ -350,6 +350,9 @@ class _ActressDetailPageState extends State<ActressDetailPage> {
   /// 数据库封面兜底（2026-11-21）：按番号去库里（主库 + 其它 .db）
   /// 要一次封面——用户库里本来就存着这张剧照，没必要留灰块。只贴
   /// 本页已加载的作品，来源记 'db'。
+  /// 2026-11-26 只读化：原先把封面 attachCover 写回库再整页重查，
+  /// 写回已删——封面只贴到内存里的作品对象上（copyWith），不写库、
+  /// 不重查；下次进页重新贴一次即可。
   Future<void> _attachDbCovers(ActressJsonFallback fallback) async {
     final person = _person;
     final provider = fallback.filmDb;
@@ -374,57 +377,27 @@ class _ActressDetailPageState extends State<ActressDetailPage> {
       if (entry.vodPic.isEmpty) continue;
       picByCode.putIfAbsent(entry.codeKey, () => entry.vodPic);
     }
+    if (picByCode.isEmpty || !mounted) return;
     var attached = false;
-    for (final work in uncovered) {
-      final pic = picByCode[normalizeAvCode(work.codeKey)];
-      if (pic == null) continue;
-      await widget.database.attachCover(
-        personId: person.localId,
-        codeKey: work.codeKey,
-        titleKey: work.titleKey,
-        coverSource: 'db',
-        coverDramaId: '',
-        coverUrl: pic,
-        insertIfMissing: false,
-        site: 'db',
-      );
-      attached = true;
+    final patched = <ActressWork>[];
+    for (final work in _works) {
+      final pic = work.hasCover
+          ? null
+          : picByCode[normalizeAvCode(work.codeKey)];
+      if (pic == null) {
+        patched.add(work);
+      } else {
+        attached = true;
+        patched.add(
+          work.copyWith(
+            coverSource: 'db',
+            coverDramaId: work.codeKey,
+            coverUrl: pic,
+          ),
+        );
+      }
     }
-    if (attached && mounted) await _reloadWorks();
-  }
-
-  /// 原地刷新已加载的作品（封面补上后网格实时更新，不动滚动位置）。
-  Future<void> _reloadWorks() async {
-    final person = _person;
-    if (person == null) return;
-    final generation = _generation;
-    final count = _dbWorksCount;
-    if (count == 0 && _works.isEmpty) return;
-    final works = await widget.database.worksForPerson(
-      person.localId,
-      offset: 0,
-      limit: count,
-      category: _selectedCategory,
-      videoTag: _worksVideoTag,
-    );
-    final filteredTotal = await widget.database.countWorks(
-      person.localId,
-      category: _selectedCategory,
-      videoTag: _worksVideoTag,
-    );
-    final freshPerson = await widget.database.personById(person.localId);
-    if (!mounted || generation != _generation) return;
-    setState(() {
-      _works = works;
-      _dbWorksCount = works.length;
-      _jsonWorksCount = 0;
-      _filteredTotal = filteredTotal;
-      _hasMore = works.length < filteredTotal;
-      if (freshPerson != null) _person = freshPerson;
-    });
-    await _loadCategories();
-    // json 补的作品重新补（封面刷新不丢 json 行）。
-    unawaited(_supplementJsonWorks());
+    if (attached && mounted) setState(() => _works = patched);
   }
 
   void _onScroll() {

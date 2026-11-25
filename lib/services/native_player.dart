@@ -7,6 +7,11 @@ import 'package:flutter/services.dart';
 import 'app_log.dart';
 import 'audio_preferences.dart';
 import 'player_preferences.dart';
+import 'player_tracks.dart';
+
+// create 的签名里带 ExternalSubtitle（A8 外挂字幕），随本文件一并
+// 导出，免得每个调用/假实现文件都得再引一遍 player_tracks。
+export 'player_tracks.dart';
 
 // Codec metadata only: never log the whole platform payload or exception text.
 final _decoderToken = RegExp(r'^[A-Za-z0-9_.+/-]{1,160}$');
@@ -338,14 +343,27 @@ class NativePlayer {
   final _createdCompleter = Completer<int>();
 
   /// 起播位置（毫秒）：> 0 才下发；原生在 prepare() 前应用，不是装载后再 seek。
-  Future<int> create(String cdnUrl, String keyHex, {int? startMs}) {
+  /// [subtitles] 为外挂字幕（A8）：随 create 一并下发，宿主在建
+  /// MediaItem 时挂载（仅直链路径；加密流路径不挂载，轨道枚举与
+  /// 切换仍可用）。挂载失败不挡播放。
+  Future<int> create(
+    String cdnUrl,
+    String keyHex, {
+    int? startMs,
+    List<ExternalSubtitle> subtitles = const [],
+  }) {
     if (_disposed) {
       return Future<int>.error(StateError('NativePlayer is disposed'));
     }
-    return _createFuture ??= _create(cdnUrl, keyHex, startMs);
+    return _createFuture ??= _create(cdnUrl, keyHex, startMs, subtitles);
   }
 
-  Future<int> _create(String cdnUrl, String keyHex, int? startMs) async {
+  Future<int> _create(
+    String cdnUrl,
+    String keyHex,
+    int? startMs,
+    List<ExternalSubtitle> subtitles,
+  ) async {
     _ensureGlobalListener();
     // An early native error can finish this future before the reply supplies an
     // id; observe it now, the await below still rethrows to create's caller.
@@ -355,6 +373,8 @@ class NativePlayer {
           .invokeMapMethod<String, dynamic>('create', {
             'cdnUrl': cdnUrl,
             'keyHex': keyHex,
+            if (subtitles.isNotEmpty)
+              'subtitles': [for (final sub in subtitles) sub.toJson()],
             // 起播位置：原生在 prepare() 前应用，省一次「先按 0 开流再 seek」。
             if (startMs != null && startMs > 0) 'startPositionMs': startMs,
             // 解码器偏好必须是**已解析的值**：create 在起播关键路径上，await 读盘会让没有
@@ -464,6 +484,38 @@ class NativePlayer {
       _invoke('setVolume', {'volume': volume});
 
   Future<void> setRate(double rate) => _invoke('setRate', {'rate': rate});
+
+  /// 枚举当前音轨/字幕轨（同步批 A8）：宿主未就绪或没有任何轨道
+  /// 时回空表，不抛错——菜单据此决定显不显示轨道区。
+  Future<({List<PlayerTrackInfo> audio, List<PlayerTrackInfo> subtitles})>
+  getTracks() async {
+    const empty = (audio: <PlayerTrackInfo>[], subtitles: <PlayerTrackInfo>[]);
+    if (_disposed) return empty;
+    final playerId = _playerId;
+    if (playerId == null) return empty;
+    try {
+      final reply = await _channel
+          .invokeMapMethod<String, dynamic>('getTracks', {'id': playerId})
+          .timeout(_methodTimeout);
+      if (reply == null) return empty;
+      List<PlayerTrackInfo> parse(Object? raw) => <PlayerTrackInfo>[
+        if (raw is List)
+          for (final entry in raw)
+            if (entry is Map) PlayerTrackInfo.fromMap(entry),
+      ];
+      return (audio: parse(reply['audio']), subtitles: parse(reply['text']));
+    } catch (_) {
+      return empty;
+    }
+  }
+
+  /// 选音轨：[trackId] 为 getTracks 回的宿主轨道 id。
+  Future<void> selectAudioTrack(String trackId) =>
+      _invoke('selectAudioTrack', {'trackId': trackId});
+
+  /// 选字幕轨：[trackId] 为 null 表示关闭字幕。
+  Future<void> selectSubtitleTrack(String? trackId) =>
+      _invoke('selectSubtitleTrack', {'trackId': trackId});
 
   Future<void> _invoke(
     String method, [

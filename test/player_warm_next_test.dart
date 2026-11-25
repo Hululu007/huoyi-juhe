@@ -6,6 +6,7 @@ import 'package:fqapp/models/media_item.dart';
 import 'package:fqapp/models/playlet_comment.dart';
 import 'package:fqapp/pages/player_page.dart';
 import 'package:fqapp/services/episode_source_cache.dart';
+import 'package:fqapp/services/player_tracks.dart';
 import 'package:fqapp/widgets/video_player_chrome.dart';
 
 import 'support/controlled_player.dart';
@@ -185,7 +186,12 @@ void main() {
 
 class _FailingCreate extends ControlledNativePlayer {
   @override
-  Future<int> create(String cdnUrl, String keyHex, {int? startMs}) async {
+  Future<int> create(
+    String cdnUrl,
+    String keyHex, {
+    int? startMs,
+    List<ExternalSubtitle> subtitles = const [],
+  }) async {
     calls.add('create:$cdnUrl');
     throw StateError('media open failed');
   }

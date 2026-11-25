@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../services/live_api.dart';
+import '../services/live_drm.dart';
 import '../services/live_platform.dart';
+import '../services/live_settings.dart';
 import '../services/live_sleep_timer.dart';
 import '../services/live_sources.dart';
 import '../services/live_speed_tracker.dart';
@@ -30,11 +32,16 @@ class LivePlayerPage extends StatefulWidget {
     required this.channels,
     required this.startIndex,
     required this.source,
+    this.startRoute = 0,
   });
 
   final List<LiveChannel> channels;
   final int startIndex;
   final LiveSource source;
+
+  /// 进全屏时的起始线路（内嵌页当前线路带过来，两页线路状态
+  /// 不再各走各的）。
+  final int startRoute;
 
   @override
   State<LivePlayerPage> createState() => _LivePlayerPageState();
@@ -54,6 +61,17 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
   int _route = 0;
   bool _initVideo = true;
   String? _error;
+
+  /// 当前报错是不是 DRM 明示：是的话报错卡不给「重新连接」。
+  bool _errorIsDrm = false;
+
+  /// 起播停滞看门狗（与内嵌页同款 15 秒）：buffering / 等首帧
+  /// 超时落报错卡带重试，DRM 频道除外（不起播、无从重试）。
+  Timer? _bufferWatchdog;
+  static const _bufferStallLimit = Duration(seconds: 15);
+
+  /// DRM 明示文案（与内嵌页同口径）。
+  static const _drmBlockedMessage = '该频道带 DRM 加密，当前播放器无法解密，暂时播不了';
   bool _playing = false;
   bool _controlsVisible = true;
   Timer? _hideTimer;
@@ -76,9 +94,13 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
     super.initState();
     _channels = widget.channels;
     _index = widget.startIndex.clamp(0, widget.channels.length - 1);
+    _route = widget.startRoute;
     _source = widget.source;
     _sleepTimer.addListener(_sleepChanged);
     _sleepTimer.pausePlayback = _pauseForSleepHandler;
+    // 睡眠定时默认时长：与内嵌页共用同一单例与同一默认应用
+    //（已在倒计时时不重复起算，见 live_settings.dart）。
+    unawaited(applyLiveSleepDefault());
     unawaited(_loadChannel(_index));
     unawaited(_enterFullscreenSystemUi());
     _scheduleHide();
@@ -86,6 +108,27 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
 
   void _sleepChanged() {
     if (mounted) setState(() {});
+  }
+
+  /// 起播停滞看门狗：从起播/进入 buffering 开始计时，15 秒内
+  /// 没等到首帧或缓冲结束就落报错卡（带重试，与内嵌页同款）。
+  void _armBufferWatchdog(int generation, NativePlayer player) {
+    _bufferWatchdog?.cancel();
+    _bufferWatchdog = Timer(_bufferStallLimit, () {
+      if (!_isCurrentLoad(generation, player)) return;
+      if (mounted) {
+        setState(() {
+          _error = '直播信号停滞：超过 15 秒没有新画面，请重新连接或换一个频道';
+          _errorIsDrm = false;
+          _initVideo = false;
+        });
+      }
+    });
+  }
+
+  void _disarmBufferWatchdog() {
+    _bufferWatchdog?.cancel();
+    _bufferWatchdog = null;
   }
 
   Future<void> _loadChannel(int index, {bool keepRoute = false}) async {
@@ -99,11 +142,26 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
       _index = index;
       _initVideo = true;
       _error = null;
+      _errorIsDrm = false;
       _playing = false;
     });
+    // DRM 明示：判定带 DRM 的频道不起播、不重连，直接落明示
+    // 报错卡（报错卡按 _errorIsDrm 不给「重新连接」入口）。
+    // 魔蚁主树此处分流 EXO pane（5203915，TvboxPlayerPlugin 的
+    // drm 参数 + dash 模块），本应用无对应通路（NativePlayer 插件
+    // 无 MediaDrm、gradle 无 dash 模块），能归一化也统一出明示卡。
+    if (liveDrmForChannel(channel) != null) {
+      setState(() {
+        _error = _drmBlockedMessage;
+        _errorIsDrm = true;
+        _initVideo = false;
+      });
+      return;
+    }
     final player = NativePlayer();
     _player = player;
     _subscribe(player, generation);
+    _armBufferWatchdog(generation, player);
     try {
       // 平台房间地址是明文 http FLV：直接给 ExoPlayer 会被 App 的明文
       // 策略拦掉（列表能拉、一点播就失败），先走本地中继转成 127.0.0.1。
@@ -117,17 +175,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
       if (rawUrl.isEmpty && _source.protocol == LiveProtocol.api) {
         rawUrl = await resolveLiveApiPlayUrl(_source, channel);
         if (rawUrl.isEmpty) throw StateError('该频道暂时无法播放');
-        final fixed = LiveChannel(
-          title: channel.title,
-          url: rawUrl,
-          urls: [rawUrl],
-          group: channel.group,
-          sourceId: channel.sourceId,
-          token: channel.token,
-          subtitle: channel.subtitle,
-          cover: channel.cover,
-          number: channel.number,
-        );
+        final fixed = channel.copyWith(url: rawUrl, urls: [rawUrl]);
         try {
           _channels[index] = fixed;
         } catch (_) {}
@@ -145,6 +193,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
       if (mounted) setState(() {});
     } catch (error) {
       if (!_isCurrentLoad(generation, player)) return;
+      _disarmBufferWatchdog();
       if (mounted) {
         setState(() {
           _error = error.toString();
@@ -164,6 +213,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
       }),
       player.firstFrameStream.listen((_) {
         if (_isCurrentLoad(generation, player) && mounted) {
+          _disarmBufferWatchdog();
           setState(() => _initVideo = false);
           _followVideoRatio(player);
         }
@@ -174,7 +224,15 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
         }
       }),
       player.bufferingStream.listen((_) {
-        if (_isCurrentLoad(generation, player) && mounted) setState(() {});
+        if (_isCurrentLoad(generation, player) && mounted) {
+          // 缓冲开始重新计时，缓冲结束撤掉看门狗（与内嵌页同款）。
+          if (player.buffering) {
+            _armBufferWatchdog(generation, player);
+          } else {
+            _disarmBufferWatchdog();
+          }
+          setState(() {});
+        }
       }),
       player.videoSizeStream.listen((_) {
         if (_isCurrentLoad(generation, player) && mounted) {
@@ -184,6 +242,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
       }),
       player.errorStream.listen((error) {
         if (_isCurrentLoad(generation, player) && mounted) {
+          _disarmBufferWatchdog();
           setState(() {
             _error = error.toString();
             _initVideo = false;
@@ -194,6 +253,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
   }
 
   void _teardownPlayer() {
+    _disarmBufferWatchdog();
     for (final sub in _subs) {
       unawaited(sub.cancel());
     }
@@ -492,13 +552,20 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
                   color: Colors.black.withValues(alpha: .82),
                   child: Theme(
                     data: ThemeData.dark(),
+                    // DRM 明示卡不给「重新连接」（重连也解不了密），
+                    // 只留「换个频道」这个有效入口。
                     child: LiveStatusPanel(
-                      title: '直播暂时中断',
+                      title: _errorIsDrm ? '该频道带 DRM 加密' : '直播暂时中断',
                       message: _error!,
-                      icon: Icons.wifi_off_rounded,
-                      action: '重新连接',
-                      onRetry: () =>
-                          unawaited(_loadChannel(_index, keepRoute: true)),
+                      icon: _errorIsDrm
+                          ? Icons.lock_rounded
+                          : Icons.wifi_off_rounded,
+                      action: _errorIsDrm ? null : '重新连接',
+                      onRetry: _errorIsDrm
+                          ? null
+                          : () => unawaited(
+                              _loadChannel(_index, keepRoute: true),
+                            ),
                       secondaryAction: TextButton(
                         style: TextButton.styleFrom(
                           foregroundColor: moyiCyan,

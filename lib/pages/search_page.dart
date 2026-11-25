@@ -609,7 +609,10 @@ class _SearchPageState extends State<SearchPage> {
       case SearchCategory.manga:
         return (types: {ContentType.comic}, shortDramaOnly: false);
       case SearchCategory.audio:
-        return (types: {ContentType.audio}, shortDramaOnly: false);
+        return (
+          types: {ContentType.audio, ContentType.music},
+          shortDramaOnly: false,
+        );
       case SearchCategory.sites:
         return (types: null, shortDramaOnly: false);
     }
@@ -1314,6 +1317,7 @@ class _SearchPageState extends State<SearchPage> {
         ContentType.novel => 'book',
         ContentType.comic => 'manga',
         ContentType.audio => 'audio',
+        ContentType.music => 'audio',
         _ => videoCardKindForSite(group.siteId, group.siteName),
       };
 

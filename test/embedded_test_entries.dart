@@ -8,8 +8,9 @@ import 'package:fqapp/services/zakatv_builtin.dart';
 /// 供分档测试直接传给 visibleVideoZoneSites / visibleFilmZoneSites，
 /// 不走 SharedPreferences 与 asset 拷贝。
 ///
-/// jar 254 行（zakatvBuiltinSites 253 条里 252 条视频/混合 + YouTube 1 条
+/// jar 251 行（zakatvBuiltinSites 249 条里 248 条视频/混合 + YouTube 1 条
 /// + one.jar 1 条；听书 go_tingshu 是 audio，不进视频区）+ 种子 210 条。
+/// 2026-11-26 MissAV 收拢：zakatv 253→249（摘 4 个 MissAV 重复登记）。
 List<SourceEntry> embeddedTestEntries() {
   final entries = <SourceEntry>[];
   for (final site in zakatvBuiltinSites) {

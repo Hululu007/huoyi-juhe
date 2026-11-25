@@ -258,6 +258,7 @@ class FakeNativePlayer extends NativePlayer {
 
   /// create 收到的起播位置（毫秒，按序）：原生把它当初始播放位置。
   final createdStartMs = <int>[];
+  final createdSubtitles = <List<ExternalSubtitle>>[];
   Duration currentPosition = const Duration(seconds: 20);
   Duration totalDuration;
   bool isPlaying = false;
@@ -321,9 +322,15 @@ class FakeNativePlayer extends NativePlayer {
   }
 
   @override
-  Future<int> create(String cdnUrl, String keyHex, {int? startMs}) async {
+  Future<int> create(
+    String cdnUrl,
+    String keyHex, {
+    int? startMs,
+    List<ExternalSubtitle> subtitles = const [],
+  }) async {
     calls.add('create:$cdnUrl');
     createdKeys.add(keyHex);
+    createdSubtitles.add(subtitles);
     // 与生产一致：只有正数才下发 startPositionMs，0 等同于从头播。
     if (startMs != null && startMs > 0) {
       createdStartMs.add(startMs);

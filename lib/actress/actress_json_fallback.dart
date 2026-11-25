@@ -5,7 +5,6 @@ import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 
 import 'actress_adapter_models.dart';
-import 'actress_database.dart';
 import 'actress_m3u_index.dart';
 import 'actress_models.dart';
 
@@ -104,81 +103,6 @@ bool _sameOrder(List<String> a, List<String> b) {
 /// 由调用方按文件定站。
 String siteForPlayFrom(String playFrom) =>
     playFrom == 'mjv011' ? 'mjv' : playFrom;
-
-/// json → 库镜像：同一批条目先落 json 文件、再按本函数同步进库
-/// （json 是唯一落地口径，库是 json 的派生索引，不是第二份原始写）。
-/// 有女优名的行按名字建/合人物、作品行按（站，番号）去重进 works 表；
-/// 没女优名的行只留在 json 里，不进库（没有可挂的人）；mjv 行的
-/// 演员记 sex 'female'，其他站 sex 未知记空；分类名是有码/无码时
-/// 记为标签（与分册筛选同一口径），其余分类不记标签。
-Future<void> mirrorActressJsonEntriesToDb(
-  ActressDatabase db,
-  Iterable<ActressJsonEntry> entries,
-) async {
-  if (db.isVideoLibrary) {
-    // 视频库模式：条目按合并规则写进 videos / video_category
-    //（不写 persons/works，那两张表这个库里没有）。
-    // vod_id 用小写番号（entry.vodCode 归一化）；vodCode 为空
-    // 时退回 entry.vodId（md5/slug，仍可用作键）；都没有就跳过。
-    // 女优名（vodActor）有就按名字精确匹配 actresses 链
-    // video_actress，没有就不链（whos 条目本来就没女优名，
-    // 只进 videos/video_category）。
-    final videoEntries = <VideoLibraryEntry>[];
-    for (final entry in entries) {
-      final vodId = entry.vodCode.trim().isNotEmpty
-          ? videoLibraryVodId(entry.vodCode)
-          : entry.vodId.trim();
-      if (vodId.isEmpty) continue;
-      videoEntries.add((
-        vodId: vodId,
-        title: entry.vodName,
-        picUrl: entry.vodPic,
-        playUrl: entry.playUrl,
-        remarks: entry.vodRemarks,
-        pubdate: entry.vodPubdate,
-        area: entry.vodArea,
-        year: entry.vodYear,
-        content: entry.vodContent,
-        playFrom: entry.vodPlayFrom,
-        typeName: entry.typeName,
-        category: entry.typeName,
-        actressName: entry.vodActor.trim(),
-      ));
-    }
-    await db.upsertVideoEntries(videoEntries);
-    return;
-  }
-  for (final entry in entries) {
-    final actor = entry.vodActor.trim();
-    if (actor.isEmpty) continue;
-    final code = entry.vodCode;
-    final title = entry.vodName;
-    if (code.isEmpty && title.isEmpty) continue;
-    for (final name in actressNameVariants(actor)) {
-      final person = await db.upsertCrawledPerson(
-        name: name,
-        sex: entry.site == 'mjv' ? 'female' : '',
-        tags: entry.typeName == '有码' || entry.typeName == '无码'
-            ? [entry.typeName]
-            : const [],
-      );
-      if (person == null) continue;
-      await db.upsertWorks(
-        person.localId,
-        [
-          RosterFilm(
-            code: code,
-            title: title,
-            date: entry.vodPubdate,
-            category: entry.typeName,
-          ),
-        ],
-        coverSource: '',
-        site: ActressJsonFallback.spiderIdForSite(entry.site),
-      );
-    }
-  }
-}
 
 /// 名字归一化（仅兜底匹配用）：去空白、全小写。
 String normalizeActressJsonName(String name) =>

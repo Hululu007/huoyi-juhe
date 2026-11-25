@@ -7,7 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'actress_database.dart';
 import 'actress_film_library.dart';
 import 'actress_json_fallback.dart';
-import 'video_db_normalize.dart';
+import 'whos_json_index.dart';
 
 /// whos 本地兜底库的一条作品。
 ///
@@ -154,28 +154,63 @@ class WhosLocalLibrary {
   /// 数据库模式下的厂牌维度（一次聚合后缓存，见 _dbFacets）。
   List<({String brand, int count})>? _dbFacets;
 
+  /// 内置 who's JSON 模式（2026-11-26 无库顶首页）：DB 与本地
+  /// JSON 都落空时接随包索引（见 [WhosJsonIndex]），作品流/厂牌
+  /// 分组都从它懒取，不物化全量列表。
+  WhosJsonIndex? _assetIndex;
+  Map<String, List<WhosVideo>>? _assetByBrand;
+
   Map<String, List<WhosLocalWork>>? _byBrand;
   Map<String, WhosLocalWork>? _byCode;
   Future<bool>? _loading;
 
-  bool get isLoaded => _works.isNotEmpty || _dbService != null;
+  /// 最近一次加载失败的真实原因（打开库时底层给出的原话，如
+  /// “未找到外置数据库：MYTV/db/女优库.db”）。上层报错直接透出它，
+  /// 不再拿一句笼统的“没读出来”盖住真原因（魔蚁 5523531 同款修法，
+  /// 文案按修仙版 .db 口径）。
+  String? _loadFailureNote;
 
-  int get count => _dbService != null ? (_dbTotal ?? 0) : _works.length;
+  String? get loadFailureNote => _loadFailureNote;
+
+  /// 测试注入点：非空时 _load 用它代替真实读库（真库在测试环境
+  /// 打不开，只能在这一层验加载状态机）。
+  Future<bool> Function()? loadOverrideForTest;
+
+  bool get isLoaded =>
+      _works.isNotEmpty || _dbService != null || _assetIndex != null;
+
+  int get count => _dbService != null
+      ? (_dbTotal ?? 0)
+      : _assetIndex != null
+      ? _assetIndex!.videoCount
+      : _works.length;
 
   /// 是不是在读本地数据库（而不是 JSON 文件）。
   bool get isDbBacked => _dbService != null;
 
+  /// 是不是内置 who's JSON 在顶（无库无本地 JSON 时）。
+  bool get isAssetBacked => _assetIndex != null;
+
   /// 首次调用时加载；已加载直接返回。失败（资源缺失之类）返回 false，
   /// 但不抛异常——降级失败也要让上层照常走在线报错，不掩盖真问题。
+  /// 失败不缓存：以前 _load 返回 false（不抛错）时 _loading 永远不
+  /// 清，第一次没读出来就一整个进程都读不出来，用户把库放好后也
+  /// 必须重启 App 才恢复——与文件夹翻页标志卡死同类。现在失败
+  /// 落地就清掉 _loading，下次调用重新真读（魔蚁 5523531 同款）。
   Future<bool> ensureLoaded() {
     if (isLoaded) return Future.value(true);
-    return _loading ??= _load().catchError((Object _) {
+    return _loading ??= _load().then((ok) {
+      if (!ok) _loading = null;
+      return ok;
+    }).catchError((Object _) {
       _loading = null;
       return false;
     });
   }
 
   Future<bool> _load() async {
+    final override = loadOverrideForTest;
+    if (override != null) return override();
     // 2026-11-23 v58 验机：优先读本地数据库（MYTV/db/女优库.db）——
     // 原来只读 documents/actress_json/ 里的 whos.json / mjv011.json，
     // v58 删了包内 whos.json、用户 23:39 又定 App 里不内置任何 JSON，
@@ -219,13 +254,33 @@ class WhosLocalLibrary {
     _works.addAll(merged.values);
     _byBrand = null;
     _byCode = null;
-    return _works.isNotEmpty;
+    if (_works.isNotEmpty) {
+      _loadFailureNote = null;
+      return true;
+    }
+    // 无库无本地 JSON：内置 who's JSON 顶上（2026-11-26 用户令）。
+    // 只走读路（随包索引只读懒加载），索引也空（资源缺失/损坏）
+    // 才算真没数据，失败原因这时才记。
+    try {
+      final index = await WhosJsonIndex.instance;
+      if (!index.isEmpty) {
+        _assetIndex = index;
+        _loadFailureNote = null;
+        return true;
+      }
+    } catch (_) {
+      // 索引读不出来：按真没数据落失败原因。
+    }
+    _loadFailureNote ??=
+        '片库没有数据：本地没读到女优库数据库（MYTV/db/女优库.db），'
+        '也没有 actress_json 里的 whos.json / mjv011.json';
+    return false;
   }
 
   /// 读本地数据库模式：打开 MYTV/db/女优库.db（只读连接），成功且
   /// 是严格结构、有作品就切到数据库模式（懒查，不把 34 万行全读进
-  /// 内存）；失败回 false，调用方再读 JSON。索引是快读的前提：
-  /// 主库开库时已补，别的库/还没跑过主库时在这里后台补一次。
+  /// 内存）；失败回 false，调用方再读 JSON。2026-11-26 只读化：
+  /// 不再给库补索引（那是开库自写，已删），查询吃库里现成索引。
   Future<bool> _loadFromDb() async {
     final service = FilmLibraryService(
       database: SqfliteActressDatabase.instance,
@@ -233,15 +288,24 @@ class WhosLocalLibrary {
     try {
       final opened = await service.open();
       if (opened.error != null || !opened.strict || opened.total <= 0) {
+        // 失败原因原样记下给上层透出，不再吞掉：以前这里只回 false，
+        // 直播页只能报一句“没读出来，退出重进”，用户根本不知道是
+        // 库文件没放好还是结构对不上。
+        _loadFailureNote =
+            opened.error ??
+            (!opened.strict
+                ? '不是女优库数据库：MYTV/db/女优库.db 的表结构对不上'
+                : '女优库数据库里没有作品，片库是空的');
         await service.close();
         return false;
       }
-      unawaited(ensureVideoDbIndexes(service.dbPath));
+      _loadFailureNote = null;
       _dbService = service;
       _dbTotal = opened.total;
       _dbFacets = null;
       return true;
-    } catch (_) {
+    } catch (error) {
+      _loadFailureNote = error is StateError ? error.message : '$error';
       try {
         await service.close();
       } catch (_) {}
@@ -280,6 +344,100 @@ class WhosLocalLibrary {
     );
   }
 
+  /// 内置 who's 视频行 → 本地库条目（asset 模式用）。
+  static WhosLocalWork _assetWork(WhosVideo video) => WhosLocalWork(
+    id: video.code,
+    title: video.title,
+    cover: video.pic,
+    playUrl: video.m3u8,
+    code: video.code,
+    brand: WhosLocalWork.brandOfCode(video.code),
+  );
+
+  /// asset 模式厂牌分组（首次按需建，之后缓存）。
+  Map<String, List<WhosVideo>> get _assetBrands {
+    final cached = _assetByBrand;
+    if (cached != null) return cached;
+    final map = <String, List<WhosVideo>>{};
+    final index = _assetIndex;
+    if (index != null) {
+      for (final video in index.allVideos) {
+        final brand = WhosLocalWork.brandOfCode(video.code);
+        if (brand.isEmpty) continue;
+        (map[brand] ??= []).add(video);
+      }
+    }
+    _assetByBrand = map;
+    return map;
+  }
+
+  /// asset 模式取一页：分类只有「最新/排行榜」（同一份目录顺序，
+  /// 排行榜无热度数据照 JSON 模式口径顶上）与厂牌维度；主分类
+  /// 只有「日本AV」一个值，选了别的主分类回空。
+  List<WhosLocalWork> _assetPage({
+    required String category,
+    required String query,
+    required String videoCategory,
+    required int page,
+    required int pageSize,
+  }) {
+    final index = _assetIndex;
+    if (index == null || page < 1 || pageSize <= 0) return const [];
+    if (videoCategory.isNotEmpty && videoCategory != '日本AV') {
+      return const [];
+    }
+    final offset = (page - 1) * pageSize;
+    if (category.startsWith(whosLocalBrandPrefix)) {
+      final brand = category
+          .substring(whosLocalBrandPrefix.length)
+          .trim()
+          .toLowerCase();
+      var rows = _assetBrands[brand] ?? const <WhosVideo>[];
+      final q = query.trim().toLowerCase();
+      if (q.isNotEmpty) {
+        rows = [
+          for (final video in rows)
+            if (video.code.toLowerCase().contains(q) ||
+                video.title.toLowerCase().contains(q))
+              video,
+        ];
+      }
+      if (offset >= rows.length) return const [];
+      final end = (offset + pageSize).clamp(0, rows.length);
+      return [for (final video in rows.sublist(offset, end)) _assetWork(video)];
+    }
+    return [
+      for (final video in index.videoPage(
+        offset: offset,
+        limit: pageSize,
+        query: query,
+      ))
+        _assetWork(video),
+    ];
+  }
+
+  int _assetCount({required String category, required String query}) {
+    final index = _assetIndex;
+    if (index == null) return 0;
+    if (category.startsWith(whosLocalBrandPrefix)) {
+      final brand = category
+          .substring(whosLocalBrandPrefix.length)
+          .trim()
+          .toLowerCase();
+      final rows = _assetBrands[brand] ?? const <WhosVideo>[];
+      final q = query.trim().toLowerCase();
+      if (q.isEmpty) return rows.length;
+      return rows
+          .where(
+            (video) =>
+                video.code.toLowerCase().contains(q) ||
+                video.title.toLowerCase().contains(q),
+          )
+          .length;
+    }
+    return index.videoTotal(query: query);
+  }
+
   /// 取一页（异步版）：数据库模式按页查库，JSON 模式走内存同步取。
   /// 同步版 page() 只服务 JSON 模式（测试与旧调用方），数据库模式
   /// 下它回空——调用方一律用这个。
@@ -292,6 +450,15 @@ class WhosLocalLibrary {
   }) async {
     final db = _dbService;
     if (db == null) {
+      if (_assetIndex != null) {
+        return _assetPage(
+          category: category,
+          query: query,
+          videoCategory: videoCategory,
+          page: page,
+          pageSize: pageSize,
+        );
+      }
       // pageAsync 的 page 参数会遮住同名方法 page()，必须显式用 this.page。
       return this.page(
         category: category,
@@ -325,7 +492,13 @@ class WhosLocalLibrary {
     String videoCategory = '',
   }) async {
     final db = _dbService;
-    if (db == null) return countFor(category: category, query: query);
+    if (db == null) {
+      if (_assetIndex != null) {
+        if (videoCategory.isNotEmpty && videoCategory != '日本AV') return 0;
+        return _assetCount(category: category, query: query);
+      }
+      return countFor(category: category, query: query);
+    }
     var brand = '';
     if (category.startsWith(whosLocalBrandPrefix)) {
       brand = category
@@ -345,7 +518,23 @@ class WhosLocalLibrary {
     int brandLimit = 30,
   }) async {
     final db = _dbService;
-    if (db == null) return categories(brandLimit: brandLimit);
+    if (db == null) {
+      final index = _assetIndex;
+      if (index != null) {
+        final total = index.videoCount;
+        return [
+          (id: whosLocalNewCategory, name: '最新作品', count: total),
+          (id: whosLocalRankCategory, name: '排行榜', count: total),
+          for (final facet in _assetBrandFacets().take(brandLimit))
+            (
+              id: '$whosLocalBrandPrefix${facet.brand}',
+              name: whosBrandLabel(facet.brand),
+              count: facet.count,
+            ),
+        ];
+      }
+      return categories(brandLimit: brandLimit);
+    }
     final total = _dbTotal ?? 0;
     final facets = await _dbBrandFacets();
     return [
@@ -360,12 +549,68 @@ class WhosLocalLibrary {
     ];
   }
 
+  /// 只要厂牌维度（异步版）：直播首屏先用最新 / 排行榜出列表，
+  /// 厂牌聚合（对 videos 全表 GROUP BY）挪到首屏之后异步补分类，
+  /// 或用户点品牌筛选时才算，不再挡首屏。
+  /// asset 模式厂牌维度（与 JSON 模式 brandFacets 同一口径：
+  /// 按条目数倒序、只留 2 部以上）。
+  List<({String brand, int count})> _assetBrandFacets() {
+    final entries = _assetBrands.entries.toList()
+      ..sort((a, b) => b.value.length.compareTo(a.value.length));
+    return [
+      for (final entry in entries)
+        if (entry.value.length >= 2)
+          (brand: entry.key, count: entry.value.length),
+    ];
+  }
+
+  Future<List<({String id, String name, int count})>> brandCategoriesAsync({
+    int brandLimit = 30,
+  }) async {
+    final db = _dbService;
+    if (db == null) {
+      if (_assetIndex != null) {
+        return [
+          for (final facet in _assetBrandFacets().take(brandLimit))
+            (
+              id: '$whosLocalBrandPrefix${facet.brand}',
+              name: whosBrandLabel(facet.brand),
+              count: facet.count,
+            ),
+        ];
+      }
+      return [
+        for (final facet in brandFacets(limit: brandLimit))
+          (
+            id: '$whosLocalBrandPrefix${facet.brand}',
+            name: whosBrandLabel(facet.brand),
+            count: facet.count,
+          ),
+      ];
+    }
+    final facets = await _dbBrandFacets();
+    return [
+      for (final facet in facets.take(brandLimit))
+        (
+          id: '$whosLocalBrandPrefix${facet.brand}',
+          name: whosBrandLabel(facet.brand),
+          count: facet.count,
+        ),
+    ];
+  }
+
   /// 视频主分类（异步版）：数据库模式走库里 video_category 聚合
   /// （有码/无码/国产/4K…，按数量倒序）；JSON 模式没有主分类维度，
   /// 返回空。供分类页在站点分类取不到时也能摆出全部主分类标签。
   Future<List<({String name, int count})>> mainCategoriesAsync() async {
     final db = _dbService;
-    if (db == null) return const [];
+    if (db == null) {
+      // asset 模式：who's 目录的分类只有一个「日本AV」（数据实话，
+      // 见 whos_json_index 文件头），如实只回这一项。
+      final index = _assetIndex;
+      if (index != null) return [(name: '日本AV', count: index.videoCount)];
+      return const [];
+    }
     final rows = await db.categories();
     return [
       for (final (name, count) in rows) (name: name, count: count),
@@ -391,7 +636,14 @@ class WhosLocalLibrary {
   /// 按 id 取一条（异步版）：数据库模式先主键查，查不到再按番号回捞。
   Future<WhosLocalWork?> byIdAsync(String id) async {
     final db = _dbService;
-    if (db == null) return byId(id);
+    if (db == null) {
+      final index = _assetIndex;
+      if (index != null) {
+        final video = index.videoForCode(id);
+        return video == null ? null : _assetWork(video);
+      }
+      return byId(id);
+    }
     final entry = await db.libraryFilmById(id);
     if (entry != null) return _dbWork(entry);
     final byCode = await db.entriesForCode(id);

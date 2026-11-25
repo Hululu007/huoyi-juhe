@@ -15,7 +15,13 @@ mixin _LibraryShelfViews on _LibraryPageActions {
           onCachedBooks: _openCachedBooks,
         );
       }
-      return ShelfEmptyHint(text: _tab == 1 ? '暂无漫画' : '暂无听书');
+      return ShelfEmptyHint(
+        text: switch (_tab) {
+          1 => '暂无漫画',
+          3 => '暂无音乐',
+          _ => '暂无听书',
+        },
+      );
     }
     final body = switch (_layout) {
       BookshelfLayout.grid => _grid(entries),

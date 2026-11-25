@@ -133,6 +133,31 @@ void main() {
     }
   }
 
+  /// 默认源已改成秀果（不再压内置片库大库）：要验片库的用例先从
+  /// 弹窗里点选内置片库，再等第一页频道出来。
+  Future<void> pickWhosLib(WidgetTester tester) async {
+    // 先等解锁帧建出来（切源按钮进树），再开弹窗。
+    expect(
+      await pumpUntil(tester, find.byTooltip('切换直播源')),
+      true,
+    );
+    await openPicker(tester);
+    await scrollPickerIntoView(
+      tester,
+      find.byKey(const ValueKey('site-picker-row-whos_lib')),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('site-picker-row-whos_lib')),
+    );
+    expect(
+      await pumpUntil(
+        tester,
+        find.byKey(const ValueKey('live-channel-0')),
+      ),
+      true,
+    );
+  }
+
   /// 收尾：把页面从树上摘掉（dispose 建 30 秒 retire 计时器），
   /// 再推 31 秒假时间让它走完；否则框架报 pending timer。
   Future<void> drainRetireTimer(WidgetTester tester) async {
@@ -159,13 +184,7 @@ void main() {
 
     whosLibTestLibrary = libraryOf(5);
     await pumpUnlocked(tester);
-    expect(
-      await pumpUntil(
-        tester,
-        find.byKey(const ValueKey('live-channel-0')),
-      ),
-      true,
-    );
+    await pickWhosLib(tester);
     await openPicker(tester);
     await scrollPickerIntoView(
       tester,
@@ -266,13 +285,7 @@ void main() {
   testWidgets('点内置片库出频道，行里无源名列', (tester) async {
     whosLibTestLibrary = libraryOf(5);
     await pumpUnlocked(tester);
-    expect(
-      await pumpUntil(
-        tester,
-        find.byKey(const ValueKey('live-channel-0')),
-      ),
-      true,
-    );
+    await pickWhosLib(tester);
     expect(find.text('最新作品 · 5'), findsOneWidget);
     expect(find.text('SSIS-001 标题1'), findsWidgets);
     // 列表里不再有源名：弹窗关着，页内任何地方都没有“内置片库”。
@@ -287,13 +300,7 @@ void main() {
     whosLibTestLibrary = libraryOf(5);
     // 高屏：首屏 60 行一次建出来，深行不用滚动才存在。
     await pumpUnlocked(tester, size: const Size(390, 3200));
-    expect(
-      await pumpUntil(
-        tester,
-        find.byKey(const ValueKey('live-channel-0')),
-      ),
-      true,
-    );
+    await pickWhosLib(tester);
     await openPicker(tester);
     await scrollPickerIntoView(
       tester,
@@ -307,13 +314,31 @@ void main() {
     await tester.runAsync(() async {
       await Future<void>.delayed(const Duration(seconds: 8));
     });
-    expect(
-      await pumpUntil(
-        tester,
-        find.byKey(const ValueKey('live-channel-59')),
-      ),
-      true,
-    );
+    // 改口径（第 3 包三列网格）：格行高 54、列表区比旧频道列矮，
+    // 3200 高屏首屏也一次建不出 60 行——改成拖动网格直到第 60
+    // 行建出来，再拖回顶部验首行（断言本身不变）。
+    final grid = find.byKey(const ValueKey('live-channel-list'));
+    for (var i = 0; i < 16; i++) {
+      if (find
+          .byKey(const ValueKey('live-channel-59'))
+          .evaluate()
+          .isNotEmpty) {
+        break;
+      }
+      await tester.drag(grid, const Offset(0, -800));
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(find.byKey(const ValueKey('live-channel-59')), findsOneWidget);
+    for (var i = 0; i < 16; i++) {
+      if (find
+          .byKey(const ValueKey('live-channel-0'))
+          .evaluate()
+          .isNotEmpty) {
+        break;
+      }
+      await tester.drag(grid, const Offset(0, 800));
+      await tester.pump(const Duration(milliseconds: 100));
+    }
     expect(find.text('日本有码'), findsNothing);
     expect(rowTexts(tester, 'live-channel-0').length, 1);
     // 首行是 m3u 真数据（番号标题），不是旧源残留。
@@ -324,16 +349,24 @@ void main() {
   testWidgets('内置片库手机尺寸滑到底续载：本地翻页 + 远端下一页', (tester) async {
     whosLibTestLibrary = libraryOf(130);
     await pumpUnlocked(tester);
-    expect(
-      await pumpUntil(
-        tester,
-        find.byKey(const ValueKey('live-channel-0')),
-      ),
-      true,
-    );
+    await pickWhosLib(tester);
     final list = find.byKey(const ValueKey('live-channel-list'));
+    // 改口径（第 3 包三列网格）：续载触发点随列表迁到三列网格
+    // ListView（key 不变），格行高 54 比旧频道行高，一次 -3000
+    // 拖动滚过的行数变少——改成反复拖动直到目标行建出来
+    // （断言本身不变：60 → 本地翻页、119 → 本地末尾、129 → 远端续页）。
+    Future<void> dragUntil(Finder finder) async {
+      // 步幅 500 小于列表构建窗口（视口 + 前后缓存约 18 行），
+      // 大步幅会把目标行整段跳过去、永远建不出来。
+      for (var i = 0; i < 30; i++) {
+        if (finder.evaluate().isNotEmpty) return;
+        await tester.drag(list, const Offset(0, -500));
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+    }
+
     // 滑到底翻本地第 2 页（120 条）：先等 60 号行建出来确认翻页。
-    await tester.drag(list, const Offset(0, -3000));
+    await dragUntil(find.byKey(const ValueKey('live-channel-60')));
     expect(
       await pumpUntil(
         tester,
@@ -342,7 +375,7 @@ void main() {
       true,
     );
     // 再滑到底见到 119 号行（本地 120 条的末尾）。
-    await tester.drag(list, const Offset(0, -3000));
+    await dragUntil(find.byKey(const ValueKey('live-channel-119')));
     expect(
       await pumpUntil(
         tester,
@@ -351,11 +384,7 @@ void main() {
       true,
     );
     // 再滑到底：本地表见底，远端续载第 2 页（130 条）。
-    await tester.drag(list, const Offset(0, -3000));
-    for (var i = 0; i < 10; i++) {
-      await tester.pump(const Duration(milliseconds: 100));
-    }
-    await tester.drag(list, const Offset(0, -3000));
+    await dragUntil(find.byKey(const ValueKey('live-channel-129')));
     expect(
       await pumpUntil(
         tester,

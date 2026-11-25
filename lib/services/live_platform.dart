@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -43,13 +44,17 @@ const _userAgent =
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
     '(KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36';
 
+/// 单端点请求超时：诊断口径收紧到 10 秒（原来 20 秒，多端点串行
+/// 时最坏叠到 40 秒以上）。
+const livePlatformRequestTimeout = Duration(seconds: 10);
+
 Future<String> _get(
   String url, {
   Map<String, String> headers = const {},
 }) async {
   final response = await http
       .get(Uri.parse(url), headers: {'User-Agent': _userAgent, ...headers})
-      .timeout(const Duration(seconds: 20));
+      .timeout(livePlatformRequestTimeout);
   if (response.statusCode != 200) {
     throw StateError('请求失败：HTTP ${response.statusCode}');
   }
@@ -61,49 +66,46 @@ String _text(Object? value) => '${value ?? ''}'.trim();
 const _retiredCategories = ['weishizhibo'];
 final _cctv = RegExp(r'^(cctv|央视|中央电视台)', caseSensitive: false);
 
+/// 平台分类：多端点并发拉，**首个成功即用**（诊断第 7 条）。
+/// 以前是串行遍历全部端点合并，单端点 20 秒超时，秀果 / 欲火两个
+/// 端点最坏 40 秒以上才出分类。现在各端点同时发，第一个返回非空
+/// 分类的端点直接定案，其余端点只作失败兜底；全部端点都失败才
+/// 抛错（带第一个失败原因）。频道侧 fetchPingtaiChannels 本来就是
+/// 候选端点逐个试、首个成功即停，同口径。
 Future<List<LivePlatform>> fetchPingtaiPlatforms(LiveSource source) async {
-  final byId = <String, LivePlatform>{};
+  if (source.endpoints.isEmpty) {
+    throw StateError('该直播源没有可用分类');
+  }
   final failures = <String>[];
+  var pending = source.endpoints.length;
+  final completer = Completer<List<LivePlatform>>();
   for (final endpoint in source.endpoints) {
-    final List<dynamic> rows;
-    try {
-      final text = await _get('$endpoint/json.txt');
-      final dynamic decoded = jsonDecode(text);
-      final raw = decoded is Map ? decoded['pingtai'] : decoded;
-      if (raw is! List) continue;
-      rows = raw;
-    } catch (error) {
-      failures.add('$error');
-      continue;
-    }
-    for (final row in rows.whereType<Map>()) {
-      final id = _text(row['address']);
-      final name = _text(row['title']);
-      if (id.isEmpty || name.isEmpty) continue;
-      if (_retiredCategories.any(id.contains)) continue;
-      final count = int.tryParse(_text(row['Number'])) ?? 0;
-      final item = LivePlatform(
-        id: id,
-        name: name,
-        logo: _text(row['xinimg']),
-        count: count,
-        endpoint: endpoint,
-      );
-      final previous = byId[id];
-      if (previous == null || count > previous.count) byId[id] = item;
-    }
+    unawaited(() async {
+      try {
+        final text = await _get('$endpoint/json.txt');
+        final platforms = parsePingtaiPlatforms(text, endpoint);
+        if (platforms.isNotEmpty) {
+          if (!completer.isCompleted) completer.complete(platforms);
+        } else {
+          failures.add('端点没有可用分类');
+        }
+      } catch (error) {
+        failures.add('$error');
+      } finally {
+        pending--;
+        if (pending == 0 && !completer.isCompleted) {
+          completer.completeError(
+            StateError(
+              failures.isEmpty
+                  ? '该直播源没有可用分类'
+                  : '该直播源暂时不可用：${failures.first}',
+            ),
+          );
+        }
+      }
+    }());
   }
-  if (byId.isEmpty) {
-    throw StateError(
-      failures.isEmpty ? '该直播源没有可用分类' : '该直播源暂时不可用：${failures.first}',
-    );
-  }
-  final all = byId.values.toList();
-  final withCount = [
-    for (final item in all)
-      if (item.count > 0) item,
-  ];
-  return withCount.isEmpty ? all : withCount;
+  return completer.future;
 }
 
 List<LivePlatform> parsePingtaiPlatforms(String body, String endpoint) {

@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:fqapp/services/player_tracks.dart';
+
 import 'fakes.dart';
 
 /// Delays individual native operations without changing the lightweight fake
@@ -55,8 +57,14 @@ class ControlledNativePlayer extends FakeNativePlayer {
   }
 
   @override
-  Future<int> create(String cdnUrl, String keyHex, {int? startMs}) async {
+  Future<int> create(
+    String cdnUrl,
+    String keyHex, {
+    int? startMs,
+    List<ExternalSubtitle> subtitles = const [],
+  }) async {
     calls.add('create:$cdnUrl');
+    createdSubtitles.add(subtitles);
     await createGate?.future;
     if (disposed) throw StateError('Player disposed during creation');
     _created = true;

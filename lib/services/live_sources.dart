@@ -2,7 +2,6 @@ import 'dart:convert';
 
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 
 enum LiveProtocol { pingtai, list, api }
 
@@ -49,6 +48,37 @@ class LiveSource {
   bool get paginated => protocol != LiveProtocol.pingtai;
 }
 
+/// 回看模板（m3u 的 catchup / catchup-source / catchup-replace）：
+/// type 为 default 时 source 本身就是回看地址模板；为 append（或空）
+/// 时先按 replace（「正则,替换」）改直播地址、再把 source 模板
+/// 拼到地址后面。模板里 ${(b)格式} / ${(e)格式} 是节目起止时间。
+/// 地址生成见 live_catchup.dart 的 formatLiveCatchupUrl。
+class LiveCatchup {
+  const LiveCatchup({this.type = '', this.source = '', this.replace = ''});
+
+  final String type;
+  final String source;
+  final String replace;
+
+  bool get isEmpty => source.isEmpty;
+
+  Map<String, dynamic> toJson() => {
+    'type': type,
+    'source': source,
+    'replace': replace,
+  };
+
+  static LiveCatchup? fromJson(Object? raw) {
+    if (raw is! Map) return null;
+    final item = LiveCatchup(
+      type: raw['type'] as String? ?? '',
+      source: raw['source'] as String? ?? '',
+      replace: raw['replace'] as String? ?? '',
+    );
+    return item.isEmpty ? null : item;
+  }
+}
+
 class LiveChannel {
   LiveChannel({
     required this.title,
@@ -59,6 +89,13 @@ class LiveChannel {
     this.subtitle = '',
     this.cover = '',
     this.number = '',
+    this.tvgId = '',
+    this.tvgName = '',
+    this.headers = const {},
+    this.catchup,
+    this.licenseKey = '',
+    this.licenseType = '',
+    this.format = '',
     List<String>? urls,
   }) : urls = (urls == null || urls.isEmpty) ? [url] : List.unmodifiable(urls);
 
@@ -69,6 +106,70 @@ class LiveChannel {
   final String token;
   final String subtitle;
   final String cover;
+
+  /// #EXTINF 的 tvg-id：节目单（EPG）对台的第一依据。
+  final String tvgId;
+
+  /// #EXTINF 的 tvg-name：节目单对台时 tvg-id 对不上用它按名匹配。
+  final String tvgName;
+
+  /// 播放请求头（#EXTVLCOPT / #EXTHTTP / 地址后 | 段攒出来的）。
+  final Map<String, String> headers;
+
+  /// 回看模板；null 表示该频道没声明回看。
+  final LiveCatchup? catchup;
+
+  /// #KODIPROP 的授权键与类型（原样存储）。是否带 DRM、属于哪类
+  /// 由 live_drm.dart 的 liveDrmForChannel 判定归一化；本模型只存
+  /// 原始值，不代表本应用能播放这类频道。
+  final String licenseKey;
+  final String licenseType;
+
+  /// 清单类型提示（#KODIPROP manifest_type / txt 的 format 设置
+  /// 行），如 hls / mpd；只存储，播放器按地址自动识别，不强制。
+  final String format;
+
+  /// 是否带 DRM 授权信息（licenseKey 非空即算；含 drm_legacy
+  /// 整行存进 licenseKey 的形态，归一化时再拆）。
+  bool get hasDrm => licenseKey.trim().isNotEmpty;
+
+  LiveChannel copyWith({
+    String? title,
+    String? url,
+    List<String>? urls,
+    String? group,
+    String? sourceId,
+    String? token,
+    String? subtitle,
+    String? cover,
+    String? number,
+    String? tvgId,
+    String? tvgName,
+    Map<String, String>? headers,
+    LiveCatchup? catchup,
+    String? licenseKey,
+    String? licenseType,
+    String? format,
+  }) {
+    return LiveChannel(
+      title: title ?? this.title,
+      url: url ?? this.url,
+      urls: urls ?? this.urls,
+      group: group ?? this.group,
+      sourceId: sourceId ?? this.sourceId,
+      token: token ?? this.token,
+      subtitle: subtitle ?? this.subtitle,
+      cover: cover ?? this.cover,
+      number: number ?? this.number,
+      tvgId: tvgId ?? this.tvgId,
+      tvgName: tvgName ?? this.tvgName,
+      headers: headers ?? this.headers,
+      catchup: catchup ?? this.catchup,
+      licenseKey: licenseKey ?? this.licenseKey,
+      licenseType: licenseType ?? this.licenseType,
+      format: format ?? this.format,
+    );
+  }
 
   /// 火蚁TV 的 urls：直连型源（pingtai / list）单条地址时就是 [url]；
   /// 平台型源或带代理前缀的列表源可有多条，播放页「线路」按钮按它切线。
@@ -102,6 +203,13 @@ class LiveChannel {
     'subtitle': subtitle,
     'cover': cover,
     'number': number,
+    'tvgId': tvgId,
+    'tvgName': tvgName,
+    'headers': headers,
+    if (catchup != null) 'catchup': catchup!.toJson(),
+    'licenseKey': licenseKey,
+    'licenseType': licenseType,
+    'format': format,
   };
 
   static LiveChannel? fromJson(Map<String, dynamic> json) {
@@ -122,8 +230,212 @@ class LiveChannel {
       subtitle: json['subtitle'] as String? ?? '',
       cover: json['cover'] as String? ?? '',
       number: json['number'] as String? ?? '',
+      tvgId: json['tvgId'] as String? ?? '',
+      tvgName: json['tvgName'] as String? ?? '',
+      headers: (json['headers'] as Map? ?? {}).map(
+        (key, value) => MapEntry(key.toString(), value.toString()),
+      ),
+      catchup: LiveCatchup.fromJson(json['catchup']),
+      licenseKey: json['licenseKey'] as String? ?? '',
+      licenseType: json['licenseType'] as String? ?? '',
+      format: json['format'] as String? ?? '',
     );
   }
+}
+
+/// 地址是否属于直播可播协议（http/https 与各类推流协议）。
+/// 与 live_platform.dart 的 isPlayableLiveUrl 同口径；那边已先有
+/// 公开定义，本文件只留私有实现供解析器内部用，避免重名冲突。
+bool _isPlayableLiveUrl(String url) {
+  final text = url.trim();
+  if (!text.contains('://')) return false;
+  final scheme = text.split('://').first.toLowerCase();
+  return const {
+    'http',
+    'https',
+    'rtmp',
+    'rtsp',
+    'rtp',
+    'udp',
+    'rtmps',
+    'rtmpe',
+    'rtmpt',
+  }.contains(scheme);
+}
+
+/// 解析请求头文本：JSON 对象，或 `名=值&名=值`（也认 `;` 分隔）。
+Map<String, String> parseLiveHeaders(String raw) {
+  final text = raw.trim();
+  if (text.isEmpty) return const {};
+  final result = <String, String>{};
+  dynamic decoded;
+  if (text.startsWith('{')) {
+    try {
+      decoded = jsonDecode(text);
+    } catch (_) {
+      decoded = null;
+    }
+  }
+  if (decoded is Map) {
+    for (final entry in decoded.entries) {
+      result[entry.key.toString()] = entry.value.toString();
+    }
+    return result;
+  }
+  for (final pair in text.split(RegExp(r'[&;]'))) {
+    final at = pair.indexOf('=');
+    if (at <= 0) continue;
+    final key = pair.substring(0, at).trim();
+    final value = pair.substring(at + 1).trim();
+    if (key.isEmpty || value.isEmpty) continue;
+    result[key] = value;
+  }
+  return result;
+}
+
+String? _m3uAttribute(String line, String key) =>
+    RegExp('$key="([^"]*)"').firstMatch(line)?.group(1)?.trim();
+
+/// 回看三属性（#EXTM3U 头上是全源默认、#EXTINF 上是本频道覆盖）；
+/// 本行没声明时用 [fallback]。
+LiveCatchup? _catchupFromAttrs(String line, LiveCatchup? fallback) {
+  final item = LiveCatchup(
+    type: _m3uAttribute(line, 'catchup') ?? '',
+    source: _m3uAttribute(line, 'catchup-source') ?? '',
+    replace: _m3uAttribute(line, 'catchup-replace') ?? '',
+  );
+  return item.isEmpty ? fallback : item;
+}
+
+/// 附加行攒出来的待填设置（请求头 / 授权键 / 清单类型）：跟在
+/// #EXTINF（或 txt 分组行）后面、地址行前面，落到紧接着的频道上。
+/// 与魔蚁 _Setters 同口径，差别是本树在频道落位后清掉（按频道
+/// 作用域），魔蚁是整表不清、后续频道会继承前一频道的设置。
+class _LiveSetters {
+  final Map<String, String> _headers = {};
+  String _userAgent = '';
+  String _referer = '';
+  String _origin = '';
+  String licenseKey = '';
+  String licenseType = '';
+  String format = '';
+
+  static String _value(String line) {
+    final at = line.indexOf('=');
+    if (at < 0) return '';
+    return line.substring(at + 1).trim();
+  }
+
+  void read(String line) {
+    if (line.startsWith('#EXTHTTP:')) {
+      _headers.addAll(parseLiveHeaders(line.substring(9)));
+      return;
+    }
+    if (line.startsWith('#KODIPROP:inputstream.adaptive.stream_headers') ||
+        line.startsWith('#KODIPROP:inputstream.adaptive.common_headers')) {
+      readHeader(_value(line));
+      return;
+    }
+    if (line.startsWith('#KODIPROP:inputstream.adaptive.license_key')) {
+      licenseKey = _value(line);
+      return;
+    }
+    if (line.startsWith('#KODIPROP:inputstream.adaptive.license_type')) {
+      licenseType = _value(line);
+      return;
+    }
+    if (line.startsWith('#KODIPROP:inputstream.adaptive.drm_legacy')) {
+      // 老式合并写法（类型与键写在一行）：整行存进 licenseKey，
+      // 类型能拆出来就拆（逗号/竖线前一段当类型）。
+      final raw = _value(line);
+      if (licenseKey.isEmpty) licenseKey = raw;
+      if (licenseType.isEmpty) {
+        final split = raw.split(RegExp(r'[,|]'));
+        if (split.length > 1) licenseType = split.first.trim();
+      }
+      return;
+    }
+    if (line.startsWith('#KODIPROP:inputstream.adaptive.manifest_type')) {
+      format = _value(line);
+      return;
+    }
+    if (line.startsWith('format')) {
+      format = _value(line);
+      return;
+    }
+    if (line.startsWith('#EXTVLCOPT:http-cookie')) {
+      _headers['Cookie'] = _value(line);
+      return;
+    }
+    if (line.startsWith('#EXTVLCOPT:http-origin')) {
+      _origin = _value(line);
+      return;
+    }
+    if (line.startsWith('#EXTVLCOPT:http-user-agent')) {
+      _userAgent = _value(line);
+      return;
+    }
+    if (line.startsWith('#EXTVLCOPT:http-referrer')) {
+      _referer = _value(line);
+      return;
+    }
+    if (line.startsWith('ua')) {
+      _userAgent = _value(line);
+      return;
+    }
+    if (line.startsWith('referer')) {
+      _referer = _value(line);
+      return;
+    }
+    if (line.startsWith('origin')) {
+      _origin = _value(line);
+      return;
+    }
+    if (line.startsWith('header')) readHeader(_value(line));
+  }
+
+  void readHeader(String raw) {
+    if (raw.trim().isEmpty) return;
+    _headers.addAll(parseLiveHeaders(raw));
+  }
+
+  Map<String, String> headers() {
+    final result = <String, String>{};
+    if (_userAgent.isNotEmpty) result['User-Agent'] = _userAgent;
+    if (_referer.isNotEmpty) result['Referer'] = _referer;
+    if (_origin.isNotEmpty) result['Origin'] = _origin;
+    result.addAll(_headers);
+    return result;
+  }
+
+  void clear() {
+    _headers.clear();
+    _userAgent = '';
+    _referer = '';
+    _origin = '';
+    licenseKey = '';
+    licenseType = '';
+    format = '';
+  }
+}
+
+bool _isLiveDirective(String line) =>
+    line.startsWith('#EXTVLCOPT:') ||
+    line.startsWith('#KODIPROP:') ||
+    line.startsWith('#EXTHTTP:');
+
+const _txtMetaPrefixes = [
+  '更新时间',
+  '更新日期',
+  'update time',
+  'update date',
+  'last update',
+];
+
+bool _isTxtMetaChannel(String name) {
+  final text = name.trim().toLowerCase();
+  if (text.isEmpty) return false;
+  return _txtMetaPrefixes.any(text.startsWith);
 }
 
 List<LiveChannel> parseM3u(String text, {String sourceId = ''}) {
@@ -131,18 +443,39 @@ List<LiveChannel> parseM3u(String text, {String sourceId = ''}) {
   String? pendingTitle;
   var pendingGroup = '';
   String? pendingNumber;
+  var pendingTvgId = '';
+  var pendingTvgName = '';
+  LiveCatchup? pendingCatchup;
+  LiveCatchup? globalCatchup;
+  final setters = _LiveSetters();
   var number = 0;
   for (final rawLine in text.split('\n')) {
     final line = rawLine.trim();
     if (line.isEmpty) continue;
+    if (line.startsWith('#EXTM3U')) {
+      globalCatchup = _catchupFromAttrs(line, globalCatchup);
+      continue;
+    }
     if (line.startsWith('#EXTINF')) {
       final groupMatch = RegExp(r'group-title="([^"]*)"').firstMatch(line);
       pendingGroup = groupMatch?.group(1) ?? '';
       final chnoMatch = RegExp(r'tvg-chno="([^"]*)"').firstMatch(line);
       final chno = chnoMatch?.group(1)?.trim() ?? '';
       pendingNumber = chno.isEmpty ? null : chno.padLeft(3, '0');
+      pendingTvgId = _m3uAttribute(line, 'tvg-id') ?? '';
+      pendingTvgName = _m3uAttribute(line, 'tvg-name') ?? '';
+      // 频道自己的回看优先，没有才落全源默认。
+      pendingCatchup = _catchupFromAttrs(line, null) ?? globalCatchup;
+      final userAgent = _m3uAttribute(line, 'http-user-agent');
+      if (userAgent != null && userAgent.isNotEmpty) {
+        setters.readHeader('User-Agent=$userAgent');
+      }
       final comma = line.indexOf(',');
       pendingTitle = comma >= 0 ? line.substring(comma + 1).trim() : '未命名频道';
+      continue;
+    }
+    if (_isLiveDirective(line)) {
+      setters.read(line);
       continue;
     }
     if (line.startsWith('#')) continue;
@@ -160,11 +493,132 @@ List<LiveChannel> parseM3u(String text, {String sourceId = ''}) {
         group: pendingGroup,
         sourceId: sourceId,
         number: pendingNumber ?? number.toString().padLeft(3, '0'),
+        tvgId: pendingTvgId,
+        tvgName: pendingTvgName,
+        headers: setters.headers(),
+        catchup: pendingCatchup,
+        licenseKey: setters.licenseKey,
+        licenseType: setters.licenseType,
+        format: setters.format,
       ),
     );
     pendingTitle = null;
     pendingGroup = '';
     pendingNumber = null;
+    pendingTvgId = '';
+    pendingTvgName = '';
+    pendingCatchup = null;
+    setters.clear();
+  }
+  return channels;
+}
+
+class _TxtChannelBuilder {
+  _TxtChannelBuilder(this.title, this.group);
+  final String title;
+  final String group;
+  final List<String> urls = [];
+  Map<String, String> headers = {};
+  String licenseKey = '';
+  String licenseType = '';
+  String format = '';
+}
+
+/// TXT 播放列表解析（与魔蚁 LiveParser 的 TXT 口径一致）：
+/// `分组名,#genre#` 是分组行；`ua=` / `referer=` / `origin=` /
+/// `header=` / `format=` 是设置行，作用于其后频道、到下一分组行
+/// 清掉；`频道名,地址` 是频道行，地址可用 `#` 拼多条线路，每条
+/// 地址后可跟 `|请求头`（`名=值&名=值`）。同组同名频道合并线路。
+/// 输出与 parseM3u 同模型（LiveChannel），分组写在 group 字段。
+List<LiveChannel> parseTxtList(
+  String text, {
+  String sourceId = '',
+  String defaultGroup = '其他',
+}) {
+  final groupOrder = <String>[];
+  final groups = <String, Map<String, _TxtChannelBuilder>>{};
+  final setters = _LiveSetters();
+  var currentGroup = '';
+
+  Map<String, _TxtChannelBuilder> groupMap(String name) {
+    var map = groups[name];
+    if (map == null) {
+      map = <String, _TxtChannelBuilder>{};
+      groups[name] = map;
+      groupOrder.add(name);
+    }
+    return map;
+  }
+
+  for (final rawLine in text.split('\n')) {
+    final line = rawLine.trim();
+    if (line.isEmpty) continue;
+    if (RegExp(
+      r'^(ua|parse|click|header|format|origin|referer|forceKey)=',
+    ).hasMatch(line)) {
+      setters.read(line);
+      continue;
+    }
+    final comma = line.indexOf(',');
+    if (line.contains('#genre#')) {
+      setters.clear();
+      final name = comma >= 0 ? line.substring(0, comma).trim() : '';
+      currentGroup = name.isEmpty ? defaultGroup : name;
+      groupMap(currentGroup);
+      continue;
+    }
+    if (comma < 0) continue;
+    final name = line.substring(0, comma).trim();
+    if (name.isEmpty || _isTxtMetaChannel(name)) continue;
+    final tail = line.substring(comma + 1);
+    if (currentGroup.isEmpty) currentGroup = defaultGroup;
+    final builder = groupMap(
+      currentGroup,
+    ).putIfAbsent(name, () => _TxtChannelBuilder(name, currentGroup));
+    for (final entry in tail.split('#')) {
+      final pipe = entry.indexOf('|');
+      final url = (pipe >= 0 ? entry.substring(0, pipe) : entry).trim();
+      if (!_isPlayableLiveUrl(url)) continue;
+      var headers = setters.headers();
+      if (pipe >= 0) {
+        final extra = entry.substring(pipe + 1).trim();
+        if (extra.isNotEmpty) {
+          headers = {...headers, ...parseLiveHeaders(extra)};
+        }
+      }
+      builder.urls.add(url);
+      builder.headers = headers;
+      if (setters.licenseKey.isNotEmpty) {
+        builder.licenseKey = setters.licenseKey;
+      }
+      if (setters.licenseType.isNotEmpty) {
+        builder.licenseType = setters.licenseType;
+      }
+      if (setters.format.isNotEmpty) builder.format = setters.format;
+    }
+  }
+
+  final channels = <LiveChannel>[];
+  var number = 0;
+  for (final groupName in groupOrder) {
+    for (final builder in groups[groupName]!.values) {
+      if (builder.urls.isEmpty) continue;
+      number++;
+      channels.add(
+        LiveChannel(
+          title: builder.title,
+          url: builder.urls.first,
+          urls: builder.urls,
+          group: builder.group,
+          sourceId: sourceId,
+          number: number.toString().padLeft(3, '0'),
+          headers: builder.headers,
+          licenseKey: builder.licenseKey,
+          licenseType: builder.licenseType,
+          format: builder.format,
+        ),
+      );
+    }
   }
   return channels;
 }
@@ -451,6 +905,18 @@ class LiveSources {
     return null;
   }
 
+  /// 进页默认源：登记表里第一个真正的直播源，**不是内置片库**。
+  /// 内置片库（whos_lib）进页要先开 44.9 万行的大库再做全表聚合，
+  /// 压它当默认源时这条链任何一步慢/挂，直播页就永久「载入中…」
+  /// （2026-11-26 诊断第 1 位根因）。片库仍留在登记表里，用户在
+  /// 切换源弹窗里点选后才加载；这里只改默认选取，登记表不改。
+  static LiveSource get defaultSource {
+    for (final source in builtin) {
+      if (source.id != whosLibSourceId) return source;
+    }
+    return builtin.first;
+  }
+
   static Future<List<LiveChannel>> loadBuiltinListChannels(
     LiveSource source,
   ) async {
@@ -468,12 +934,9 @@ class LiveSources {
       text = response.body;
     }
     return parseM3u(text, sourceId: source.id).map((channel) {
-      return LiveChannel(
-        title: channel.title,
-        url: channel.url,
+      return channel.copyWith(
         group: channel.group.isEmpty ? source.group : channel.group,
         sourceId: source.id,
-        number: channel.number,
       );
     }).toList();
   }
@@ -483,55 +946,8 @@ class LiveSources {
       if (source.adult) source,
   ];
 
-  static const _m3uKey = 'juhe_live_m3u_channels';
-  static const _m3uUrlKey = 'juhe_live_m3u_url';
-
-  static Future<List<LiveChannel>> loadImportedChannels() async {
-    try {
-      final preferences = await SharedPreferences.getInstance();
-      final raw = preferences.getString(_m3uKey);
-      if (raw == null || raw.isEmpty) return const [];
-      final decoded = jsonDecode(raw);
-      if (decoded is! List) return const [];
-      return [
-        for (final entry in decoded)
-          if (entry is Map<String, dynamic>) LiveChannel.fromJson(entry),
-      ].whereType<LiveChannel>().toList();
-    } catch (_) {
-      return const [];
-    }
-  }
-
-  static Future<String> loadImportedM3uUrl() async {
-    try {
-      final preferences = await SharedPreferences.getInstance();
-      return preferences.getString(_m3uUrlKey) ?? '';
-    } catch (_) {
-      return '';
-    }
-  }
-
-  static Future<List<LiveChannel>> importM3uUrl(String url) async {
-    final trimmed = url.trim();
-    if (!trimmed.toLowerCase().startsWith('http')) {
-      throw StateError('m3u 地址需要以 http 开头');
-    }
-    final response = await http
-        .get(Uri.parse(trimmed))
-        .timeout(const Duration(seconds: 20));
-    if (response.statusCode != 200) {
-      throw StateError('m3u 拉取失败：HTTP ${response.statusCode}');
-    }
-    final channels = parseM3u(response.body);
-    if (channels.isEmpty) {
-      throw StateError('m3u 里没有可识别的频道');
-    }
-    final preferences = await SharedPreferences.getInstance();
-    await preferences.setString(
-      _m3uKey,
-      jsonEncode([for (final channel in channels) channel.toJson()]),
-    );
-    await preferences.setString(_m3uUrlKey, trimmed);
-    return channels;
-  }
+  // 旧单槽导入（loadImportedChannels / importM3uUrl 三件套）已由
+  // 多槽订阅机件接管（services/live_subscriptions.dart）：老键
+  // juhe_live_m3u_channels / juhe_live_m3u_url 由订阅机件在首次
+  // 加载时迁成一条订阅记录后删除，不再有第二条导入通路。
 }

@@ -193,4 +193,68 @@ class WhosJsonIndex {
     return _codeToVideo[key] ??
         _codeToVideo[normalizeAvCode(key)];
   }
+
+  // —— 无库时 JSON 顶首页用（2026-11-26）：只读分页访问器 ——
+  // 不改内存策略：仍只常驻演员映射里有的视频行；排序结果首次
+  // 算完缓存，后续切页直接切片。
+
+  List<({String name, int works})>? _actorsByWorksCache;
+
+  /// 全部有作品的演员，按番号数倒序、同数按名字排（名单页用）。
+  List<({String name, int works})> actorsByWorks() {
+    final cached = _actorsByWorksCache;
+    if (cached != null) return cached;
+    final rows = <({String name, int works})>[
+      for (final entry in _actorToCodes.entries)
+        (name: entry.key, works: entry.value.length),
+    ]..sort((a, b) {
+      final byWorks = b.works.compareTo(a.works);
+      return byWorks != 0 ? byWorks : a.name.compareTo(b.name);
+    });
+    _actorsByWorksCache = rows;
+    return rows;
+  }
+
+  List<WhosVideo>? _videoListCache;
+
+  /// 视频目录全量（目录原顺序），作品流分页用。
+  List<WhosVideo> get _videoList =>
+      _videoListCache ??= _codeToVideo.values.toList();
+
+  /// 视频目录全量（目录原顺序）：本地库 asset 模式按厂牌分组用。
+  List<WhosVideo> get allVideos => _videoList;
+
+  /// 作品流一页：query 非空时按番号/标题包含过滤（大小写不敏感）。
+  List<WhosVideo> videoPage({
+    required int offset,
+    required int limit,
+    String query = '',
+  }) {
+    final q = query.trim().toLowerCase();
+    final all = q.isEmpty
+        ? _videoList
+        : [
+            for (final video in _videoList)
+              if (video.code.toLowerCase().contains(q) ||
+                  video.title.toLowerCase().contains(q))
+                video,
+          ];
+    if (offset >= all.length) return const [];
+    final end = (offset + limit).clamp(0, all.length);
+    return all.sublist(offset, end);
+  }
+
+  /// 作品流总数（与 [videoPage] 同一过滤口径）。
+  int videoTotal({String query = ''}) {
+    final q = query.trim().toLowerCase();
+    if (q.isEmpty) return _videoList.length;
+    var n = 0;
+    for (final video in _videoList) {
+      if (video.code.toLowerCase().contains(q) ||
+          video.title.toLowerCase().contains(q)) {
+        n++;
+      }
+    }
+    return n;
+  }
 }

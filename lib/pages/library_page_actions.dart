@@ -209,6 +209,7 @@ mixin _LibraryPageActions on _LibraryPageStateBase {
   List<_ShelfEntry> get _visibleEntries => switch (_tab) {
     1 => _sortShelf(_comics),
     2 => _sortShelf(_audios),
+    3 => _sortShelf(_musics),
     _ => _sortShelf(_novels),
   };
 
@@ -268,6 +269,7 @@ mixin _LibraryPageActions on _LibraryPageStateBase {
     final current = switch (_tab) {
       1 => _comics,
       2 => _audios,
+      3 => _musics,
       _ => _novels,
     };
     final selected = [
@@ -302,6 +304,8 @@ mixin _LibraryPageActions on _LibraryPageStateBase {
           _comics = kept;
         case 2:
           _audios = kept;
+        case 3:
+          _musics = kept;
         default:
           _novels = kept;
       }

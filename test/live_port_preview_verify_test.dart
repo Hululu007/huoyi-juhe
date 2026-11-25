@@ -162,6 +162,14 @@ void main() {
         const CultivationSnapshot(
       seconds: {CultivationCategory.novel: 6000.0},
     );
+    // 默认源已改成秀果（不再压内置片库大库）：先等解锁帧建出来，
+    // 再从弹窗点选内置片库（注入的内存库），等第一页频道出来。
+    expect(await pumpUntil(tester, find.byTooltip('切换直播源')), true);
+    await tester.tap(find.byTooltip('切换直播源'));
+    expect(await pumpUntil(tester, find.text('切换直播源')), true);
+    await tester.tap(
+      find.byKey(const ValueKey('site-picker-row-whos_lib')),
+    );
     expect(
       await pumpUntil(
         tester,
@@ -199,7 +207,7 @@ void main() {
       size: const Size(390, 844),
       boundaryKey: boundaryKey,
     );
-    // 默认源就是内置片库：解锁后已自动加载，左栏是分类、右列是频道。
+    // pumpUnlocked 已点选内置片库：左栏是分类、右列是频道。
     expect(find.text('最新作品 · 5'), findsOneWidget);
     expect(find.text('SSIS-001 标题1'), findsWidgets);
     await tester.pumpAndSettle();

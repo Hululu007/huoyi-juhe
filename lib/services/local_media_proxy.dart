@@ -5,6 +5,7 @@ import 'dart:math';
 
 import 'package:http/http.dart' as http;
 
+import 'hls_ad_filter.dart';
 import 'local_proxy_preferences.dart';
 import 'shell_proxy_url.dart';
 
@@ -977,10 +978,18 @@ class LocalMediaProxy {
       if (isPlaylist && upstream.statusCode == 200) {
         final playlistText =
             utf8.decode(upstream.bodyBytes, allowMalformed: true);
-        final rewritten = _rewritePlaylist(playlistText, token, target);
+        // 去广告（同步批 B1）：必须在改写成本代理地址之前、按原始
+        // 分片地址做指纹过滤；改写后全是本机地址，指纹会塌成一个。
+        // 预取目标同样按过滤后的清单算，不预取已删的广告分片。
+        var effectiveText = playlistText;
+        if (await AdBlockPreference.load()) {
+          final cleaned = filterHlsAdSegments(playlistText, target);
+          if (cleaned.removed > 0) effectiveText = cleaned.text;
+        }
+        final rewritten = _rewritePlaylist(effectiveText, token, target);
         // 播放列表下发即触发并发预取：取随后 4 个分片（变体播放列表行
         // 已在 _playlistSegmentTargets 里排除）。
-        final segmentTargets = _playlistSegmentTargets(playlistText, target);
+        final segmentTargets = _playlistSegmentTargets(effectiveText, target);
         if (segmentTargets.isNotEmpty) {
           _playlistSegments[token] = segmentTargets;
           _prefetchSegments(

@@ -9,6 +9,7 @@ import '../models/home_cell.dart';
 import '../models/media_item.dart';
 import '../services/api_client.dart';
 import '../services/app_log.dart';
+import '../services/app_update.dart';
 import '../services/book_open_preferences.dart';
 import '../services/chapter_cache_store.dart';
 import '../services/core_novel_categories.dart';
@@ -17,6 +18,7 @@ import '../services/desktop_platform.dart';
 import '../services/drama_site_content.dart';
 import '../services/drama_site_play.dart';
 import '../services/drama_sites.dart';
+import '../services/site_thumb_cache.dart';
 import '../services/source_registry.dart';
 import '../services/home_continue_preferences.dart';
 import '../services/home_page_affinity.dart';
@@ -29,6 +31,7 @@ import '../widgets/home/home_moyi_carousel.dart';
 import '../widgets/home/home_moyi_style.dart';
 import '../widgets/site_grid_dialog.dart';
 import '../widgets/home/home_cell_blocks.dart';
+import '../widgets/app_update_prompt.dart';
 import '../widgets/home/home_cell_renderers.dart';
 import '../widgets/home/home_design.dart';
 import '../widgets/series_detail/moyi_detail_theme.dart';
@@ -234,6 +237,9 @@ class _HomePageState extends ConsumerState<HomePage> {
               ?.zone ??
           SiteGridZone.builtin,
       onDeleteSite: deleteSiteGridEntry,
+      // 站点透视（C1）：片库 / 影视 / 短剧选站弹窗启用站内封面。
+      thumbCache: SiteThumbCache.instance,
+      thumbFetcher: fetchSiteHomeCover,
     );
     if (!mounted) return;
     if (picked == null) {
@@ -415,6 +421,18 @@ class _HomePageState extends ConsumerState<HomePage> {
     unawaited(_loadFilmSite());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) ref.read(homeProvider.notifier).load();
+    });
+    // 软件更新启动弹窗（B8）：首帧后异步查一次，一次启动最多弹
+    // 一次、24 小时节流、「稍后再说」只跳本版，都在检查器里管；
+    // 这里只负责有结果时把弹窗端出来，全程不挡首页。
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final pending = await AppUpdateChecker.instance.pendingUpdatePrompt();
+      if (pending == null || !mounted) return;
+      await showAppUpdatePrompt(
+        context,
+        current: pending.current,
+        latest: pending.latest,
+      );
     });
   }
 
@@ -725,6 +743,9 @@ class _HomePageState extends ConsumerState<HomePage> {
           ? SiteGridZone.builtin
           : SiteGridZone.import,
       onDeleteSite: deleteSiteGridEntry,
+      // 站点透视（C1）：片库 / 影视 / 短剧选站弹窗启用站内封面。
+      thumbCache: SiteThumbCache.instance,
+      thumbFetcher: fetchSiteHomeCover,
     );
     if (!mounted) return;
     if (picked == null) {

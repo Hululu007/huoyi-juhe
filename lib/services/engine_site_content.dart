@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'drama_playback.dart';
 import 'local_media_proxy.dart';
+import 'player_tracks.dart';
 import 'drama_site_content.dart';
 import 'drama_sites.dart';
 import 'jar_bridge.dart';
@@ -147,14 +148,68 @@ LocalProxyResponse parseLocalProxyResponse(Map<String, dynamic> json) {
   );
 }
 
+/// 播放地址多候选（同步批 A2 核查补缺）：playerContent 的 url 除
+/// 字符串外，TVBox 约定里还有数组形态——[名, 址, 名, 址…] 成对、
+/// 纯地址列表、或 [{name, url}…] 对象列表。此前 _text 会把数组
+/// 拼成 "[名, 址, …]" 的垃圾串直接播不了，这里归一成候选列表：
+/// 第一条作主址，其余作 variants（与换变体/回退链的候选同路）。
+List<({String name, String url})> playUrlCandidates(Object? raw) {
+  if (raw is! List) return const [];
+  final objects = <({String name, String url})>[];
+  final strings = <String>[];
+  for (final entry in raw) {
+    if (entry is Map) {
+      final url = _text(
+        entry['url'] ?? entry['v'] ?? entry['src'] ?? entry['address'],
+      );
+      if (url.isEmpty) continue;
+      final name = _text(entry['name'] ?? entry['n'] ?? entry['title']);
+      objects.add((name: name, url: url));
+    } else {
+      final text = _text(entry);
+      if (text.isNotEmpty) strings.add(text);
+    }
+  }
+  if (objects.isNotEmpty) {
+    return <({String name, String url})>[
+      for (var i = 0; i < objects.length; i++)
+        (
+          name: objects[i].name.isEmpty ? '线路${i + 1}' : objects[i].name,
+          url: objects[i].url,
+        ),
+    ];
+  }
+  if (strings.isEmpty) return const [];
+  bool looksLikeUrl(String text) => text.contains('://');
+  final urlsOnly = strings.every(looksLikeUrl);
+  final paired = strings.length >= 2 &&
+      strings.length.isEven &&
+      <int>[for (var i = 1; i < strings.length; i += 2) i].every(
+        (i) => looksLikeUrl(strings[i]),
+      );
+  if (urlsOnly) {
+    return <({String name, String url})>[
+      for (var i = 0; i < strings.length; i++)
+        (name: '线路${i + 1}', url: strings[i]),
+    ];
+  }
+  if (paired) {
+    return <({String name, String url})>[
+      for (var i = 0; i < strings.length; i += 2)
+        (name: strings[i], url: strings[i + 1]),
+    ];
+  }
+  // 形状不明时只取像地址的串，宁少勿错。
+  final urls = strings.where(looksLikeUrl).toList();
+  return <({String name, String url})>[
+    for (var i = 0; i < urls.length; i++) (name: '线路${i + 1}', url: urls[i]),
+  ];
+}
+
 DramaPlaySource parseTvboxPlay(Map<String, dynamic> json) {
   final parse = _text(json['parse']);
   if (parse == '1') {
     throw StateError('该集需要壳解析，当前播放合同只支持直链');
-  }
-  final url = _text(json['url']);
-  if (url.isEmpty) {
-    throw StateError('该集没有可播地址');
   }
   final headers = <String, String>{};
   final headerRaw = json['header'];
@@ -163,7 +218,31 @@ DramaPlaySource parseTvboxPlay(Map<String, dynamic> json) {
       headers[entry.key.toString()] = entry.value.toString();
     }
   }
-  return DramaPlaySource(url: url, headers: headers);
+  final rawUrl = json['url'];
+  var url = '';
+  var variants = const <DramaPlayVariant>[];
+  if (rawUrl is List) {
+    final candidates = playUrlCandidates(rawUrl);
+    if (candidates.isNotEmpty) {
+      url = candidates.first.url;
+      variants = <DramaPlayVariant>[
+        for (var i = 1; i < candidates.length; i++)
+          DramaPlayVariant(name: candidates[i].name, url: candidates[i].url),
+      ];
+    }
+  } else {
+    url = _text(rawUrl);
+  }
+  if (url.isEmpty) {
+    throw StateError('该集没有可播地址');
+  }
+  return DramaPlaySource(
+    url: url,
+    headers: headers,
+    variants: variants,
+    // 外挂字幕（A8）：playerContent 的 subs 在此归一，全引擎站共用。
+    subs: parseExternalSubtitles(json['subs']),
+  );
 }
 
 class PySiteContentClient extends DramaSiteContentClient

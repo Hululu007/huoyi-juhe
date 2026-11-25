@@ -10,6 +10,7 @@ import '../../services/drama_sites.dart';
 import '../../services/m3u_export.dart';
 import '../../services/m3u_export_db.dart';
 import '../../services/midnight_gate.dart';
+import '../../services/site_health_tracking_client.dart';
 import '../../services/xbpq_content.dart';
 import '../../services/source_registry.dart';
 import '../series_detail/moyi_detail_theme.dart';
@@ -131,10 +132,18 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
     String categoryId,
     int page,
   ) {
-    if (client is XbpqContentClient && _filters.isNotEmpty) {
-      return client.catalogFiltered(categoryId, page, _filters);
+    final xbpq = _xbpqOf(client);
+    if (xbpq != null && _filters.isNotEmpty) {
+      return xbpq.catalogFiltered(categoryId, page, _filters);
     }
     return client.catalog(categoryId, page);
+  }
+
+  /// XBPQ 扩展 API 要真客户端：健康记录包装层（clientFor 出口）
+  /// 先拆包再判类型，其余调用走包装层原样。
+  XbpqContentClient? _xbpqOf(DramaSiteContentClient client) {
+    final raw = unwrapSiteClient(client);
+    return raw is XbpqContentClient ? raw : null;
   }
 
   Widget _filterBar() {
@@ -272,9 +281,9 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
       _loadMoreFailed = false;
       _prefetchedPage = null;
       _prefetchedForPage = 0;
-      _filterGroups = client is XbpqContentClient
-          ? client.filterGroups(widget.categoryId)
-          : <XbpqFilterGroup>[];
+      _filterGroups =
+          _xbpqOf(client)?.filterGroups(widget.categoryId) ??
+          <XbpqFilterGroup>[];
     });
     try {
       final page = await _catalog(client, widget.categoryId, 1);

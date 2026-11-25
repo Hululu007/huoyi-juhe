@@ -295,6 +295,9 @@ void main() {
       await _pumpHost(tester, const _Host());
       await _openDialog(tester);
 
+      // 站卡改版后（封面区 + 站名）单卡更高，第三组要先滚到位再点。
+      await tester.ensureVisible(find.text('午夜内置'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('午夜内置'));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('site-grid-dialog')), findsNothing);

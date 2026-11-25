@@ -10,6 +10,7 @@ import 'package:fqapp/services/app_theme.dart';
 import 'package:fqapp/services/audio_preferences.dart';
 import 'package:fqapp/services/episode_source_cache.dart';
 import 'package:fqapp/services/player_preferences.dart';
+import 'package:fqapp/services/player_tracks.dart';
 
 import 'support/fakes.dart';
 
@@ -344,7 +345,12 @@ void main() {
 /// 建播放器必失败的假播放器：用来验证失败路径的资源释放与提示。
 class _FailingPlayer extends FakeNativePlayer {
   @override
-  Future<int> create(String cdnUrl, String keyHex, {int? startMs}) async {
+  Future<int> create(
+    String cdnUrl,
+    String keyHex, {
+    int? startMs,
+    List<ExternalSubtitle> subtitles = const [],
+  }) async {
     calls.add('create:$cdnUrl');
     createdKeys.add(keyHex);
     throw StateError('create failed');

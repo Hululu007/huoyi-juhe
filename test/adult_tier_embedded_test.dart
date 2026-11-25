@@ -11,7 +11,8 @@ import 'embedded_test_entries.dart';
 /// 境界成人分档（内嵌版）：批量转站后核心只剩 hgdj/hgdj58/hgdjv 3 站，
 /// 分档改读 adultVideoSiteOrder（删核心前的核心登记顺序 201 站，加上
 /// 之后追加的 72 个资源站（zy/* 等），再加 2026-11-24 魔蚁 v63 合入的
-/// 5 站（whos/youzidj/yzaikan/one/tgpianku），共 278 站）。
+/// 5 站（whos/youzidj/yzaikan/one/tgpianku），共 278 站；2026-11-26
+/// MissAV 收拢删 missavoff/mirror/missavt 3 站，现 275 站）。
 /// 影视区统一表里的行 id（种子 `seed_<id>`、jar `jar:zakatv:<key>`、
 /// 核心裸 id）查档位时先归一化成核心站 id。
 ///
@@ -45,11 +46,11 @@ void main() {
     'huangdou_yh',
   ];
 
-  test('分档登记表：278 站、无重复、首站 mjv011、末站 tgpianku', () {
-    expect(adultVideoSiteOrder.length, 278);
-    expect(adultVideoSiteOrder.toSet().length, 278);
+  test('分档登记表：281 站、无重复、首站 mjv011、末站 ningguo', () {
+    expect(adultVideoSiteOrder.length, 281);
+    expect(adultVideoSiteOrder.toSet().length, 281);
     expect(adultVideoSiteOrder.first, 'mjv011');
-    expect(adultVideoSiteOrder.last, 'tgpianku');
+    expect(adultVideoSiteOrder.last, 'ningguo');
   });
 
   test('3 个留站仍在分档里，原始 19 短剧站都不在', () {
@@ -63,16 +64,19 @@ void main() {
     }
   });
 
-  test('4 档规模：68/69/70/71', () {
-    expect(adultTierSiteIds(0, adultVideoSiteOrder).length, 68);
-    expect(adultTierSiteIds(1, adultVideoSiteOrder).length, 69);
+  test('4 档规模：69/70/70/72', () {
+    expect(adultTierSiteIds(0, adultVideoSiteOrder).length, 69);
+    expect(adultTierSiteIds(1, adultVideoSiteOrder).length, 70);
     expect(adultTierSiteIds(2, adultVideoSiteOrder).length, 70);
-    expect(adultTierSiteIds(3, adultVideoSiteOrder).length, 71);
+    expect(adultTierSiteIds(3, adultVideoSiteOrder).length, 72);
   });
 
   test('抽查档位与现登记表顺序一致', () {
     // 下标与档位按 adultVideoSiteOrder 顺序算
-    // （档 = min(3, 下标 × 4 ~/ 278)；missav/javrate 钉第 4 档）。
+    // （档 = min(3, 下标 × 4 ~/ 281)；missav/javrate 钉第 4 档）。
+    // 2026-11-26 删 missavoff/mirror/missavt 后按现表复算：本抽查表里
+    // 除删掉的 missavoff 外，其余站档位与 278 站时一致（换档的只有
+    // airav/shunvwang/heitaoduanju/danaizizy 4 站，不在本表）。
     const expected = <String, int>{
       'mjv011': 0,
       'missav': 3,
@@ -99,7 +103,6 @@ void main() {
       'hjapp': 1,
       'javplay': 1,
       'lissavcn': 2,
-      'missavoff': 0,
       'hddj': 0,
       'huangguo': 0,
       'hgtvim': 0,
@@ -133,7 +136,6 @@ void main() {
     expect(adultSiteIdForUnifiedId('jar:zakatv:ZakaWhos'), 'wohs');
     expect(adultSiteIdForUnifiedId('jar:zakatv:ZakaHjApp'), 'hjapp');
     expect(adultSiteIdForUnifiedId('jar:zakatv:ZakaHgdjV'), 'hgdjv');
-    expect(adultSiteIdForUnifiedId('jar:zakatv:ZakaMissavOff'), 'missavoff');
     expect(adultSiteIdForUnifiedId('jar:zakatv:ZakaLissavCn'), 'lissavcn');
     expect(adultSiteIdForUnifiedId('jar:zakatv:ZakaJavPlay'), 'javplay');
     expect(adultSiteIdForUnifiedId('jar:zakatv:haijiao4k'), 'haijiao4k');
@@ -160,8 +162,9 @@ void main() {
     );
   });
 
-  test('内嵌站全有档位：种子 + jar + 核心 3 站覆盖全部 278 个登记 id', () {
-    // 201 站旧表 + 72 个资源站 + 2026-11-24 魔蚁 v63 合入 5 站 = 278。
+  test('内嵌站全有档位：种子 + jar + 核心 3 站覆盖全部 281 个登记 id', () {
+    // 201 站旧表 + 72 个资源站 + 2026-11-24 魔蚁 v63 合入 5 站 = 278，
+    // 2026-11-26 MissAV 收拢删 3 站 = 275。
     final covered = <String>{};
     for (final seed in builtinImportedSeeds) {
       final id = 'seed_${seed.seedId}';
@@ -182,7 +185,7 @@ void main() {
       }
     }
     covered.addAll(['hgdj', 'hgdj58', 'hgdjv']);
-    expect(covered.length, 278);
+    expect(covered.length, 281);
     expect(covered, adultVideoSiteOrder.toSet());
   });
 
@@ -204,14 +207,15 @@ void main() {
     cultivationAdultTierGateDisabledForTesting = false;
     final at0 = visibleVideoZoneSites(entries, 0).map((s) => s.id).toSet();
     expect(at0.contains('jar:zakatv:ZakaMjv011'), isFalse);
-    expect(at0.contains('jar:zakatv:ZakaMissav'), isFalse);
+    expect(at0.contains('seed_missav'), isFalse);
     expect(at0.contains('seed_abjav'), isFalse);
     expect(at0.contains('jar:zakatv:zakajavverse'), isTrue);
-    // 3000 时第 1 档出现（mjv011 是 jar 行），第 4 档还不出现。
+    // 3000 时第 1 档出现（mjv011 是 jar 行），第 4 档还不出现
+    //（missav 只剩种子行，钉第 4 档）。
     final at3000 =
         visibleVideoZoneSites(entries, 3000).map((s) => s.id).toSet();
     expect(at3000.contains('jar:zakatv:ZakaMjv011'), isTrue);
-    expect(at3000.contains('jar:zakatv:ZakaMissav'), isFalse);
+    expect(at3000.contains('seed_missav'), isFalse);
     expect(at3000.contains('jar:zakatv:ZakaJavrate'), isFalse);
     // 30000 全开。
     expect(

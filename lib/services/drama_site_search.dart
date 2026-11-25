@@ -148,6 +148,7 @@ String globalSearchTypeLabel(ContentType type) => switch (type) {
   ContentType.comic => '漫画',
   ContentType.audio => '听书',
   ContentType.mixed => '综合',
+  ContentType.music => '音乐',
 };
 
 /// 全局搜索的目标站：一个可搜的站。
