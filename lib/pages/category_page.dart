@@ -175,6 +175,42 @@ class _CategoryPageState extends State<CategoryPage> {
   String? _moyiWorksError;
   int _moyiWorksGeneration = 0;
 
+  /// 最近一次取作品里没响应的源数（全部源 settle 后才写入；>0 且
+  /// 有作品时网格上方出部分失败提示，见 [_buildMoyiVideo]）。
+  int _moyiFailedSources = 0;
+
+  /// 本站模式分类表缓存（按站 id）：旧实现每次取作品前都重拉一遍
+  /// 客户端 categories()（30 秒超时、串行挡在取作品前面），切个
+  /// 分类先白等一轮。分类表一页内不变，按站缓存一次即可。
+  final Map<String, List<DramaSiteCategory>> _moyiSiteCategories = {};
+
+  /// 作品缓存（静态、跨页实例）：本页每次打开都是新推入的路由
+  /// （home/video 页 builder 现造），实例级状态一出页就没了，
+  /// 冷进每次全量重拉。静态缓存让再进页、切回看过的分类先出
+  /// 缓存、后台再刷新。只存真拿到作品的结果——全失败不入缓存，
+  /// 下次点进来照常重试。上限 [_moyiWorksCacheCap] 个分类，
+  /// 超出按先入先出淘汰。
+  static final Map<String, List<MoyiChannelWork>> _moyiWorksCache = {};
+  static const int _moyiWorksCacheCap = 16;
+
+  /// 统一分类数据的跨实例记忆：资产 4.7MB，每次进页在 UI 线程
+  /// 重新解析一遍很费时。只记非空结果（资产缺失回空不记，下次
+  /// 照常重试）；只走生产路径（测试注入 loader 时不碰）。
+  static UnifiedVideoCategories? _sharedUnifiedData;
+
+  /// 单个源取作品的总上限（构造客户端 + catalog 一起算）：旧实现
+  /// 只有 catalog 套了 45+5 秒超时、构造客户端那段没有上限，
+  /// 一个源卡死能把整页转圈拖满 50 秒甚至无限。25 秒后该源按
+  /// 没响应处理，其他源的结果早已逐个上屏（见 [_loadMoyiWorks]）。
+  static const Duration _moyiSourceTimeout = Duration(seconds: 25);
+
+  /// 作品缓存键：统一模式按统一数据对象身份 + 分类名（生产路径
+  /// 的数据对象是 [_sharedUnifiedData] 单例，跨页稳定；换一份
+  /// 数据自动换键）；本站模式按站 id + 分类名。
+  String get _moyiWorksCacheKey => _unifiedMode
+      ? 'u${identityHashCode(_unifiedData)}|$_moyiSelected'
+      : 's|${_videoSiteId ?? ''}|$_moyiSelected';
+
   /// 统一模式页内搜索：输入框是否展开、当前过滤词。
   bool _unifiedSearching = false;
   String _unifiedQuery = '';
@@ -269,9 +305,19 @@ class _CategoryPageState extends State<CategoryPage> {
     });
     try {
       _videoSiteId ??= widget.videoSiteId ?? await currentVideoZoneSiteId();
-      _unifiedData ??= widget.unifiedLoader != null
-          ? await widget.unifiedLoader!()
-          : await loadUnifiedVideoCategories();
+      if (_unifiedData == null) {
+        if (widget.unifiedLoader != null) {
+          _unifiedData = await widget.unifiedLoader!();
+        } else if (_sharedUnifiedData != null) {
+          // 跨实例记忆命中：4.7MB 资产不再重复解析。
+          _unifiedData = _sharedUnifiedData;
+        } else {
+          _unifiedData = await loadUnifiedVideoCategories();
+          if (_unifiedData!.categories.isNotEmpty) {
+            _sharedUnifiedData = _unifiedData;
+          }
+        }
+      }
       if (!mounted || generation != _loadGeneration) return;
       final data = _unifiedData!;
       if (data.categories.isEmpty) {
@@ -810,13 +856,27 @@ class _CategoryPageState extends State<CategoryPage> {
     }
     final siteId = _videoSiteId;
     if (siteId == null || siteId.isEmpty) return const [];
-    final client = await _moyiClientFor(siteId);
-    if (client == null) return const [];
-    late final List<DramaSiteCategory> cats;
-    try {
-      cats = await client.categories().timeout(const Duration(seconds: 30));
-    } catch (_) {
-      return const [];
+    // 分类表按站缓存：命中就不必再等客户端构造 + categories()。
+    final List<DramaSiteCategory> cats;
+    final cachedCats = _moyiSiteCategories[siteId];
+    if (cachedCats != null) {
+      cats = cachedCats;
+    } else {
+      // 构造客户端也要有上限：旧实现这段裸等，注册表加载卡住时
+      // 作品永远取不出来、转圈没有尽头。
+      final client = await _moyiClientFor(siteId).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => null,
+      );
+      if (client == null) return const [];
+      try {
+        cats = await client.categories().timeout(
+          const Duration(seconds: 30),
+        );
+      } catch (_) {
+        return const [];
+      }
+      _moyiSiteCategories[siteId] = cats;
     }
     String? idFor(String categoryName) {
       for (final cat in cats) {
@@ -839,65 +899,118 @@ class _CategoryPageState extends State<CategoryPage> {
 
   /// 取选中分类的作品：前 4 源并行 catalog(path, 1)，一站取不到跳过，
   /// 最多留 24 部。代际 guard：切分类/切模式后先到的旧响应不落地。
+  ///
+  /// 2026-11-27 提速（用户实报「加载太慢」）：旧实现 Future.wait
+  /// 等全部源 settle 才渲染，最慢的源（单源超时 50 秒）拖住整页；
+  /// 且零缓存，切回看过的分类、再进页都全量重拉。新实现：
+  /// * 缓存先行：命中 [_moyiWorksCache] 先出缓存、不转圈，
+  ///   本次取数在后台刷新，回来后换新内容并回写缓存；
+  /// * 逐站出结果：每个源一回来就合并上屏，不等其他源；
+  /// * 全部 settle 后才定错误态/部分失败数；全失败且无缓存时
+  ///   出「这些站现在都打不开」带重试（存量行为）。
   Future<void> _loadMoyiWorks() async {
     final generation = ++_moyiWorksGeneration;
+    final cacheKey = _moyiWorksCacheKey;
+    final cached = _moyiWorksCache[cacheKey];
     setState(() {
-      _moyiWorksLoading = true;
       _moyiWorksError = null;
+      _moyiFailedSources = 0;
+      if (cached != null) {
+        _moyiWorks = cached;
+        _moyiWorksLoading = false;
+      } else {
+        _moyiWorks = const [];
+        _moyiWorksLoading = true;
+      }
     });
     final sources = await _moyiSourcesFor(_moyiSelected);
     if (!mounted || generation != _moyiWorksGeneration) return;
     if (sources.isEmpty) {
       setState(() {
-        _moyiWorks = const [];
+        if (cached == null) _moyiWorks = const [];
         _moyiWorksLoading = false;
         _moyiWorksError = null;
       });
       return;
     }
-    final results = await Future.wait([
-      for (final source in sources) _fetchMoyiSource(source),
-    ]);
-    if (!mounted || generation != _moyiWorksGeneration) return;
-    final works = <MoyiChannelWork>[];
+    final merged = <MoyiChannelWork>[];
     final seen = <String>{};
-    for (final batch in results) {
-      for (final work in batch) {
-        // 同一站同一作品（多分类/多源重叠）只留一部，不然同列会
-        // 出现重复 key。
-        if (seen.add('${work.siteId}_${work.item.id}')) {
-          works.add(work);
-        }
-      }
-    }
-    setState(() {
-      _moyiWorks = works.take(24).toList();
-      _moyiWorksLoading = false;
-      _moyiWorksError = works.isEmpty ? '这些站现在都打不开，稍后再试' : null;
-    });
+    var failed = 0;
+    var settled = 0;
+    await Future.wait([
+      for (final source in sources)
+        _fetchMoyiSource(source).then((result) {
+          settled++;
+          if (!result.ok) failed++;
+          for (final work in result.works) {
+            // 同一站同一作品（多分类/多源重叠）只留一部，不然同列会
+            // 出现重复 key。
+            if (seen.add('${work.siteId}_${work.item.id}')) {
+              merged.add(work);
+            }
+          }
+          final done = settled == sources.length;
+          if (done && merged.isNotEmpty) {
+            // 只有真拿到作品才回写缓存；迟到的旧代际结果对它自己
+            // 的键仍是有效数据，照常回写，界面落地才看代际。
+            _moyiWorksCache[cacheKey] = merged.take(24).toList();
+            while (_moyiWorksCache.length > _moyiWorksCacheCap) {
+              _moyiWorksCache.remove(_moyiWorksCache.keys.first);
+            }
+          }
+          if (!mounted || generation != _moyiWorksGeneration) return;
+          setState(() {
+            // 后台刷新全空时不许清掉正在显示的缓存内容。
+            if (merged.isNotEmpty || cached == null) {
+              _moyiWorks = merged.take(24).toList();
+            }
+            if (done) {
+              _moyiWorksLoading = false;
+              _moyiFailedSources = failed;
+              _moyiWorksError = (cached == null && merged.isEmpty)
+                  ? '这些站现在都打不开，稍后再试'
+                  : null;
+            }
+          });
+        }),
+    ]);
   }
 
-  Future<List<MoyiChannelWork>> _fetchMoyiSource(_MoyiSource source) async {
+  /// 取一个源的作品：构造客户端 + catalog 整段套 [_moyiSourceTimeout]
+  /// 总上限。超时、异常、无客户端都算该源没响应（ok 为 false），
+  /// 由 [_loadMoyiWorks] 计入失败数；catalog 正常返回（哪怕空页）
+  /// 算响应成功。
+  Future<({List<MoyiChannelWork> works, bool ok})> _fetchMoyiSource(
+    _MoyiSource source,
+  ) async {
     try {
-      final client = await _moyiClientFor(source.siteId);
-      if (client == null) return const [];
-      final page = await client
-          .catalog(source.path, 1)
-          .timeout(ApiClient.dramaCatalogTimeout + const Duration(seconds: 5));
-      return [
-        for (var i = 0; i < page.items.length; i++)
-          MoyiChannelWork(
-            item: page.items[i],
-            siteId: source.siteId,
-            siteName: _moyiSiteDisplayName(source.siteId),
-            category: source.category,
-            categorySiteCount: source.siteCount,
-            index: i,
-          ),
-      ];
+      final page = await _fetchMoyiPage(source).timeout(_moyiSourceTimeout);
+      if (page == null) {
+        return (works: const <MoyiChannelWork>[], ok: false);
+      }
+      return (
+        works: [
+          for (var i = 0; i < page.items.length; i++)
+            MoyiChannelWork(
+              item: page.items[i],
+              siteId: source.siteId,
+              siteName: _moyiSiteDisplayName(source.siteId),
+              category: source.category,
+              categorySiteCount: source.siteCount,
+              index: i,
+            ),
+        ],
+        ok: true,
+      );
     } catch (_) {
-      return const [];
+      return (works: const <MoyiChannelWork>[], ok: false);
     }
+  }
+
+  Future<DramaSiteCatalogPage?> _fetchMoyiPage(_MoyiSource source) async {
+    final client = await _moyiClientFor(source.siteId);
+    if (client == null) return null;
+    return client.catalog(source.path, 1);
   }
 
   String _moyiSiteDisplayName(String siteId) {
@@ -1102,7 +1215,21 @@ class _CategoryPageState extends State<CategoryPage> {
     final visible = _moyiVisibleWorks;
     final showSearch = _unifiedMode && _unifiedSearching;
     Widget gridBody;
-    if ((_loading && _unifiedData == null && _singleData == null) ||
+    // 有作品就先出网格（逐站到达、缓存先行都靠这条）：转圈只在
+    // 一部作品都没有时出现，旧实现取数中一律转圈、已有内容也被挡。
+    if (_moyiWorks.isNotEmpty) {
+      gridBody = visible.isEmpty
+          ? Center(
+              child: Text(
+                _moyiSort == 'finished' ? '该分类下暂无完结作品' : '没有符合筛选的作品',
+                style: const TextStyle(
+                  fontSize: 14,
+                  color: Color(0xFFB9B2D6),
+                ),
+              ),
+            )
+          : MoyiChannelWorksGrid(works: visible, onTap: _onMoyiWorkTap);
+    } else if ((_loading && _unifiedData == null && _singleData == null) ||
         _moyiWorksLoading) {
       gridBody = const Center(
         child: CircularProgressIndicator(color: moyiCyan),
@@ -1128,20 +1255,37 @@ class _CategoryPageState extends State<CategoryPage> {
           onAction: () => unawaited(_loadMoyiWorks()),
         ),
       );
-    } else if (visible.isEmpty) {
-      gridBody = Center(
+    } else {
+      gridBody = const Center(
         child: Text(
-          _moyiSort == 'finished'
-              ? '该分类下暂无完结作品'
-              : _moyiWorks.isEmpty
-              ? '该分类下暂无作品'
-              : '没有符合筛选的作品',
-          style: const TextStyle(fontSize: 14, color: Color(0xFFB9B2D6)),
+          '该分类下暂无作品',
+          style: TextStyle(fontSize: 14, color: Color(0xFFB9B2D6)),
         ),
       );
-    } else {
-      gridBody = MoyiChannelWorksGrid(works: visible, onTap: _onMoyiWorkTap);
     }
+    // 部分源没响应但已有内容：网格上方给一行小字标明状态，
+    // 不挡内容、不冒充全量。
+    final showPartialHint =
+        !_moyiWorksLoading && _moyiFailedSources > 0 && _moyiWorks.isNotEmpty;
+    final Widget gridArea = showPartialHint
+        ? Column(
+            children: [
+              Container(
+                key: const ValueKey('moyi_partial_hint'),
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
+                child: Text(
+                  '有 $_moyiFailedSources 个站没响应，已先显示其余站的内容',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: Color(0xFFB9B2D6),
+                  ),
+                ),
+              ),
+              Expanded(child: gridBody),
+            ],
+          )
+        : gridBody;
     return Container(
       decoration: const BoxDecoration(gradient: moyiPageGradient),
       child: SafeArea(
@@ -1197,7 +1341,7 @@ class _CategoryPageState extends State<CategoryPage> {
                     selected: _moyiSelected,
                     onSelect: _selectMoyiCategory,
                   ),
-                  Expanded(child: gridBody),
+                  Expanded(child: gridArea),
                 ],
               ),
             ),
@@ -1501,8 +1645,13 @@ class _MoyiLeftRail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 栏宽 124：旧宽 96 扣掉列表内边距（12）+ 项内边距 + 图标后，
+    // 文字只剩约 43dp，「中文字幕」这类四字名（14sp 约 56dp）必被
+    // 省略号截断（用户 2026-11-27 实报，数据本身是全名、纯渲染
+    // 问题）。124 扣完约剩 76dp，四字名与「中文字幕AV」这类
+    // 混排名都能完整显示，再长的名才走省略号。
     return SizedBox(
-      width: 96,
+      width: 124,
       child: ListView.builder(
         key: const ValueKey('moyi_left_rail'),
         padding: const EdgeInsets.fromLTRB(8, 6, 4, 16),
@@ -1523,7 +1672,7 @@ class _MoyiLeftRail extends StatelessWidget {
               onTap: () => onSelect(entry.name),
               child: Container(
                 height: 44,
-                padding: const EdgeInsets.symmetric(horizontal: 10),
+                padding: const EdgeInsets.symmetric(horizontal: 8),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(16),
                   gradient: isSelected ? moyiSelectedGradient : null,
@@ -1537,7 +1686,7 @@ class _MoyiLeftRail extends StatelessWidget {
                           ? Colors.black87
                           : const Color(0xFFB9B2D6),
                     ),
-                    const SizedBox(width: 6),
+                    const SizedBox(width: 5),
                     Expanded(
                       child: Text(
                         entry.name,

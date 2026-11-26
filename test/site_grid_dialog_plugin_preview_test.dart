@@ -131,7 +131,55 @@ void main() {
     await capture(tester, 'site_picker_before_two_zones');
   });
 
-  testWidgets('预览：改后三区·插件区（已装站 + 市场）', (tester) async {
+  Future<void> pumpUntilFound(WidgetTester tester, Finder finder) async {
+    for (var i = 0; i < 30; i++) {
+      if (finder.evaluate().isNotEmpty) return;
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 100)),
+      );
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+  }
+
+  testWidgets('预览：插件区·已装网格（三列站卡）', (tester) async {
+    await tester.runAsync(() async {
+      await store.installBundleText(_demoBundleText());
+      await store.installBundleText(
+        _bundleText(id: 'com.idj.ext.aiguo', name: '爱果短剧'),
+      );
+      await store.installBundleText(
+        _bundleText(id: 'com.idj.ext.huangguo', name: '黄果短剧'),
+      );
+    });
+    await pumpHost(
+      tester,
+      enablePluginZone: true,
+      initialZone: SiteGridZone.plugin,
+    );
+    // 等插件区对账把三个已装站带进表，网格第一行正好三张卡。
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey('site-grid-row-idj_huangguo')),
+    );
+    expect(find.byKey(const ValueKey('site-grid-row-idj_demo')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('site-grid-row-idj_aiguo')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('site-grid-row-idj_huangguo')),
+      findsOneWidget,
+    );
+    expect(find.text('插件区（3）'), findsOneWidget);
+    // 市场区段也等加载完再截，画面不留「正在加载」。
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey('plugin-market-row-com.idj.ext.aiguo')),
+    );
+    await capture(tester, 'plugin_zone_installed_grid');
+  });
+
+  testWidgets('预览：插件区·市场网格（三列卡片）', (tester) async {
     await tester.runAsync(
       () => store.installBundleText(_demoBundleText()),
     );
@@ -141,35 +189,51 @@ void main() {
       initialZone: SiteGridZone.plugin,
     );
     // 等插件区对账把已装站带进表。
-    for (var i = 0; i < 30; i++) {
-      if (find
-          .byKey(const ValueKey('site-grid-row-idj_demo'))
-          .evaluate()
-          .isNotEmpty) {
-        break;
-      }
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 100)),
-      );
-      await tester.pump(const Duration(milliseconds: 50));
-    }
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey('site-grid-row-idj_demo')),
+    );
     expect(find.byKey(const ValueKey('site-grid-row-idj_demo')), findsOneWidget);
     expect(find.text('插件区（1）'), findsOneWidget);
     expect(find.byKey(const ValueKey('site-grid-add')), findsOneWidget);
-    // 等市场订阅（假下载，真异步）加载出条目，再滚一下让条目入镜。
-    for (var i = 0; i < 30; i++) {
-      if (find.text('爱果短剧 1.0.1').evaluate().isNotEmpty) break;
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 100)),
-      );
-      await tester.pump(const Duration(milliseconds: 50));
-    }
-    expect(find.text('爱果短剧 1.0.1'), findsOneWidget);
+    // 等市场订阅（假下载，真异步）加载出卡片，再滚一下让卡片入镜。
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey('plugin-market-row-com.idj.ext.aiguo')),
+    );
+    expect(
+      find.byKey(const ValueKey('plugin-market-row-com.idj.ext.aiguo')),
+      findsOneWidget,
+    );
+    expect(find.text('爱果短剧'), findsOneWidget);
     await tester.drag(find.byType(ListView), const Offset(0, -160));
     await tester.pumpAndSettle();
+    await capture(tester, 'plugin_zone_market_grid');
     await capture(tester, 'site_picker_after_plugin_zone');
   });
 }
+
+String _bundleText({required String id, required String name}) =>
+    jsonEncode({
+      'manifest': {
+        'schema': 1,
+        'id': id,
+        'name': name,
+        'version': '1.0.0',
+        'entry': 'main.js',
+        'type': 'video',
+        'adult': false,
+        'capabilities': ['home', 'category', 'detail', 'play'],
+        'permissions': {
+          'http': ['example.com'],
+          'media': ['example.com'],
+          'cloudflare': false,
+          'storage': false,
+          'login': false,
+        },
+      },
+      'files': {'main.js': 'export default {};'},
+    });
 
 String _demoBundleText() => jsonEncode({
   'manifest': {

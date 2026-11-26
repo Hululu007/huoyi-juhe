@@ -129,7 +129,6 @@ class GameBattleStage extends StatefulWidget {
     required this.onOpenProfile,
     required this.onOpenFunctions,
     required this.onOpenAnnounce,
-    this.manualCastRequest,
   });
 
   /// 当前妖兽（BOSS）。
@@ -195,11 +194,6 @@ class GameBattleStage extends StatefulWidget {
 
   /// 喇叭 → 打开公告。
   final VoidCallback onOpenAnnounce;
-
-  /// 主页技能圆盘点过来的手动施放请求（技能 id；舞台消费后
-  /// 把值清回空）。主页点技能时先切进战场再由这路施放，走
-  /// 的还是 [_castSkill] 那条现有施放路径，不另造数值。
-  final ValueNotifier<String?>? manualCastRequest;
 
   @override
   State<GameBattleStage> createState() => _GameBattleStageState();
@@ -333,7 +327,6 @@ class _GameBattleStageState extends State<GameBattleStage>
       vsync: this,
       duration: const Duration(seconds: 6),
     )..repeat();
-    widget.manualCastRequest?.addListener(_onManualCastRequest);
     _startSeeking();
     _startTick();
   }
@@ -531,7 +524,6 @@ class _GameBattleStageState extends State<GameBattleStage>
     for (final burst in _bursts) {
       burst.controller.dispose();
     }
-    widget.manualCastRequest?.removeListener(_onManualCastRequest);
     _beamSlash?.controller.dispose();
     super.dispose();
   }
@@ -670,39 +662,6 @@ class _GameBattleStageState extends State<GameBattleStage>
       _heroCenter,
       () => _applyDamage(damage, isCrit: isCrit, skillName: skill.name),
     );
-  }
-
-  /// 主页技能圆盘点过来的手动施放请求：消费掉（清回空），
-  /// 再走 [_manualCast]。
-  void _onManualCastRequest() {
-    final skillId = widget.manualCastRequest?.value;
-    if (skillId == null) return;
-    widget.manualCastRequest?.value = null;
-    _manualCast(skillId);
-  }
-
-  /// 手动施放一招（主页技能圆盘点过来）：冷却与灵力门槛和
-  /// 自动放同一套（惊蛰 20 秒 / 本职业招 6 秒 / 辟邪神雷与
-  /// 乾蓝冰焰 8 秒，灵力要 10 以上），过了门槛就走
-  /// [_castSkill] 那条现有施放路径；没过只给一句提示。
-  void _manualCast(String skillId) {
-    final skill = gameSkillsById(skillId);
-    if (skill == null || _monsterDying || !mounted) return;
-    final now = DateTime.now();
-    if (!_skillReady(skill.id, now)) {
-      _showToast('${skill.name}冷却中');
-      return;
-    }
-    if (_spirit < 10) {
-      _showToast('灵力不足');
-      return;
-    }
-    final cooldown = switch (skill.id) {
-      'jingzhe' => const Duration(seconds: 20),
-      'bixie' || 'qianlan' => const Duration(seconds: 8),
-      _ => const Duration(seconds: 6),
-    };
-    _castSkill(skill, cooldown);
   }
 
   /// 御剑剑光：亮剑光从道友处斜劈向目标（默认 BOSS；普攻打小怪

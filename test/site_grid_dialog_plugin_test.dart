@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -193,6 +194,94 @@ void main() {
     expect(installed, isEmpty);
   });
 
+  testWidgets('市场网格：手机宽三列，点卡上安装真装上并登记成站', (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(tester.view.reset);
+    // 本用例的仓库带按地址分流的假下载：索引地址回订阅、包地址回包。
+    final marketStore = IdjPluginStore(
+      preferences: prefs,
+      rootDir: rootDir,
+      supportDir: supportDir,
+      probe: ({required pluginId, required script, required manifest}) async {},
+      uriValidator: (_) async {},
+      httpFactory: () => _MarketHttpClient(),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(brightness: Brightness.dark),
+        home: Scaffold(
+          body: Center(
+            child: Builder(
+              builder: (buttonContext) => TextButton(
+                onPressed: () => showSiteGridDialog(
+                  context: buttonContext,
+                  sites: const [
+                    (
+                      id: 'b-video',
+                      name: '内置影视',
+                      zone: SiteGridZone.builtin,
+                      group: SiteGridGroup.video,
+                    ),
+                  ],
+                  initialZone: SiteGridZone.plugin,
+                  enablePluginZone: true,
+                  pluginStore: marketStore,
+                  onDeleteSite: deleteSiteGridEntry,
+                ),
+                child: const Text('打开切换站点'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('打开切换站点'));
+    await tester.pumpAndSettle();
+    // 等市场卡片（真异步下载 + 解析）出现。
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey('plugin-market-row-com.idj.ext.alpha')),
+    );
+    // 三列：前三张卡同一行、横坐标递增；第四张换行回第一列。
+    final tops = <double>[];
+    final lefts = <double>[];
+    for (final id in ['alpha', 'beta', 'gamma', 'delta']) {
+      final rect = tester.getRect(
+        find.byKey(ValueKey('plugin-market-row-com.idj.ext.$id')),
+      );
+      tops.add(rect.top);
+      lefts.add(rect.left);
+    }
+    expect(tops[0], tops[1]);
+    expect(tops[1], tops[2]);
+    expect(lefts[0] < lefts[1] && lefts[1] < lefts[2], isTrue);
+    expect(tops[3] > tops[0], isTrue);
+    expect(lefts[3], lefts[0]);
+    // 点第一张卡的安装按钮：走完下载 → 校验 → probe → 写盘 → 登记。
+    await tester.tap(
+      find.byKey(const ValueKey('plugin-install-com.idj.ext.alpha')),
+    );
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey('site-grid-row-idj_alpha')),
+    );
+    expect(
+      find.byKey(const ValueKey('site-grid-row-idj_alpha')),
+      findsOneWidget,
+    );
+    // 文件 IO 必须走 runAsync 真异步（FakeAsync 里直接 await 会永挂）。
+    final installed = await tester.runAsync(
+      () => marketStore.listInstalled(),
+    );
+    expect(installed!.map((p) => p.entry.pluginId), [
+      'com.idj.ext.alpha',
+    ]);
+    // 卡片状态翻成已安装（市场区段重拉后）。
+    await pumpUntilFound(tester, find.text('已安装'));
+    expect(find.text('已安装'), findsOneWidget);
+  });
+
   testWidgets('不启用插件区时仍是两区、无 + 号（旧行为不变）', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -224,4 +313,124 @@ void main() {
     expect(find.byKey(const ValueKey('site-grid-zone-plugin')), findsNothing);
     expect(find.byKey(const ValueKey('site-grid-add')), findsNothing);
   });
+}
+
+/// 市场网格用例的假下载：索引地址回四条订阅、包地址按文件名回包，
+/// 其余一律 404。只在本文件内用，不碰真网络。
+class _MarketHttpClient implements HttpClient {
+  @override
+  Duration? connectionTimeout;
+
+  @override
+  Future<HttpClientRequest> getUrl(Uri url) async {
+    final path = url.path;
+    if (path.endsWith('index.json')) {
+      return _MarketRequest(
+        _MarketResponse(200, utf8.encode(_marketSubscriptionJson)),
+      );
+    }
+    if (path.endsWith('.idjplugin')) {
+      final segment = path.split('/').last.replaceAll('.idjplugin', '');
+      return _MarketRequest(
+        _MarketResponse(200, utf8.encode(_marketBundleJson(segment))),
+      );
+    }
+    return _MarketRequest(_MarketResponse(404, const []));
+  }
+
+  @override
+  void close({bool force = false}) {}
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      super.noSuchMethod(invocation);
+}
+
+const _marketSubscriptionJson = '''
+{"name":"测试源","plugins":[
+ {"id":"com.idj.ext.alpha","name":"插件alpha","version":"1.0.0","type":"video","adult":false,"description":"甲","manifest":"alpha/alpha.idjplugin"},
+ {"id":"com.idj.ext.beta","name":"插件beta","version":"1.0.0","type":"video","adult":false,"description":"乙","manifest":"beta/beta.idjplugin"},
+ {"id":"com.idj.ext.gamma","name":"插件gamma","version":"1.0.0","type":"video","adult":false,"description":"丙","manifest":"gamma/gamma.idjplugin"},
+ {"id":"com.idj.ext.delta","name":"插件delta","version":"1.0.0","type":"video","adult":false,"description":"丁","manifest":"delta/delta.idjplugin"}
+],"cms":[]}
+''';
+
+String _marketBundleJson(String segment) => jsonEncode({
+  'manifest': {
+    'schema': 1,
+    'id': 'com.idj.ext.$segment',
+    'name': '插件$segment',
+    'version': '1.0.0',
+    'entry': 'main.js',
+    'type': 'video',
+    'adult': false,
+    'capabilities': ['home', 'category', 'detail', 'play'],
+    'permissions': {
+      'http': ['example.com'],
+      'media': ['example.com'],
+      'cloudflare': false,
+      'storage': false,
+      'login': false,
+    },
+  },
+  'files': {'main.js': 'export default {};'},
+});
+
+class _MarketHeaders implements HttpHeaders {
+  @override
+  void set(String name, Object value, {bool preserveHeaderCase = false}) {}
+
+  @override
+  String? value(String name) => null;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      super.noSuchMethod(invocation);
+}
+
+class _MarketRequest implements HttpClientRequest {
+  _MarketRequest(this._response);
+
+  final _MarketResponse _response;
+
+  @override
+  final HttpHeaders headers = _MarketHeaders();
+
+  @override
+  bool followRedirects = true;
+
+  @override
+  Future<HttpClientResponse> close() async => _response;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      super.noSuchMethod(invocation);
+}
+
+class _MarketResponse extends Stream<List<int>> implements HttpClientResponse {
+  _MarketResponse(this.statusCode, this._body);
+
+  @override
+  final int statusCode;
+  final List<int> _body;
+
+  @override
+  HttpHeaders get headers => _MarketHeaders();
+
+  @override
+  StreamSubscription<List<int>> listen(
+    void Function(List<int> event)? onData, {
+    Function? onError,
+    void Function()? onDone,
+    bool? cancelOnError,
+  }) => Stream.fromIterable([_body]).listen(
+    onData,
+    onError: onError,
+    onDone: onDone,
+    cancelOnError: cancelOnError,
+  );
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      super.noSuchMethod(invocation);
 }

@@ -157,6 +157,46 @@ Future<void> _settle(WidgetTester tester) async {
   }
 }
 
+/// 真时间等待：详情页的后台补充链（JavDB/番号元数据）是真
+/// 异步，假时钟里等不到回包、超时定时器会挂到测试收尾。
+Future<void> _settleReal(WidgetTester tester) async {
+  await tester.runAsync(() async {
+    for (var i = 0; i < 25; i++) {
+      try {
+        await Future.delayed(const Duration(milliseconds: 200));
+        await tester.pump(const Duration(milliseconds: 100));
+      } catch (_) {}
+    }
+  });
+}
+
+/// 123AV / PH 的 Dart 直连假取数：按域名回一段能解析出 1 张
+/// 卡的页面（结构照两站真页），不碰真网络。
+Future<String> _fakeOnlineFetch(
+  String url,
+  Map<String, String> headers,
+) async {
+  final text = url;
+  if (text.contains('123av.com')) {
+    return '''
+<div class="card">
+  <a class="card__cover" href="/cn/v/ssis-001"><img class="card__img" data-src="https://icdn.123av.com/p1.jpg" alt=""></a>
+  <div class="card__title">搜索结果-123av</div>
+  <span class="card__dur">120分钟</span>
+</div>
+''';
+  }
+  if (text.contains('pornhub.com')) {
+    return '''
+<div class="wrap">
+  <a href="/view_video.php?viewkey=abc123"><img src="https://ci.phncdn.com/t1.jpg" alt="搜索结果-ph"></a>
+  <span class="duration">12:34</span>
+</div>
+''';
+  }
+  return '';
+}
+
 void main() {
   late LocalStore store;
 
@@ -171,6 +211,7 @@ void main() {
         repository: _FakeRepository(),
         store: store,
         fallback: fallback ?? _fallback(_FakeDb()),
+        onlineFetch: _fakeOnlineFetch,
       ),
     );
   }
@@ -233,6 +274,37 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('native-exit-search')));
     await _settle(tester);
     expect(find.text('女优库 · 2条'), findsNothing);
+  });
+
+  testWidgets('切到 123AV 出 Dart 卡与栏目页签，点卡进作品详情页', (tester) async {
+    await tester.pumpWidget(app());
+    await _settle(tester);
+    await tester.tap(find.byKey(const ValueKey('native-source-123av')));
+    await _settle(tester);
+    // 栏目页签（Dart 直连源）与卡片都出来。
+    expect(
+      find.byKey(const ValueKey('native-dart-primary-recent')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(
+        const ValueKey('native-work-123av-https://123av.com/cn/v/ssis-001'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('搜索结果-123av'), findsOneWidget);
+    // 点卡进作品详情页（页内起播形态），不再直进播放器。
+    await tester.tap(
+      find.byKey(
+        const ValueKey('native-work-123av-https://123av.com/cn/v/ssis-001'),
+      ),
+    );
+    await _settleReal(tester);
+    expect(
+      find.byKey(const ValueKey('work-detail-poster-play')),
+      findsOneWidget,
+    );
+    expect(find.text('SSIS-001'), findsWidgets);
   });
 
   testWidgets('管理弹层入口齐全（按当前平台断言可见项）', (tester) async {

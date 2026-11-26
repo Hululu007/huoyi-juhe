@@ -33,11 +33,8 @@ Future<void> _pumpGamePage(WidgetTester tester) async {
     ),
   );
   await tester.pump(const Duration(milliseconds: 100));
-  // 32 轮改版后顶栏（菱形功能图标：任务 / 爬塔 / 功能）只在战场
-  // 显示，主页上没有；先点「进入战斗」切到战场，再按原样点菱形
-  // 标签开弹窗。弹窗与滚动逻辑本身没动，不改实现。
-  await tester.tap(find.text('进入战斗'));
-  await tester.pump(const Duration(milliseconds: 100));
+  // 游戏页已删主页 hub，打开直接在战场：顶栏菱形功能图标
+  // （任务 / 爬塔）与战场「功能」钮开局就在，直接点开弹窗。
   await tester.pump(const Duration(milliseconds: 500));
 }
 

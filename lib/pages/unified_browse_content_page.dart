@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../models/media_item.dart';
-import '../services/api_client.dart';
 import '../services/drama_site_content.dart';
 import '../services/drama_site_play.dart';
 import '../services/drama_sites.dart';
@@ -50,14 +49,36 @@ class UnifiedBrowseContentPage extends StatefulWidget {
 /// 每批取的站数：并行取 4 站首页，够一屏内容，又不至于一次拉爆。
 const int unifiedBrowseBatchSize = 4;
 
+/// 单源总上限：构造客户端 + catalog 整段封顶（与频道分类页
+/// `_moyiSourceTimeout` 同口径）。旧实现 catalog 单段就允许
+/// `ApiClient.dramaCatalogTimeout + 5s` = 50 秒，且构造客户端那段
+/// 不在任何超时里，源卡死时整批陪等、转圈无上限。
+const Duration _browseSourceTimeout = Duration(seconds: 25);
+
+/// 一站取数的结果：[section] 为 null 表示该站没内容可展示；
+/// [responded] 区分「站正常响应、只是这页没内容」（不算失败）
+/// 与「没响应」（无客户端/超时/异常，计入页脚没响应计数）。
+typedef _FetchOutcome = ({_SiteSection? section, bool responded});
+
+/// 跨实例缓存的一页快照：看过的汇总页再点进来先出缓存、后台刷新。
+typedef _CachedBrowse = ({
+  List<_SiteSection> sections,
+  int fetched,
+  int failed,
+});
+
 /// 一站取到的内容。
 class _SiteSection {
   const _SiteSection({
+    required this.entryIndex,
     required this.siteId,
     required this.siteName,
     required this.items,
   });
 
+  /// 在 widget.entries 里的序号：逐源回来时按它插入，保证站的
+  /// 展示顺序始终是入口顺序，不随后到先得乱序。
+  final int entryIndex;
   final String siteId;
   final String siteName;
   final List<DramaSiteItem> items;
@@ -71,19 +92,85 @@ String _siteDisplayName(String siteId) {
 }
 
 class _UnifiedBrowseContentPageState extends State<UnifiedBrowseContentPage> {
+  /// 跨实例作品缓存：本页每次都是新推入的路由、新 State，不缓存
+  /// 的话看过的汇总页退出重进要全量重拉。键见 [_cacheKey]；上限
+  /// [_browseCacheCap] 页，FIFO 淘汰。全失败（无内容）不入缓存，
+  /// 下次点进来照常重试。
+  static final Map<String, _CachedBrowse> _browseCache = {};
+  static const int _browseCacheCap = 16;
+
   final List<_SiteSection> _sections = [];
   int _fetched = 0;
   int _failed = 0;
   bool _loading = false;
   bool _loadingMore = false;
+  bool _refreshing = false;
   String? _error;
 
   bool get _hasMoreSites => _fetched < widget.entries.length;
 
+  /// 缓存键：标题 + 全部站/路径签名。测试注入了取数客户端时再
+  /// 掺入注入对象的身份，避免不同测试的假客户端互相污染缓存；
+  /// 生产路径 clientForSite 为 null，键就是纯签名。
+  String get _cacheKey {
+    final signature =
+        '${widget.title}\u0000${widget.entries.map((e) => '${e.siteId}|${e.path}').join('\u0001')}';
+    final injected = widget.clientForSite;
+    return injected == null
+        ? signature
+        : '$signature\u0002${identityHashCode(injected)}';
+  }
+
   @override
   void initState() {
     super.initState();
-    _loadBatch();
+    final cached = _browseCache[_cacheKey];
+    if (cached != null && cached.sections.isNotEmpty) {
+      // 缓存先行：先把看过的内容摆出来、不转圈，已取范围在后台
+      // 逐站刷新（见 _refresh），回来逐站换新并回写缓存。
+      _sections.addAll(cached.sections);
+      _fetched = cached.fetched;
+      _failed = cached.failed;
+      unawaited(_refresh(cached.fetched));
+    } else {
+      _loadBatch();
+    }
+  }
+
+  void _writeCache() {
+    if (_sections.isEmpty) return;
+    _browseCache[_cacheKey] = (
+      sections: List<_SiteSection>.of(_sections),
+      fetched: _fetched,
+      failed: _failed,
+    );
+    while (_browseCache.length > _browseCacheCap) {
+      _browseCache.remove(_browseCache.keys.first);
+    }
+  }
+
+  /// 后台刷新已展示范围 [0, upto)：逐站重取，取到新内容就按序号
+  /// 换掉旧段；取不到（没响应或空页）保留缓存段不清屏——与频道
+  /// 分类页「后台刷新全空不清正在显示的缓存」同口径。刷新失败
+  /// 不计入 [_failed]（内容还摆着，报「没响应」自相矛盾）。
+  Future<void> _refresh(int upto) async {
+    if (upto <= 0) return;
+    _refreshing = true;
+    var pending = upto;
+    for (var index = 0; index < upto; index++) {
+      final entry = widget.entries[index];
+      unawaited(() async {
+        final outcome = await _fetchOne(entry, index);
+        if (mounted && outcome.section != null) {
+          setState(() => _insertSection(outcome.section!));
+        }
+        if (--pending == 0 && mounted) {
+          // 翻假也要走 setState：加载更多按钮的禁用态靠它恢复。
+          setState(() => _refreshing = false);
+          _writeCache();
+        }
+      }());
+    }
   }
 
   Future<DramaSiteContentClient?> _clientFor(String siteId) async =>
@@ -91,46 +178,73 @@ class _UnifiedBrowseContentPageState extends State<UnifiedBrowseContentPage> {
       dramaSiteContentClient(siteId) ??
       await SourceRegistry.instance.clientFor(siteId);
 
+  /// 按入口序号插入（或替换刷新回来的同序号段），保证展示顺序
+  /// 始终是入口顺序。
+  void _insertSection(_SiteSection section) {
+    final at = _sections.indexWhere(
+      (s) => s.entryIndex >= section.entryIndex,
+    );
+    if (at == -1) {
+      _sections.add(section);
+    } else if (_sections[at].entryIndex == section.entryIndex) {
+      _sections[at] = section;
+    } else {
+      _sections.insert(at, section);
+    }
+  }
+
   Future<void> _loadBatch() async {
-    if (_loading || _loadingMore || !_hasMoreSites) return;
-    final isFirst = _fetched == 0;
+    if (_loading || _loadingMore || _refreshing || !_hasMoreSites) return;
+    final start = _fetched;
+    final batch = widget.entries
+        .skip(start)
+        .take(unifiedBrowseBatchSize)
+        .toList();
+    if (batch.isEmpty) return;
     setState(() {
-      if (isFirst) {
+      if (_sections.isEmpty) {
         _loading = true;
       } else {
         _loadingMore = true;
       }
       _error = null;
     });
-    final batch = widget.entries.skip(_fetched).take(unifiedBrowseBatchSize);
-    final results = await Future.wait([
-      for (final entry in batch) _fetchOne(entry),
-    ]);
-    if (!mounted) return;
-    final got = <_SiteSection>[];
-    var failed = 0;
-    for (final result in results) {
-      if (result == null) {
-        failed++;
-      } else {
-        got.add(result);
-      }
-    }
-    setState(() {
-      _sections.addAll(got);
-      _fetched += batch.length;
-      _failed += failed;
-      _loading = false;
-      _loadingMore = false;
-      if (_sections.isEmpty && !_hasMoreSites) {
-        _error = '这些站现在都打不开，稍后再试';
-      }
-    });
-    // 这一批一个站都没取到、后面还有站：自动续取下一批，不用
-    // 用户连点 5 次「加载更多站点」才看到内容；取到内容就停，
-    // 剩下的站仍由用户点「加载更多站点」接着取。
-    if (mounted && got.isEmpty && _hasMoreSites) {
-      unawaited(_loadBatch());
+    // 逐站出结果：哪个站先回，哪个站的段先上屏，不再像旧实现
+    // 那样 Future.wait 等一批 4 站全部 settle 才一起渲染——慢站
+    // 只拖自己，拖不了整页首屏。批次账目（_fetched 推进、错误
+    // 态判定、自动续批）在全批 settle 后统一收尾。
+    var pending = batch.length;
+    var gotAny = false;
+    for (var i = 0; i < batch.length; i++) {
+      final index = start + i;
+      unawaited(() async {
+        final outcome = await _fetchOne(batch[i], index);
+        if (mounted) {
+          setState(() {
+            if (outcome.section != null) {
+              _insertSection(outcome.section!);
+              gotAny = true;
+            }
+            if (!outcome.responded) _failed++;
+          });
+        }
+        if (--pending > 0 || !mounted) return;
+        setState(() {
+          _fetched = start + batch.length;
+          _loading = false;
+          _loadingMore = false;
+          if (_sections.isEmpty && !_hasMoreSites) {
+            _error = '这些站现在都打不开，稍后再试';
+          }
+        });
+        _writeCache();
+        // 这一批一个站都没取到、后面还有站：自动续取下一批，
+        // 不用用户连点 5 次「加载更多站点」才看到内容；取到
+        // 内容就停，剩下的站仍由用户点「加载更多站点」接着取。
+        if (!gotAny && _hasMoreSites) {
+          unawaited(_loadBatch());
+        }
+      }());
     }
   }
 
@@ -138,7 +252,8 @@ class _UnifiedBrowseContentPageState extends State<UnifiedBrowseContentPage> {
   /// 直接调 [_loadBatch] 重试是没用的——取完后 [_hasMoreSites]
   /// 已为假，[_loadBatch] 开头就直接返回，按钮点了也没反应。
   Future<void> _retry() async {
-    if (_loading || _loadingMore) return;
+    if (_loading || _loadingMore || _refreshing) return;
+    _browseCache.remove(_cacheKey);
     setState(() {
       _sections.clear();
       _fetched = 0;
@@ -148,25 +263,37 @@ class _UnifiedBrowseContentPageState extends State<UnifiedBrowseContentPage> {
     await _loadBatch();
   }
 
-  /// 取一站该分类/标签的首页；取不到返回 null（由调用方跳过计数）。
-  Future<_SiteSection?> _fetchOne(UnifiedCategorySite entry) async {
+  /// 取一站该分类/标签的首页：「构造客户端 + catalog」整段套
+  /// [_browseSourceTimeout] 总上限——旧实现构造客户端那段不在
+  /// 任何超时里、catalog 单段又允许 50 秒，一站卡死能拖住整批。
+  Future<_FetchOutcome> _fetchOne(
+    UnifiedCategorySite entry,
+    int entryIndex,
+  ) async {
     try {
-      final client = await _clientFor(entry.siteId);
-      if (client == null) return null;
-      // 目录超时按 ApiClient 的目录预算 + 5 秒余量：ApiClient 是主
-      // 预算，页面层只当兜底，不盖帽。
-      final page = await client
-          .catalog(entry.path, 1)
-          .timeout(ApiClient.dramaCatalogTimeout + const Duration(seconds: 5));
-      if (page.items.isEmpty) return null;
-      return _SiteSection(
+      return await _fetchRaw(entry, entryIndex).timeout(_browseSourceTimeout);
+    } catch (_) {
+      return (section: null, responded: false);
+    }
+  }
+
+  Future<_FetchOutcome> _fetchRaw(
+    UnifiedCategorySite entry,
+    int entryIndex,
+  ) async {
+    final client = await _clientFor(entry.siteId);
+    if (client == null) return (section: null, responded: false);
+    final page = await client.catalog(entry.path, 1);
+    if (page.items.isEmpty) return (section: null, responded: true);
+    return (
+      section: _SiteSection(
+        entryIndex: entryIndex,
         siteId: entry.siteId,
         siteName: _siteDisplayName(entry.siteId),
         items: page.items,
-      );
-    } catch (_) {
-      return null;
-    }
+      ),
+      responded: true,
+    );
   }
 
   @override
@@ -179,7 +306,7 @@ class _UnifiedBrowseContentPageState extends State<UnifiedBrowseContentPage> {
           backgroundColor: Colors.transparent,
           foregroundColor: Colors.white,
         ),
-        body: _loading
+        body: _loading && _sections.isEmpty
             ? const Center(child: CircularProgressIndicator())
             : _error != null && _sections.isEmpty
             ? Center(
@@ -302,7 +429,9 @@ class _UnifiedBrowseContentPageState extends State<UnifiedBrowseContentPage> {
                                 key: const ValueKey(
                                   'unified_browse_load_more_sites',
                                 ),
-                                onPressed: _loadingMore ? null : _loadBatch,
+                                onPressed: _loadingMore || _refreshing
+                                    ? null
+                                    : _loadBatch,
                                 child: Text(
                                   _loadingMore
                                       ? '加载中…'

@@ -8,10 +8,18 @@
 //   （list / search / works / actresses / tags / detail），分类照
 //   whos 官方五维（最新 / 排行榜 / 演员 / 标签 + 20 厂牌二级条）；
 //   查询层已整体排除硬线类型，本页不另设口子、不直查数据库表。
-// - who's（在线，源 id 'whos'，内置 py 源）、123AV（'123av'）、
-//   PH（'pornhub'）：走 AppRepository 的 categories / catalog /
-//   detail。123AV 与 PH 本机出口未验通，源切换条上如实带「未验」
-//   小标，不写成已验。
+// - who's（在线，源 id 'whos'，内置 py 源）：走 AppRepository
+//   的 categories / catalog / detail，超时按其 py 取页设计放
+//   宽到 75 秒，加载前先等种子补登记；失败落错误态并给「切
+//   到本地女优库」兜底入口。
+// - 123AV（'123av'）、PH（'pornhub'）：2026-11-27 起走 Dart
+//   直连新链（actress_online_sources.dart，照魔蚁侧修正版逐
+//   项对齐：123AV 内联 player JSON 取址 + /stream 换流、PH
+//   flashvars 取流），不再走 jar 旧链（旧链取流无超时 = 无
+//   限转圈实报）。两源本机出口未验通，源切换条上如实带
+//   「未验」小标，不写成已验。
+// - 作品卡点开一律进作品详情页（actress_work_detail_page
+//   .dart，AvPlay 式版面 + 页内起播），不再直进播放器。
 //
 // 状态纪律：任何源加载失败 / 无库 / 无数据都出明确状态区（文案 +
 // 重试或去管理钮），不白屏、不无限转圈（所有加载带超时，失败落
@@ -23,8 +31,8 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../services/source_registry.dart' show SourceRegistry;
 import 'actress_adapter_models.dart';
-import 'actress_adapter_player.dart';
 import 'actress_adapter_repository.dart';
 import 'actress_adapter_store.dart';
 import 'actress_ios_import.dart';
@@ -33,8 +41,10 @@ import 'actress_list_page.dart';
 import 'actress_mytv_bind.dart';
 import 'actress_neon.dart';
 import 'actress_nvku_page.dart';
-import 'whos_fallback.dart';
-import 'whos_local_library.dart';
+import 'actress_online_parse.dart'
+    show OnlineTabOption, OnlineVideoCard, av123CodeOf;
+import 'actress_online_sources.dart';
+import 'actress_work_detail_page.dart';
 
 /// 本地源一级页签（照 whos 官方五维的前四维，厂牌是二级条）。
 const _localTabs = ['最新', '排行榜', '演员', '标签'];
@@ -76,6 +86,12 @@ const _onlineSources = <(String, String)>[
 /// 单次加载超时：挂住的查询也要落到错误态，不许无限转圈。
 const _loadTimeout = Duration(seconds: 20);
 
+/// who's 专用超时：其 py 蜘蛛取页是「45 秒单请求 × 多通道」
+/// 设计、py 桥上限 70 秒，页级 20 秒必然先掐断（2026-11-27
+/// 实报「who's 打不开」的直接原因之一）——who's 的分类/目
+/// 录/搜索单独放宽到 75 秒，失败照样落错误态 + 本地兜底。
+const _whosTimeout = Duration(seconds: 75);
+
 class ActressLibraryNativePage extends StatefulWidget {
   const ActressLibraryNativePage({
     super.key,
@@ -83,10 +99,15 @@ class ActressLibraryNativePage extends StatefulWidget {
     required this.store,
     this.fallback,
     this.bind,
+    this.onlineFetch,
   });
 
   final AppRepository repository;
   final LocalStore store;
+
+  /// 123AV / PH 的 Dart 直连取数（测试/预览注入假取数；
+  /// 生产默认走 ActressOnlineClient）。
+  final ActressOnlineFetch? onlineFetch;
 
   /// 本地库兜底查询：不传时现建一个新实例（默认路径解析走
   /// ActressMytvBind 绑定）。管理弹层「重新加载数据库」会换新实例。
@@ -101,11 +122,16 @@ class ActressLibraryNativePage extends StatefulWidget {
 }
 
 /// 在线源的浏览态（每源一份，切源保留、切回不重载）。
+/// who's 走仓储（categories/items）；123AV / PH 走 Dart 直
+/// 连（cards + 页签 id），两套字段各用各的。
 class _OnlineState {
   var categories = <CatalogCategory>[];
   var categoriesLoaded = false;
   var category = '';
   var items = <Drama>[];
+  var cards = <OnlineVideoCard>[];
+  var primaryId = '';
+  var secondaryId = '';
   var page = 1;
   var hasMore = false;
   var loading = false;
@@ -124,16 +150,44 @@ class _SearchSection {
   final String? sourceId;
   var localItems = <Map<String, dynamic>>[];
   var dramas = <Drama>[];
+  var cards = <OnlineVideoCard>[];
   var loading = true;
   String? error;
 
-  int get count => sourceId == null ? localItems.length : dramas.length;
+  /// 123AV / PH 段走 Dart 直连（cards），who's 段走仓储
+  /// （dramas），本地段走库（localItems）。
+  bool get isDart => sourceId == '123av' || sourceId == 'pornhub';
+
+  int get count =>
+      sourceId == null ? localItems.length : (isDart ? cards.length : dramas.length);
 }
 
 class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
   late ActressLibraryDbFallback _fallback =
       widget.fallback ?? ActressLibraryDbFallback();
   ActressMytvBind get _bind => widget.bind ?? ActressMytvBind.instance;
+
+  late final ActressOnlineClient _onlineClient = ActressOnlineClient();
+  ActressOnlineFetch get _onlineFetch =>
+      widget.onlineFetch ?? _onlineClient.get;
+
+  /// who's 的 py 种子靠启动时未等待的异步补登记，失败静默
+  /// ——本页首次加载 who's 前先等它落完（仅真仓储时；测试
+  /// 假仓储跳过），避免种子没登记好就判「站源不可用」。
+  var _seedEnsured = false;
+
+  Future<void> _ensureWhosSeed() async {
+    if (_seedEnsured) return;
+    _seedEnsured = true;
+    if (widget.repository is! XiuxianAppRepository) return;
+    try {
+      await SourceRegistry.instance
+          .ensureBuiltinImportedSites()
+          .timeout(const Duration(seconds: 20));
+    } catch (_) {
+      // 补登记失败不挡加载：仓储取不到客户端会落错误态。
+    }
+  }
 
   final _searchController = TextEditingController();
 
@@ -319,11 +373,17 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
     final page = more ? state.page + 1 : 1;
     setState(() => state.loading = true);
     try {
+      if (sourceId == '123av' || sourceId == 'pornhub') {
+        await _loadDartOnline(sourceId, state, page: page, more: more);
+        return;
+      }
+      // who's：先等 py 种子补登记落完，超时按其取页设计放宽。
+      await _ensureWhosSeed();
       if (!state.categoriesLoaded) {
         // 分类取不到是诚实错误态 + 重试，不拿空分类硬凑目录。
         state.categories = await widget.repository
             .categories(sourceId)
-            .timeout(_loadTimeout);
+            .timeout(_whosTimeout);
         state.categoriesLoaded = true;
         if (state.category.isEmpty && state.categories.isNotEmpty) {
           state.category = state.categories.first.id;
@@ -331,7 +391,7 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
       }
       final result = await widget.repository
           .catalog(sourceId, page: page, category: state.category)
-          .timeout(_loadTimeout);
+          .timeout(_whosTimeout);
       if (!mounted) return;
       setState(() {
         state.items = more ? [...state.items, ...result.items] : result.items;
@@ -351,6 +411,40 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
     }
   }
 
+  /// 123AV / PH 的 Dart 直连加载（2026-11-27 照魔蚁修正版
+  /// 移植的新链，替代 jar 旧链）：页签取卡、空页即止。
+  Future<void> _loadDartOnline(
+    String sourceId,
+    _OnlineState state, {
+    required int page,
+    required bool more,
+  }) async {
+    final source = actressOnlineSourceById(sourceId)!;
+    if (state.primaryId.isEmpty) {
+      state.primaryId = source.defaultPrimaryId;
+      state.secondaryId = source.defaultSecondaryId;
+    }
+    final cards = await source
+        .fetchCards(
+          primaryId: state.primaryId,
+          secondaryId: state.secondaryId,
+          query: '',
+          page: page,
+          fetch: _onlineFetch,
+        )
+        .timeout(const Duration(seconds: 30));
+    if (!mounted) return;
+    setState(() {
+      state.cards = more ? [...state.cards, ...cards] : cards;
+      state.page = page;
+      // 空页 = 到底；满页可能还有下一页（到底时多探一次空页）。
+      state.hasMore = cards.isNotEmpty;
+      state.loading = false;
+      state.loaded = true;
+      state.error = null;
+    });
+  }
+
   void _pickOnlineCategory(String sourceId, String category) {
     final state = _online[sourceId]!;
     if (state.category == category && state.loaded) return;
@@ -358,6 +452,20 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
       state.category = category;
       state.loaded = false;
       state.items = [];
+    });
+    unawaited(_loadOnline(sourceId));
+  }
+
+  /// Dart 直连源的页签切换（一级/二级通用）：换页签重拉第一页。
+  void _pickDartTab(String sourceId, {String? primary, String? secondary}) {
+    final state = _online[sourceId]!;
+    setState(() {
+      if (primary != null) state.primaryId = primary;
+      if (secondary != null) state.secondaryId = secondary;
+      state.loaded = false;
+      state.cards = [];
+      state.page = 1;
+      state.hasMore = false;
     });
     unawaited(_loadOnline(sourceId));
   }
@@ -415,44 +523,72 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
         });
       }
     }());
-    // 在线段：跨源流式搜索，逐段填充；整批抛错时还没落地的段各自
-    // 记失败原因，不拖垮已经出结果的段。
-    try {
-      await widget.repository
-          .searchAcrossProgressive(
-            [for (final (id, _) in _onlineSources) id],
-            query,
-            onSite: (source, items) {
-              if (!mounted || generation != _searchGeneration) return;
-              final section = _searchSections
-                  .where((row) => row.sourceId == source)
-                  .firstOrNull;
-              if (section == null) return;
-              setState(() {
-                section.loading = false;
-                section.dramas = items;
-              });
-            },
-          )
-          .timeout(_loadTimeout);
-    } catch (error) {
-      if (!mounted || generation != _searchGeneration) return;
-      setState(() {
-        for (final section in _searchSections.skip(1)) {
-          if (section.loading) {
+    // who's 段：仓储跨源搜索（py 链），超时按其取页设计放宽。
+    unawaited(() async {
+      final section = _searchSections
+          .where((row) => row.sourceId == 'whos')
+          .firstOrNull;
+      if (section == null) return;
+      try {
+        await _ensureWhosSeed();
+        await widget.repository
+            .searchAcrossProgressive(
+              const ['whos'],
+              query,
+              onSite: (source, items) {
+                if (!mounted || generation != _searchGeneration) return;
+                setState(() {
+                  section.loading = false;
+                  section.dramas = items;
+                });
+              },
+            )
+            .timeout(_whosTimeout);
+        if (!mounted || generation != _searchGeneration) return;
+        setState(() => section.loading = false);
+      } catch (error) {
+        if (!mounted || generation != _searchGeneration) return;
+        setState(() {
+          section.loading = false;
+          section.error = '搜索失败：${error.toString().split('\n').first}';
+        });
+      }
+    }());
+    // 123AV / PH 段：Dart 直连搜索，逐段填充、互不拖累。
+    for (final (id, _) in _onlineSources) {
+      if (id == 'whos') continue;
+      unawaited(() async {
+        final section = _searchSections
+            .where((row) => row.sourceId == id)
+            .firstOrNull;
+        final source = actressOnlineSourceById(id);
+        if (section == null || source == null) return;
+        try {
+          final cards = await source
+              .fetchCards(
+                primaryId: source.defaultPrimaryId,
+                secondaryId: source.defaultSecondaryId,
+                query: query,
+                page: 1,
+                fetch: _onlineFetch,
+              )
+              .timeout(const Duration(seconds: 30));
+          if (!mounted || generation != _searchGeneration) return;
+          setState(() {
+            section.loading = false;
+            section.cards = cards;
+          });
+        } catch (error) {
+          if (!mounted || generation != _searchGeneration) return;
+          setState(() {
             section.loading = false;
             section.error = '搜索失败：${error.toString().split('\n').first}';
-          }
+          });
         }
-      });
+      }());
     }
-    if (!mounted || generation != _searchGeneration) return;
-    // 没回调到的源段（站不可用被聚合层跳过）：落成空结果，不留转圈。
-    setState(() {
-      for (final section in _searchSections.skip(1)) {
-        section.loading = false;
-      }
-    });
+    // 在线段各自异步落地（见上），本函数不再等它们：每段自己
+    // 把 loading 落下，站不可用的段由其回调/异常路径收尾。
   }
 
   void _exitSearch() {
@@ -465,43 +601,85 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
 
   // ================= 播放 / 详情 =================
 
-  Future<void> _playOnline(Drama drama) async {
-    try {
-      final detail = await widget.repository.detail(drama);
-      if (!mounted) return;
-      if (detail.episodes.isEmpty) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('这条暂时没有可播地址')));
-        return;
-      }
-      await pushPlayer<void>(
-        context,
-        detail: detail,
-        initialIndex: 0,
-        repository: widget.repository,
-        store: widget.store,
+  /// 在线卡点开：进作品详情页（AvPlay 式版面 + 页内起播），
+  /// 不再直进播放器（旧路 detail 无超时 + jar 取流无超时 =
+  /// 无限「正在加载第 1 集」，2026-11-27 实报已废）。
+  void _openOnlineDetail(Drama drama) {
+    final source = actressOnlineSourceById(drama.source);
+    if (source != null) {
+      _openDartDetail(
+        source,
+        OnlineVideoCard(
+          pageUrl: drama.id,
+          title: drama.title,
+          cover: drama.cover,
+        ),
       );
-    } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('这条暂时取不到播放地址')));
+      return;
     }
+    // who's 卡：蜘蛛目录的 id 就是番号，详情页按番号开
+    // （who's 线路走 py 链，其余源与本地库按番号追加）。
+    Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => ActressWorkDetailPage.byCode(
+          code: drama.id,
+          title: drama.title,
+          poster: drama.cover,
+          fallback: _fallback,
+          repository: widget.repository,
+          onlineFetch: widget.onlineFetch,
+          onActress: _detailOnActress,
+          onTag: _detailOnTag,
+          onSearchCode: _detailOnSearchCode,
+        ),
+      ),
+    );
+  }
+
+  void _openDartDetail(ActressOnlineSource source, OnlineVideoCard card) {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => ActressWorkDetailPage.online(
+          source: source,
+          card: card,
+          fallback: _fallback,
+          repository: widget.repository,
+          onlineFetch: widget.onlineFetch,
+          onActress: _detailOnActress,
+          onTag: _detailOnTag,
+          onSearchCode: _detailOnSearchCode,
+        ),
+      ),
+    );
+  }
+
+  void _detailOnActress(String name) {
+    Navigator.of(context).pop();
+    _openWorks(actress: name);
+  }
+
+  void _detailOnTag(String tag) {
+    Navigator.of(context).pop();
+    _openWorks(tag: tag);
+  }
+
+  void _detailOnSearchCode(String code) {
+    Navigator.of(context).pop();
+    _searchController.text = code;
+    unawaited(_submitSearch());
   }
 
   void _openLocalDetail(Map<String, dynamic> item) {
     Navigator.of(context).push<void>(
       MaterialPageRoute(
-        builder: (_) => _LocalWorkDetailPage(
+        builder: (_) => ActressWorkDetailPage.local(
           vodId: (item['vodId'] ?? '').toString(),
           fallback: _fallback,
           repository: widget.repository,
-          store: widget.store,
-          onActress: (name) {
-            Navigator.of(context).pop();
-            _openWorks(actress: name);
-          },
+          onlineFetch: widget.onlineFetch,
+          onActress: _detailOnActress,
+          onTag: _detailOnTag,
+          onSearchCode: _detailOnSearchCode,
         ),
       ),
     );
@@ -902,7 +1080,67 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
         ],
       );
     }
-    final state = _online[_onlineSourceId]!;
+    final id = _onlineSourceId;
+    if (id == '123av' || id == 'pornhub') {
+      // Dart 直连源的页签行：123AV 一行栏目；PH 两行（排序 +
+      // 分类）。选中态以 state 里的页签 id 为准（未加载时用
+      // 源缺省页签）。
+      final source = actressOnlineSourceById(id)!;
+      final state = _online[id]!;
+      final primary = state.primaryId.isEmpty
+          ? source.defaultPrimaryId
+          : state.primaryId;
+      final secondary = state.secondaryId.isEmpty
+          ? source.defaultSecondaryId
+          : state.secondaryId;
+      Widget tabRow(
+        List<OnlineTabOption> tabs,
+        String current,
+        void Function(String tabId) onPick,
+        String keyPrefix,
+      ) {
+        return SizedBox(
+          height: 46,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+            itemCount: tabs.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 8),
+            itemBuilder: (context, index) {
+              final tab = tabs[index];
+              return Center(
+                child: ActressNeonPill(
+                  key: ValueKey('$keyPrefix-${tab.id}'),
+                  label: tab.name,
+                  selected: current == tab.id,
+                  onTap: () => onPick(tab.id),
+                ),
+              );
+            },
+          ),
+        );
+      }
+
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          tabRow(
+            source.primaryTabs,
+            primary,
+            (tabId) => _pickDartTab(id, primary: tabId),
+            'native-dart-primary',
+          ),
+          if (source.secondaryTabs.isNotEmpty)
+            tabRow(
+              source.secondaryTabs,
+              secondary,
+              (tabId) => _pickDartTab(id, secondary: tabId),
+              'native-dart-secondary',
+            ),
+        ],
+      );
+    }
+    final state = _online[id]!;
     if (!state.categoriesLoaded || state.categories.isEmpty) {
       return const SizedBox.shrink();
     }
@@ -932,17 +1170,22 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
     if (_sourceIndex == 0) return _localBody();
     final id = _onlineSourceId;
     final state = _online[id]!;
-    if (state.loading && state.items.isEmpty) {
+    final isDart = id == '123av' || id == 'pornhub';
+    final count = isDart ? state.cards.length : state.items.length;
+    if (state.loading && count == 0) {
       return const Center(child: CircularProgressIndicator(color: Neon.pink));
     }
-    if (state.error != null && state.items.isEmpty) {
+    if (state.error != null && count == 0) {
       return _stateArea(
         message: state.error!,
         retryLabel: '重试',
         onRetry: () => unawaited(_loadOnline(id)),
+        // who's 在线连不上时给本地兜底入口（不困在错误页）。
+        manageLabel: id == 'whos' ? '切到本地女优库' : null,
+        onManage: id == 'whos' ? () => _selectSource(0) : null,
       );
     }
-    if (state.loaded && state.items.isEmpty) {
+    if (state.loaded && count == 0) {
       return _stateArea(message: '这个源暂时没有内容', retryLabel: '重试',
           onRetry: () => unawaited(_loadOnline(id)));
     }
@@ -955,15 +1198,20 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
       },
       child: GridView.builder(
         padding: const EdgeInsets.fromLTRB(12, 6, 12, 24),
-        itemCount: state.items.length,
+        itemCount: count,
         gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
           maxCrossAxisExtent: 130,
           mainAxisSpacing: 12,
           crossAxisSpacing: 10,
           childAspectRatio: 0.56,
         ),
-        itemBuilder: (context, index) =>
-            _dramaCard(state.items[index], badge: null),
+        itemBuilder: (context, index) => isDart
+            ? _onlineCard(
+                actressOnlineSourceById(id)!,
+                state.cards[index],
+                badge: null,
+              )
+            : _dramaCard(state.items[index], badge: null),
       ),
     );
   }
@@ -1145,6 +1393,12 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
               ),
               itemBuilder: (context, index) => section.sourceId == null
                   ? _localCard(section.localItems[index], badge: section.label)
+                  : section.isDart
+                  ? _onlineCard(
+                      actressOnlineSourceById(section.sourceId!)!,
+                      section.cards[index],
+                      badge: section.label,
+                    )
                   : _dramaCard(section.dramas[index], badge: section.label),
             ),
           ],
@@ -1239,7 +1493,28 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
       subtitle: subtitle,
       badge: badge,
       placeholder: 'NV',
-      onTap: () => unawaited(_playOnline(drama)),
+      onTap: () => _openOnlineDetail(drama),
+    );
+  }
+
+  /// 作品卡（Dart 直连源）：副行取时长，没有就取番号/站名；
+  /// 点卡进作品详情页（页内起播），不直进播放器。
+  Widget _onlineCard(
+    ActressOnlineSource source,
+    OnlineVideoCard card, {
+    required String? badge,
+  }) {
+    final subtitle = card.duration.isNotEmpty
+        ? card.duration
+        : (source.id == '123av' ? av123CodeOf(card.pageUrl) : source.label);
+    return _posterCard(
+      key: ValueKey('native-work-${source.id}-${card.pageUrl}'),
+      title: card.title,
+      pic: card.cover,
+      subtitle: subtitle,
+      badge: badge,
+      placeholder: 'NV',
+      onTap: () => _openDartDetail(source, card),
     );
   }
 
@@ -1402,330 +1677,6 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
           ],
         ),
       ),
-    );
-  }
-}
-
-/// 本地作品详情页（本模块内原生页）：大海报、标题、番号/女优/日期/
-/// 类型、播放线路钮组、相关作品网格。数据走 detail op。
-class _LocalWorkDetailPage extends StatefulWidget {
-  const _LocalWorkDetailPage({
-    required this.vodId,
-    required this.fallback,
-    required this.repository,
-    required this.store,
-    required this.onActress,
-  });
-
-  final String vodId;
-  final ActressLibraryDbFallback fallback;
-  final AppRepository repository;
-  final LocalStore store;
-  final void Function(String name) onActress;
-
-  @override
-  State<_LocalWorkDetailPage> createState() => _LocalWorkDetailPageState();
-}
-
-class _LocalWorkDetailPageState extends State<_LocalWorkDetailPage> {
-  Map<String, dynamic>? _item;
-  String? _error;
-  var _loading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    unawaited(_load());
-  }
-
-  Future<void> _load() async {
-    try {
-      final result = await widget.fallback
-          .handle({'op': 'detail', 'vodId': widget.vodId})
-          .timeout(_loadTimeout);
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        if (result['ok'] == true && result['item'] is Map) {
-          _item = Map<String, dynamic>.from(result['item'] as Map);
-        } else {
-          _error = (result['error'] ?? '本地库无此番号').toString();
-        }
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _error = '详情加载失败：${error.toString().split('\n').first}';
-      });
-    }
-  }
-
-  Future<void> _playLine(int index, List<String> playUrls) async {
-    final item = _item!;
-    final vodId = (item['vodId'] ?? widget.vodId).toString();
-    final title = (item['title'] ?? '').toString();
-    final pic = (item['pic'] ?? '').toString();
-    final drama = Drama(
-      id: whosLocalId(vodId),
-      source: whosSourceId,
-      sourceId: whosLocalId(vodId),
-      title: title,
-      cover: pic,
-    );
-    // 集形态照 whosLocalDetail：一条直链集，播放只走库里地址。
-    final detail = whosLocalDetail(
-      drama,
-      WhosLocalWork(
-        id: vodId,
-        title: title,
-        cover: pic,
-        playUrl: playUrls[index],
-        code: vodId,
-      ),
-    );
-    if (detail.episodes.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('这条线路没有可播地址')));
-      return;
-    }
-    await pushPlayer<void>(
-      context,
-      detail: detail,
-      initialIndex: 0,
-      repository: widget.repository,
-      store: widget.store,
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Neon.bg,
-      appBar: actressNeonAppBar(
-        title: const Text('作品详情', style: TextStyle(fontSize: 16)),
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator(color: Neon.pink))
-          : _error != null
-          ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(_error!, style: const TextStyle(color: Neon.textDim)),
-                  const SizedBox(height: 12),
-                  TextButton(
-                    onPressed: () {
-                      setState(() {
-                        _loading = true;
-                        _error = null;
-                      });
-                      unawaited(_load());
-                    },
-                    child: const Text('重试'),
-                  ),
-                ],
-              ),
-            )
-          : _body(),
-    );
-  }
-
-  Widget _body() {
-    final item = _item!;
-    final title = (item['title'] ?? '').toString();
-    final pic = (item['pic'] ?? '').toString();
-    final code = (item['code'] ?? item['vodId'] ?? '').toString();
-    final date = (item['date'] ?? '').toString();
-    final typeName = (item['typeName'] ?? '').toString();
-    final actresses = [
-      for (final row in (item['actresses'] as List? ?? const []))
-        row.toString(),
-    ];
-    final tags = [
-      for (final row in (item['tags'] as List? ?? const [])) row.toString(),
-    ];
-    final playUrls = [
-      for (final row in (item['playUrls'] as List? ?? const []))
-        row.toString(),
-    ];
-    final related = [
-      for (final row in (item['related'] as List? ?? const []))
-        Map<String, dynamic>.from(row as Map),
-    ];
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
-      children: [
-        Center(
-          child: Container(
-            width: 180,
-            height: 270,
-            decoration: actressNeonCardDecoration(radius: 12),
-            clipBehavior: Clip.antiAlias,
-            child: pic.isEmpty
-                ? Center(
-                    child: Text(
-                      code,
-                      style: const TextStyle(color: Neon.textDim),
-                    ),
-                  )
-                : Image.network(
-                    pic,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, _, _) => const SizedBox.shrink(),
-                  ),
-          ),
-        ),
-        const SizedBox(height: 14),
-        Text(
-          title,
-          style: const TextStyle(
-            color: Neon.text,
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
-            height: 1.35,
-          ),
-        ),
-        const SizedBox(height: 8),
-        if (code.isNotEmpty)
-          Text('番号：$code', style: const TextStyle(color: Neon.textDim)),
-        if (date.isNotEmpty)
-          Text('日期：$date', style: const TextStyle(color: Neon.textDim)),
-        if (typeName.isNotEmpty)
-          Text('类型：$typeName', style: const TextStyle(color: Neon.textDim)),
-        if (actresses.isNotEmpty) ...[
-          const SizedBox(height: 10),
-          const Text(
-            '女优',
-            style: TextStyle(color: Neon.text, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 6),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final name in actresses)
-                ActressNeonPill(
-                  label: name,
-                  selected: false,
-                  onTap: () => widget.onActress(name),
-                ),
-            ],
-          ),
-        ],
-        if (tags.isNotEmpty) ...[
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final tag in tags)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 3,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Neon.surface,
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    tag,
-                    style: const TextStyle(color: Neon.textDim, fontSize: 11),
-                  ),
-                ),
-            ],
-          ),
-        ],
-        const SizedBox(height: 16),
-        const Text(
-          '播放线路',
-          style: TextStyle(color: Neon.text, fontWeight: FontWeight.w700),
-        ),
-        const SizedBox(height: 8),
-        if (playUrls.isEmpty)
-          const Text(
-            '本地库里没有这部的播放地址',
-            style: TextStyle(color: Neon.textDim),
-          )
-        else
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              for (var i = 0; i < playUrls.length; i++)
-                ActressNeonPill(
-                  key: ValueKey('native-line-$i'),
-                  label: '线路${i + 1}',
-                  selected: i == 0,
-                  onTap: () => unawaited(_playLine(i, playUrls)),
-                ),
-            ],
-          ),
-        if (related.isNotEmpty) ...[
-          const SizedBox(height: 20),
-          const Text(
-            '相关作品',
-            style: TextStyle(color: Neon.text, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 10),
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: related.length,
-            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-              maxCrossAxisExtent: 130,
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 10,
-              childAspectRatio: 0.56,
-            ),
-            itemBuilder: (context, index) {
-              final row = related[index];
-              final relatedId = (row['vodId'] ?? '').toString();
-              return InkWell(
-                onTap: () => Navigator.of(context).pushReplacement<void, void>(
-                  MaterialPageRoute(
-                    builder: (_) => _LocalWorkDetailPage(
-                      vodId: relatedId,
-                      fallback: widget.fallback,
-                      repository: widget.repository,
-                      store: widget.store,
-                      onActress: widget.onActress,
-                    ),
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Container(
-                        decoration: actressNeonCardDecoration(radius: 10),
-                        clipBehavior: Clip.antiAlias,
-                        child: (row['pic'] ?? '').toString().isEmpty
-                            ? const SizedBox.shrink()
-                            : Image.network(
-                                (row['pic'] ?? '').toString(),
-                                fit: BoxFit.cover,
-                                errorBuilder: (_, _, _) =>
-                                    const SizedBox.shrink(),
-                              ),
-                      ),
-                    ),
-                    const SizedBox(height: 5),
-                    Text(
-                      (row['title'] ?? '').toString(),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Neon.text, fontSize: 12),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-        ],
-      ],
     );
   }
 }

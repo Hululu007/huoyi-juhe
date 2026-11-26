@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -235,6 +237,179 @@ void main() {
     expect(find.byKey(const ValueKey('moyi_left_热门甲')), findsOneWidget);
     expect(find.byKey(const ValueKey('moyi_left_可看标签')), findsOneWidget);
   });
+
+  // —— 加载速度批（2026-11-27）：频道分类页慢的根因是取作品
+  // Future.wait 等最慢的源（单源超时 50 秒）+ 零缓存。下面五条
+  // 钉住新行为：逐站出结果、缓存先行、部分失败有提示、全失败
+  // 仍出错误态、左栏加宽后四字分类名不截断。
+
+  UnifiedVideoCategories twoSiteUnified() => parseUnifiedVideoCategories('''
+{
+  "version": 1,
+  "site_count": 2,
+  "total_site_count": 2,
+  "sites_without_categories": [],
+  "categories": {
+    "双站分类": [
+      {"siteId": "x", "path": "/dual"},
+      {"siteId": "y", "path": "/dual"}
+    ],
+    "中文字幕": [
+      {"siteId": "x", "path": "/sub"}
+    ],
+    "缓存分类": [
+      {"siteId": "x", "path": "/cached"}
+    ],
+    "另一分类": [
+      {"siteId": "x", "path": "/other"}
+    ]
+  },
+  "tags": {}
+}
+''');
+
+  Future<void> pumpCustom(
+    WidgetTester tester, {
+    required UnifiedVideoCategories unified,
+    required DramaSiteContentClient? Function(String siteId) clientFor,
+  }) async {
+    SharedPreferences.setMockInitialValues({});
+    await tester.binding.setSurfaceSize(const Size(400, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    addTearDown(() => tester.pumpWidget(const SizedBox.shrink()));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CategoryPage(
+          videoSiteId: 'x',
+          openVideoTab: true,
+          videoLoader: (_) async => fakeSingle,
+          unifiedLoader: () async => unified,
+          unifiedClientForSite: clientFor,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('逐站出结果：快站作品先上屏，不等慢站', (tester) async {
+    final fast = _TimedClient('x');
+    final slow = _TimedClient(
+      'y',
+      delays: const {'/dual': Duration(seconds: 3)},
+    );
+    await pumpCustom(
+      tester,
+      unified: twoSiteUnified(),
+      clientFor: (siteId) => siteId == 'x' ? fast : slow,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('moyi_left_双站分类')));
+    await tester.pump();
+    await tester.pump();
+
+    // 慢站（3 秒）还没回，快站作品已经上屏（旧实现 Future.wait
+    // 等全部源，这里什么都看不到、只有转圈）。
+    expect(find.text('x 站作品 /dual'), findsOneWidget);
+    expect(find.text('y 站作品 /dual'), findsNothing);
+    expect(find.byKey(const ValueKey('moyi_works_grid')), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump();
+
+    // 慢站回来后并入同一网格。
+    expect(find.text('y 站作品 /dual'), findsOneWidget);
+    expect(find.text('x 站作品 /dual'), findsOneWidget);
+  });
+
+  testWidgets('切回看过的分类：缓存先出，刷新在后台', (tester) async {
+    final client = _TimedClient('x');
+    await pumpCustom(
+      tester,
+      unified: twoSiteUnified(),
+      clientFor: (_) => client,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('moyi_left_缓存分类')));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('x 站作品 /cached'), findsOneWidget);
+    expect(client.callsByPath['/cached'], 1);
+
+    // 把 /cached 的下一次取数挂住，模拟后台刷新还没回来。
+    client.gates['/cached'] = Completer<void>();
+    await tester.tap(find.byKey(const ValueKey('moyi_left_另一分类')));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('x 站作品 /other'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('moyi_left_缓存分类')));
+    await tester.pump();
+
+    // 缓存里的作品立刻在屏上，没有转圈挡路。
+    expect(find.text('x 站作品 /cached'), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+
+    client.gates['/cached']!.complete();
+    await tester.pump();
+    await tester.pump();
+    // 后台刷新确实发过第二次请求，回来后内容不变。
+    expect(client.callsByPath['/cached'], 2);
+    expect(find.text('x 站作品 /cached'), findsOneWidget);
+  });
+
+  testWidgets('部分站没响应：有内容的先出， settle 后给提示', (tester) async {
+    final ok = _TimedClient('x');
+    final down = _TimedClient('y', failPaths: const {'/dual'});
+    await pumpCustom(
+      tester,
+      unified: twoSiteUnified(),
+      clientFor: (siteId) => siteId == 'x' ? ok : down,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('moyi_left_双站分类')));
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('x 站作品 /dual'), findsOneWidget);
+    expect(find.byKey(const ValueKey('moyi_partial_hint')), findsOneWidget);
+    expect(find.textContaining('个站没响应'), findsOneWidget);
+  });
+
+  testWidgets('全部站没响应：出错误态带重试，不无限转圈', (tester) async {
+    final downX = _TimedClient('x', failPaths: const {'/dual'});
+    final downY = _TimedClient('y', failPaths: const {'/dual'});
+    await pumpCustom(
+      tester,
+      unified: twoSiteUnified(),
+      clientFor: (siteId) => siteId == 'x' ? downX : downY,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('moyi_left_双站分类')));
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(find.text('这些站现在都打不开，稍后再试'), findsOneWidget);
+    expect(find.text('重试'), findsOneWidget);
+  });
+
+  testWidgets('左栏加宽：四字分类名完整显示不截断', (tester) async {
+    await pumpCustom(
+      tester,
+      unified: twoSiteUnified(),
+      clientFor: (_) => _TimedClient('x'),
+    );
+
+    // 左栏旧宽 96dp：扣掉内边距/图标后文字只剩约 43dp，
+    // 「中文字幕」这类四字名（约 56dp）必被省略号截断。
+    final railWidth = tester
+        .getSize(find.byKey(const ValueKey('moyi_left_rail')))
+        .width;
+    expect(railWidth, greaterThanOrEqualTo(120));
+    expect(find.text('中文字幕'), findsOneWidget);
+  });
 }
 
 class _FakeClient extends DramaSiteContentClient {
@@ -276,6 +451,52 @@ class _FakeClient extends DramaSiteContentClient {
           title: '$siteId 站作品 $categoryId',
           cover: '',
           remark: '更新至12集',
+        ),
+      ],
+      hasMore: false,
+    );
+  }
+
+  @override
+  Future<DramaSiteDetail> detail(String seriesId) async =>
+      const DramaSiteDetail(id: '', title: '', cover: '', episodes: []);
+
+  @override
+  Future<DramaPlaySource> playSource(DramaSiteEpisode episode) async =>
+      const DramaPlaySource(url: '');
+}
+
+/// 可控时序的假客户端（加载速度批用）：按路径设延迟、失败、
+/// 挂起门，并按路径数 catalog 调用次数。
+class _TimedClient extends DramaSiteContentClient {
+  _TimedClient(this.siteId, {this.delays = const {}, this.failPaths = const {}});
+
+  final String siteId;
+  final Map<String, Duration> delays;
+  final Set<String> failPaths;
+  final Map<String, Completer<void>> gates = {};
+  final Map<String, int> callsByPath = {};
+
+  @override
+  Future<List<DramaSiteCategory>> categories() async => const [];
+
+  @override
+  Future<DramaSiteCatalogPage> catalog(String categoryId, int page) async {
+    callsByPath[categoryId] = (callsByPath[categoryId] ?? 0) + 1;
+    final gate = gates[categoryId];
+    if (gate != null) await gate.future;
+    final delay = delays[categoryId] ?? Duration.zero;
+    if (delay > Duration.zero) await Future<void>.delayed(delay);
+    if (failPaths.contains(categoryId)) {
+      throw StateError('站打不开');
+    }
+    return DramaSiteCatalogPage(
+      items: [
+        DramaSiteItem(
+          id: 'v-$categoryId',
+          title: '$siteId 站作品 $categoryId',
+          cover: '',
+          remark: '更新至3集',
         ),
       ],
       hasMore: false,

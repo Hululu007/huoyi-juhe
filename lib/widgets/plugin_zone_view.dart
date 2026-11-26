@@ -433,7 +433,7 @@ class _PluginMarketSectionState extends State<PluginMarketSection> {
               ],
             ),
           ),
-        for (final plugin in visiblePlugins) _pluginRow(plugin),
+        if (visiblePlugins.isNotEmpty) _pluginGrid(visiblePlugins),
         for (final cms in subscription.cms)
           ListTile(
             dense: true,
@@ -451,61 +451,162 @@ class _PluginMarketSectionState extends State<PluginMarketSection> {
     );
   }
 
-  Widget _pluginRow(IdjSubscriptionPlugin plugin) {
+  /// 市场条目三列网格（用户 2026-11-27 令，与选站弹窗站卡网格同
+  /// 列数口径：宽屏 4 列、手机宽 3 列）。旧的单列长条行（ListTile
+  /// 尾随大按钮）已撤：卡内依次是首字图标块、站名、版本/状态、
+  /// 安装动作，动作收在卡边界内，不再有行外溢出的按钮。
+  /// 门禁过滤在组表时已完成（visiblePlugins），网格按过滤后的
+  /// 列表紧凑排布，不留空位。
+  Widget _pluginGrid(List<IdjSubscriptionPlugin> plugins) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final columns = width >= 500 ? 4 : 3;
+        const spacing = 8.0;
+        final tileWidth = (width - spacing * (columns - 1)) / columns;
+        // 卡高：16:9 图标块 + 站名（两行）+ 状态一行 + 动作区，
+        // 与站卡网格的卡高口径接近，两个网格上下对齐不跳。
+        final extent = tileWidth * 9 / 16 + 104;
+        return GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            mainAxisSpacing: 10,
+            crossAxisSpacing: spacing,
+            mainAxisExtent: extent,
+          ),
+          itemCount: plugins.length,
+          itemBuilder: (context, index) => _pluginCard(plugins[index]),
+        );
+      },
+    );
+  }
+
+  Widget _pluginCard(IdjSubscriptionPlugin plugin) {
     final installed = _installedById[plugin.id];
     final busy = _busyPluginId == plugin.id;
+    final firstChar = plugin.name.isEmpty
+        ? '?'
+        : plugin.name.characters.first;
+    // 状态行 + 动作：判定与旧行布局一致（未装/损坏/可更新/已装/
+    // 安装中），只是搬进卡里。
+    final String status;
     final Widget action;
     if (busy) {
+      status = '安装中…';
       action = const SizedBox(
-        width: 20,
-        height: 20,
-        child: CircularProgressIndicator(strokeWidth: 2),
+        height: 30,
+        child: Center(
+          child: SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
       );
     } else if (installed == null) {
-      action = FilledButton(
-        key: ValueKey('plugin-install-${plugin.id}'),
-        onPressed: () => _install(plugin),
-        child: const Text('安装'),
-      );
+      status = 'v${plugin.version}';
+      action = _cardActionButton(plugin, '安装');
     } else if (installed.damaged) {
-      action = FilledButton(
-        key: ValueKey('plugin-install-${plugin.id}'),
-        onPressed: () => _install(plugin),
-        child: const Text('重装'),
-      );
+      status = '已损坏 · v${installed.entry.version}';
+      action = _cardActionButton(plugin, '重装');
     } else if (IdjPluginManifest.compareVersions(
           plugin.version,
           installed.entry.version,
         ) >
         0) {
-      action = FilledButton(
-        key: ValueKey('plugin-install-${plugin.id}'),
-        onPressed: () => _install(plugin),
-        child: const Text('更新'),
-      );
+      status = 'v${installed.entry.version} → v${plugin.version}';
+      action = _cardActionButton(plugin, '更新');
     } else {
-      action = const Text(
-        '已安装',
-        style: TextStyle(fontSize: 13, color: moyiMutedOnDark),
+      status = 'v${installed.entry.version}';
+      action = const SizedBox(
+        height: 30,
+        child: Center(
+          child: Text(
+            '已安装',
+            style: TextStyle(fontSize: 12, color: moyiMutedOnDark),
+          ),
+        ),
       );
     }
-    return ListTile(
+    return Container(
       key: ValueKey('plugin-market-row-${plugin.id}'),
-      dense: true,
-      contentPadding: EdgeInsets.zero,
-      title: Text(
-        '${plugin.name} ${plugin.version}',
-        style: const TextStyle(fontSize: 14, color: Colors.white),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: moyiDarkCardBorder),
       ),
-      subtitle: plugin.description.isEmpty
-          ? null
-          : Text(
-              plugin.description,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 12, color: moyiMutedOnDark),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          AspectRatio(
+            aspectRatio: 16 / 9,
+            child: Container(
+              color: moyiDarkCardFill,
+              alignment: Alignment.center,
+              child: Text(
+                firstChar,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
-      trailing: action,
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    plugin.name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: Colors.white,
+                      height: 1.25,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    status,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: moyiMutedOnDark,
+                    ),
+                  ),
+                  const Spacer(),
+                  action,
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _cardActionButton(IdjSubscriptionPlugin plugin, String label) {
+    return SizedBox(
+      height: 30,
+      width: double.infinity,
+      child: FilledButton(
+        key: ValueKey('plugin-install-${plugin.id}'),
+        onPressed: () => _install(plugin),
+        style: FilledButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          minimumSize: const Size(0, 30),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          textStyle: const TextStyle(fontSize: 13),
+        ),
+        child: Text(label),
+      ),
     );
   }
 }

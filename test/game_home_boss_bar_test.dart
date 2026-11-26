@@ -8,12 +8,12 @@ import 'package:fqapp/services/game_data.dart';
 import 'package:fqapp/services/game_service.dart';
 import 'package:fqapp/widgets/game_battle_stage.dart';
 
-/// 修仙版第 32 轮游戏 UI 回归：主页 + 战斗剑光 / BOSS 血条 / 技能新名。
+/// 修仙版游戏 UI 回归：战斗剑光 / BOSS 血条 / 技能新名。
 ///
-/// 主页：打开先是主页（白发女剑仙 + 云海仙宫），点「进入战斗」切战场，
-/// 技能圆盘点技能进战场并放那一招；战场顶部有 BOSS 血条（名 + 红条 +
-/// 真实血量），技能栏四技能按用户原型定名（剑影分光 / 雷法 / 大庚剑阵 /
-/// 万剑归宗）。
+/// 游戏页已删主页 hub：打开直接在战场（没有「进入战斗」钮、
+/// 没有技能圆盘 / 主线竖牌 / 队伍招募条，顶栏也没有「主页」钮）；
+/// 战场顶部有 BOSS 血条（名 + 红条 + 真实血量），技能栏四技能
+/// 按用户原型定名（剑影分光 / 雷法 / 大庚剑阵 / 万剑归宗）。
 /// 注意：本文件只断言界面与接线，不跑数值；剑光本身是纯视觉特效，
 /// 手机上看效果。收尾照 test/game_battle_minions_test.dart：
 /// 换页 + 推 3 秒假时间清掉寻路 / 出招 / 剑光那类没法取消的
@@ -92,62 +92,29 @@ void main() {
     await GameService.instance.ensureInitialized();
   });
 
-  group('32 轮游戏主页', () {
-    testWidgets('打开先是主页：进入战斗钮、四技能、主线竖牌、队伍条都在',
+  group('删主页 hub：打开直达战场', () {
+    testWidgets('打开直接在战场：无主页元素，BOSS 血条与四技能名都在',
         (tester) async {
       await _pumpGamePage(tester);
-      expect(find.text('进入战斗'), findsOneWidget);
-      expect(find.text('御剑'), findsOneWidget);
-      expect(find.text('归元'), findsOneWidget);
-      expect(find.text('冰心'), findsOneWidget);
-      expect(find.text('新月'), findsOneWidget);
-      // 主线竖牌是逐字竖排：只断言首尾两字（主 / 草）。
-      expect(find.text('主'), findsOneWidget);
-      expect(find.text('草'), findsOneWidget);
-      expect(find.text('队伍招募：组队刷副本'), findsOneWidget);
-      // 没建档时名字显示通用称呼“道友”，不是写死的“凌雪瑶”。
-      expect(find.text('道友'), findsOneWidget);
-      expect(find.text('凌雪瑶'), findsNothing);
-      await _tearDown(tester);
-    });
-
-    testWidgets('点御剑进战场并放招，点主页钮切回主页', (tester) async {
-      await _pumpGamePage(tester);
-      await tester.tap(find.text('御剑'));
-      await tester.pump(const Duration(milliseconds: 100));
-      await tester.pump(const Duration(milliseconds: 500));
+      // 主页 hub 元素全不在。
       expect(find.text('进入战斗'), findsNothing);
-      expect(find.text('主页'), findsOneWidget);
+      expect(find.text('队伍招募：组队刷副本'), findsNothing);
+      expect(find.text('御剑'), findsNothing);
+      expect(find.text('归元'), findsNothing);
+      expect(find.text('冰心'), findsNothing);
+      expect(find.text('新月'), findsNothing);
+      // 战场顶栏常驻：有「离开」与「观影」，没有「主页」钮。
+      expect(find.text('离开'), findsOneWidget);
+      expect(find.text('观影'), findsOneWidget);
+      expect(find.text('主页'), findsNothing);
+      // 开局 BOSS（紫电魔蚁）血条：名 + 真实血量。
+      expect(find.text('紫电魔蚁 · BOSS'), findsOneWidget);
+      expect(find.text('180/180'), findsOneWidget);
+      // 战场技能栏四技能名。
       expect(find.text('剑影分光'), findsOneWidget);
-      await tester.tap(find.text('主页'));
-      await tester.pump(const Duration(milliseconds: 100));
-      expect(find.text('进入战斗'), findsOneWidget);
-      await _tearDown(tester);
-    });
-
-    testWidgets('点前往/活动只提示待开放，点地图开主线推图', (tester) async {
-      await _pumpGamePage(tester);
-      await tester.tap(find.text('前往'));
-      await tester.pump(const Duration(milliseconds: 100));
-      expect(find.text('前往待开放'), findsOneWidget);
-      await tester.pump(const Duration(seconds: 3));
-      // 「前往待开放」是 2 秒提示：fake 计时下一次 pump(3 秒)
-      // 只启动退出动画、提示还留在树里，此时点「活动」新提示
-      // 会被排在它后面出不来；等它彻底消失再点。
-      // （断言与视口未动；重叠本身已修好，单独点「活动」即通。）
-      for (var i = 0;
-          i < 10 && find.text('前往待开放').evaluate().isNotEmpty;
-          i++) {
-        await tester.pump(const Duration(milliseconds: 500));
-      }
-      await tester.tap(find.text('活动'));
-      await tester.pump(const Duration(milliseconds: 100));
-      expect(find.text('活动待开放'), findsOneWidget);
-      await tester.pump(const Duration(seconds: 3));
-      await tester.tap(find.text('地图'));
-      await tester.pump(const Duration(milliseconds: 100));
-      await tester.pump(const Duration(milliseconds: 500));
-      expect(find.text('任务 · 主线推图'), findsOneWidget);
+      expect(find.text('雷法'), findsOneWidget);
+      expect(find.text('大庚剑阵'), findsOneWidget);
+      expect(find.text('万剑归宗'), findsOneWidget);
       await _tearDown(tester);
     });
   });

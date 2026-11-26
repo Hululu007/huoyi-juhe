@@ -55,10 +55,16 @@ static char *jni_pd(const char *arg) {
     return call_static_string(g_pd_method, arg);
 }
 
+/* JNI 绑定名必须与宿主 App 的桥类全名一致：本 App 的桥类是
+   com.fanrenxiuxianguanyingchuan.QuickJSBridge（见 android 侧
+   QuickJSBridge.kt）。此前这里沿用上游 fqapp 的 com.fqapp.fqapp
+   包名，符号与 FindClass 都对不上：nativeEval 一调就
+   UnsatisfiedLinkError，eval 全灭（插件 probe 与 JS 蜘蛛同桥
+   同病），status 又只看 .so 能否加载、照样报可用，故障被掩盖。 */
 JNIEXPORT jstring JNICALL
-Java_com_fqapp_fqapp_QuickJSBridge_nativeEval(JNIEnv *env, jclass clazz, jstring script, jint timeoutMs) {
+Java_com_fanrenxiuxianguanyingchuan_QuickJSBridge_nativeEval(JNIEnv *env, jclass clazz, jstring script, jint timeoutMs) {
     if ((*env)->GetJavaVM(env, &g_vm) == 0 && g_bridge_class == NULL) {
-        jclass local = (*env)->FindClass(env, "com/fqapp/fqapp/QuickJSBridge");
+        jclass local = (*env)->FindClass(env, "com/fanrenxiuxianguanyingchuan/QuickJSBridge");
         if (local) {
             g_bridge_class = (jclass)(*env)->NewGlobalRef(env, local);
             (*env)->DeleteLocalRef(env, local);

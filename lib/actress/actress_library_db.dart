@@ -131,6 +131,7 @@ class ActressLibraryDbFallback {
     _opening = null;
     _openStamp = null;
     _tables = null;
+    _columnCache.clear();
   }
 
   Future<Set<String>> _tableSet(ActressLibRawQuery query) async {
@@ -514,6 +515,7 @@ class ActressLibraryDbFallback {
     if (playUrls.isNotEmpty) item['play'] = playUrls.first;
 
     var actresses = <String>[];
+    var actressInfo = <Map<String, dynamic>>[];
     if (tables.contains('video_actress') && tables.contains('actresses')) {
       final names = await query(
         'SELECT a.name AS name FROM video_actress va '
@@ -526,6 +528,42 @@ class ActressLibraryDbFallback {
           if ((row['name']?.toString() ?? '').isNotEmpty)
             row['name'].toString(),
       ];
+      // 演员头像（详情页演员区用）：actresses.avatar 列在才查，
+      // 没有该列就只回名字、头像留空（详情页回落首字占位）。
+      final actressCols = await _columnSet(query, 'actresses');
+      if (actressCols.contains('avatar')) {
+        final rows = await query(
+          'SELECT a.name AS name, a.avatar AS avatar FROM video_actress va '
+          'JOIN actresses a ON a.cate_id = va.cate_id '
+          'WHERE va.vod_id = ? ORDER BY a.name',
+          [vodId],
+        );
+        actressInfo = [
+          for (final row in rows)
+            if ((row['name']?.toString() ?? '').isNotEmpty)
+              {
+                'name': row['name'].toString(),
+                'avatar': row['avatar']?.toString() ?? '',
+              },
+        ];
+      } else {
+        actressInfo = [
+          for (final name in actresses) {'name': name, 'avatar': ''},
+        ];
+      }
+    }
+
+    // 简介（详情页用）：videos.content 列在才查，没有就留空，
+    // 详情页不显示简介区（不编内容）。
+    final videoCols = await _columnSet(query, 'videos');
+    if (videoCols.contains('content')) {
+      final rows = await query(
+        'SELECT content AS content FROM videos WHERE vod_id = ? LIMIT 1',
+        [vodId],
+      );
+      if (rows.isNotEmpty) {
+        item['content'] = rows.first['content']?.toString() ?? '';
+      }
     }
 
     var tags = <String>[];
@@ -575,10 +613,33 @@ class ActressLibraryDbFallback {
         ...item,
         'playUrls': playUrls,
         'actresses': actresses,
+        'actressInfo': actressInfo,
         'tags': tags,
         'related': related,
       },
     };
+  }
+
+  /// 表的列名集（PRAGMA table_info）：给可选列（content /
+  /// avatar 这类不是每版库都有的列）做在场判定，查不到/出
+  /// 错按无列处理，绝不让可选列把主查询打挂。结果按表缓存，
+  /// _reset 时一并清。
+  final _columnCache = <String, Set<String>>{};
+
+  Future<Set<String>> _columnSet(
+    ActressLibRawQuery query,
+    String table,
+  ) async {
+    final cached = _columnCache[table];
+    if (cached != null) return cached;
+    try {
+      final rows = await query('PRAGMA table_info($table)');
+      return _columnCache[table] = {
+        for (final row in rows) row['name']?.toString() ?? '',
+      };
+    } catch (_) {
+      return _columnCache[table] = const {};
+    }
   }
 
   static String _escapeLike(String value) => value

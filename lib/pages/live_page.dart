@@ -26,7 +26,7 @@ import 'mine_page.dart';
 ///
 /// 布局：上半内嵌播放器（16:9 定比，叠顶栏频道名/分辨率/ⓘ）/
 /// 下半面板：80 高瘦信息行（左预览槽 + 正在/即将两行 + 56 宽
-/// 切源钮）+ 搜索行 + 分组/频道/线路三列同滚胶囊网格；点视频
+/// 切源钮）+ 刷新行 + 分组/频道/线路三列同滚胶囊网格；点视频
 /// 画面进全屏、双击重试。换源不走横向 chips，走信息行切源钮
 /// 弹出的分组选择框（平台源 / 导入源）。
 /// 内嵌播放与全屏播放各用一个 NativePlayer：进全屏前先暂停内嵌，
@@ -61,7 +61,7 @@ liveChannelsFetcherForTest;
 @visibleForTesting
 Future<LiveEpgGuide> Function(LiveSource source)? liveEpgLoaderForTest;
 
-/// 测试注入：非空时左下「+」的本地文件导入用它代替真实的
+/// 测试注入：非空时右侧居中悬浮「+」的本地文件导入用它代替真实的
 /// file_selector 选文件（返回值同 pickTextFile：文件名 + 全文，
 /// null 表示用户取消）。生产路径始终为 null。
 @visibleForTesting
@@ -107,9 +107,6 @@ class _LivePageState extends State<LivePage> {
 
   /// 起播停滞看门狗计时器（arm/disarm 见 _subscribe / _loadInline）。
   Timer? _bufferWatchdog;
-
-  final _searchController = TextEditingController();
-  String _query = '';
 
   final _store = LiveStore.instance;
   final _sleepTimer = LiveSleepTimer.instance;
@@ -170,19 +167,6 @@ class _LivePageState extends State<LivePage> {
   LiveChannel? get _channel => _channels.isEmpty
       ? null
       : _channels[_index.clamp(0, _channels.length - 1)];
-
-  /// 搜索过滤后的频道：只在已加载的列表里筛（分页源只筛已加载的页）。
-  List<LiveChannel> get _visibleChannels {
-    if (_query.isEmpty) return _channels;
-    final q = _query.toLowerCase();
-    return _channels
-        .where(
-          (c) =>
-              c.title.toLowerCase().contains(q) ||
-              c.group.toLowerCase().contains(q),
-        )
-        .toList();
-  }
 
   List<({String id, String name, int count})> get _entries => [
     (id: _favouritesId, name: '收藏', count: _store.favourites.length),
@@ -297,7 +281,6 @@ class _LivePageState extends State<LivePage> {
     }
     _epgTick?.cancel();
     _teardownPlayer();
-    _searchController.dispose();
     super.dispose();
   }
 
@@ -311,7 +294,7 @@ class _LivePageState extends State<LivePage> {
     return text;
   }
 
-  /// 左下悬浮「+」的导入菜单：两路——导入本地文件 / 添加远程
+  /// 右侧居中悬浮「+」的导入菜单：两路——导入本地文件 / 添加远程
   /// 链接。两路都走订阅机件落盘，成功自动切到新源。
   Future<void> _showImportMenu() async {
     final choice = await showModalBottomSheet<String>(
@@ -542,8 +525,6 @@ class _LivePageState extends State<LivePage> {
       _playerError = null;
       _playerErrorDrm = false;
       _initVideo = true;
-      _query = '';
-      _searchController.clear();
     });
     try {
       // 内置片库（whoslib://）不走 m3u 整表：库里 34 万部一次拉不完，
@@ -713,8 +694,6 @@ class _LivePageState extends State<LivePage> {
         _route = 0;
         _channels = const [];
         _allChannels = const [];
-        _query = '';
-        _searchController.clear();
       } else if (source.endpoint.startsWith(whosLibScheme)) {
         _whosLibAppending = true;
       }
@@ -1281,8 +1260,10 @@ class _LivePageState extends State<LivePage> {
     return Scaffold(
       backgroundColor: Colors.transparent,
       // 目标版式没有顶栏：播放器直接贴顶（16:9），切换源在信息行
-      // 右端的 56 钮；导入走左下角固定悬浮「+」（独立层，列表
-      // 滚动不动它，魔蚁定版同款位置）。
+      // 右端的 56 钮；导入走右侧居中悬浮「+」（独立层，列表滚动
+      // 不动它）。原左下角位置被壳层悬浮底部导航胶囊整颗遮住，
+      // 用户 2026-11-27 令移到右边居中：居中范围是可视区域（整高
+      // 减去底部胶囊遮挡带：系统底部 inset + 约 88）。
       body: MoyiPageBackground(
         child: SafeArea(
           top: true,
@@ -1298,20 +1279,23 @@ class _LivePageState extends State<LivePage> {
                       ],
                     ),
                     Positioned(
-                      left: 12,
-                      bottom: 12,
-                      child: Material(
-                        key: const ValueKey('live-import-add'),
-                        color: moyiPurple,
-                        shape: const CircleBorder(),
-                        elevation: 4,
-                        child: InkWell(
-                          customBorder: const CircleBorder(),
-                          onTap: () => unawaited(_showImportMenu()),
-                          child: const SizedBox(
-                            width: 48,
-                            height: 48,
-                            child: Icon(Icons.add, color: Colors.white),
+                      right: 12,
+                      top: 0,
+                      bottom: MediaQuery.paddingOf(context).bottom + 88,
+                      child: Center(
+                        child: Material(
+                          key: const ValueKey('live-import-add'),
+                          color: moyiPurple,
+                          shape: const CircleBorder(),
+                          elevation: 4,
+                          child: InkWell(
+                            customBorder: const CircleBorder(),
+                            onTap: () => unawaited(_showImportMenu()),
+                            child: const SizedBox(
+                              width: 48,
+                              height: 48,
+                              child: Icon(Icons.add, color: Colors.white),
+                            ),
                           ),
                         ),
                       ),
@@ -1489,37 +1473,51 @@ class _LivePageState extends State<LivePage> {
                 '线路 ${channel.urls.length}',
                 style: const TextStyle(color: Color(0xB3FFFFFF), fontSize: 12),
               ),
-            IconButton(
-              key: const ValueKey('live-sleep-timer'),
-              visualDensity: VisualDensity.compact,
-              tooltip: _sleepTimer.active
-                  ? '睡眠定时 · ${_sleepTimer.label}'
-                  : '睡眠定时',
-              onPressed: _showSleepTimer,
-              icon: const Icon(
-                Icons.bedtime_outlined,
-                size: 20,
-                color: Colors.white,
-              ),
-            ),
-            IconButton(
-              visualDensity: VisualDensity.compact,
-              tooltip: '全屏与旋转',
-              onPressed: _openFullscreen,
-              icon: const Icon(
-                Icons.screen_rotation_alt_rounded,
-                size: 20,
-                color: Colors.white,
-              ),
-            ),
-            IconButton(
-              visualDensity: VisualDensity.compact,
-              tooltip: favourite ? '取消收藏' : '收藏频道',
-              onPressed: () => unawaited(_store.toggleFavourite(channel)),
-              icon: Icon(
-                favourite ? Icons.star_rounded : Icons.star_border_rounded,
-                size: 20,
-                color: favourite ? moyiGold : Colors.white,
+            // 画面下沿三钮（睡眠定时 / 全屏与旋转 / 收藏）按用户
+            // 2026-11-27 令先隐藏：只在渲染层不画，三钮与各自回调
+            // 代码全保留，恢复时把 visible 改回 true 即可。
+            Visibility(
+              visible: false,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    key: const ValueKey('live-sleep-timer'),
+                    visualDensity: VisualDensity.compact,
+                    tooltip: _sleepTimer.active
+                        ? '睡眠定时 · ${_sleepTimer.label}'
+                        : '睡眠定时',
+                    onPressed: _showSleepTimer,
+                    icon: const Icon(
+                      Icons.bedtime_outlined,
+                      size: 20,
+                      color: Colors.white,
+                    ),
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    tooltip: '全屏与旋转',
+                    onPressed: _openFullscreen,
+                    icon: const Icon(
+                      Icons.screen_rotation_alt_rounded,
+                      size: 20,
+                      color: Colors.white,
+                    ),
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    tooltip: favourite ? '取消收藏' : '收藏频道',
+                    onPressed: () =>
+                        unawaited(_store.toggleFavourite(channel)),
+                    icon: Icon(
+                      favourite
+                          ? Icons.star_rounded
+                          : Icons.star_border_rounded,
+                      size: 20,
+                      color: favourite ? moyiGold : Colors.white,
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -1762,73 +1760,28 @@ class _LivePageState extends State<LivePage> {
   }
 
   Widget _lists() {
-    // 搜索行与三列网格：搜索行整行在网格上方（魔蚁无搜索，属
-    // 修仙版增量，保留）；源加载失败时搜索行也要能刷新/导入，
-    // 报错只显示在网格区。
+    // 刷新行与三列网格：刷新行在网格上方（原「搜索频道」输入栏
+    // 已按用户 2026-11-27 令删除，只保留独立的刷新钮）；源加载
+    // 失败时刷新行也要能刷新，报错只显示在网格区。
     return Column(
       children: [
-        _searchRow(),
+        _refreshRow(),
         Expanded(child: _channelPane()),
       ],
     );
   }
 
-  /// 搜索行：搜当前已加载的频道（标题/分组）；这里只剩刷新
-  /// 小钮（切源在信息行右端的 56 钮，导入在左下悬浮「+」）。
-  Widget _searchRow() {
+  /// 刷新行：原搜索栏整行已删（用户 2026-11-27 令），只留下
+  /// 独立的刷新钮，单独成行靠左端（切源在信息行右端的 56 钮，
+  /// 导入在右侧居中悬浮「+」）。不放右端的原因：可视区域垂直
+  /// 中点正落在这行右端的位置，悬浮「+」会盖住右端的刷新钮，
+  /// 左端整行空着、互不遮挡。
+  Widget _refreshRow() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(6, 2, 12, 2),
       child: Row(
+        mainAxisAlignment: MainAxisAlignment.start,
         children: [
-          Expanded(
-            child: TextField(
-              controller: _searchController,
-              onChanged: (value) => setState(() => _query = value),
-              style: const TextStyle(color: moyiBodyOnDark),
-              decoration: InputDecoration(
-                hintText: '搜索频道',
-                hintStyle: const TextStyle(color: moyiMutedOnDark),
-                prefixIcon: const Icon(
-                  Icons.search_rounded,
-                  size: 18,
-                  color: moyiMutedOnDark,
-                ),
-                suffixIcon: _query.isEmpty
-                    ? null
-                    : IconButton(
-                        tooltip: '清除搜索',
-                        icon: const Icon(
-                          Icons.clear_rounded,
-                          size: 18,
-                          color: moyiMutedOnDark,
-                        ),
-                        onPressed: () {
-                          _searchController.clear();
-                          setState(() => _query = '');
-                        },
-                      ),
-                isDense: true,
-                filled: true,
-                fillColor: moyiDarkCardFill,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: moyiDarkCardBorder),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: moyiDarkCardBorder),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: moyiPurple),
-                ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-              ),
-            ),
-          ),
           IconButton(
             key: const ValueKey('live-refresh-button'),
             tooltip: '刷新直播',
@@ -1837,7 +1790,6 @@ class _LivePageState extends State<LivePage> {
             onPressed: _refreshLive,
             icon: const Icon(Icons.refresh_rounded, color: Colors.white),
           ),
-          // 搜索行原先的导入小钮已退役：导入统一走左下悬浮「+」。
         ],
       ),
     );
@@ -1867,13 +1819,6 @@ class _LivePageState extends State<LivePage> {
         icon: Icons.live_tv_rounded,
       );
     }
-    if (_visibleChannels.isEmpty) {
-      return const LiveStatusPanel(
-        title: '没有找到频道',
-        message: '换个关键词试试。',
-        icon: Icons.search_off_rounded,
-      );
-    }
     return _grid();
   }
 
@@ -1887,7 +1832,7 @@ class _LivePageState extends State<LivePage> {
   /// list）可点，点按即切播当前频道该线路；api 型源只展示。
   Widget _grid() {
     final entries = _entries;
-    final visible = _visibleChannels;
+    final visible = _channels;
     final current = _channel;
     final lineCount = current?.urls.length ?? 0;
     final multiRoute =

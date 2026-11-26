@@ -82,7 +82,7 @@ static int ensure_capacity(int16_t **buf, size_t *capacity, size_t frames,
     return 0;
 }
 
-JNIEXPORT jint JNICALL Java_com_fqapp_fqapp_SpeechTempo_nativeCreateChain(
+JNIEXPORT jint JNICALL Java_com_fanrenxiuxianguanyingchuan_SpeechTempo_nativeCreateChain(
     JNIEnv *env, jclass clazz, jint sample_rate, jint channels, jdouble tempo,
     jint target_rate) {
     (void)env;
@@ -115,7 +115,7 @@ fail:
     return 0;
 }
 
-JNIEXPORT void JNICALL Java_com_fqapp_fqapp_SpeechTempo_nativeDestroy(
+JNIEXPORT void JNICALL Java_com_fanrenxiuxianguanyingchuan_SpeechTempo_nativeDestroy(
     JNIEnv *env, jclass clazz, jint handle) {
     (void)env;
     (void)clazz;
@@ -127,7 +127,7 @@ JNIEXPORT void JNICALL Java_com_fqapp_fqapp_SpeechTempo_nativeDestroy(
     destroy_chain(chain);
 }
 
-JNIEXPORT jint JNICALL Java_com_fqapp_fqapp_SpeechTempo_nativeSetTempo(
+JNIEXPORT jint JNICALL Java_com_fanrenxiuxianguanyingchuan_SpeechTempo_nativeSetTempo(
     JNIEnv *env, jclass clazz, jint handle, jdouble tempo) {
     (void)env;
     (void)clazz;
@@ -136,7 +136,7 @@ JNIEXPORT jint JNICALL Java_com_fqapp_fqapp_SpeechTempo_nativeSetTempo(
     return sp_atempo_set_tempo(chain->atempo, tempo);
 }
 
-JNIEXPORT jint JNICALL Java_com_fqapp_fqapp_SpeechTempo_nativeWindow(
+JNIEXPORT jint JNICALL Java_com_fanrenxiuxianguanyingchuan_SpeechTempo_nativeWindow(
     JNIEnv *env, jclass clazz, jint handle) {
     (void)env;
     (void)clazz;
@@ -145,7 +145,7 @@ JNIEXPORT jint JNICALL Java_com_fqapp_fqapp_SpeechTempo_nativeWindow(
     return sp_atempo_window(chain->atempo);
 }
 
-JNIEXPORT jint JNICALL Java_com_fqapp_fqapp_SpeechTempo_nativeOutputBound(
+JNIEXPORT jint JNICALL Java_com_fanrenxiuxianguanyingchuan_SpeechTempo_nativeOutputBound(
     JNIEnv *env, jclass clazz, jint handle, jint input_bytes) {
     (void)env;
     (void)clazz;
@@ -199,7 +199,7 @@ static int drain_pending(Chain *chain, jbyte *dst, size_t capacity, size_t *writ
 }
 
 /* Packed unsigned16 byte counts; exactly -1 is the error sentinel. */
-JNIEXPORT jint JNICALL Java_com_fqapp_fqapp_SpeechTempo_nativeProcess(
+JNIEXPORT jint JNICALL Java_com_fanrenxiuxianguanyingchuan_SpeechTempo_nativeProcess(
     JNIEnv *env, jclass clazz, jint handle, jbyteArray src, jbyteArray dst) {
     (void)clazz;
     Chain *chain = get_handle(handle);
@@ -244,7 +244,7 @@ JNIEXPORT jint JNICALL Java_com_fqapp_fqapp_SpeechTempo_nativeProcess(
     return (jint)(uint32_t)(((uint32_t)written << 16) | (uint32_t)consumed);
 }
 
-JNIEXPORT jint JNICALL Java_com_fqapp_fqapp_SpeechTempo_nativeFlush(
+JNIEXPORT jint JNICALL Java_com_fanrenxiuxianguanyingchuan_SpeechTempo_nativeFlush(
     JNIEnv *env, jclass clazz, jint handle, jbyteArray dst) {
     (void)clazz;
     Chain *chain = get_handle(handle);
