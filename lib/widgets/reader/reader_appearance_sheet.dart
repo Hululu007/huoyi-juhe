@@ -162,7 +162,7 @@ class _ReaderAppearanceSheetState
       : value.brightness;
 
   void _apply(ReaderPreferences Function(ReaderPreferences) change) =>
-      updatePreferences(change(value));
+      commitPreferences(change(value));
 
   /// 拖动亮度：与内联面板一致，手动调整即退出「跟随系统」。
   void _setBrightness(double level) {
@@ -197,6 +197,7 @@ class _ReaderAppearanceSheetState
       currentPath: value.fontPath,
       currentName: value.fontName,
       onPickFont: widget.onPickFont,
+      currentBuiltinSerif: value.builtinSerifFont,
     );
     if (!mounted || selection == null) return;
     _apply(
@@ -243,7 +244,7 @@ class _ReaderAppearanceSheetState
         _fontSizeRow(),
         _backgroundRow(preset),
         if (_backgroundLocked) _backgroundLockNotice(preset),
-        ReaderTurnSettings(value: value, onChanged: updatePreferences),
+        ReaderTurnSettings(value: value, onChanged: commitPreferences),
         _spacingRow(),
         const ReaderSettingsDivider(),
         _actionsRow(),

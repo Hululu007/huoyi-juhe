@@ -188,6 +188,21 @@ pub fn video_detail_url() -> String {
     )
 }
 
+/// phoenix 播放器的 multi_video_model 入口：与 `video_detail` 同 host、同 query 包，
+/// 只把 path 换成 multi_video_model（`video.rs` 里 `phoenix_player_url()` 的用法）。
+pub fn phoenix_player_url() -> String {
+    video_detail_url().replacen(
+        "/novel/player/video_detail/v1/",
+        "/novel/player/multi_video_model/v1/",
+        1,
+    )
+}
+
+/// phoenix 播放器请求头：与 `video_detail` 同一套 phoenix UA/Accept。
+pub fn phoenix_player_headers() -> Vec<(String, String)> {
+    video_detail_headers()
+}
+
 /// Go's `reading724Params` (content_util.go): the 7.2.4.32 query bag every
 /// reading endpoint starts from. The order is the Go map's literal order and
 /// is kept so tests can pin the exact bag; the wire encoding sorts keys.

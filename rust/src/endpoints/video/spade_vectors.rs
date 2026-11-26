@@ -62,13 +62,12 @@ fn reads_the_episode_vertical_flag() {
         })),
         Some(true)
     );
-    let target = |body: Value, id: &str| episode_vertical_value(&body, Some(id));
+    let target = |body: Value| episode_vertical_value(&body);
     assert_eq!(
         target(
             json!({
                 "data": { "1004": { "other": { "vertical": true } } }
             }),
-            "episode",
         ),
         None
     );
@@ -79,9 +78,8 @@ fn reads_the_episode_vertical_flag() {
                     "other": [{ "vertical": true }]
                 } }
             }),
-            "episode",
         ),
-        None
+        Some(true)
     );
     assert_eq!(
         target(
@@ -91,7 +89,6 @@ fn reads_the_episode_vertical_flag() {
                     "other": { "video_model": "{}", "vertical": true }
                 }
             }),
-            "episode",
         ),
         Some(false)
     );
