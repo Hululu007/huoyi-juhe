@@ -2,9 +2,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
 
+import '../copyable_text.dart';
 import '../home/home_design.dart';
-import '../../services/local_media_proxy.dart';
-import '../../services/shell_proxy_url.dart';
 import 'series_detail_theme.dart';
 
 /// 头部：封面、标题、`全80集 · 8.7万次播放`、分类标签，紧接播放 / 收藏。
@@ -74,9 +73,10 @@ class SeriesDetailHero extends StatelessWidget {
       Padding(
         // 浏览器 `h1` 默认 margin-block: 0.67em（26sp → 17.4）。
         padding: const EdgeInsets.symmetric(vertical: 17.4),
-        child: Text(
+        // #477：剧名可长按复制（交互取舍见 CopyableText）。
+        child: CopyableText(
           title,
-          key: const ValueKey('series-detail-title'),
+          textKey: const ValueKey('series-detail-title'),
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
@@ -120,39 +120,28 @@ class SeriesDetailHero extends StatelessWidget {
     ),
   );
 
-  Widget _cover(HomePalette palette) {
-    // 封面形态不止旧壳代理一种（proxy://、http 明文图、回环不透明
-    // 形态都会在手机上失败），统一走 resolveCoverUrl 换地址。
-    final resolved = coverUrl.isEmpty
-        ? (url: '', headers: null)
-        : resolveCoverUrl(
-            coverUrl,
-            proxyBase: LocalMediaProxy.instance.baseUrl,
-          );
-    return Container(
-      width: 96,
-      height: 136,
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(6),
-        border: palette.eink ? Border.all(color: palette.line) : null,
-      ),
-      child: coverUrl.isEmpty
-          ? ColoredBox(
+  Widget _cover(HomePalette palette) => Container(
+    width: 96,
+    height: 136,
+    clipBehavior: Clip.antiAlias,
+    decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(6),
+      border: palette.eink ? Border.all(color: palette.line) : null,
+    ),
+    child: coverUrl.isEmpty
+        ? ColoredBox(
+            color: palette.soft,
+            child: Icon(LucideIcons.clapperboard, color: palette.muted),
+          )
+        : CachedNetworkImage(
+            imageUrl: coverUrl,
+            fit: BoxFit.cover,
+            errorWidget: (_, _, _) => ColoredBox(
               color: palette.soft,
               child: Icon(LucideIcons.clapperboard, color: palette.muted),
-            )
-          : CachedNetworkImage(
-              imageUrl: resolved.url,
-              httpHeaders: resolved.headers,
-              fit: BoxFit.cover,
-              errorWidget: (_, _, _) => ColoredBox(
-                color: palette.soft,
-                child: Icon(LucideIcons.clapperboard, color: palette.muted),
-              ),
             ),
-    );
-  }
+          ),
+  );
 
   Widget _actions(HomePalette palette) => Row(
     key: const ValueKey('series-detail-actions'),

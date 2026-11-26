@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.1105+20261105
+version: 1.0.1106+20261106
 
 environment:
   sdk: ^3.12.2
@@ -71,6 +71,8 @@ dependencies:
   # Windows 专用 libmpv；不要把 umbrella 的 media_kit_libs_video 加回来，否则
   # Android/iOS/macOS/Linux 的播放库会一起进包（APK 多出 ~11 MB）。
   media_kit_libs_windows_video: 1.0.11
+  # iOS 专用 libmpv（与上游同钉）；只影响 iOS 构建，不进 Android 包。
+  media_kit_libs_ios_video: 1.1.4
   file_selector: ^1.1.0
   webview_flutter: ^4.13.0
   flutter_tts: ^4.2.5
@@ -111,6 +113,8 @@ flutter:
 
   assets:
     - assets/config/config.json
+    # bytevc2 转码验证页的最小转码样本（64x64、0.5 秒、H.264+AAC）。
+    - assets/bytevc2/test_sample.mp4
     # 创建人物界面的背景音乐：《修仙缘》15 秒片段循环播。
     - assets/audio/xiuxianyuan.mp3
     - assets/audio/thunder.mp3
@@ -125,6 +129,9 @@ flutter:
     - assets/jav_code_meta.txt.gz
     - assets/whos_video_catalog.txt.gz
     - assets/whos_actress_map.txt.gz
+    # 合并演员库页（123AV 外壳 + whos 女优库板块，单文件网页，
+    # 演员库 tab 的界面；宿主与桥见 lib/actress/actress_library_*）。
+    - assets/actress_library.html
     - assets/builtin_sites/
     - assets/youtube3.json
     - assets/live/

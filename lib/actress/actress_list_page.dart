@@ -10,6 +10,7 @@ import 'actress_db_selection.dart';
 import 'actress_detail_page.dart';
 import 'actress_generic_database.dart';
 import 'actress_generic_db.dart';
+import 'actress_ios_import.dart';
 import 'actress_json_fallback.dart';
 import 'actress_models.dart';
 import 'actress_multi_db_fallback.dart';
@@ -793,12 +794,40 @@ class _ActressListPageState extends State<ActressListPage> {
  /// 没拿到“所有文件访问权限”时打开系统授权页（走平台通道，
   /// 照树里悬浮窗去设置的路子）。用户在设置里授权后回 App，
   /// 点绑定行上的“重新绑定”再切 MYTV；授权前女优库显示空态。
+  /// 设置页打不开（鸿蒙容器无承接方等）时给明确文案：手动路径
+  /// + 改走文件夹授权，不许点了没反应。
   Future<void> _requestMytvPermission() async {
-    await ActressMytvBind.instance.requestPermission();
+    final opened = await ActressMytvBind.instance.requestPermission();
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('已打开系统设置，授权后点“重新绑定”')));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          opened
+              ? '已打开系统设置，授权后点“重新绑定”'
+              : '打不开系统设置页：请到系统设置的应用权限里给本应用开'
+                  '“全部文件访问”，或改用“授权文件夹读取”',
+        ),
+      ),
+    );
+  }
+
+  /// SAF 文件夹授权（首选路，不需要全部文件访问权限）：请用户
+  /// 选 MYTV 文件夹，授权存档后自动重新绑定（绑定解析走镜像
+  /// 路）。镜像第一次要拷整库，可能要等一会儿，绑定行会显示
+  /// 准备中提示；没选/打不开给明确文案。
+  Future<void> _grantMytvFolder() async {
+    final granted = await ActressMytvBind.instance.grantFolderAccess();
+    if (!mounted) return;
+    if (!granted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('没有选择文件夹，或系统选择器打不开')),
+      );
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('已取得文件夹授权，正在准备数据库')),
+    );
+    await _rebindMytv();
   }
 
   /// 授权后重新绑定：先关库（close 会清 _openFuture，下次开库
@@ -2431,6 +2460,27 @@ class _ActressListPageState extends State<ActressListPage> {
                 onPressed: _manualReloadDb,
                 child: const Text('重新加载数据库'),
               ),
+              if (!bind.bound && !Platform.isIOS)
+                TextButton(
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: const Size(0, 28),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  onPressed: _grantMytvFolder,
+                  child: const Text('授权文件夹读取'),
+                ),
+              // iOS 无库时给导入入口（设置弹窗里导，同一条链）。
+              if (Platform.isIOS && !bind.hasVideoDb)
+                TextButton(
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: const Size(0, 28),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  onPressed: _openSettingsSheet,
+                  child: const Text('导入数据库'),
+                ),
               if (bind.needsPermission)
                 TextButton(
                   style: TextButton.styleFrom(
@@ -2441,7 +2491,7 @@ class _ActressListPageState extends State<ActressListPage> {
                   onPressed: _requestMytvPermission,
                   child: const Text('去设置授权'),
                 ),
-              if (!bind.bound)
+              if (!bind.bound && !Platform.isIOS)
                 TextButton(
                   style: TextButton.styleFrom(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -2965,13 +3015,20 @@ class _ActressSettingsSheet extends StatelessWidget {
                   ],
                 ),
               ),
+            // iOS（2026-11-26 用户令）：演员库走 .sql 导入制，导入
+            // 入口只在 iOS 出现；安卓不挂此节、行为零变化。
+            if (Platform.isIOS)
+              ActressIosImportTile(onImported: host._manualReloadDb),
             // 2026-11-23 多库勾选：勾上的库一起加载（列表按人名归并、
             // 分类取并集），默认只勾主库；主库永远勾着不可取消。
-            _ActressDbChoiceList(host: host),
+            // 多库勾选扫的是共享目录里的外来库，iOS 无此概念，不显示。
+            if (!Platform.isIOS) _ActressDbChoiceList(host: host),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
               child: Text(
-                '数据库只读：内容变更请换库文件后点“重新加载数据库”。',
+                Platform.isIOS
+                    ? '数据库只读：内容变更请重新导入 .sql 文件。'
+                    : '数据库只读：内容变更请换库文件后点“重新加载数据库”。',
                 style: textStyle.bodySmall?.copyWith(
                   color: colors.onSurfaceVariant,
                 ),

@@ -18,6 +18,8 @@ import 'm3u_export_db.dart';
 import 'site_health_tracking_client.dart';
 import 'site_identity.dart';
 import 'zakatv_builtin.dart';
+import 'idj_plugin_store.dart';
+import 'idj_runtime.dart';
 import 'js_bridge.dart';
 import 'py_bridge.dart';
 import 'legado_content.dart';
@@ -36,6 +38,9 @@ enum SourceKind {
   // 本地 HTML 站源：只存文件、应用内浏览器打开看原文，不解析成站
   // （树里没有 HTML 解析器，见 addHtmlImport）。
   htmlImport,
+  // idj1 插件站（.idjplugin）：包由 IdjPluginStore 管，登记行只是
+  // 指针（extra['pluginId']），装/卸/启停后经 syncIdjPluginSites 对账。
+  idjPlugin,
 }
 
 extension SourceKindLabel on SourceKind {
@@ -49,6 +54,7 @@ extension SourceKindLabel on SourceKind {
     SourceKind.xbpqImport => 'XBPQ 规则',
     SourceKind.legadoImport => '阅读书源',
     SourceKind.htmlImport => '本地网页',
+    SourceKind.idjPlugin => 'JS 插件',
   };
 }
 
@@ -260,6 +266,9 @@ class SourceRegistry {
 
   static final SourceRegistry instance = SourceRegistry._();
 
+  /// 插件仓库（登记对账与插件站客户端共用一个实例）。
+  final IdjPluginStore idjStore = IdjPluginStore();
+
   static const _customKey = 'juhe_custom_sources';
   static const _disabledKey = 'juhe_disabled_builtin_sites';
   static const _deletedBuiltinKey = 'juhe_deleted_builtin_jar';
@@ -322,6 +331,7 @@ class SourceRegistry {
     _loaded = true;
     _registerCustomSites();
     await _autoClassifyMixedPy();
+    await syncIdjPluginSites();
   }
 
   /// 存量 mixed py 站的一次性自动分类：读已导入文件跑检测，
@@ -494,7 +504,9 @@ class SourceRegistry {
             name: seed.name,
             kind: seed.kind,
             address: seed.fileName,
-            detail: '内置导入站',
+            detail: seed.verifyNote == null
+                ? '内置导入站'
+                : '内置导入站 · 未验通：${seed.verifyNote}',
             extra: {
               'path': file.path,
               'ext': '',
@@ -502,6 +514,7 @@ class SourceRegistry {
               'builtin': true,
               'seedId': seed.seedId,
               if (seed.kind == SourceKind.legadoImport) 'hasExplore': true,
+              if (seed.verifyNote != null) 'verifyNote': seed.verifyNote,
             },
           ),
         ];
@@ -545,6 +558,7 @@ class SourceRegistry {
             entry.kind == SourceKind.jarImport ||
             entry.kind == SourceKind.jsImport ||
             entry.kind == SourceKind.xbpqImport ||
+            entry.kind == SourceKind.idjPlugin ||
             entry.kind == SourceKind.legadoImport)
           DramaSite(entry.id, entry.name, categoriesFromExtra(entry.extra)),
     ]);
@@ -1429,6 +1443,71 @@ class SourceRegistry {
     return addLegadoImport(utf8.decode(response.bodyBytes, allowMalformed: true));
   }
 
+  /// 插件站对账：按插件仓库的已装清单，把 _custom 里的 idjPlugin
+  /// 行增/改/删并重新登记。装/卸/启停后由 IdjPluginStore 的
+  /// onInstalledChanged 回调触发（main.dart 接线）；load 末尾也调
+  /// 一次兜底。整体 fail-soft：仓库读失败不动现有行。
+  /// 只登记能当站点用的类型：video / shortdrama（走 home/category/
+  /// detail/play 全链）；comic（走 pages）与 live 本批未接内容链，
+  /// 装得上、市场里可见，但不登记成假站。
+  Future<void> syncIdjPluginSites() async {
+    try {
+      await load();
+      final installed = await idjStore.listInstalled();
+      final wanted = <String, SourceEntry>{};
+      for (final plugin in installed) {
+        if (plugin.damaged || !plugin.entry.enabled) continue;
+        final manifest = plugin.manifest;
+        if (manifest == null) continue;
+        if (manifest.type != 'video' && manifest.type != 'shortdrama') {
+          continue;
+        }
+        final siteKey = plugin.entry.siteKey;
+        if (siteKey.isEmpty) continue;
+        wanted[siteKey] = SourceEntry(
+          id: siteKey,
+          name: manifest.name,
+          kind: SourceKind.idjPlugin,
+          enabled: true,
+          extra: {
+            'pluginId': manifest.id,
+            'contentType': 'video',
+            'adult': manifest.adult,
+            'pluginVersion': manifest.version,
+          },
+        );
+      }
+      final oldPlugins = <String, SourceEntry>{
+        for (final entry in _custom)
+          if (entry.kind == SourceKind.idjPlugin) entry.id: entry,
+      };
+      var changed = oldPlugins.length != wanted.length;
+      if (!changed) {
+        for (final item in wanted.entries) {
+          final old = oldPlugins[item.key];
+          if (old == null ||
+              old.name != item.value.name ||
+              old.extra['pluginId'] != item.value.extra['pluginId'] ||
+              old.extra['pluginVersion'] !=
+                  item.value.extra['pluginVersion']) {
+            changed = true;
+            break;
+          }
+        }
+      }
+      if (!changed) return;
+      _custom = [
+        for (final entry in _custom)
+          if (entry.kind != SourceKind.idjPlugin) entry,
+        ...wanted.values,
+      ];
+      _registerCustomSites();
+      await _persist();
+    } catch (_) {
+      // 对账失败不打断启动与选站；下次装/卸/启停会再触发。
+    }
+  }
+
   Future<void> removeCustom(String id) async {
     await load();
     final removed = customById(id);
@@ -1602,6 +1681,11 @@ class SourceRegistry {
         final decoded = jsonDecode(await file.readAsString());
         if (decoded is! Map<String, dynamic>) return null;
         return XbpqContentClient(siteId, decoded);
+      }
+      if (custom.kind == SourceKind.idjPlugin) {
+        final pluginId = custom.extra['pluginId'] as String? ?? '';
+        if (pluginId.isEmpty) return null;
+        return IdjSiteContentClient(pluginId: pluginId, store: idjStore);
       }
       if (custom.kind == SourceKind.jarImport) {
         final className = custom.extra['className'] as String? ?? '';

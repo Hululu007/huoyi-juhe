@@ -62,6 +62,16 @@ android {
     // Compile the in-repository crypto core with the NDK's 16 KiB support.
     ndkVersion = "28.2.13676358"
 
+    // bytevc2 转码验证批（43 轮）：转码器 libbvc2transcode.so 是改名的可执行
+    // 文件，靠直接 exec 运行，必须让安装期把全部原生库解包落盘到
+    // nativeLibraryDir，否则 APK 内映射形态没有可执行文件。副作用是全包
+    // 原生库都改压缩存储+安装后解包，回归面见 BYTEVC2_REPORT.md。
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
     externalNativeBuild {
         cmake {
             path = file("../../native/CMakeLists.txt")

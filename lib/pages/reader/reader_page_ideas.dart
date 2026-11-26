@@ -92,8 +92,7 @@ extension _ReaderPageIdeas on _ReaderPageState {
           borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
         ),
         clipBehavior: Clip.antiAlias,
-        builder: (context) => ReaderMaterialLocalizations(
-          child: FractionallySizedBox(
+        builder: (context) => FractionallySizedBox(
           // Match the supplied official screenshot, keeping the paragraph visible
           // above the comments. Note: 2026-09-11-reader-paragraph-bubble.md.
           heightFactor: 0.69,
@@ -117,7 +116,6 @@ extension _ReaderPageIdeas on _ReaderPageState {
             // 回复按需展开（issue #95）。与段评正文同一套「注入即离线」
             // 约定：调用方自己提供数据时不接网络，也就不给可点的回复入口。
             replyLoader: _ideasReplyLoader(),
-          ),
           ),
         ),
       );
@@ -180,6 +178,8 @@ extension _ReaderPageIdeas on _ReaderPageState {
       widget.bookId,
       commentId,
       groupId: widget.bookId,
+      // 段评在 503 命名空间，书评是 501；用错会拿到空列表。
+      commentSource: 503,
     );
   }
 }

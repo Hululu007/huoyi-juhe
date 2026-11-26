@@ -894,102 +894,6 @@ class _LivePageState extends State<LivePage> {
       '${time.hour.toString().padLeft(2, '0')}:'
       '${time.minute.toString().padLeft(2, '0')}';
 
-  /// 频道信息弹层：只列源数据真实带有的字段（频道名/号、源、
-  /// 分组、线路、分辨率——分辨率只在播放器真拿到宽高时才写）；
-  /// 节目单对得上台时多一条「节目单」入口。顶栏 ⓘ 与信息行
-  /// 点按（无节目单时）都开这一层。
-  Future<void> _showChannelInfo() async {
-    final channel = _channel;
-    if (channel == null) return;
-    final player = _player;
-    final hasSize =
-        player != null && player.videoWidth > 0 && player.videoHeight > 0;
-    final guide = _epgGuide;
-    final hasProgrammes =
-        guide != null && guide.programmesFor(channel).isNotEmpty;
-    final action = await showModalBottomSheet<String>(
-      context: context,
-      showDragHandle: true,
-      backgroundColor: moyiSheetFill,
-      builder: (sheetContext) => SafeArea(
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(
-                  Icons.live_tv_rounded,
-                  color: moyiMutedOnDark,
-                ),
-                title: Text(
-                  channel.title,
-                  style: const TextStyle(color: Colors.white),
-                ),
-                subtitle: Text(
-                  [
-                    if (channel.number.isNotEmpty) '频道号 ${channel.number}',
-                    '直播源 ${_source.name}',
-                    if (channel.group.isNotEmpty) '分组 ${channel.group}',
-                  ].join(' · '),
-                  style: const TextStyle(color: moyiMutedOnDark),
-                ),
-              ),
-              ListTile(
-                leading: const Icon(
-                  Icons.route_rounded,
-                  color: moyiMutedOnDark,
-                ),
-                title: Text(
-                  '线路 ${_route + 1}/${channel.urls.length}',
-                  style: const TextStyle(color: Colors.white),
-                ),
-                subtitle: channel.subtitle.isNotEmpty
-                    ? Text(
-                        channel.subtitle,
-                        style: const TextStyle(color: moyiMutedOnDark),
-                      )
-                    : null,
-              ),
-              if (hasSize)
-                ListTile(
-                  leading: const Icon(
-                    Icons.high_quality_rounded,
-                    color: moyiMutedOnDark,
-                  ),
-                  title: Text(
-                    '分辨率 ${player.videoWidth} x ${player.videoHeight}',
-                    style: const TextStyle(color: Colors.white),
-                  ),
-                ),
-              if (hasProgrammes)
-                ListTile(
-                  key: const ValueKey('live-info-epg'),
-                  leading: const Icon(
-                    Icons.event_note_rounded,
-                    color: moyiMutedOnDark,
-                  ),
-                  title: const Text(
-                    '节目单',
-                    style: TextStyle(color: Colors.white),
-                  ),
-                  subtitle: channel.catchup != null
-                      ? const Text(
-                          '过去的节目可点回看',
-                          style: TextStyle(color: moyiMutedOnDark),
-                        )
-                      : null,
-                  onTap: () => Navigator.of(sheetContext).pop('epg'),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-    if (action == 'epg' && mounted) {
-      await _showProgrammeSheet(channel);
-    }
-  }
-
   /// 节目单弹层：当前频道今天的节目（按时间正序，打开时滚到
   /// 正在播的那条）。正在播的标「正在播」；已播完的在频道带
   /// 回看模板、且模板真能生成地址时可点回看，生成不出地址的
@@ -1525,70 +1429,7 @@ class _LivePageState extends State<LivePage> {
               alignment: Alignment.bottomCenter,
               child: _nowPlaying(channel),
             ),
-          if (channel != null && _playerError == null)
-            Positioned(left: 0, right: 0, top: 0, child: _videoHeader(channel)),
         ],
-      ),
-    );
-  }
-
-  /// 播放区顶栏：频道名 + 分辨率 + ⓘ 信息钮。分辨率只在播放器
-  /// 真拿到宽高时才拼（拿不到不拼）；帧率不拼——NativePlayer
-  /// 不暴露帧率，编数不许。ⓘ 开频道信息弹层（节目单入口在内）。
-  Widget _videoHeader(LiveChannel channel) {
-    final player = _player;
-    final hasSize =
-        player != null && player.videoWidth > 0 && player.videoHeight > 0;
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0xB3000000), Color(0x00000000)],
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 6, 4, 14),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                channel.title,
-                key: const ValueKey('live-video-title'),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-            if (hasSize) ...[
-              const SizedBox(width: 8),
-              Text(
-                '[ ${player.videoWidth} x ${player.videoHeight} ]',
-                key: const ValueKey('live-video-resolution'),
-                style: const TextStyle(
-                  color: Color(0xB3FFFFFF),
-                  fontSize: 11,
-                  fontFeatures: [FontFeature.tabularFigures()],
-                ),
-              ),
-            ],
-            IconButton(
-              key: const ValueKey('live-video-info'),
-              visualDensity: VisualDensity.compact,
-              tooltip: '频道信息',
-              onPressed: _showChannelInfo,
-              icon: const Icon(
-                Icons.info_outline_rounded,
-                size: 20,
-                color: Colors.white,
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -1711,8 +1552,9 @@ class _LivePageState extends State<LivePage> {
   /// 节目单、对不上台或还没加载完时回落——正在=当前频道标题
   /// （subtitle 是另一份真实信息且与标题不同才拼在后面）、
   /// 即将=列表里下一条频道标题，没有下一条才「暂无节目信息」。
-  /// 绝不编节目名。点中卡：对得上节目单开节目单弹层，否则开
-  /// 频道信息弹层。
+  /// 绝不编节目名。点中卡：对得上节目单才开节目单弹层；
+  /// 对不上不给假入口（点按无反应）——频道信息弹层已随顶栏
+  /// 一并撤掉（魔蚁版式口径，2026-11-26）。
   Widget _infoCards() {
     final channel = _channel;
     final number = channel == null ? '--' : _numberFor(_index, channel);
@@ -1756,11 +1598,9 @@ class _LivePageState extends State<LivePage> {
                 ),
                 child: InkWell(
                   borderRadius: BorderRadius.circular(12),
-                  onTap: channel == null
+                  onTap: channel == null || !matched
                       ? null
-                      : () => matched
-                            ? _showProgrammeSheet(channel)
-                            : _showChannelInfo(),
+                      : () => _showProgrammeSheet(channel),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 12,

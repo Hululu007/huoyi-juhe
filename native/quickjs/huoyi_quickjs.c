@@ -258,7 +258,10 @@ static char *json_escape(const char *s) {
 char *huoyi_qjs_eval(const char *script, int timeout_ms) {
     if (!script) return strdup("{\"ok\":false,\"error\":\"empty script\"}");
     if (timeout_ms <= 0) timeout_ms = 10000;
-    if (timeout_ms > 60000) timeout_ms = 60000;
+    // 硬顶 120 秒：idj 插件的 play 调用预算 90 秒（与魔蚁口径一致），
+    // 原来的 60 秒硬顶会把它截断；每次调用的实际截止仍按传入值由
+    // 中断处理器管，硬顶只防调用方传出离谱的大数。
+    if (timeout_ms > 120000) timeout_ms = 120000;
     JSRuntime *rt = JS_NewRuntime();
     if (!rt) return strdup("{\"ok\":false,\"error\":\"cannot create runtime\"}");
     JS_SetMemoryLimit(rt, 32 * 1024 * 1024);
@@ -290,6 +293,31 @@ char *huoyi_qjs_eval(const char *script, int timeout_ms) {
     JS_SetPropertyStr(ctx, global, "console", console);
     JS_FreeValue(ctx, global);
     JSValue val = JS_Eval(ctx, script, strlen(script), "<huoyi>", JS_EVAL_TYPE_GLOBAL);
+    /* 泵干 Promise 待办队列：idj 插件的 async 函数靠 await 串起多次
+       同步原生调用，续体都是待办任务；不泵队列，setResult 等不到续体
+       回填、结果永远是空。老 TVBox 同步蜘蛛没有待办任务，这一圈空转
+       无副作用。总时限仍归中断处理器与截止时间管；任务里抛的异常
+       记下来，出包时没有结果就把它当错误带出。 */
+    char *job_error = NULL;
+    if (!JS_IsException(val)) {
+        int guard = 0;
+        while (JS_IsJobPending(rt) && guard++ < 100000) {
+            JSContext *job_ctx = NULL;
+            if (JS_ExecutePendingJob(rt, &job_ctx) < 0) {
+                if (!state.result_json && job_ctx) {
+                    JSValue exc = JS_GetException(job_ctx);
+                    const char *msg = JS_ToCString(job_ctx, exc);
+                    if (msg) {
+                        job_error = json_escape(msg);
+                        JS_FreeCString(job_ctx, msg);
+                    }
+                    JS_FreeValue(job_ctx, exc);
+                }
+                break;
+            }
+            if (now_ms() > state.deadline_ms) break;
+        }
+    }
     char *out = NULL;
     if (JS_IsException(val)) {
         JSValue exc = JS_GetException(ctx);
@@ -301,6 +329,10 @@ char *huoyi_qjs_eval(const char *script, int timeout_ms) {
         free(escaped);
         if (msg) JS_FreeCString(ctx, msg);
         JS_FreeValue(ctx, exc);
+    } else if (job_error && !state.result_json) {
+        size_t need = strlen(job_error) + 32;
+        out = (char *)malloc(need);
+        if (out) snprintf(out, need, "{\"ok\":false,\"error\":%s}", job_error);
     } else {
         if (state.result_json) {
             size_t need = strlen(state.result_json) + 32;
@@ -322,6 +354,7 @@ char *huoyi_qjs_eval(const char *script, int timeout_ms) {
         }
     }
     JS_FreeValue(ctx, val);
+    free(job_error);
     free(state.result_json);
     JS_FreeContext(ctx);
     JS_FreeRuntime(rt);

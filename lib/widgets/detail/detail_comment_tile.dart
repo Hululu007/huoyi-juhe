@@ -8,6 +8,7 @@ import '../../models/book_comment.dart';
 import '../../models/comment_reply.dart';
 import '../../services/poster_cache.dart';
 import '../comment_images.dart';
+import '../copyable_text.dart';
 import '../home/home_design.dart';
 import 'detail_sections.dart';
 
@@ -57,8 +58,12 @@ class _DetailCommentTileState extends State<DetailCommentTile> {
     try {
       final page = await loader(widget.comment.id);
       if (!mounted) return;
+      // 上游在错误命名空间里回的是 200 + 空列表 + total 0。这时把「回复」数改写成 0
+      // 会让人以为这条书评没有回复，所以保留列表自带的计数，并按失败处理（可重试）。
+      final emptyButClaimed = page.isEmpty && widget.comment.replyCount > 0;
       setState(() {
-        _replies = page;
+        _replies = emptyButClaimed ? null : page;
+        _failed = emptyButClaimed;
         _loading = false;
       });
     } catch (_) {
@@ -135,9 +140,10 @@ class _DetailCommentTileState extends State<DetailCommentTile> {
           ],
           const SizedBox(height: 6),
           if (comment.text.isNotEmpty)
-            Text(
+            // #477：书评正文可长按选中复制。
+            CopyableText(
               comment.text,
-              key: ValueKey('detail_review_text_${comment.id}'),
+              textKey: ValueKey('detail_review_text_${comment.id}'),
               maxLines: widget.maxTextLines,
               overflow: widget.maxTextLines == null
                   ? TextOverflow.visible
@@ -378,8 +384,9 @@ class _ReplyTile extends StatelessWidget {
                 ),
                 const SizedBox(height: 3),
                 if (reply.text.isNotEmpty)
-                  Text(
+                  CopyableText(
                     reply.text,
+                    textKey: ValueKey('detail_reply_text_${reply.id}'),
                     style: TextStyle(
                       color: palette.ink,
                       fontSize: 12.5,

@@ -1,0 +1,9 @@
+#include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
+#include "Generated.xcconfig"
+
+// 签名用的 DEVELOPMENT_TEAM 不进仓库：各机器自己建 ios/Flutter/Signing.xcconfig
+// （模板见 Signing.xcconfig.example，已被 ios/.gitignore 忽略）。
+// Xcode 里「Automatically manage signing」选的 Team 会读这个构建设置。
+#include? "Signing.xcconfig"
+
+#include "Rust.xcconfig"

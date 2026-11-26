@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../copyable_text.dart';
 import '../home/home_design.dart';
 import '../home/home_shelf.dart';
 import 'detail_states.dart';
@@ -76,9 +77,11 @@ class _DetailDescriptionState extends State<DetailDescription> {
                               : const Duration(milliseconds: 260),
                           curve: Curves.easeOutCubic,
                           alignment: Alignment.topCenter,
-                          child: Text(
+                          // #477：长按简介复制全文（折叠态复制的是完整简介，
+                          // 不是截断的三行；取舍见 CopyableText）。
+                          child: CopyableText(
                             widget.text,
-                            key: const Key('detail_description_text'),
+                            textKey: const Key('detail_description_text'),
                             maxLines: _expanded ? null : 3,
                             overflow: _expanded
                                 ? TextOverflow.visible

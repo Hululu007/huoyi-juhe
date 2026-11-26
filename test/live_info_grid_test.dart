@@ -16,7 +16,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// ② 假 EPG 喂入后信息行 now/next 显示真节目名；
 /// ③ 分组/频道/线路三列同排渲染，点线路格切播到该线路地址；
 /// ④ DRM 频道出明示卡且无「重新连接」入口（内嵌页与全屏页）；
-/// ⑤ 节目单弹层里已结束节目点回看按模板生成地址起播。
+/// ⑤ 节目单弹层里已结束节目点回看按模板生成地址起播；
+/// ⑥ 顶栏整体撤除（频道名/分辨率/ⓘ 信息钮与信息单全无，
+/// 魔蚁版式口径 2026-11-26），无节目单时点信息行中卡无反应。
 /// 频道与节目单都走 live_page 的测试注入缝（生产路径为 null），
 /// 播放器是 PlatformChannels 假原生播放器，create 的 cdnUrl 记
 /// 下来断言实际起播地址。
@@ -152,15 +154,33 @@ void main() {
           .data,
       '即将播放：频道二',
     );
-    // 顶栏：频道名 + 真分辨率（假播放器给了 1280x720），无帧率。
-    expect(find.byKey(const ValueKey('live-video-title')), findsOneWidget);
+    // 顶栏已整个撤掉（魔蚁版式口径 2026-11-26）：频道名、分辨率
+    // 读数、ⓘ 信息钮都不存在，视频区顶部干净。
+    expect(find.byKey(const ValueKey('live-video-title')), findsNothing);
     expect(
-      tester
-          .widget<Text>(find.byKey(const ValueKey('live-video-resolution')))
-          .data,
-      '[ 1280 x 720 ]',
+      find.byKey(const ValueKey('live-video-resolution')),
+      findsNothing,
     );
+    expect(find.byKey(const ValueKey('live-video-info')), findsNothing);
     expect(find.textContaining('帧/秒'), findsNothing);
+    await drainRetireTimer(tester);
+  });
+
+  testWidgets('无节目单时点信息行中卡：不开任何弹层（信息单已撤）', (
+    tester,
+  ) async {
+    liveChannelsFetcherForTest = (_, _) async => [channelOne(), channelTwo()];
+    await pumpUnlocked(tester);
+    expect(
+      await pumpUntil(tester, find.byKey(const ValueKey('live-epg-card'))),
+      true,
+    );
+    await tester.tap(find.byKey(const ValueKey('live-epg-card')));
+    await tester.pump(const Duration(milliseconds: 400));
+    // 没有节目单就不给假入口：节目单弹层不开，原频道信息弹层
+    // 也已随顶栏一并撤掉，点按无反应。
+    expect(find.byKey(const ValueKey('live-epg-list')), findsNothing);
+    expect(find.byType(BottomSheet), findsNothing);
     await drainRetireTimer(tester);
   });
 

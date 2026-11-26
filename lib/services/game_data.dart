@@ -598,34 +598,14 @@ List<GameEquipment> gameDropPoolForRealm(int realmIndex) => [
       item,
 ];
 
-/// 妖兽种类（写实 2.5D 造型按种类画）。
+/// 妖兽种类（2026-11-26 用户令：怪物统一改机械魔蚁，
+/// 只剩普通魔蚁与魔蚁君王两类，其余种类全删）。
 enum GameMonsterKind {
-  /// 狼。
-  wolf,
-
-  /// 蛟。
-  jiao,
-
-  /// 蜘蛛。
-  spider,
-
-  /// 螂。
-  mantis,
-
-  /// 蚁。
+  /// 魔蚁（机械魔蚁：金属甲壳、巨眼、触角、紫红霓虹）。
   ant,
 
-  /// 蟒。
-  python,
-
-  /// 魔物。
-  demon,
-
-  /// 鬼物。
-  ghost,
-
-  /// 蛟王。
-  king,
+  /// 魔蚁君王（首领，战场上放大一圈、不进小怪池）。
+  antKing,
 }
 
 /// 一只妖兽。
@@ -663,51 +643,28 @@ class GameMonster {
 }
 
 /// 妖兽表（按战力升序，打怪与爬塔共用）。
-/// 难度上调后：白板境界打不动了，必须靠装备。
+/// 2026-11-26 用户令：怪物统一改机械魔蚁、只留三只，其余
+/// 怪物全删。三只的数值逐项沿用被删旧怪的原行（不新编数值）：
+/// 紫电魔蚁沿用野狼行、熔岩魔蚁沿用铁火蚁行、魔蚁君王沿用
+/// 金蛟王行（BOSS 战力 7900、血量 13200 不变）。
 /// 怪物战力 = 建议战力，也是它咬人多疼的依据（战场里咬一口
-/// 按 战力÷20～战力÷10 算），所以战力上调 = 血量与伤害一起上调。
-/// BOSS 金蛟王只加一成（战力 7200→7900、血量 12000→13200）；
-/// 其余妖兽战力上调约 20%–30%、血量上调约 50%，打起来明显更费功夫。
+/// 按 战力÷20～战力÷10 算）。
+/// 章节 BOSS 按下标取（见游戏页 _currentMonster，下标封顶
+/// 到最后一只）：首章对紫电魔蚁、次章起对熔岩魔蚁、再往后
+/// 都是魔蚁君王——只剩三只后的必然落法，数值口径没动。
 const gameMonsters = <GameMonster>[
   GameMonster(
-    id: 'ye_lang',
-    name: '野狼',
-    kind: GameMonsterKind.wolf,
+    id: 'zi_dian_mo_yi',
+    name: '紫电魔蚁',
+    kind: GameMonsterKind.ant,
     power: 60,
     hp: 180,
     xpReward: 8,
     yuanbaoReward: 1,
   ),
   GameMonster(
-    id: 'mo_jiao',
-    name: '墨蛟',
-    kind: GameMonsterKind.jiao,
-    power: 380,
-    hp: 1100,
-    xpReward: 30,
-    yuanbaoReward: 2,
-  ),
-  GameMonster(
-    id: 'xue_yu_zhi_zhu',
-    name: '血玉蜘蛛',
-    kind: GameMonsterKind.spider,
-    power: 680,
-    hp: 1700,
-    xpReward: 45,
-    yuanbaoReward: 3,
-  ),
-  GameMonster(
-    id: 'jin_bei_yao_lang',
-    name: '金背妖螂',
-    kind: GameMonsterKind.mantis,
-    power: 1100,
-    hp: 2600,
-    xpReward: 70,
-    yuanbaoReward: 4,
-  ),
-  GameMonster(
-    id: 'tie_huo_yi',
-    name: '铁火蚁',
+    id: 'rong_yan_mo_yi',
+    name: '熔岩魔蚁',
     kind: GameMonsterKind.ant,
     power: 1600,
     hp: 3600,
@@ -715,45 +672,9 @@ const gameMonsters = <GameMonster>[
     yuanbaoReward: 5,
   ),
   GameMonster(
-    id: 'bing_huo_mang',
-    name: '冰火蟒',
-    kind: GameMonsterKind.python,
-    power: 2400,
-    hp: 5200,
-    xpReward: 140,
-    yuanbaoReward: 6,
-  ),
-  GameMonster(
-    id: 'gu_mo',
-    name: '古魔',
-    kind: GameMonsterKind.demon,
-    power: 3500,
-    hp: 7300,
-    xpReward: 200,
-    yuanbaoReward: 8,
-  ),
-  GameMonster(
-    id: 'yin_yue_yao_lang',
-    name: '银月妖狼',
-    kind: GameMonsterKind.wolf,
-    power: 4900,
-    hp: 9800,
-    xpReward: 280,
-    yuanbaoReward: 10,
-  ),
-  GameMonster(
-    id: 'tian_gui',
-    name: '天鬼',
-    kind: GameMonsterKind.ghost,
-    power: 6700,
-    hp: 13200,
-    xpReward: 380,
-    yuanbaoReward: 12,
-  ),
-  GameMonster(
-    id: 'jin_jiao_wang',
-    name: '金蛟王',
-    kind: GameMonsterKind.king,
+    id: 'mo_yi_jun_wang',
+    name: '魔蚁君王',
+    kind: GameMonsterKind.antKing,
     power: 7900,
     hp: 13200,
     xpReward: 520,
@@ -1089,16 +1010,9 @@ class GameTowerFloor {
 List<GameTowerFloor> get gameTowerFloors {
   const dungeons = <String>['血色禁地', '虚天殿', '坠魔谷', '昆吾山', '广寒界'];
   const monsters = <String>[
-    'ye_lang',
-    'mo_jiao',
-    'xue_yu_zhi_zhu',
-    'jin_bei_yao_lang',
-    'tie_huo_yi',
-    'bing_huo_mang',
-    'gu_mo',
-    'yin_yue_yao_lang',
-    'tian_gui',
-    'jin_jiao_wang',
+    'zi_dian_mo_yi',
+    'rong_yan_mo_yi',
+    'mo_yi_jun_wang',
   ];
   return List<GameTowerFloor>.generate(30, (index) {
     final floor = index + 1;

@@ -32,6 +32,7 @@ List<SourceEntry> videoPagePlayableSites(List<SourceEntry> entries) {
               entry.kind == SourceKind.jarImport ||
               entry.kind == SourceKind.jsImport ||
               entry.kind == SourceKind.xbpqImport ||
+              entry.kind == SourceKind.idjPlugin ||
               (entry.kind == SourceKind.legadoImport &&
                   entry.extra['hasExplore'] == true)) &&
           entry.extra['builtin'] != true &&
@@ -158,8 +159,8 @@ List<({String id, String name})> visibleVideoZoneSites(
 /// 影视/午夜区切换弹窗用的带区·分组条目（纯函数，可单测）：
 /// 区：统一表前三路（核心影视站、午夜 jar 站、内置导入站）的 id
 /// 进内置区，第四路用户导入站进导入区（按来源集判，不查登记行
-/// 的 `builtin` 标记，撞 id 时内置优先）；修仙版不要插件系统
-/// （用户 2026-11-24 20:25 令），只有这两区。
+/// 的 `builtin` 标记，撞 id 时内置优先）；插件站（kind=idjPlugin）
+/// 进插件区（用户 2026-11-26 令新增第三区）。
 /// 组：午夜 jar 站与内置导入视频站进「午夜」组，核心影视站与
 /// 用户导入的影视站进「视频」组（用户站不在 midnightIds 里，
 /// 自动落视频组；区则由 customById 查到且 `builtin != true`
@@ -190,9 +191,15 @@ List<SiteGridEntry> videoZoneSiteEntries(
     for (final site in videoZoneSites()) site.id,
     ...midnightIds,
   };
+  final pluginIds = <String>{
+    for (final entry in customEntries)
+      if (entry.kind == SourceKind.idjPlugin) entry.id,
+  };
   final entries = <SiteGridEntry>[];
   for (final site in visibleVideoZoneSites(customEntries, xp)) {
-    final zone = builtinIds.contains(site.id)
+    final zone = pluginIds.contains(site.id)
+        ? SiteGridZone.plugin
+        : builtinIds.contains(site.id)
         ? SiteGridZone.builtin
         : SiteGridZone.import;
     if (zone == SiteGridZone.builtin &&
@@ -430,6 +437,7 @@ class _VideoPageState extends State<VideoPage> {
       sites: entries,
       selectedId: _videoZoneId,
       initialZone: initialZone,
+      enablePluginZone: true,
       onDeleteSite: deleteSiteGridEntry,
       // 站点透视（C1）：片库 / 影视 / 短剧选站弹窗启用站内封面。
       thumbCache: SiteThumbCache.instance,
@@ -492,10 +500,12 @@ class _VideoPageState extends State<VideoPage> {
     );
   }
 
-  /// 女优库入口（魔蚁合入，2026-11-22）：进演员库列表页。仓储走
-  /// 修仙版站注册表委托（XiuxianAppRepository），站表状态走
-  /// LocalStore.instance；数据库由列表页自己开
-  ///（SqfliteActressDatabase.instance，MYTV/db/女优库.db）。
+  /// 女优库入口（魔蚁合入，2026-11-22）：进原生女优库列表页。
+  /// 仓储走修仙版站注册表委托（XiuxianAppRepository），站表状态
+  /// 走 LocalStore.instance。2026-11-26 曾同步合并演员库页作
+  /// 入口，同日 15:05 用户改令翻回原生页：合并页
+  /// （ActressLibraryWebEntryPage）留树休眠、不删，入口不再
+  /// 指向它。
   Future<void> _openActressLibrary() async {
     await Navigator.push(
       context,

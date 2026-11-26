@@ -5,44 +5,46 @@ import 'package:fqapp/widgets/game_hero_portrait.dart';
 import 'package:fqapp/widgets/game_monster_art.dart';
 
 void main() {
-  group('3D 写实怪物图映射（只换美术，不动数值与玩法）', () {
-    test('蛟与蛟王固定墨蛟，首领放大', () {
+  group('机械魔蚁图映射（只换美术，不动数值与玩法）', () {
+    test('魔蚁君王固定君王图，首领放大', () {
       expect(
-        gameMonsterArtFor(gameMonsterById('mo_jiao')),
-        gameMonsterMoJiaoArt,
+        gameMonsterArtFor(gameMonsterById('mo_yi_jun_wang')),
+        gameMonsterMoYiJunWangArt,
       );
-      expect(
-        gameMonsterArtFor(gameMonsterById('jin_jiao_wang')),
-        gameMonsterMoJiaoArt,
-      );
-      expect(gameMonsterArtIsBoss(gameMonsterById('mo_jiao')), isTrue);
-      expect(gameMonsterArtIsBoss(gameMonsterById('jin_jiao_wang')), isTrue);
+      expect(gameMonsterArtIsBoss(gameMonsterById('mo_yi_jun_wang')), isTrue);
     });
 
-    test('蟒固定金光蟒，狼固定紫电妖狼', () {
+    test('紫电魔蚁固定紫电图，熔岩魔蚁固定熔岩图', () {
       expect(
-        gameMonsterArtFor(gameMonsterById('bing_huo_mang')),
-        gameMonsterJinGuangMangArt,
+        gameMonsterArtFor(gameMonsterById('zi_dian_mo_yi')),
+        gameMonsterZiDianMoYiArt,
       );
       expect(
-        gameMonsterArtFor(gameMonsterById('ye_lang')),
-        gameMonsterZiDianYaoLangArt,
+        gameMonsterArtFor(gameMonsterById('rong_yan_mo_yi')),
+        gameMonsterRongYanMoYiArt,
       );
-      expect(gameMonsterArtIsBoss(gameMonsterById('bing_huo_mang')), isFalse);
+      expect(gameMonsterArtIsBoss(gameMonsterById('zi_dian_mo_yi')), isFalse);
+      expect(gameMonsterArtIsBoss(gameMonsterById('rong_yan_mo_yi')), isFalse);
     });
 
-    test('其余种类稳定取一张普通怪图，不超出四张', () {
+    test('名册只剩三只魔蚁，每只的图都在三张之内且稳定', () {
+      expect(gameMonsters.length, 3);
       for (final monster in gameMonsters) {
         final art = gameMonsterArtFor(monster);
         expect(
-          art == gameMonsterMoJiaoArt ||
+          art == gameMonsterMoYiJunWangArt ||
               gameMonsterCommonArts.contains(art),
           isTrue,
-          reason: '${monster.id} 的图应在五张之内',
+          reason: '${monster.id} 的图应在三张魔蚁图之内',
         );
         // 同一只怪每次算出来是同一张，不会每帧乱跳。
         expect(gameMonsterArtFor(monster), art);
       }
+      // 普通怪图就是紫电 + 熔岩两张，君王图不进小怪轮换。
+      expect(
+        gameMonsterCommonArts,
+        [gameMonsterZiDianMoYiArt, gameMonsterRongYanMoYiArt],
+      );
     });
   });
 

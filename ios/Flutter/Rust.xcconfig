@@ -1,0 +1,15 @@
+// 真机和模拟器的 arm64 指令集相同,Mach-O 平台不同,不能共用静态库。
+FQAPI_CORE_LIBRARY[sdk=iphoneos*] = $(SRCROOT)/Frameworks/iphoneos/libfqapi_core.a
+FQAPI_CORE_LIBRARY[sdk=iphonesimulator*] = $(SRCROOT)/Frameworks/iphonesimulator/libfqapi_core.a
+
+// 这里不要覆盖 ARCHS:Flutter 构建 iOS 时会自己传 ARCHS=${activeArch} 和
+// ONLY_ACTIVE_ARCH,静态库天然只按当前设备架构链接。若写成
+// ARCHS[sdk=iphonesimulator*] = $(NATIVE_ARCH_ACTUAL),
+// xcodebuild 在 -configuration Debug -sdk iphonesimulator 下会解析不到任何
+// 模拟器目的地(-destination id= 退出码 64),表现为
+// 「No Xcode build settings have been found」。
+
+// FRB 和媒体入口通过 process()/dlsym 查找,保留并导出静态库符号。
+OTHER_LDFLAGS = $(inherited) -force_load $(FQAPI_CORE_LIBRARY) -framework Security -framework CoreFoundation -Wl,-export_dynamic -liconv -lz
+DEAD_CODE_STRIPPING = NO
+STRIP_INSTALLED_PRODUCT = NO

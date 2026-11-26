@@ -65,21 +65,21 @@ Future<void> _tearDownStage(WidgetTester tester) async {
 
 void main() {
   group('小怪战场（托机器人已删，换成小怪）', () {
-    testWidgets('场上是 14 只小怪 + 1 只章节怪，四种野兽图全在，没有托机器人',
+    testWidgets('场上是 14 只小怪 + 1 只章节怪，两张魔蚁图全在，没有托机器人',
         (tester) async {
       final minionKills = <GameMonster>[];
       final bossKills = <void Function()>[];
       await _pumpStage(
         tester,
-        monster: gameMonsterById('ye_lang'),
+        monster: gameMonsterById('zi_dian_mo_yi'),
         heroPower: 60,
         minionKills: minionKills,
         bossKills: bossKills,
       );
       // 1 只章节怪 + 14 只小怪。
       expect(find.byType(GameMonsterArt), findsNWidgets(15));
-      // 小怪的图按槽位轮着用四张：金光蟒 / 紫电妖狼 /
-      // 赤焰火虎 / 金刚巨猿，四种都在场上。
+      // 小怪的图按槽位轮着用两张：紫电魔蚁 / 熔岩魔蚁，
+      // 两种都在场上。
       final overrides = tester
           .widgetList<GameMonsterArt>(find.byType(GameMonsterArt))
           .map((widget) => widget.artOverride)
@@ -99,7 +99,7 @@ void main() {
       final bossKills = <void Function()>[];
       await _pumpStage(
         tester,
-        monster: gameMonsterById('ye_lang'),
+        monster: gameMonsterById('zi_dian_mo_yi'),
         heroPower: 8000,
         minionKills: minionKills,
         bossKills: bossKills,

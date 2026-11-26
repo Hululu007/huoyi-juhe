@@ -46,7 +46,7 @@ Future<void> _pumpStage(WidgetTester tester) async {
     MaterialApp(
       home: Scaffold(
         body: GameBattleStage(
-          monster: gameMonsterById('ye_lang'),
+          monster: gameMonsterById('zi_dian_mo_yi'),
           heroPower: 60,
           heroMaxHp: 1000,
           profession: '天道',
@@ -156,7 +156,7 @@ void main() {
     testWidgets('顶部有 BOSS 血条（名 + 真实血量），技能栏是四个新名',
         (tester) async {
       await _pumpStage(tester);
-      expect(find.text('野狼 · BOSS'), findsOneWidget);
+      expect(find.text('紫电魔蚁 · BOSS'), findsOneWidget);
       expect(find.text('180/180'), findsOneWidget);
       expect(find.text('剑影分光'), findsOneWidget);
       expect(find.text('雷法'), findsOneWidget);

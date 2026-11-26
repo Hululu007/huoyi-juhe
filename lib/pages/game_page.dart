@@ -130,7 +130,8 @@ class _GamePageState extends State<GamePage> {
     super.dispose();
   }
 
-  /// 当前 BOSS：按推图进度取（第 1 章打野狼，越往后越强）。
+  /// 当前 BOSS：按推图进度取（首章紫电魔蚁，越往后越强，
+  /// 只剩三只魔蚁后下标封顶到魔蚁君王）。
   GameMonster get _currentMonster {
     final index = (_game.mapChapterIndex + 1).clamp(0, gameMonsters.length - 1);
     return gameMonsters[index];

@@ -4,6 +4,7 @@ import 'widgets/reader/reader_material_localizations.dart';
 import 'services/native_player.dart';
 import 'services/desktop_platform.dart';
 import 'services/drama_site_content.dart';
+import 'services/drama_sites.dart';
 import 'services/web_page_fetch.dart';
 import 'services/platform_channel.dart';
 import 'package:flutter/material.dart';
@@ -29,7 +30,7 @@ import 'pages/drama_page.dart';
 import 'pages/library_page.dart';
 import 'pages/live_page.dart';
 import 'pages/mine_page.dart';
-import 'actress/actress_nvku_page.dart';
+import 'actress/actress_library_native_page.dart';
 import 'actress/actress_adapter_repository.dart';
 import 'actress/actress_adapter_store.dart';
 import 'actress/actress_mytv_bind.dart';
@@ -55,6 +56,8 @@ import 'services/game_service.dart';
 import 'services/rank_cache.dart';
 import 'services/player_style_config.dart';
 import 'services/source_registry.dart';
+import 'services/idj_plugin_store.dart';
+import 'services/idj_runtime.dart';
 import 'services/jar_bridge.dart';
 import 'services/zakatv_builtin.dart';
 import 'services/short_series_font_scale.dart';
@@ -243,6 +246,17 @@ Future<void> _initializeLocalData() async {
   );
   // 内置导入站（随包 py / 阅读 JSON）首次启动补进登记表：同款规矩。
   unawaited(SourceRegistry.instance.ensureBuiltinImportedSites());
+  // 插件系统接线（用户 2026-11-26 令）：试加载走 QuickJS 运行时
+  // 探针；装/卸/启停后登记表对账；站 key 撞名判定查登记表 + 站表。
+  IdjPluginStore.probeHandler =
+      IdjRuntime(store: SourceRegistry.instance.idjStore).probe;
+  IdjPluginStore.onInstalledChanged = () {
+    unawaited(SourceRegistry.instance.syncIdjPluginSites());
+  };
+  IdjPluginStore.siteKeyTaken = (siteKey) {
+    if (SourceRegistry.instance.customById(siteKey) != null) return true;
+    return allDramaSites.any((site) => site.id == siteKey);
+  };
   // 短剧切后台悬浮窗开关（#24）：异步读取，失败退化为默认关闭。
   unawaited(PlayerPreferences.loadFloatingWindow());
   // 离线缓存的网络门（官方 onNetChangeCheck）：断网/只剩计费链路时
@@ -592,7 +606,12 @@ class _RootShellState extends State<RootShell>
     if (!CultivationService.instance.snapshot.unlockedVideo) {
       return _actressLockedBody();
     }
-    return ActressNvkuPage(
+    // 入口口径（2026-11-26 15:13 用户改令）：演员库入口用照合并页
+    // 版式原生重做的演员库页（ActressLibraryNativePage，纯原生控件、
+    // 无网页壳）；旧原生页 ActressNvkuPage 留作新页管理弹层里的回退
+    // 通道，合并网页入口（ActressLibraryWebEntryPage）与桥、资源
+    // 全部留树休眠、不删，入口不再指向它。
+    return ActressLibraryNativePage(
       repository: XiuxianAppRepository.shared,
       store: LocalStore.instance,
     );

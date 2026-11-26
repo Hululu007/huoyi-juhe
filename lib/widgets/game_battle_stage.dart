@@ -44,19 +44,23 @@ class BattleStrike {
 /// 3-4 人紧贴 BOSS 围成半弧贴身打，BOSS 居中偏上；全程自动
 /// 战斗自动寻路，不用手操作。
 /// 人物改小（用户看截图说原来太大互相重叠）：主角 46×58、
-/// 队友 38×48、BOSS 全幅 96×195（原图 360x732 比例，整幅
-/// 显示不裁切），名牌栏 96 宽、9px 小字不截断不压叠；
-/// 战场上没有虚拟玩家托机器人，只有 14 只小怪铺满全场。
+/// 队友 38×48、BOSS 全幅 170×113（魔蚁图 960x640 横幅
+/// 比例，整幅显示不裁切），名牌栏 96 宽、9px 小字不截断
+/// 不压叠；战场上没有虚拟玩家托机器人，只有 14 只小怪
+/// 铺满全场。
 ///
 /// 人物图：3D 写实白发剑修背影（男 / 女两张，见
-/// [gameHeroAssetForGender]），战场上用半身裁切图缩成
-/// 金环圆形徽章（只占画面高度十分之一左右），创建页 /
-/// 人物页 / 档案卡用整幅图；旧 Q 版豆包图保留在资源里当回退。
-/// 怪物：3D 写实野兽五格图按格切分（见 [gameMonsterArtFor]），
-/// 章节怪固定种类映射（蛟 / 蛟王是墨蛟）；小怪 14 只，数值
-/// 用妖兽表里本章战力及以下的怪（蛟 / 蛟王除外），图按槽位
-/// 轮着用金光蟒 / 紫电妖狼 / 赤焰火虎 / 金刚巨猿四张，
-/// 死后 1.2 秒在场上随机点重刷，挂机一直有怪打。
+/// [gameHeroAssetForGender]），战场上用半身图四周羽化、
+/// 无框站在石台上（2026-11-26 用户令人物不要卡片），
+/// 创建页 / 人物页用整幅立绘（同样无卡面，立在发光台上），
+/// 顶栏头像仍是圆形徽章；旧 Q 版豆包图保留在资源里当回退。
+/// 怪物：机械魔蚁三只（2026-11-26 用户令，见
+/// [gameMonsterArtFor]）——紫电魔蚁 / 熔岩魔蚁 / 魔蚁君王，
+/// 图四周羽化透明、没有卡片框，直接融进厮杀场景；
+/// 小怪 14 只，数值用妖兽表里本章战力及以下的怪
+/// （魔蚁君王是 BOSS，不进小怪池），图按槽位轮着用
+/// 紫电 / 熔岩两张魔蚁图，死后 1.2 秒在场上随机点重刷，
+/// 挂机一直有怪打。
 ///
 /// 技能特效要酷：剑气又长又亮带拖尾，万剑归宗满屏飞剑，
 /// 大庚剑阵金色剑阵铺开，乾蓝冰焰蓝白冰火球飞、命中冰晶爆开，
@@ -335,13 +339,13 @@ class _GameBattleStageState extends State<GameBattleStage>
   }
 
   /// 战场小怪一共 14 只（铺满全场，够打）：
-  /// 数值用妖兽表里本章战力及以下的怪（蛟 / 蛟王是 BOSS，
+  /// 数值用妖兽表里本章战力及以下的怪（魔蚁君王是 BOSS，
   /// 不进小怪池），同章每次进场是同一套怪、同一批位置
   /// （种子取章节怪 id 各字符码求和，不会每进一次就乱变）；
-  /// 图按槽位轮着用金光蟒 / 紫电妖狼 / 赤焰火虎 / 金刚巨猿
-  /// 四张（槽位 i 用 gameMonsterCommonArts[i % 4]），四种
-  /// 从第一章起就全在场上；位置用带排除的随机采样：避开
-  /// 右上副本面板、避开 BOSS 身边、互相之间不重叠。
+  /// 图按槽位轮着用紫电魔蚁 / 熔岩魔蚁两张（槽位 i 用
+  /// gameMonsterCommonArts[i % 2]），两种从第一章起就
+  /// 全在场上；位置用带排除的随机采样：避开右上副本
+  /// 面板、避开 BOSS 身边、互相之间不重叠。
   static const int _minionCount = 14;
 
   List<_Minion> _makeMinions() {
@@ -368,15 +372,14 @@ class _GameBattleStageState extends State<GameBattleStage>
     return made;
   }
 
-  /// 小怪数值池：妖兽表里战力不超过本章怪、且不是蛟 /
-  /// 蛟王的怪（小怪必须打得动，不能比章节怪还硬）。
+  /// 小怪数值池：妖兽表里战力不超过本章怪、且不是魔蚁
+  /// 君王的怪（小怪必须打得动，不能比章节怪还硬）。
   List<GameMonster> _minionTemplates() {
     final cap = widget.monster.power;
     final list = gameMonsters
         .where(
           (monster) =>
-              monster.kind != GameMonsterKind.jiao &&
-              monster.kind != GameMonsterKind.king &&
+              monster.kind != GameMonsterKind.antKing &&
               monster.power <= cap,
         )
         .toList();
@@ -426,7 +429,7 @@ class _GameBattleStageState extends State<GameBattleStage>
   }
 
   /// 一只小怪死后重刷：换一张表里的怪（同池随机）、
-  /// 换一个新落点、满血，图仍按槽位轮四张。
+  /// 换一个新落点、满血，图仍按槽位轮两张。
   void _respawnMinion(int index) {
     final minion = _minions[index];
     if (!minion.dying) return;
@@ -1221,15 +1224,16 @@ class _GameBattleStageState extends State<GameBattleStage>
   static const double _botW = 38;
   static const double _botH = 48;
 
-  /// BOSS 立绘宽（全幅原图比例，高 = 宽 × 732 / 360 ≈ 195，
-  /// 整幅显示不裁切；以前 120×140 的框裁掉了怪的头尾）。
-  static const double _bossW = 96;
+  /// BOSS 立绘宽（魔蚁图横幅比例，高 = 宽 × 640 / 960 ≈ 113，
+  /// 整幅显示不裁切；魔蚁是宽体型，横幅图天然比旧竖幅图矮、
+  /// 宽，BOSS 靠宽度撑气场）。
+  static const double _bossW = 170;
 
-  /// 普通章节怪立绘宽（全幅原图比例，高 ≈ 163）。
-  static const double _monsterW = 80;
+  /// 普通章节怪立绘宽（横幅比例，高 ≈ 100）。
+  static const double _monsterW = 150;
 
-  /// 小怪立绘宽（全幅原图比例，高 ≈ 122）。
-  static const double _minionW = 60;
+  /// 小怪立绘宽（横幅比例，高 ≈ 67）。
+  static const double _minionW = 100;
 
   /// 头顶名牌栏宽（比立绘宽，名字才放得下不截断；
   /// 三人名牌各隔 0.26 屏宽，96 宽不互相压叠）。
@@ -1242,13 +1246,13 @@ class _GameBattleStageState extends State<GameBattleStage>
   }
 
   /// BOSS 中心点（居中偏上，站在圆形石台远端；
-  /// 全幅图高了，中心再往上挪一点，脚不压主角名牌；
+  /// 横幅图比旧竖幅图矮，中心相应下移，脚才落在石台上；
   /// 怪站着不动，不左右摇摆——以前每 3 秒一个来回的
   /// 正弦摇摆让怪看着发飘）。
   Offset get _monsterCenter {
     final size = _arenaSize;
     final lunge = -_monsterLunge.value * 12;
-    final heightRatio = gameMonsterArtIsBoss(widget.monster) ? 0.29 : 0.31;
+    final heightRatio = gameMonsterArtIsBoss(widget.monster) ? 0.34 : 0.36;
     return Offset(size.width * 0.5 + lunge, size.height * heightRatio);
   }
 
@@ -1586,14 +1590,17 @@ class _GameBattleStageState extends State<GameBattleStage>
             Row(
               children: [
                 Expanded(
-                  child: Text(
-                    '${monster.name} · BOSS',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      '${monster.name} · BOSS',
+                      maxLines: 1,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                   ),
                 ),
@@ -1641,7 +1648,7 @@ class _GameBattleStageState extends State<GameBattleStage>
             _FighterFigure(
               width: _heroW,
               height: _heroH,
-              child: GameHeroPortrait(
+              child: GameHeroFigure(
                 isFemale: widget.heroIsFemale,
                 size: _heroW,
               ),
@@ -1668,15 +1675,16 @@ class _GameBattleStageState extends State<GameBattleStage>
           _FighterFigure(
             width: _botW,
             height: _botH,
-            child: GameHeroPortrait(isFemale: bot.isFemale, size: _botW),
+            child: GameHeroFigure(isFemale: bot.isFemale, size: _botW),
           ),
         ],
       ),
     );
   }
 
-  /// 一只小怪：头顶小血条 + 全幅野兽图（60×122，原图比例，
-  /// 不裁切不拉伸不加半透明）；死时不淡出，只往下沉一点，
+  /// 一只小怪：头顶小血条 + 全幅魔蚁图（100×67，横幅
+  /// 原图比例，不裁切不拉伸不加半透明，图缘羽化融进
+  /// 场景、没有卡片框）；死时不淡出，只往下沉一点，
   /// 红爆炸 + 金闪光已经说明它死了。
   Widget _buildMinion(_Minion minion) {
     final center = _minionCenter(minion);
@@ -1719,8 +1727,7 @@ class _GameBattleStageState extends State<GameBattleStage>
   /// 只有御剑剑光劈中那一下例外：怪闪一下（见 [_monsterFlash]）。
   Widget _buildBoss(GameMonster monster) {
     final center = _monsterCenter;
-    // 首领（蛟 / 蛟王）用墨蛟图，全幅 96×195；普通章节怪
-    // 全幅 80×163。
+    // 首领（魔蚁君王）全幅 170×113；普通章节怪全幅 150×100。
     final isBoss = gameMonsterArtIsBoss(monster);
     final width = isBoss ? _bossW : _monsterW;
     final height = width / gameMonsterArtAspect;
@@ -2307,7 +2314,7 @@ class _Burst {
 
 /// 战场上的一只小怪：数值用妖兽表里的怪（见
 /// [_GameBattleStageState._minionTemplates]），图按槽位
-/// 轮着用四张野兽图（见 [gameMonsterCommonArts]）。
+/// 轮着用两张魔蚁图（见 [gameMonsterCommonArts]）。
 class _Minion {
   _Minion({
     required this.index,
@@ -2325,7 +2332,7 @@ class _Minion {
   /// 数值来源（血量 / 奖励按这只怪的表算）。
   GameMonster monster;
 
-  /// 显示用的图（四张野兽图之一，与数值怪的种类无关）。
+  /// 显示用的图（两张普通魔蚁图之一，与数值怪是哪只无关）。
   String art;
 
   /// 当前血量（满血 = monster.hp）。

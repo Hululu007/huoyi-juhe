@@ -3,22 +3,27 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../services/cultivation.dart';
+import '../services/idj_plugin_store.dart';
 import '../services/site_health.dart';
 import '../services/site_thumb_cache.dart';
 import '../services/source_registry.dart';
+import 'plugin_zone_view.dart';
 import 'series_detail/moyi_detail_theme.dart';
 import 'site_thumb_image.dart';
 
-/// 站点在哪个区：builtin 内置区 / import 导入区。
+/// 站点在哪个区：builtin 内置区 / import 导入区 / plugin 插件区。
 ///
-/// 修仙版不要插件系统（用户 2026-11-24 20:25 令），弹窗只有这两区，
-/// 没有插件区、没有插件相关代码。
-enum SiteGridZone { builtin, import }
+/// 插件区是用户 2026-11-26 新令（推翻 2026-11-24「不要插件系统」
+/// 的旧令）：安卓与 iOS 同一界面结构，选站由两区变三区；插件市场
+/// 就放在插件区里（见 plugin_zone_view.dart）。旧调用点不传
+/// `enablePluginZone` 时仍是两区，行为不变。
+enum SiteGridZone { builtin, import, plugin }
 
 extension SiteGridZoneLabel on SiteGridZone {
   String get label => switch (this) {
     SiteGridZone.builtin => '内置区',
     SiteGridZone.import => '导入区',
+    SiteGridZone.plugin => '插件区',
   };
 }
 
@@ -60,6 +65,12 @@ String? resolveCurrentSiteId(String? currentId, List<String> visibleIds) {
 /// 站源管理里的开关管的也是裸 id，归一化后两边才对得上。
 /// 返回 true 表示删/藏成了，弹窗把该行摘掉；false 则行留着。
 Future<bool> deleteSiteGridEntry(SiteGridEntry entry) async {
+  if (entry.zone == SiteGridZone.plugin) {
+    // 插件条目的长按卸载由弹窗本体走 IdjPluginStore（删包 + 摘站），
+    // 不经这里；这里只作兜底：摘掉登记行，包由插件区管理。
+    await SourceRegistry.instance.removeCustom(entry.id);
+    return true;
+  }
   if (entry.zone == SiteGridZone.import) {
     await SourceRegistry.instance.removeCustom(entry.id);
     return true;
@@ -75,10 +86,12 @@ Future<bool> deleteSiteGridEntry(SiteGridEntry entry) async {
 /// 点一项即选中并关闭，返回该站 id；点空白或返回则返回 null。
 /// 站多时网格在弹窗内滚动（最高占屏高六成），站少时弹窗按内容收缩。
 ///
-/// 两区：区签栏（内置区 / 导入区，带站数）在顶栏下方，点签或左右滑
-/// 切区；区内再按短剧 / 视频 / 午夜分组（组标题「名 + 空格 + 数」）。
-/// 搜索框只过滤活动区内的站。长按站名删/藏（见 [deleteSiteGridEntry]，
-/// 确认框由弹窗内弹，导入站删、内置站藏）。
+/// 区签栏（内置区 / 导入区，启用插件区时加插件区，带站数）在顶栏
+/// 下方，点签或左右滑切区；区内再按短剧 / 视频 / 午夜分组（组标题
+/// 「名 + 空格 + 数」）。搜索框只过滤活动区内的站。长按站名删/藏
+/// （见 [deleteSiteGridEntry]，确认框由弹窗内弹，导入站删、内置站
+/// 藏、插件站走卸载）。启用插件区时标题行右上角有「+」号，可添加
+/// 本地插件包与远程插件源；插件区下半是插件市场。
 Future<String?> showSiteGridDialog({
   required BuildContext context,
   required List<SiteGridEntry> sites,
@@ -96,8 +109,15 @@ Future<String?> showSiteGridDialog({
   SiteThumbCache? thumbCache,
   SiteThumbFetcher? thumbFetcher,
   Widget Function(String url)? thumbImageBuilder,
+
+  /// 插件区开关：三个生产调用点（片库影视 / 短剧 / 午夜）传 true，
+  /// 弹窗变三区并带插件市场与右上角「+」；其余调用点默认两区。
+  bool enablePluginZone = false,
+
+  /// 插件仓库注入缝：不传用登记表的共用实例；测试 / 预览传假的。
+  IdjPluginStore? pluginStore,
 }) async {
-  if (sites.isEmpty) return null;
+  if (sites.isEmpty && !enablePluginZone) return null;
   final screenHeight = MediaQuery.of(context).size.height;
   return showDialog<String>(
     context: context,
@@ -112,6 +132,8 @@ Future<String?> showSiteGridDialog({
         thumbCache: thumbCache,
         thumbFetcher: thumbFetcher,
         thumbImageBuilder: thumbImageBuilder,
+        enablePluginZone: enablePluginZone,
+        pluginStore: pluginStore,
       );
     },
   );
@@ -129,6 +151,8 @@ class SiteGridDialog extends StatefulWidget {
     this.thumbCache,
     this.thumbFetcher,
     this.thumbImageBuilder,
+    this.enablePluginZone = false,
+    this.pluginStore,
   });
 
   final List<SiteGridEntry> sites;
@@ -143,6 +167,10 @@ class SiteGridDialog extends StatefulWidget {
   final SiteThumbFetcher? thumbFetcher;
   final Widget Function(String url)? thumbImageBuilder;
 
+  /// 插件区开关与仓库注入缝（见 [showSiteGridDialog] 同名参数）。
+  final bool enablePluginZone;
+  final IdjPluginStore? pluginStore;
+
   @override
   State<SiteGridDialog> createState() => _SiteGridDialogState();
 }
@@ -154,8 +182,16 @@ class _SiteGridDialogState extends State<SiteGridDialog> {
   int _flipDirection = 1;
   String _query = '';
 
-  /// 区号 → 区：0 内置区，1 导入区。
-  static const _zones = [SiteGridZone.builtin, SiteGridZone.import];
+  /// 区号 → 区：0 内置区，1 导入区；启用插件区时 2 是插件区。
+  List<SiteGridZone> get _zones => widget.enablePluginZone
+      ? const [SiteGridZone.builtin, SiteGridZone.import, SiteGridZone.plugin]
+      : const [SiteGridZone.builtin, SiteGridZone.import];
+
+  /// 插件仓库：注入缝优先，否则用登记表的共用实例。
+  IdjPluginStore get _pluginStore =>
+      widget.pluginStore ?? SourceRegistry.instance.idjStore;
+
+  SiteGridZone get _currentZone => _zones[_zoneIndex];
 
   List<SiteGridEntry> _zoneEntries(int zone) => [
     for (final entry in _entries)
@@ -169,6 +205,12 @@ class _SiteGridDialogState extends State<SiteGridDialog> {
     super.initState();
     _entries = List.of(widget.sites);
     _zoneIndex = _zones.indexOf(widget.initialZone);
+    if (_zoneIndex < 0) _zoneIndex = 0;
+    if (widget.enablePluginZone) {
+      // 插件区条目以插件仓库为事实来源：进弹窗按已装清单对账一次，
+      // 装/卸在别处发生过时这里也是最新的。
+      unawaited(_reloadPluginEntries());
+    }
     // 健康学习（A3）：进弹窗先把偏好与记录表加载进来，到了之后
     // 靠 revision / pickerSort 监听重画状态点与排序。
     unawaited(SiteHealthPrefs.instance.load());
@@ -191,14 +233,92 @@ class _SiteGridDialogState extends State<SiteGridDialog> {
 
   /// 切区：点区签或左右滑触发；记下翻页方向给滑动动画用。
   void _setZone(int index) {
-    if (index == _zoneIndex || index < 0 || index > 1) return;
+    if (index == _zoneIndex || index < 0 || index >= _zones.length) return;
     _flipDirection = index > _zoneIndex ? 1 : -1;
     setState(() => _zoneIndex = index);
   }
 
-  /// 长按删/藏：先弹确认框（导入站删、内置站藏），确认后调调用方
-  /// 的执行入口；成了就把该行从列表摘掉。
+  /// 按插件仓库的已装清单重算插件区条目（保留调用方给的分组，
+  /// 如短剧选择器里插件站的短剧组）。
+  Future<void> _reloadPluginEntries() async {
+    try {
+      await SourceRegistry.instance.syncIdjPluginSites();
+      final installed = await _pluginStore.listInstalled();
+      if (!mounted) return;
+      final oldGroups = <String, SiteGridGroup>{
+        for (final entry in _entries)
+          if (entry.zone == SiteGridZone.plugin) entry.id: entry.group,
+      };
+      final fresh = [
+        for (final entry in pluginZoneEntriesFromInstalled(
+          installed,
+          currentCultivationXp(),
+        ))
+          (
+            id: entry.id,
+            name: entry.name,
+            zone: entry.zone,
+            group: oldGroups[entry.id] ?? entry.group,
+          ),
+      ];
+      setState(() {
+        _entries = [
+          for (final entry in _entries)
+            if (entry.zone != SiteGridZone.plugin) entry,
+          ...fresh,
+        ];
+      });
+    } catch (_) {
+      // 对账失败不打断选站：插件区保持调用方给的条目。
+    }
+  }
+
+  /// 插件条目长按 = 卸载：确认后走插件仓库卸载（删包 + 摘站），
+  /// 再按已装清单刷新插件区。
+  Future<void> _confirmUninstallPlugin(SiteGridEntry entry) async {
+    // 插件 id 以插件仓库（事实来源）为准，登记行指针作兜底。
+    String? pluginId;
+    try {
+      final installed = await _pluginStore.listInstalled();
+      for (final plugin in installed) {
+        if (plugin.entry.siteKey == entry.id) {
+          pluginId = plugin.entry.pluginId;
+          break;
+        }
+      }
+    } catch (_) {}
+    pluginId ??=
+        SourceRegistry.instance.customById(entry.id)?.extra['pluginId']
+            as String?;
+    if (!mounted) return;
+    if (pluginId == null || pluginId.isEmpty) {
+      // 登记行丢了插件指针：只摘行，包由下次对账处理。
+      setState(() {
+        _entries.removeWhere((item) => item.id == entry.id);
+      });
+      return;
+    }
+    final confirmed = await confirmUninstallPlugin(context, entry.name);
+    if (!confirmed || !mounted) return;
+    try {
+      await _pluginStore.uninstall(pluginId);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
+      return;
+    }
+    await _reloadPluginEntries();
+  }
+
+  /// 长按删/藏：先弹确认框（导入站删、内置站藏、插件站卸载），
+  /// 确认后调调用方的执行入口；成了就把该行从列表摘掉。
   Future<void> _confirmDelete(SiteGridEntry entry) async {
+    if (entry.zone == SiteGridZone.plugin && widget.enablePluginZone) {
+      await _confirmUninstallPlugin(entry);
+      return;
+    }
     final handler = widget.onDeleteSite;
     if (handler == null) return;
     final isImport = entry.zone == SiteGridZone.import;
@@ -248,7 +368,10 @@ class _SiteGridDialogState extends State<SiteGridDialog> {
     });
   }
 
-  bool _canDelete(SiteGridEntry entry) => widget.onDeleteSite != null;
+  bool _canDelete(SiteGridEntry entry) =>
+      entry.zone == SiteGridZone.plugin
+      ? widget.enablePluginZone
+      : widget.onDeleteSite != null;
 
   @override
   Widget build(BuildContext context) {
@@ -282,13 +405,29 @@ class _SiteGridDialogState extends State<SiteGridDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                '切换站点',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white,
-                ),
+              Row(
+                children: [
+                  const Text(
+                    '切换站点',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const Spacer(),
+                  if (widget.enablePluginZone)
+                    IconButton(
+                      key: const ValueKey('site-grid-add'),
+                      icon: const Icon(Icons.add, color: moyiCyan),
+                      tooltip: '添加插件',
+                      onPressed: () => showPluginAddSheet(
+                        context,
+                        store: _pluginStore,
+                        onChanged: () => unawaited(_reloadPluginEntries()),
+                      ),
+                    ),
+                ],
               ),
               const SizedBox(height: 12),
               TextField(
@@ -328,7 +467,7 @@ class _SiteGridDialogState extends State<SiteGridDialog> {
                   ),
                 ),
               ),
-              if (widget.onDeleteSite != null) ...[
+              if (widget.onDeleteSite != null || widget.enablePluginZone) ...[
                 const SizedBox(height: 8),
                 const Text(
                   '长按站点可删除或隐藏',
@@ -366,12 +505,19 @@ class _SiteGridDialogState extends State<SiteGridDialog> {
                     ),
                     child: KeyedSubtree(
                       key: ValueKey('site-grid-zone-$_zoneIndex'),
-                      child: _listBody(
-                        filtered,
-                        visibleGroups,
-                        searching,
-                        selectedColor,
-                      ),
+                      child: _currentZone == SiteGridZone.plugin
+                          ? _pluginZoneBody(
+                              filtered,
+                              visibleGroups,
+                              searching,
+                              selectedColor,
+                            )
+                          : _listBody(
+                              filtered,
+                              visibleGroups,
+                              searching,
+                              selectedColor,
+                            ),
                     ),
                   ),
                 ),
@@ -383,10 +529,14 @@ class _SiteGridDialogState extends State<SiteGridDialog> {
     );
   }
 
-  /// 区签栏：内置区 / 导入区（带站数），在翻页区外面——翻页时区签
-  /// 与搜索框都不动，只有下面的列表翻。
+  /// 区签栏：内置区 / 导入区（启用插件区时加插件区，带站数），
+  /// 在翻页区外面——翻页时区签与搜索框都不动，只有下面的列表翻。
   Widget _zoneTabs() {
-    const keys = ['site-grid-zone-builtin', 'site-grid-zone-import'];
+    const keys = [
+      'site-grid-zone-builtin',
+      'site-grid-zone-import',
+      'site-grid-zone-plugin',
+    ];
     Widget tab(int index) {
       final zone = _zones[index];
       final selected = _zoneIndex == index;
@@ -418,9 +568,10 @@ class _SiteGridDialogState extends State<SiteGridDialog> {
 
     return Row(
       children: [
-        tab(0),
-        const SizedBox(width: 8),
-        tab(1),
+        for (var i = 0; i < _zones.length; i++) ...[
+          if (i > 0) const SizedBox(width: 8),
+          tab(i),
+        ],
       ],
     );
   }
@@ -435,7 +586,7 @@ class _SiteGridDialogState extends State<SiteGridDialog> {
     if (filtered.isEmpty) {
       final emptyText = searching
           ? '没有匹配的站点'
-          : _zoneIndex == 1
+          : _zones[_zoneIndex] == SiteGridZone.import
           ? widget.emptyImportHint
           : '没有匹配的站点';
       return Center(
@@ -445,6 +596,56 @@ class _SiteGridDialogState extends State<SiteGridDialog> {
         ),
       );
     }
+    return ListView(
+      shrinkWrap: true,
+      children: _groupSections(
+        filtered,
+        visibleGroups,
+        searching,
+        selectedColor,
+      ),
+    );
+  }
+
+  /// 插件区本体：已装插件的站网格在上、插件市场在下，同一个滚动
+  /// 区。搜索时只过滤站网格、不显示市场；一个插件都没装时只剩
+  /// 市场（市场里点安装即可），不显示空态文案。
+  Widget _pluginZoneBody(
+    List<SiteGridEntry> filtered,
+    List<SiteGridGroup> visibleGroups,
+    bool searching,
+    Color selectedColor,
+  ) {
+    if (searching && filtered.isEmpty) {
+      return const Center(
+        child: Text(
+          '没有匹配的站点',
+          style: TextStyle(fontSize: 14, color: moyiMutedOnDark),
+        ),
+      );
+    }
+    return ListView(
+      shrinkWrap: true,
+      children: [
+        ..._groupSections(filtered, visibleGroups, searching, selectedColor),
+        if (!searching) ...[
+          const SizedBox(height: 16),
+          PluginMarketSection(
+            store: _pluginStore,
+            onChanged: () => unawaited(_reloadPluginEntries()),
+          ),
+        ],
+      ],
+    );
+  }
+
+  /// 分组网格区段（内置/导入两区与插件区共用）：组标题 + 站卡网格。
+  List<Widget> _groupSections(
+    List<SiteGridEntry> filtered,
+    List<SiteGridGroup> visibleGroups,
+    bool searching,
+    Color selectedColor,
+  ) {
     // 选站弹窗按健康排序（A3，设置里默认关）：组内按健康分降序、
     // 同分保原序；总开关关时分数恒中性，自然退化回原顺序。
     final healthSort =
@@ -462,50 +663,47 @@ class _SiteGridDialogState extends State<SiteGridDialog> {
       );
     }
 
-    return ListView(
-      shrinkWrap: true,
-      children: [
-        for (final group in visibleGroups) ...[
-          if (!searching)
-            Padding(
-              padding: const EdgeInsets.only(top: 12, bottom: 4),
-              child: Text(
-                // 组标题纯文本「名 + 空格 + 数」，不用括号。
-                '${group.label} ${groupEntries(group).length}',
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white,
-                ),
+    return [
+      for (final group in visibleGroups) ...[
+        if (!searching)
+          Padding(
+            padding: const EdgeInsets.only(top: 12, bottom: 4),
+            child: Text(
+              // 组标题纯文本「名 + 空格 + 数」，不用括号。
+              '${group.label} ${groupEntries(group).length}',
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
               ),
             ),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final width = constraints.maxWidth;
-              final columns = width >= 500 ? 4 : 3;
-              const spacing = 8.0;
-              final tileWidth = (width - spacing * (columns - 1)) / columns;
-              // 卡高：16:9 封面区 + 站名区（间距 4 + 两行站名约 34）。
-              final extent = tileWidth * 9 / 16 + 42;
-              final entries = groupEntries(group);
-              return GridView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: columns,
-                  mainAxisSpacing: 10,
-                  crossAxisSpacing: spacing,
-                  mainAxisExtent: extent,
-                ),
-                itemCount: entries.length,
-                itemBuilder: (ctx, index) =>
-                    _tile(entries[index], selectedColor),
-              );
-            },
           ),
-        ],
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final width = constraints.maxWidth;
+            final columns = width >= 500 ? 4 : 3;
+            const spacing = 8.0;
+            final tileWidth = (width - spacing * (columns - 1)) / columns;
+            // 卡高：16:9 封面区 + 站名区（间距 4 + 两行站名约 34）。
+            final extent = tileWidth * 9 / 16 + 42;
+            final entries = groupEntries(group);
+            return GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: columns,
+                mainAxisSpacing: 10,
+                crossAxisSpacing: spacing,
+                mainAxisExtent: extent,
+              ),
+              itemCount: entries.length,
+              itemBuilder: (ctx, index) =>
+                  _tile(entries[index], selectedColor),
+            );
+          },
+        ),
       ],
-    );
+    ];
   }
 
   /// 站卡（站点透视 C1 + 健康点 A3）：上 16:9 封面区（站内随机

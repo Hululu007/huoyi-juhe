@@ -30,9 +30,14 @@ class PublicFolder {
   }
 
   /// 打开系统设置页，请用户为本应用开启全部文件访问权限。
-  static Future<void> requestAllFilesAccess() async {
+  /// 回 true = 设置页打开了；false = 打不开（厂商阉割、鸿蒙容器
+  /// 没有承接方），调用方据此给手动路径文案，不许静默。
+  static Future<bool> requestAllFilesAccess() async {
     try {
       await _channel.invokeMethod<void>('requestAllFilesAccess');
-    } catch (_) {}
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 }

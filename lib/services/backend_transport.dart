@@ -1,13 +1,14 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated_io.dart';
 import 'package:http/http.dart' as http;
 
 import '../src/rust/api.dart' as rust;
 import '../src/rust/frb_generated.dart';
 import 'app_log.dart';
 import 'secure_key_provider.dart';
-import 'system_proxy.dart';
 
 /// One backend response.
 ///
@@ -238,11 +239,24 @@ class RustBackendTransport implements BackendTransport {
     return attempt;
   }
 
+  /// Default runtime loader. On iOS the Rust core is a static library linked
+  /// into the app binary (see scripts/build_rust_ios.sh), so there is no
+  /// library file to open: FRB must resolve the entry points from the
+  /// process itself. Every other platform keeps the plain default loader.
+  static Future<void> _defaultRuntimeInit() {
+    if (Platform.isIOS) {
+      return RustLib.init(
+        externalLibrary: ExternalLibrary.process(iKnowHowToUseIt: true),
+      );
+    }
+    return RustLib.init();
+  }
+
   /// The loader [ensureRuntime] runs on first use; production always uses
-  /// [RustLib.init]. A seam rather than a direct call, so the retry behavior
-  /// can be tested without loading the shared library.
+  /// [_defaultRuntimeInit]. A seam rather than a direct call, so the retry
+  /// behavior can be tested without loading the shared library.
   @visibleForTesting
-  static Future<void> Function() runtimeInitializer = RustLib.init;
+  static Future<void> Function() runtimeInitializer = _defaultRuntimeInit;
 
   /// Whether FRB already installed its process-wide state.
   ///
@@ -260,7 +274,7 @@ class RustBackendTransport implements BackendTransport {
   @visibleForTesting
   static void resetRuntimeForTest() {
     _runtimeReady = null;
-    runtimeInitializer = RustLib.init;
+    runtimeInitializer = _defaultRuntimeInit;
     runtimeInitialized = () => RustLib.instance.initialized;
     disposeRuntime = RustLib.dispose;
   }
@@ -364,12 +378,6 @@ class RustBackendTransport implements BackendTransport {
             if (result != 'running') {
               throw StateError('Rust core failed: $result');
             }
-            // 系统代理自动检测：核心 init 完成后、首次用核心取站之前，把
-            // 手机的系统代理交给核心当出口（有代理走代理、无代理传空串
-            // 清掉回直连，见 SystemProxyService.applyEgressProxy）。
-            // 失败只记日志、不挡启动：applyEgressProxy 本身不抛错。
-            await SystemProxyService.applyEgressProxy();
-            checkCurrent();
             session.baseUrl = await rust.baseUrl();
             checkCurrent();
             session.capability = await rust.sessionCapability();

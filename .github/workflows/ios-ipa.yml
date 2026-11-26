@@ -1,0 +1,75 @@
+name: iOS IPA (unsigned)
+
+# First iOS build for this repo (round 43): produces an UNSIGNED .ipa that
+# the user side-loads with their own signing tool (AltStore / TrollStore /
+# a paid certificate). No Apple developer secrets are used or needed.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Same Flutter pin as android-apk.yml.
+  FLUTTER_VERSION: '3.50.0'
+
+jobs:
+  ipa:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Install the pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          # Same pin as android-apk.yml.
+          toolchain: '1.99.1'
+          targets: aarch64-apple-ios
+
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Build the Rust core static library (device arm64)
+        run: bash scripts/build_rust_ios.sh
+
+      - name: Resolve Dart package dependencies
+        run: flutter pub get --enforce-lockfile
+
+      - name: Build the iOS app without code signing
+        run: flutter build ios --release --no-codesign
+
+      - name: Verify the built app bundle
+        run: |
+          APP=build/ios/iphoneos/Runner.app
+          test -d "$APP"
+          PLIST="$APP/Info.plist"
+          echo "bundle id : $(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PLIST")"
+          echo "version   : $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST") ($( /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST"))"
+          echo "min iOS   : $(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$PLIST")"
+          echo "display   : $(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$PLIST")"
+          du -sh "$APP"
+
+      - name: Package the unsigned IPA
+        run: |
+          VER="$(grep '^version:' pubspec.yaml | sed 's/^version:[[:space:]]*//; s/+.*$//')"
+          rm -rf Payload "HuoyiJuhe-${VER}-unsigned.ipa"
+          mkdir Payload
+          cp -R build/ios/iphoneos/Runner.app Payload/
+          zip -qry "HuoyiJuhe-${VER}-unsigned.ipa" Payload
+          ls -lh "HuoyiJuhe-${VER}-unsigned.ipa"
+          echo "IPA_NAME=HuoyiJuhe-${VER}-unsigned.ipa" >> "$GITHUB_ENV"
+
+      - name: Upload the unsigned IPA
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ios-ipa-unsigned-${{ github.sha }}
+          path: ${{ env.IPA_NAME }}
+          if-no-files-found: error

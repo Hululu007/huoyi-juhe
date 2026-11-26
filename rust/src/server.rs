@@ -68,18 +68,60 @@ struct AppState {
     mode: ListenMode,
 }
 
+/// Only a busy port warrants trying the next port.
+///
+/// `ErrorKind::AddrInUse` is what the standard library reports on Unix and on
+/// modern Windows; the raw WinSock code 10048 covers older paths that surface
+/// `ErrorKind::Other` instead. Any other failure (permission, a bad address,
+/// no free descriptor) is a real misconfiguration and must stay visible.
+fn is_port_in_use(error: &std::io::Error) -> bool {
+    if error.kind() == std::io::ErrorKind::AddrInUse {
+        return true;
+    }
+    #[cfg(windows)]
+    if error.raw_os_error() == Some(10048) {
+        return true;
+    }
+    false
+}
+
+/// Tries the requested port, then successive ports if it is occupied.
+async fn bind_with_fallback(
+    mut addr: std::net::SocketAddr,
+) -> Result<tokio::net::TcpListener, String> {
+    let requested = addr;
+    loop {
+        match tokio::net::TcpListener::bind(addr).await {
+            Ok(listener) => {
+                if addr != requested {
+                    log::warn!("listen {requested} occupied; using {addr}");
+                }
+                return Ok(listener);
+            }
+            Err(error) if addr.port() != 0 && is_port_in_use(&error) => {
+                let next = addr.port().checked_add(1).ok_or_else(|| {
+                    format!(
+                        "listen {requested}: all ports through {} are occupied",
+                        addr.port()
+                    )
+                })?;
+                addr.set_port(next);
+            }
+            Err(error) => return Err(format!("listen {addr}: {error}")),
+        }
+    }
+}
+
 pub async fn serve(
     server: Arc<Server>,
     port: u16,
     mode: ListenMode,
 ) -> Result<LoopbackHandle, String> {
-    let addr = match mode {
-        ListenMode::Loopback => "127.0.0.1",
-        ListenMode::Lan => "0.0.0.0",
+    let host: std::net::IpAddr = match mode {
+        ListenMode::Loopback => std::net::Ipv4Addr::LOCALHOST.into(),
+        ListenMode::Lan => std::net::Ipv4Addr::UNSPECIFIED.into(),
     };
-    let listener = tokio::net::TcpListener::bind((addr, port))
-        .await
-        .map_err(|e| format!("listen {addr}:{port}: {e}"))?;
+    let listener = bind_with_fallback(std::net::SocketAddr::new(host, port)).await?;
     let local = listener
         .local_addr()
         .map_err(|e| format!("local addr: {e}"))?;
@@ -422,6 +464,34 @@ mod tests {
     use axum::body::Bytes;
     use futures::stream;
     use std::convert::Infallible;
+
+    #[tokio::test]
+    async fn occupied_ports_are_skipped_in_order() {
+        use std::net::{Ipv4Addr, SocketAddr};
+        use tokio::net::TcpListener;
+
+        for _ in 0..64 {
+            let first = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+            let port = first.local_addr().unwrap().port();
+            let Some(expected) = port.checked_add(2) else {
+                continue;
+            };
+            let Ok(_second) = TcpListener::bind((Ipv4Addr::LOCALHOST, port + 1)).await else {
+                continue;
+            };
+            let Ok(third) = TcpListener::bind((Ipv4Addr::LOCALHOST, expected)).await else {
+                continue;
+            };
+            drop(third);
+
+            let bound = super::bind_with_fallback(SocketAddr::from((Ipv4Addr::LOCALHOST, port)))
+                .await
+                .unwrap();
+            assert_eq!(bound.local_addr().unwrap().port(), expected);
+            return;
+        }
+        panic!("could not reserve three consecutive ports for the test");
+    }
 
     #[tokio::test]
     async fn chunked_body_over_limit_is_rejected_without_buffering_the_whole_body() {

@@ -50,16 +50,38 @@ class PublicFolderPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                     result.error("no_context", "通道未附着到引擎", null)
                     return
                 }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    val intent = Intent(
-                        Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                        Uri.parse("package:${ctx.packageName}"),
-                    ).apply {
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    ctx.startActivity(intent)
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+                    result.success(null)
+                    return
                 }
-                result.success(null)
+                // 两级意图 + 全兜底：本应用专属页打不开（厂商阉割、
+                // 鸿蒙卓易通容器没有承接方）就退到总设置页；还不行
+                // 回明确错误，让 Dart 给手动路径文案，绝不把
+                // ActivityNotFoundException 抛进通道当无声失败。
+                val launched = try {
+                    ctx.startActivity(
+                        Intent(
+                            Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                            Uri.parse("package:${ctx.packageName}"),
+                        ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) },
+                    )
+                    true
+                } catch (e: Exception) {
+                    try {
+                        ctx.startActivity(
+                            Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                                .apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) },
+                        )
+                        true
+                    } catch (e2: Exception) {
+                        false
+                    }
+                }
+                if (launched) {
+                    result.success(null)
+                } else {
+                    result.error("settings_unavailable", "打不开全部文件访问设置页", null)
+                }
             }
             else -> result.notImplemented()
         }

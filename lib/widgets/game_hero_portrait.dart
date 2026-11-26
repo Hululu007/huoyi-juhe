@@ -73,7 +73,10 @@ class GameHeroPortrait extends StatelessWidget {
   }
 }
 
-/// 整幅立绘卡片：创建页 / 人物页用，金边圆角。
+/// 整幅立绘（创建页 / 人物页用）：2026-11-26 用户令
+/// 「人物不要卡片」——去掉金边圆角卡面，改立绘式呈现：
+/// 人物整幅站立，图底边缘羽化融进页面底色，
+/// 没有框、没有卡面。
 /// 3D 图人物占画面下三分之二，底部对齐才能看到整个人，
 /// 顶部对齐只会看到天空和牌坊。
 class GameHeroFullPortrait extends StatelessWidget {
@@ -90,27 +93,82 @@ class GameHeroFullPortrait extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return SizedBox(
       width: width,
       height: height,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: const Color(0xFFD4AF37),
-          width: 2,
-        ),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(14),
-        child: Image.asset(
-          gameHeroAssetForGender(isFemale),
-          fit: BoxFit.cover,
-          alignment: Alignment.bottomCenter,
-          errorBuilder: (context, error, stackTrace) => Image.asset(
-            isFemale ? gameHeroFemaleLegacyAsset : gameHeroMaleLegacyAsset,
-            fit: BoxFit.cover,
-            alignment: Alignment.topCenter,
+      child: Stack(
+        clipBehavior: Clip.none,
+        alignment: Alignment.bottomCenter,
+        children: [
+          // 立绘本体：底部羽化融进页面底色（上 72% 全实，
+          // 往下渐隐），没有框、没有圆角裁切。
+          ShaderMask(
+            blendMode: BlendMode.dstIn,
+            shaderCallback: (rect) => const LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Colors.white, Colors.white, Colors.transparent],
+              stops: [0.0, 0.72, 1.0],
+            ).createShader(rect),
+            child: Image.asset(
+              gameHeroAssetForGender(isFemale),
+              width: width,
+              height: height,
+              fit: BoxFit.cover,
+              alignment: Alignment.bottomCenter,
+              errorBuilder: (context, error, stackTrace) => Image.asset(
+                isFemale
+                    ? gameHeroFemaleLegacyAsset
+                    : gameHeroMaleLegacyAsset,
+                width: width,
+                height: height,
+                fit: BoxFit.cover,
+                alignment: Alignment.topCenter,
+              ),
+            ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 战场人物图（2026-11-26 用户令「人物不要卡片」）：
+/// 主角与队友在战场上不再是金环圆形徽章，改用半身图
+/// 本体站在石台上——方形半身图四周径向羽化透明，
+/// 直接融进厮杀场景，脚下影子由战场的立绘容器给。
+/// 顶栏头像与创建页职业小图仍用 [GameHeroPortrait]
+/// 圆形徽章（那是界面头像，不是场景人物）。
+class GameHeroFigure extends StatelessWidget {
+  const GameHeroFigure({
+    super.key,
+    required this.isFemale,
+    required this.size,
+  });
+
+  final bool isFemale;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return ShaderMask(
+      blendMode: BlendMode.dstIn,
+      shaderCallback: (rect) => const RadialGradient(
+        colors: [Colors.white, Colors.white, Colors.transparent],
+        stops: [0.0, 0.62, 1.0],
+      ).createShader(rect),
+      child: Image.asset(
+        gameHeroBustAssetForGender(isFemale),
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        alignment: Alignment.topCenter,
+        errorBuilder: (context, error, stackTrace) => Image.asset(
+          isFemale ? gameHeroFemaleLegacyAsset : gameHeroMaleLegacyAsset,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          alignment: Alignment.topCenter,
         ),
       ),
     );

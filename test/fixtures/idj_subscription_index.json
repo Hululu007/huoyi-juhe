@@ -1,0 +1,231 @@
+{
+  "name": "魔蚁插件订阅",
+  "plugins": [
+    {
+      "id": "com.idj.ext.porntube",
+      "name": "PornTube",
+      "version": "1.0.0",
+      "type": "video",
+      "adult": true,
+      "description": "PornTube（porntube.cool）。32 个分类，接口 AES 加密，播放走临时签名 m3u8 直链。由 CatVod 蜘蛛 v1.0.2 改写。",
+      "manifest": "porntube/porntube.idjplugin"
+    },
+    {
+      "id": "com.idj.ext.qiyoushe",
+      "name": "妻友社",
+      "version": "1.0.0",
+      "type": "video",
+      "adult": true,
+      "description": "妻友社。13 个分类，游客登录 + 请求签名，播放走签名 m3u8。服务端要认 Authorization 头（宿主 2026-11-24 18:40 起放行，插件随请求发游客 token）；封面异或加密，列表无封面。由 CatVod 蜘蛛 v1.0.0 改写。",
+      "manifest": "qiyoushe/qiyoushe.idjplugin"
+    },
+    {
+      "id": "com.idj.ext.hqporner",
+      "name": "HQPorner",
+      "version": "1.0.0",
+      "type": "video",
+      "adult": true,
+      "description": "HQPorner（hqporner.com）。64 个分类 + 最新 / 热门 / 月榜 / 周榜 / 女优，详情嵌 mydaddy.cc 取最高画质 mp4。由 CatVod 蜘蛛 v1.0.1 改写。",
+      "manifest": "hqporner/hqporner.idjplugin"
+    },
+    {
+      "id": "com.idj.ext.missav",
+      "name": "MissAV",
+      "version": "1.0.0",
+      "type": "video",
+      "adult": true,
+      "description": "MissAV（missav123.nl）。34 个分类，列表纯 HTML 解析，详情页 packer 解包取 1080p m3u8。由 CatVod 蜘蛛 missav.py v5 改写。2026-11-24 复核。",
+      "manifest": "missav/missav.idjplugin"
+    },
+    {
+      "id": "com.idj.ext.xhamster",
+      "name": "xHamster",
+      "version": "1.0.0",
+      "type": "video",
+      "adult": true,
+      "description": "xHamster（xhamster.com）。13 个分类，列表走内嵌 JSON videoThumbProps，详情取 xhcdn m3u8（6 档 144p–2160p）。2026-11-24 摸站。首页 / 是年龄验证墙，插件改用 /newest。",
+      "manifest": "xhamster/xhamster.idjplugin"
+    },
+    {
+      "id": "com.idj.ext.321av",
+      "name": "321AV",
+      "version": "1.0.0",
+      "type": "video",
+      "adult": true,
+      "description": "321AV（321av.cc）。有码影片/无码影片/中文字幕/女优，MacCMS。播放走 rmissav 取流（站内接线 /private-getvideo 已 404，本机出口未验通，待手机终验）。摸站手写。",
+      "manifest": "321av/321av.idjplugin"
+    },
+    {
+      "id": "com.idj.ext.rouav",
+      "name": "rouAV",
+      "version": "1.0.1",
+      "type": "video",
+      "adult": true,
+      "description": "rouAV（肉视频，site2.321av.cc；99dh 的“肉视频”与“rouAV”为同一站）。国产AV/日本/自拍流出/探花/OnlyFans/其他。播放走 rou123.top→rou666.net 真 m3u8。2026-11-25 复核全链实测通过（列表/详情/播放），封面为站方图床原样签名地址。摸站手写。",
+      "manifest": "rouav/rouav.idjplugin"
+    },
+    {
+      "id": "com.idj.ext.huangsecangku",
+      "name": "黄色仓库",
+      "version": "1.0.0",
+      "type": "video",
+      "adult": true,
+      "description": "黄色仓库（hsck01.net，MacCMS）。5 个分类，列表直链播放页，播放走 player.centercdn.top 嵌的真 m3u8。搜索未在线验通，待手机终验。",
+      "manifest": "huangsecangku/huangsecangku.idjplugin"
+    },
+    {
+      "id": "com.idj.ext.18av",
+      "name": "18AV",
+      "version": "1.0.0",
+      "type": "video",
+      "adult": true,
+      "description": "18AV（18av1.net）。10 个视频分类，内容页加密 blob 经进制+XOR+AES-128 解出 token 再调 play.php 取 m3u8；m3u8 必须带 Referer（play 已带）。",
+      "manifest": "18av/18av.idjplugin"
+    },
+    {
+      "id": "com.idj.ext.dage",
+      "name": "大哥视频",
+      "version": "1.0.0",
+      "type": "video",
+      "adult": true,
+      "description": "大哥视频（dage.one，Vue 单页 + /api 接口，信封反转+base64 解码）。32 个视频分类，播放走接口 play 字段的真 m3u8。",
+      "manifest": "dage/dage.idjplugin"
+    },
+    {
+      "id": "com.idj.ext.yazhousuren",
+      "name": "亚洲素人精选",
+      "version": "1.0.0",
+      "type": "video",
+      "adult": true,
+      "description": "亚洲素人精选 591av（591av.ws）。33 个分类，视频页内联 stream 地址直出 m3u8；CDN 边缘偶发 410，播不通需重试。含“学生”分类一名，待协调员复核。",
+      "manifest": "yazhousuren/yazhousuren.idjplugin"
+    },
+    {
+      "id": "com.idj.ext.yesporn",
+      "name": "YesPorn",
+      "version": "1.0.0",
+      "type": "video",
+      "adult": true,
+      "description": "YesPorn（xyesporn.com，KVS 站）。57 个分类 + 最新，详情页 flashvars 取最高画质 mp4 直链（本机出口取流 404，需站方会话 Cookie，待手机终验）。摸站手写。",
+      "manifest": "yesporn/yesporn.idjplugin"
+    },
+    {
+      "id": "com.idj.ext.okxxx",
+      "name": "OKXXX",
+      "version": "1.0.0",
+      "type": "video",
+      "adult": true,
+      "description": "OKXXX（ok.xxx，KVS 站）。最新/热门/趋势 3 个列表；详情页 <source> 取最高画质，get_file 地址实测回 m3u8 主清单（format 标 hls）。摸站手写。",
+      "manifest": "okxxx/okxxx.idjplugin"
+    },
+    {
+      "id": "com.idj.ext.sanjipian",
+      "name": "91三级片",
+      "version": "1.0.0",
+      "type": "video",
+      "adult": true,
+      "description": "91三级片（91sanji.com）。最新/三级片电影/国产/香港/日本/韩国/欧美/东南亚/AI成人短剧 9 个分类；POST /api/videos/{id}/playback 取签名 m3u8（AES-128 加密分片）。摸站手写。",
+      "manifest": "sanjipian/sanjipian.idjplugin"
+    },
+    {
+      "id": "com.idj.ext.huangguo",
+      "name": "黄果短剧",
+      "version": "1.0.0",
+      "type": "shortdrama",
+      "adult": true,
+      "description": "黄果短剧（huangguoai.com，AI 成人短剧）。最新/短剧/漫剧/黄果原创 4 个分类；详情走 /api/videos/{id}，分集 POST /playback 取签名 m3u8（AES-128 加密分片）。AI魔改/AI换脸两类已下线（410），未列入。摸站手写。",
+      "manifest": "huangguo/huangguo.idjplugin"
+    },
+    {
+      "id": "com.idj.ext.hanime1",
+      "name": "Hanime1",
+      "version": "1.0.0",
+      "type": "video",
+      "adult": true,
+      "description": "Hanime1（hanime1.me，H 动漫/裏番）。最新 + 裏番/泡麵番/Motion Anime/3DCG/2.5D/2D動畫/AI生成/MMD/Cosplay/新番預告 10 个类型；详情页 <source> 取最大尺寸 mp4 直链。本机出口被 Cloudflare 挑战挡，离线探针（Wayback 快照）全过，手机终验。摸站手写。",
+      "manifest": "hanime1/hanime1.idjplugin"
+    },
+    {
+      "id": "com.idj.ext.chengguo",
+      "name": "橙果短剧",
+      "version": "1.0.1",
+      "type": "video",
+      "adult": true,
+      "description": "橙果短剧(chengguodj)：橙果原创/AI短剧/真人短剧/AI魔改/AI漫剧 5 条线路 + 15 个题材标签，关键词搜索与翻页；站点接口响应是 AES 加密的，插件内解密后直取 m3u8 播放列表。封面走站点自己的图片代理（原图是加密封面，直连显示不出来）。简介首行带频道信息。更多片源与插件更新见 TG 频道〖多多纯净软件分享〗@yydsys。",
+      "manifest": "chengguo/chengguo.idjplugin"
+    },
+    {
+      "id": "com.idj.ext.chaoliu",
+      "name": "潮流AV",
+      "version": "1.3.5",
+      "type": "video",
+      "adult": true,
+      "description": "潮流AV（18AV 家族）。中文字幕 / 有碼 / 無碼 / 無碼破解 / 素人 / 國產自拍 / H動畫，关键词搜索，播放地址在端内解密后直取 m3u8 多画质。v1.3.2：修好上滑加载 —— 搜索列表能继续翻页；首页一次铺开多页；翻页出现空页不再卡住或报错。v1.3.1：详情简介统一带上频道信息（TG 〖多多纯净软件分享〗@yydsys）。v1.3.3：简介推广语改为【】包裹。v1.3.4：播放密文解析兼容站方改结构后的对象写法与双引号键名，线路识别更稳。",
+      "manifest": "chaoliu/chaoliu.idjplugin"
+    },
+    {
+      "id": "com.idj.ext.aiguo",
+      "name": "爱果短剧",
+      "version": "1.0.1",
+      "type": "video",
+      "adult": true,
+      "description": "爱果短剧(aigo)：最新更新/黄果短剧/爱果原创/魔改短剧 四个分类，关键词搜索与翻页；页面直接解析剧集列表与分集，播放走站点自己的播放会话接口取 HLS 地址。该站除第 1 集外需要登录账号才能播放，插件会明确提示。简介首行带频道信息。更多片源与插件更新见 TG 频道〖多多纯净软件分享〗@yydsys。",
+      "manifest": "aiguo/aiguo.idjplugin"
+    },
+    {
+      "id": "com.idj.ext.ai2048",
+      "name": "2048AI",
+      "version": "1.0.1",
+      "type": "video",
+      "adult": true,
+      "description": "【本插件由TG频道〖多多纯净软件分享〗提供，频道号@yydsys】\n\n2048AI（2048ai4.com）：麻豆传媒系站点，AV中文字幕、国产自拍、无码流出、探花大神、91大神、麻豆原创AI、黑料吃瓜等全部分区，关键词搜索、翻页都支持。\n\n取流走站点自己的 HLS 代理，AES-128 加密清单，分片都是完整带签名的地址，播放器直接放，不中转不卡。",
+      "manifest": "ai2048/ai2048.idjplugin"
+    },
+    {
+      "id": "com.idj.ext.vjav",
+      "name": "VJAV",
+      "version": "1.0.0",
+      "type": "video",
+      "adult": true,
+      "description": "VJAV（vjav.com）。162 个分类，全走 JSON 接口，播放走 videofile.php 解码取 MP4 直链。由 CatVod 蜘蛛 vjav.py v2 改写。2026-11-24 复核。",
+      "manifest": "vjav/vjav.idjplugin"
+    },
+    {
+      "id": "com.idj.ext.pornhub",
+      "name": "Pornhub",
+      "version": "1.0.0",
+      "type": "video",
+      "adult": true,
+      "description": "Pornhub（pornhub.com）。245 个分类，列表/搜索走官方 webmasters API，详情取 mediaDefinitions 签名 HLS。2026-11-24 摸站。API taxonomy 里没有 bare teen 分类。",
+      "manifest": "pornhub/pornhub.idjplugin"
+    },
+    {
+      "id": "com.idj.ext.xvideos",
+      "name": "XVIDEOS",
+      "version": "1.0.0",
+      "type": "video",
+      "adult": true,
+      "description": "XVIDEOS（xvideos.com）。46 个分类，列表纯 HTML 解析，详情取 setVideoHLS / JSON-LD contentUrl 全片。由 CatVod 蜘蛛 xvideos.py 改写。2026-11-24 复核，卡片链接已按 4 段式改版。",
+      "manifest": "xvideos/xvideos.idjplugin"
+    },
+    {
+      "id": "com.idj.ext.huanyingai",
+      "name": "幻影AI",
+      "version": "1.0.0",
+      "type": "video",
+      "adult": true,
+      "description": "幻影AI（mfantasy.net，AI 短剧）。13 个分类与站导航 1:1，接口取数，封面走 img.mfantasy.net，播放为 AES-128 HLS（每部已解锁集可播，第 1 集免费）。由海阔规则 🔞幻影AI v2 移植，2026-11-25 全链实测通过。",
+      "manifest": "huanyingai/huanyingai.idjplugin"
+    },
+    {
+      "id": "com.idj.ext.aiyinhang",
+      "name": "AI淫航",
+      "version": "1.0.0",
+      "type": "video",
+      "adult": true,
+      "description": "AI淫航（aiyinhang.top）。AI成人短剧/AI成人漫剧/AI换脸/AI魔改 4 分类与站导航 1:1，封面走 media.hgpicimg.cc，播放走站内 huangguo 接口 + hgmedia 代理真 m3u8。由 TVBox py 蜘蛛 aiyinhang.py 移植（该版 2026-11-07/08 全链实测通过）；2026-11-25 本机出口被该站断连，离线探针用真实抓包验过，待手机终验。",
+      "manifest": "aiyinhang/aiyinhang.idjplugin"
+    }
+  ],
+  "cms": []
+}

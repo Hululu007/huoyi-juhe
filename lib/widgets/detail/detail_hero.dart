@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../models/book_detail.dart';
 import '../../models/media_item.dart';
+import '../copyable_text.dart';
 import '../home/home_design.dart';
 import 'detail_cover_tile.dart';
 import 'detail_style.dart';
@@ -20,10 +21,6 @@ class DetailHero extends StatelessWidget {
   /// Opens the author's home. Only called when the payload carried an id.
   final VoidCallback? onOpenAuthor;
 
-  /// Video play action: shows the play button in the middle of the poster.
-  /// Null for non-video detail.
-  final VoidCallback? onPlay;
-
   /// Last chapter title used by the `更新至 …` line; the page resolves it from
   /// `BookDetail.lastChapterTitle` or the directory.
   final String? lastChapterTitle;
@@ -37,7 +34,6 @@ class DetailHero extends StatelessWidget {
     required this.item,
     this.detail,
     this.onOpenAuthor,
-    this.onPlay,
     this.lastChapterTitle,
     this.desktop = false,
     this.compactDesktop = false,
@@ -59,9 +55,9 @@ class DetailHero extends StatelessWidget {
       children: [
         Padding(
           padding: const EdgeInsets.only(top: 2, bottom: 1),
-          child: Text(
+          child: CopyableText(
             title,
-            key: const Key('detail_book_title'),
+            textKey: const Key('detail_book_title'),
             style: TextStyle(
               color: palette.ink,
               fontSize: desktop ? 22 : 19,
@@ -80,7 +76,6 @@ class DetailHero extends StatelessWidget {
       item: item,
       desktop: desktop,
       compact: compactDesktop,
-      onPlay: onPlay,
     );
 
     return Padding(
@@ -275,13 +270,18 @@ class _MetaLine extends StatelessWidget {
                 semanticLabel: '查看 $name 的主页',
                 onTap: onOpenAuthor!,
                 borderRadius: BorderRadius.circular(4),
-                child: Text(
+                // 点按必须由 CopyableText 自己接：选区比这里的按钮更深，
+                // 否则跳作者主页会被它抢走（见 CopyableText.onTap）。
+                child: CopyableText(
                   '$name ›',
-                  key: const Key('detail_author_name'),
+                  textKey: const Key('detail_author_name'),
                   style: style.copyWith(color: palette.ink),
+                  onTap: onOpenAuthor,
+                  // 作者行看着像按钮，保留按下回弹（拖动/长按都不影响）。
+                  pressFeedback: true,
                 ),
               )
-            : Text(name, style: style),
+            : CopyableText(name, style: style),
       if (tail.isNotEmpty)
         Text(
           '${name.isEmpty ? '' : ' · '}$tail',

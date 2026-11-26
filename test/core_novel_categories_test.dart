@@ -119,4 +119,61 @@ void main() {
     expect(find.text('书一'), findsOneWidget);
     expect(find.text('书二'), findsOneWidget);
   });
+
+  testWidgets('番茄兜底：核心站全空时落番茄卡并挂提示条', (tester) async {
+    // 站 id 不是核心阅读站 → 生产主路取不到客户端、回空 →
+    // 触发番茄兜底（fallbackLoader 注入假番茄卡，source=fanqie）。
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CoreNovelCategoryPage(
+          category: const MergedNovelCategory('都市', [
+            NovelCategoryEntry('nosuch-site', 'a1'),
+          ]),
+          fallbackLoader: (_) async => [
+            MediaItem(
+              id: 'fq1',
+              title: '番茄兜底书',
+              cover: '',
+              author: '',
+              badge: '',
+              ep: '',
+              kind: 'book',
+              seriesId: 'fq1',
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('novel-fanqie-fallback-banner')),
+      findsOneWidget,
+    );
+    expect(find.text('番茄兜底书'), findsOneWidget);
+  });
+
+  testWidgets('番茄兜底：主路有内容时不触发、无提示条', (tester) async {
+    var fallbackCalled = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CoreNovelCategoryPage(
+          category: const MergedNovelCategory('都市', [
+            NovelCategoryEntry('aabook', 'a1'),
+          ]),
+          loader: (_) async => [_item('本站的书')],
+          fallbackLoader: (_) async {
+            fallbackCalled = true;
+            return const [];
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('本站的书'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('novel-fanqie-fallback-banner')),
+      findsNothing,
+    );
+    expect(fallbackCalled, isFalse);
+  });
 }

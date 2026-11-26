@@ -236,6 +236,7 @@ class _HomePageState extends ConsumerState<HomePage> {
               .firstOrNull
               ?.zone ??
           SiteGridZone.builtin,
+      enablePluginZone: true,
       onDeleteSite: deleteSiteGridEntry,
       // 站点透视（C1）：片库 / 影视 / 短剧选站弹窗启用站内封面。
       thumbCache: SiteThumbCache.instance,
@@ -724,14 +725,24 @@ class _HomePageState extends ConsumerState<HomePage> {
     if (!mounted) return;
     final sites = _shortDramaPickerSites();
     final builtinIds = {for (final site in allDramaSites) site.id};
+    SiteGridZone zoneFor(String siteId) {
+      // 插件站登记进了短剧站表（allDramaSites），按登记 kind 改判
+      // 插件区，不能跟着站表误判内置区。
+      if (SourceRegistry.instance.customById(siteId)?.kind ==
+          SourceKind.idjPlugin) {
+        return SiteGridZone.plugin;
+      }
+      return builtinIds.contains(siteId)
+          ? SiteGridZone.builtin
+          : SiteGridZone.import;
+    }
+
     final entries = <SiteGridEntry>[
       for (final site in sites)
         (
           id: site.id,
           name: site.name,
-          zone: builtinIds.contains(site.id)
-              ? SiteGridZone.builtin
-              : SiteGridZone.import,
+          zone: zoneFor(site.id),
           group: SiteGridGroup.shortDrama,
         ),
     ];
@@ -739,9 +750,8 @@ class _HomePageState extends ConsumerState<HomePage> {
       context: context,
       sites: entries,
       selectedId: _dramaSiteId,
-      initialZone: builtinIds.contains(_dramaSiteId)
-          ? SiteGridZone.builtin
-          : SiteGridZone.import,
+      initialZone: zoneFor(_dramaSiteId),
+      enablePluginZone: true,
       onDeleteSite: deleteSiteGridEntry,
       // 站点透视（C1）：片库 / 影视 / 短剧选站弹窗启用站内封面。
       thumbCache: SiteThumbCache.instance,

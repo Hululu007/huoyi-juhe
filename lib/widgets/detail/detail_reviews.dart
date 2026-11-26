@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../models/book_comment.dart';
 import '../../models/book_detail.dart';
 import '../../services/poster_cache.dart';
+import '../copyable_text.dart';
 import '../home/home_design.dart';
 import '../home/home_shelf.dart';
 import 'detail_states.dart';
@@ -152,9 +153,10 @@ class _PreviewReview extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           if (comment.text.isNotEmpty)
-            Text(
+            // #477：书评正文同样长按选中复制。
+            CopyableText(
               comment.text,
-              key: ValueKey('detail_review_text_${comment.id}'),
+              textKey: ValueKey('detail_review_text_${comment.id}'),
               maxLines: 4,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(color: palette.ink, fontSize: 13, height: 1.5),

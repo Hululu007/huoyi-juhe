@@ -4,14 +4,12 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:material_ui/material_ui.dart' as mui;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fqapp/models/media_item.dart';
 import 'package:fqapp/pages/reader_page.dart';
-import 'package:fqapp/widgets/reader/reader_material_localizations.dart';
 import 'package:fqapp/services/chapter_cache_store.dart';
 import 'package:fqapp/services/reader_device.dart';
 import 'package:fqapp/services/reader_preferences.dart';
@@ -254,7 +252,8 @@ void main() {
       await tester.binding.setSurfaceSize(const Size(390, 760));
       await tester.pumpAndSettle();
       _expectAnchor(tester, store, anchor);
-      expect((await ReaderPreferences.load()).fontSize, 22);
+      // 官方档位表：默认 24，A+ 四格 = 25/26/27/28。
+      expect((await ReaderPreferences.load()).fontSize, 28);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
     },
@@ -319,7 +318,7 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(760, 390));
     await tester.pumpWidget(_app(store: store, cache: cache));
     await tester.pump();
-    expect(find.byType(mui.CircularProgressIndicator), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
     delayed.complete();
     store.delay = null;
     await tester.pumpAndSettle();
@@ -462,15 +461,13 @@ Widget _app({
   int startIndex = 0,
   double scale = 1,
 }) => MaterialApp(
-  builder: (context, child) => ReaderMaterialLocalizations(
-    child: RepaintBoundary(
-      key: const ValueKey('pagination-preview'),
-      child: MediaQuery(
-        data: MediaQuery.of(
-          context,
-        ).copyWith(textScaler: TextScaler.linear(scale)),
-        child: child!,
-      ),
+  builder: (context, child) => RepaintBoundary(
+    key: const ValueKey('pagination-preview'),
+    child: MediaQuery(
+      data: MediaQuery.of(
+        context,
+      ).copyWith(textScaler: TextScaler.linear(scale)),
+      child: child!,
     ),
   ),
   home: ReaderPage(

@@ -40,6 +40,9 @@ class MainActivity : FlutterActivity() {
         // 本地数据库公开目录（手机根目录火蚁聚合文件夹）：Android 11+ 需
         // 全部文件访问权限，用户在系统设置页亲手开一次，见 PublicFolderPlugin。
         flutterEngine.plugins.add(PublicFolderPlugin())
+        // 演员库存储授权（fqapp/actress_storage）：SAF 目录/文件持久
+        // 读授权 + 镜像拷贝，全部文件访问之外的第二条授权路。
+        flutterEngine.plugins.add(ActressStoragePlugin())
         // 海信墨水屏整屏刷新（压残影）：反射调用厂商 EPD 接口。
         flutterEngine.plugins.add(EinkRefreshPlugin())
         // 小米澎湃 OS 公平运行内存：收 TRIM/KILL 广播，转发 Dart 处理后回系统。
@@ -49,6 +52,8 @@ class MainActivity : FlutterActivity() {
         // 系统代理读取：读手机的系统代理交给 Rust 核心当出口代理，见
         // SystemProxyPlugin（通道 fqapp/system-proxy）。
         flutterEngine.plugins.add(SystemProxyPlugin())
+        // bytevc2 转码验证（43 轮验证批）：设置页验证入口的四项探测通道。
+        flutterEngine.plugins.add(Bytevc2VerifyPlugin())
         // 蜘蛛引擎：Python 蜘蛛走 Chaquopy，jar 蜘蛛走 Dex 加载，JS 蜘蛛走 QuickJS。
         JarBridge.register(flutterEngine.dartExecutor.binaryMessenger, this)
         PyBridge(this).register(flutterEngine.dartExecutor.binaryMessenger)

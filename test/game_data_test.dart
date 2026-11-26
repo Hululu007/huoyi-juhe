@@ -73,14 +73,19 @@ void main() {
       );
     });
 
-    test('妖兽 10 只：奖励为正', () {
-      expect(gameMonsters.length, 10);
+    test('妖兽 3 只：全是魔蚁，奖励为正', () {
+      expect(gameMonsters.length, 3);
       expect(
         gameMonsters.map((m) => m.id).toSet().length,
-        10,
+        3,
         reason: '妖兽 id 不重复',
       );
       for (final monster in gameMonsters) {
+        expect(
+          monster.kind,
+          anyOf(GameMonsterKind.ant, GameMonsterKind.antKing),
+          reason: '${monster.id} 应是魔蚁',
+        );
         expect(monster.xpReward, greaterThan(0));
         expect(monster.yuanbaoReward, greaterThanOrEqualTo(0));
       }
@@ -174,14 +179,18 @@ void main() {
       expect(gameEquipSalvageValue(GameEquipQuality.rainbow), 0);
     });
 
-    test('妖兽难度上调：BOSS 金蛟王只加一成，其余血量明显上调', () {
-      final boss = gameMonsterById('jin_jiao_wang');
+    test('妖兽改魔蚁后数值沿用旧行：君王 BOSS 与首只不变', () {
+      // 魔蚁君王沿用金蛟王行：战力 7900、血量 13200。
+      final boss = gameMonsterById('mo_yi_jun_wang');
       expect(boss.power, 7900);
       expect(boss.hp, 13200);
-      expect(gameMonsterById('ye_lang').power, 60);
-      expect(gameMonsterById('ye_lang').hp, 180);
-      expect(gameMonsterById('tian_gui').power, 6700);
-      expect(gameMonsterById('tian_gui').hp, 13200);
+      expect(boss.kind, GameMonsterKind.antKing);
+      // 紫电魔蚁沿用野狼行：战力 60、血量 180。
+      expect(gameMonsterById('zi_dian_mo_yi').power, 60);
+      expect(gameMonsterById('zi_dian_mo_yi').hp, 180);
+      // 熔岩魔蚁沿用铁火蚁行：战力 1600、血量 3600。
+      expect(gameMonsterById('rong_yan_mo_yi').power, 1600);
+      expect(gameMonsterById('rong_yan_mo_yi').hp, 3600);
       for (var i = 1; i < gameMonsters.length; i++) {
         expect(gameMonsters[i].power, greaterThan(gameMonsters[i - 1].power));
       }

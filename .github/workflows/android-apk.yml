@@ -23,6 +23,7 @@ on:
       - 'test/**'
       - 'flutter_rust_bridge.yaml'
       - 'scripts/build_rust_backend.sh'
+      - 'third_party/bytevc2/**'
       - 'scripts/build_rust_backend.ps1'
       - 'scripts/run_rust_host_tests.sh'
       - 'scripts/run_rust_host_tests.ps1'
@@ -87,7 +88,9 @@ env:
 jobs:
   apk:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    # 60 -> 120 in round 43: the bytevc2 FFmpeg compile step added above
+    # needs headroom on top of the Rust + Flutter builds.
+    timeout-minutes: 120
     permissions:
       # The tag Release step at the end of this job creates a Release and
       # uploads assets; the workflow-level default is read-only, so this
@@ -367,6 +370,13 @@ jobs:
 
       - name: Compile the Rust core for Android (ARM64 + ARMv7)
         run: bash scripts/build_rust_backend.sh --skip-codegen
+
+      - name: Compile the bytevc2 transcoder for Android (ARM64)
+        # Round 43: the transcoder .so is gitignored like the Rust core and
+        # must be compiled before the APK build, or the bytevc2 verify page
+        # finds nothing extracted on device. Same pinned NDK as the Rust
+        # core; output lands in android/app/src/main/jniLibs/arm64-v8a/.
+        run: bash third_party/bytevc2/build.sh android arm64
 
       - name: Check the Android Rust core libraries
         run: |

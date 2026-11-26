@@ -28,6 +28,7 @@ import '../widgets/settings/settings_widgets.dart';
 import '../widgets/series_detail/moyi_detail_theme.dart';
 import 'api_service_page.dart';
 import 'app_update_page.dart';
+import 'bytevc2_verify_page.dart';
 import 'cached_books_page.dart';
 import 'cached_dramas_page.dart';
 import 'cultivation_titles_page.dart';
@@ -115,6 +116,18 @@ class SettingsPage extends StatelessWidget {
           _fallbackModeItem(),
           if (!isWindowsDesktop) _floatingWindowItem(),
           if (!isWindowsDesktop) _videoDecoderItem(),
+          if (!isWindowsDesktop)
+            SettingsItem(
+              icon: LucideIcons.file_video_camera,
+              title: 'bytevc2 转码验证',
+              subtitle: '验随包转码器在本机能否落盘、执行与真转码（43 轮验证）',
+              onTap: (context, _) => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const Bytevc2VerifyPage(),
+                ),
+              ),
+            ),
         ],
       ),
       SettingsCategory(

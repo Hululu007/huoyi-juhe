@@ -2,14 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:material_ui/material_ui.dart' as mui;
 import 'package:flutter_lucide/flutter_lucide.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fqapp/models/chapter_ideas.dart';
 import 'package:fqapp/models/media_item.dart';
 import 'package:fqapp/pages/reader_page.dart';
-import 'package:fqapp/widgets/reader/reader_material_localizations.dart';
 import 'package:fqapp/services/library_store.dart';
 import 'package:fqapp/services/chapter_cache_store.dart';
 import 'package:fqapp/services/chapter_text_formatter.dart';
@@ -107,7 +105,7 @@ void main() {
       } else if (loadState == 'not yet displayed') {
         pending.complete('A chapter that has not been displayed.');
         await tester.idle();
-        expect(find.byType(mui.CircularProgressIndicator), findsOneWidget);
+        expect(find.byType(CircularProgressIndicator), findsOneWidget);
       }
 
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
@@ -274,7 +272,7 @@ void main() {
       _readerApp(readerStore: store, chapterLoader: _longChapterLoader),
     );
     await tester.pump();
-    expect(find.byType(mui.CircularProgressIndicator), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
     expect(find.byKey(const ValueKey('reader-page-surface')), findsNothing);
     exitWrite.complete();
     await tester.pumpAndSettle();
@@ -408,7 +406,10 @@ void main() {
         expect(contentBoxes.length, greaterThan(1));
         expect(
           contentBoxes.first.left,
-          closeTo(18 * (offline ? 1.3 : 1) * 2, 2),
+          closeTo(
+            ReaderPreferences.defaultFontSize * (offline ? 1.3 : 1) * 2,
+            2,
+          ),
         );
         expect(contentBoxes[1].left, closeTo(0, .01));
         expect(contentBoxes.last.right, lessThan(firstRender.size.width - 9));
@@ -645,11 +646,9 @@ Widget _readerApp({
   TextScaler textScaler = TextScaler.noScaling,
 }) {
   return MaterialApp(
-    builder: (context, child) => ReaderMaterialLocalizations(
-      child: MediaQuery(
-        data: MediaQuery.of(context).copyWith(textScaler: textScaler),
-        child: child!,
-      ),
+    builder: (context, child) => MediaQuery(
+      data: MediaQuery.of(context).copyWith(textScaler: textScaler),
+      child: child!,
     ),
     home: ReaderPage(
       bookId: 'reader-test',
