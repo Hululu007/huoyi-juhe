@@ -233,10 +233,11 @@ void main() {
       find.byKey(const ValueKey('native-source-pornhub')),
       findsOneWidget,
     );
-    // 在线五段（123AV/PH/MissAV/潮流/18AV）都带未验标；
-    // MissAV/潮流/18AV 三段在横滑源条后半段，懒建未出画，
-    // 段集合与横滑另见 actress_four_sites_widget_test.dart。
-    expect(find.text('未验'), findsNWidgets(5));
+    // 在线段（123AV/PH/MissAV/潮流/18AV＋2026-11-27 桥接
+    // 批平铺的 110 个桥接站）都带未验标；桥接段在横滑源条
+    // 尾段、懒建数量随布局变，断言至少五段在位。段集合与
+    // 横滑另见 actress_four_sites_widget_test.dart。
+    expect(find.text('未验'), findsAtLeastNWidgets(5));
     // 源条在顶部：源条底边在搜索框上方（不在页面底部）。
     final barRect = tester.getRect(
       find.byKey(const ValueKey('native-source-bar')),

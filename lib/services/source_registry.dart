@@ -7,6 +7,8 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../cloud_drive/cloud_drive_client.dart';
+import '../cloud_drive/cloud_drive_stations.dart';
 import 'builtin_imported_sites.dart';
 import 'cultivation.dart';
 import 'drama_site_content.dart';
@@ -41,6 +43,10 @@ enum SourceKind {
   // idj1 插件站（.idjplugin）：包由 IdjPluginStore 管，登记行只是
   // 指针（extra['pluginId']），装/卸/启停后经 syncIdjPluginSites 对账。
   idjPlugin,
+  // 网盘站（cloud:<网盘id>）：登录后的网盘当成一个站。条目只存
+  // 内存（见 SourceRegistry.cloudDriveEntries），不落盘、不进
+  // _custom 持久化，登录/退出后由 CloudDriveStations.refresh 重算。
+  cloudDrive,
 }
 
 extension SourceKindLabel on SourceKind {
@@ -55,6 +61,7 @@ extension SourceKindLabel on SourceKind {
     SourceKind.legadoImport => '阅读书源',
     SourceKind.htmlImport => '本地网页',
     SourceKind.idjPlugin => 'JS 插件',
+    SourceKind.cloudDrive => '网盘',
   };
 }
 
@@ -275,6 +282,17 @@ class SourceRegistry {
   static const _deletedSeedKey = 'juhe_deleted_builtin_seeds';
 
   List<SourceEntry> _custom = const [];
+
+  /// 网盘站内存条目（kind=cloudDrive）：只存内存、不落盘，
+  /// 由 CloudDriveStations.refresh 按登录状态重算后整表替换。
+  List<SourceEntry> _cloudEntries = const [];
+
+  List<SourceEntry> get cloudDriveEntries => List.unmodifiable(_cloudEntries);
+
+  void setCloudDriveEntries(List<SourceEntry> entries) {
+    _cloudEntries = List.unmodifiable(entries);
+  }
+
   Set<String> _disabledBuiltin = {};
   Set<String> _deletedBuiltin = {};
   Set<String> _deletedSeeds = {};
@@ -332,6 +350,9 @@ class SourceRegistry {
     _registerCustomSites();
     await _autoClassifyMixedPy();
     await syncIdjPluginSites();
+    // 网盘当站：启动加载后按登录状态刷新内存站表（登录/退出后
+    // 由登录界面另行调用 refresh）。fail-soft 在 refresh 内部。
+    unawaited(CloudDriveStations.refresh());
   }
 
   /// 存量 mixed py 站的一次性自动分类：读已导入文件跑检测，
@@ -766,6 +787,11 @@ class SourceRegistry {
 
   SourceEntry? customById(String id) {
     for (final entry in _custom) {
+      if (entry.id == id) return entry;
+    }
+    // 网盘站只存内存列表，名字/类型解析也要认它（网格卡片种类、
+    // 详情页站名都走这个口）。
+    for (final entry in _cloudEntries) {
       if (entry.id == id) return entry;
     }
     return null;
@@ -1612,6 +1638,13 @@ class SourceRegistry {
   }
 
   Future<DramaSiteContentClient?> _clientForRaw(String siteId) async {
+    if (siteId.startsWith('cloud:')) {
+      // 网盘当站：cloud:<网盘id> 走网盘内容客户端（与
+      // dramaSiteContentClient 工厂同一条分支，两处解析一致）。
+      return CloudDriveContentClient(
+        providerId: siteId.substring('cloud:'.length),
+      );
+    }
     if (siteId.startsWith('localdb:')) {
       // 本地库入口按归一键读库：同一站点的多入口（内置、采集、
       // 书源）读同一批记录；localdb: 后已是归一键时直接透传

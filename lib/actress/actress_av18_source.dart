@@ -61,8 +61,19 @@ class Av18ActressSource extends ActressOnlineSource {
             page: page,
           );
     final html = await fetch(url, pageHeaders);
+    // 失败不许吞成空态（2026-11-27 用户实报「没数据」整类
+    // 堵）：页面回来了却解析不到卡、而页里明明有作品链接，
+    // 是模板又变了——按失败抛中文原因，界面显错不显空；
+    // 真空结果（搜索 0 条那种整页无作品链接）照常回空表。
+    if (html.trim().isEmpty) {
+      throw AppFailure('这个源没有返回内容，点按重试');
+    }
+    final parsed = parseMjvCards(html);
+    if (parsed.isEmpty && html.contains('_content/')) {
+      throw AppFailure('这个源的页面结构变了，暂时解析不到内容');
+    }
     return [
-      for (final card in parseMjvCards(html))
+      for (final card in parsed)
         if (!av18NonVideoCtypes.contains(card.ctype))
           OnlineVideoCard(
             pageUrl: card.detailUrl(site),

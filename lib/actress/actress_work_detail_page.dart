@@ -5,8 +5,24 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 
+import '../cloud_drive/auto_offline.dart';
+import '../cloud_drive/cloud_115_offline.dart'
+    show pan115CodeKeyOf, pan115ExtractCode, pan115FileForCode;
+import '../cloud_drive/cloud_drive_factory.dart';
+import '../cloud_drive/cloud_drive_settings.dart';
+import '../cloud_drive/cloud_providers.dart'
+    show CloudDriveException, pan115IsVip;
+import '../cloud_drive/drive_code_play.dart';
+import '../cloud_drive/magnet_offline.dart';
+import '../cloud_drive/magnet_play.dart';
+import '../models/media_item.dart' show Chapter;
+import '../pages/hongguo_login_page.dart';
+import '../pages/player_page.dart' show PlayerPage;
+import '../services/cultivation.dart' show CultivationCategory;
+import '../services/library_store.dart' show LibraryStore;
 import '../services/local_media_proxy.dart' show LocalMediaProxy;
 import '../services/native_player.dart' show NativePlayer;
+import '../services/player_history.dart' show PlayerHistory;
 import 'actress_avatar.dart';
 import 'actress_adapter_http.dart'
     show FeedProbeFetch, feedProbePlayable, probeStreamHead;
@@ -17,9 +33,10 @@ import 'actress_javdb_api.dart';
 import 'actress_javdb_image.dart';
 import 'actress_still_capture.dart';
 import 'actress_library_db.dart' show ActressLibraryDbFallback;
+import 'actress_models.dart' show actressNameKey;
 import 'actress_neon.dart';
 import 'actress_online_parse.dart'
-    show OnlineDetailInfo, OnlineVideoCard, av123CodeOf;
+    show OnlineDetailInfo, OnlineVideoCard;
 import 'actress_online_sources.dart';
 import 'actress_py_lines.dart';
 import 'code_meta_section.dart' show loadCodeMetaForDrama;
@@ -91,12 +108,18 @@ class _Line {
 /// 来源：在线详情页自带剧照、JavDB 预览图；两者都没有时走
 /// 截帧兜底——在线解析验活拿到流后无头截帧、缓存回填，见
 /// actress_still_capture.dart；再没有就不显示）→ 下载链接
-/// （只有 JavDB 真返回磁力才出，点按复制）→ 她们还演出过
+/// （只有 JavDB 真返回磁力才出；2026-11-27 改令：打开页
+/// 拿到链接就自动提交 115 离线一条最优的，不用点，点按
+/// 提交保留为手动兜底、长按复制；同日续令加磁力播放：
+/// 区顶主入口/每行播放钮经 115 离线落盘后页内直接播网
+/// 盘那一份，等待状态实显、可取消等待；115 会员状态读
+/// 得到且在期才贴「115 网盘 · 会员」标）→ 她们还演出过
 /// （本地库按演员查，JavDB actor_movies 填空位）→ 你可能
 /// 也喜欢（本地库相关作品，JavDB relative_movies 填空位）。
 /// 播放线路不上屏（2026-11-27 用户令隐藏）：海报键背后自
-/// 动竞速——本地女优库 → 123AV → PH 全部线路同尺验活、谁
-/// 先验活谁先播，总闸 40 秒；全灭在播放区显示「暂无可播线
+/// 动竞速——网盘（115 里已有的成品）＋在线源＋本地女优库
+/// 三池全部线路同尺验活、谁先验活谁先播，总闸 40 秒；全
+/// 灭在播放区显示「暂无可播线
 /// 路」，绝不无限转圈。裁决：AvPlay 的「在线平台」行与隐
 /// 藏令相撞，以隐藏令为准，不摆平台行。
 class ActressWorkDetailPage extends StatefulWidget {
@@ -112,6 +135,11 @@ class ActressWorkDetailPage extends StatefulWidget {
     this.probeFetch,
     this.playerFactory,
     this.playUrlPrep,
+    this.magnetOffline,
+    this.autoOffline,
+    this.drivePlayFinder,
+    this.magnetPlay,
+    this.pan115VipProbe,
     this.onActress,
     this.onTag,
     this.onSearchCode,
@@ -137,6 +165,11 @@ class ActressWorkDetailPage extends StatefulWidget {
     this.probeFetch,
     this.playerFactory,
     this.playUrlPrep,
+    this.magnetOffline,
+    this.autoOffline,
+    this.drivePlayFinder,
+    this.magnetPlay,
+    this.pan115VipProbe,
     this.onActress,
     this.onTag,
     this.onSearchCode,
@@ -166,6 +199,11 @@ class ActressWorkDetailPage extends StatefulWidget {
     this.probeFetch,
     this.playerFactory,
     this.playUrlPrep,
+    this.magnetOffline,
+    this.autoOffline,
+    this.drivePlayFinder,
+    this.magnetPlay,
+    this.pan115VipProbe,
     this.onActress,
     this.onTag,
     this.onSearchCode,
@@ -198,6 +236,29 @@ class ActressWorkDetailPage extends StatefulWidget {
   final FeedProbeFetch? probeFetch;
   final NativePlayer Function()? playerFactory;
   final ActressPlayUrlPrep? playUrlPrep;
+
+  /// 磁力点按 → 115 离线提交的判定单元（测试注入假件；生产
+  /// 缺省走引擎的登录判据 + 离线客户端，见 _prodMagnetSubmitter）。
+  final MagnetOfflineSubmitter? magnetOffline;
+
+  /// 打开详情页自动离线编排器（2026-11-27 改令：不用点，
+  /// 拿到下载链接就自动交一条最优的；测试注入假件，生产
+  /// 缺省见 _prodAutoOffline）。开关关着时不跑，点按提交
+  /// 仍是手动兜底。
+  final ActressAutoOffline? autoOffline;
+
+  /// 竞速第三池（网盘池）：按番号在他 115 里找成品文件取
+  /// 直链（测试注入假件，生产缺省见 _prodDriveFinder）。
+  final DriveCodePlayFinder? drivePlayFinder;
+
+  /// 磁力播放等待器：磁力经 115 离线落盘后页内直接播网
+  /// 盘那一份（测试注入假件，生产缺省见 _prodMagnetPlayer）。
+  final MagnetPlayWaiter? magnetPlay;
+
+  /// 115 会员状态探针：回 true 才贴「会员」标；回 null/
+  /// false 不贴（读不到不臆造）。测试注入假件，生产缺省
+  /// 见 _prodVipProbe。
+  final Future<bool?> Function()? pan115VipProbe;
   final void Function(String name)? onActress;
   final void Function(String tag)? onTag;
   final void Function(String code)? onSearchCode;
@@ -236,6 +297,11 @@ class _ActressWorkDetailPageState extends State<ActressWorkDetailPage> {
   var _loading = true;
   String? _loadError;
 
+  /// 补全链是否全部落定（成败都算）：详情页底线说明的显
+  /// 示判定用——全链跑完仍没补到任何资料才出中文说明，
+  /// 补全途中不闪。
+  var _fillSettled = false;
+
   var _code = '';
   var _title = '';
 
@@ -259,6 +325,11 @@ class _ActressWorkDetailPageState extends State<ActressWorkDetailPage> {
   var _typeName = '';
   var _tags = <String>[];
   var _cast = <({String name, String avatar})>[];
+
+  /// 同番号互补头像表（归一化名 → 地址）：开页后从本地库其
+  /// 他同番号行查回，演员区 ActressAvatar 第三级用；只存显
+  /// 示层状态，不回写库。
+  final _sameCodeAvatars = <String, String>{};
   final _stills = <String>[];
   final _lines = <_Line>[];
   var _alsoStarred = <Map<String, dynamic>>[];
@@ -266,6 +337,10 @@ class _ActressWorkDetailPageState extends State<ActressWorkDetailPage> {
 
   String? _playingLineId;
   String? _playingUrl;
+
+  /// 从整页播放器退回详情页时的续播位置：只在全屏往返的
+  /// 恢复起播时带上，新线路起播（_startPlayback）一律清零。
+  Duration? _resumePosition;
   var _playBusy = false;
   String? _playError;
   final _autoTried = <String>{};
@@ -279,7 +354,10 @@ class _ActressWorkDetailPageState extends State<ActressWorkDetailPage> {
     if (_isOnlineEntry) {
       final card = widget.onlineCard!;
       final source = widget.onlineSource!;
-      _code = source.id == '123av' ? av123CodeOf(card.pageUrl) : '';
+      // 番号全源统一提取（2026-11-27）：此前只有 123AV 提，
+      // 其余源番号为空、补全链与竞速线全部早退、详情页全
+      // 空白（用户实报 UMSO-659）。
+      _code = actressOnlineCardCode(source, card);
       _title = card.title;
       _poster = card.cover;
       _loading = false;
@@ -300,6 +378,9 @@ class _ActressWorkDetailPageState extends State<ActressWorkDetailPage> {
   @override
   void dispose() {
     _generation++;
+    // 离页即停磁力播放轮询，别在后台空转。
+    _magnetPlayGen++;
+    (widget.magnetPlay ?? _prodMagnetPlayer).cancel();
     super.dispose();
   }
 
@@ -405,17 +486,31 @@ class _ActressWorkDetailPageState extends State<ActressWorkDetailPage> {
     _appendOnlineLines(includeSelf: false);
   }
 
-  /// 在线线追加（本地作品与在线作品共用）：123AV/PH/18AV
-  /// 走 Dart 直连、MissAV 与潮流索引走 py 桥（同层竞速）、
-  /// （在线作品时）本地库按番号反查一条；MJV 现拉整链约
-  /// 45 秒、超过主竞速总闸，单独作后补线（_lateLines），
-  /// 不进主竞速。竞速顺序：本地女优库（开页即在的本地
-  /// 线路 / 按番号反查）→ 123AV → PH → 18AV → MissAV →
-  /// 潮流索引。2026-11-27 用户令：演员库删除 who's 在线
+  /// 在线线追加（本地作品与在线作品共用）：网盘池（115 按
+  /// 番号找成品）一条、123AV/PH/18AV 走 Dart 直连、MissAV
+  /// 与潮流索引走 py 桥（同层竞速）、（在线作品时）本地库
+  /// 按番号反查一条；MJV 现拉整链约 45 秒、超过主竞速总
+  /// 闸，单独作后补线（_lateLines），不进主竞速。竞速参与
+  /// 者：本地女优库（开页即在的本地线路 / 按番号反查）＋
+  /// 网盘池＋123AV → PH → 18AV → MissAV → 潮流索引。
+  /// 2026-11-27 用户令：演员库删除 who's 在线
   /// 线路（片库 who's py 站本体不动）。加完即启动后台
   /// 搜索，互不阻塞。
   void _appendOnlineLines({bool includeSelf = true}) {
     if (_code.isEmpty) return;
+    // 竞速第三池（网盘池，2026-11-27 令）：115 里按番号找
+    // 得到的成品文件。与其余线路同口径：开页即后台开搜、
+    // 边搜边验，找片器自带 12 秒超时、超时/未登入自动弃
+    // 池，不拖慢其余两池。
+    if (!_lines.any((line) => line.id == 'cloud-pan115')) {
+      _lines.add(
+        _Line(
+          id: 'cloud-pan115',
+          label: '115网盘',
+          resolver: _resolveDriveLine,
+        ),
+      );
+    }
     for (final source in kActressLineSources) {
       if (!includeSelf && source.id == widget.onlineSource?.id) continue;
       if (_lines.any((line) => line.id == 'dart-${source.id}')) continue;
@@ -593,18 +688,20 @@ class _ActressWorkDetailPageState extends State<ActressWorkDetailPage> {
   // ================= 后台补充（不挡开页） =================
 
   void _startSupplements() {
-    unawaited(_loadCodeMeta());
-    // JavDB 补充跑完（成败都算）再看剧照：仍为空才走截帧兜底。
-    unawaited(
+    _fillSettled = false;
+    final fills = <Future<void>>[
+      _loadCodeMeta(),
+      _loadSameCodeFill(),
+      // JavDB 补充跑完（成败都算）再看剧照：仍为空才走截帧兜底。
       _loadJavdbSupplement().then((_) => _captureStillsFallback()),
-    );
-    unawaited(_loadAlsoStarred());
+      _loadAlsoStarred(),
+    ];
     // 在线入口：开页就后台拉本源详情（剧照/演员/信息回填），
     // 不等点播才在线路解析里顺带回填——剧照区要开页就有。
     final source = widget.onlineSource;
     final card = widget.onlineCard;
     if (source != null && card != null) {
-      unawaited(() async {
+      fills.add(() async {
         try {
           final info = await source
               .fetchInfo(card, fetch: _fetch)
@@ -614,6 +711,55 @@ class _ActressWorkDetailPageState extends State<ActressWorkDetailPage> {
           // 本源详情拉不到不挡页：其余补充链照常。
         }
       }());
+    }
+    // 全部补全路都落定后记一笔：详情页底线说明（全链补不
+    // 到时给中文说明、不留空白）靠它判定，见 _scrollBody。
+    unawaited(
+      Future.wait(fills).whenComplete(() {
+        if (mounted) setState(() => _fillSettled = true);
+      }),
+    );
+  }
+
+  /// 同番号互补（2026-11-27 用户令）：本行简介为空、同行演
+  /// 员没头像时，从本地库**其他同番号行**借——简介取最长的
+  /// 一份（兜底层已选好），头像按归一化名对到本页演员（异
+  /// 名不串）。只填空位：本行简介已有绝不覆盖；头像只作
+  /// ActressAvatar 的第三级外源，本行地址优先。来源只限库
+  /// 内同番号行，不外呼、不编造、不回写库。
+  Future<void> _loadSameCodeFill() async {
+    final vodId = widget.localVodId ?? '';
+    if (vodId.isEmpty && _code.isEmpty) return;
+    final generation = _generation;
+    try {
+      final result = await widget.fallback
+          .handle({'op': 'sameCode', 'vodId': vodId, 'code': _code})
+          .timeout(const Duration(seconds: 20));
+      if (!mounted || generation != _generation) return;
+      if (result['ok'] != true) return;
+      final content = (result['content'] ?? '').toString().trim();
+      final avatars = <String, String>{};
+      for (final row in (result['avatars'] as List? ?? const [])) {
+        if (row is! Map) continue;
+        final name = (row['name'] ?? '').toString();
+        final url = (row['avatar'] ?? '').toString().trim();
+        if (name.isEmpty || url.isEmpty) continue;
+        final key = actressNameKey(name);
+        final existing = avatars[key];
+        // 同名多份时优先地址可用的那份（占位形态不占坑）。
+        if (existing == null ||
+            (!actressAvatarUrlUsable(existing) &&
+                actressAvatarUrlUsable(url))) {
+          avatars[key] = url;
+        }
+      }
+      if (content.isEmpty && avatars.isEmpty) return;
+      setState(() {
+        if (_synopsis.isEmpty && content.isNotEmpty) _synopsis = content;
+        _sameCodeAvatars.addAll(avatars);
+      });
+    } catch (_) {
+      // 同番号互补拉不到不挡页：其余补充链照常。
     }
   }
 
@@ -737,6 +883,11 @@ class _ActressWorkDetailPageState extends State<ActressWorkDetailPage> {
         ];
       }
     });
+    // 下载链接刚落地：自动离线一轮（内部有守卫，重复回调
+    // 不重跑；失败不重试、不弹窗）。
+    unawaited(_runAutoOffline());
+    // 会员探针只跑一次：是 115 会员才在下载区贴「会员」标。
+    _probeVipOnce();
   }
 
   /// JavdbMovie → 横卡行（与本地库行同形：vodId 用番号，点
@@ -747,14 +898,356 @@ class _ActressWorkDetailPageState extends State<ActressWorkDetailPage> {
     'pic': movie.poster,
   };
 
-  /// 磁力条目点按：只复制磁力链接并提示（下载链接区是
-  /// AvPlay 版式展示，点按与行尾复制按钮同义，不做任何
-  /// 提交动作）。
+  /// 磁力条目长按 / 行尾复制按钮：复制磁力链接并提示。
   Future<void> _copyMagnet(int index) async {
     if (index < 0 || index >= _magnets.length) return;
     await Clipboard.setData(ClipboardData(text: _magnets[index].url));
     if (!mounted) return;
     _snack('已复制');
+  }
+
+  /// 正在提交离线的磁力条目下标（提交期间该条目转圈且点按
+  /// 无效，其余条目点按也被 [_onMagnetTap] 的在飞守卫拦下，
+  /// 防重复提交）。
+  int? _magnetBusyIndex;
+
+  /// 自动离线只在本次打开跑一轮的守卫（失败也不连环重试）。
+  var _autoOfflineTried = false;
+
+  /// 自动离线状态小字（下载区里一行，空 = 不显示）：已自
+  /// 动离线/盘里已有/未登入跳过/失败原因。[_autoOfflineNoteGood]
+  /// 区分成功类（绿字）与提示类（暗字）。
+  var _autoOfflineNote = '';
+  var _autoOfflineNoteGood = false;
+
+  /// 已提交过离线的下载行下标（自动交的那条 + 手动点按成
+  /// 功的行），行上打「已提交」标。
+  final _submittedMagnetRows = <int>{};
+
+  /// 生产磁力提交器：登录判据与引擎 pan115LoggedIn 同口径
+  /// （凭证存储里 pan115 的 cookie 非空），提交走引擎的
+  /// 115 离线客户端。测试经 widget.magnetOffline 注入假件。
+  late final MagnetOfflineSubmitter _prodMagnetSubmitter =
+      MagnetOfflineSubmitter(
+        isLoggedIn: () async {
+          final engine = await CloudDriveFactory.engine();
+          return engine.pan115LoggedIn;
+        },
+        submit: (url) async {
+          final engine = await CloudDriveFactory.engine();
+          final client = engine.pan115OfflineClient();
+          if (client == null) {
+            throw CloudDriveException('未登录 115 网盘');
+          }
+          return client.submitOffline(url);
+        },
+      );
+
+  /// 生产自动离线编排器：开关读 CloudDriveSettings（网盘
+  /// 页 115 区的「详情页自动离线」，默认开）；登录判据与提
+  /// 交走引擎；查重走离线任务列表（infohash/任务名番号）与
+  /// 网盘按番号搜；指纹落 SharedPreferences。测试经
+  /// widget.autoOffline 注入假件。
+  late final ActressAutoOffline _prodAutoOffline = ActressAutoOffline(
+    isEnabled: () async =>
+        (await CloudDriveSettings.load()).actressAutoOffline,
+    isLoggedIn: () async {
+      final engine = await CloudDriveFactory.engine();
+      return engine.pan115LoggedIn;
+    },
+    wasSubmitted: SubmittedOfflineLinks.contains,
+    markSubmitted: SubmittedOfflineLinks.add,
+    taskExists: (code, infoHash) async {
+      final engine = await CloudDriveFactory.engine();
+      final client = engine.pan115OfflineClient();
+      if (client == null) return false;
+      final tasks = await client.listTasks();
+      final key = pan115CodeKeyOf(code);
+      for (final task in tasks) {
+        if (infoHash.isNotEmpty && task.infoHash == infoHash) return true;
+        if (key.isEmpty) continue;
+        final extracted = pan115ExtractCode(task.name);
+        if (extracted != null && pan115CodeKeyOf(extracted) == key) {
+          return true;
+        }
+      }
+      return false;
+    },
+    driveHasFile: (code) async {
+      final engine = await CloudDriveFactory.engine();
+      final files = await engine.searchPan115Files(code);
+      return pan115FileForCode(files, code) != null;
+    },
+    submit: (url) async {
+      final engine = await CloudDriveFactory.engine();
+      final client = engine.pan115OfflineClient();
+      if (client == null) {
+        throw CloudDriveException('未登录 115 网盘');
+      }
+      return client.submitOffline(url);
+    },
+  );
+
+  /// 下载链接落地后自动离线一轮（2026-11-27 改令）：守卫
+  /// 保证一次打开最多跑一轮；结果只落下载区一行状态小字，
+  /// 不弹窗、不挡播放。未登入也只是小字提示，不弹引导窗
+  /// （引导窗只留给手动点按）。
+  Future<void> _runAutoOffline() async {
+    if (_autoOfflineTried || _magnets.isEmpty) return;
+    _autoOfflineTried = true;
+    final runner = widget.autoOffline ?? _prodAutoOffline;
+    final result = await runner.run(
+      code: _code,
+      links: [for (final m in _magnets) (name: m.name, url: m.url)],
+    );
+    if (!mounted || result.message.isEmpty) return;
+    setState(() {
+      _autoOfflineNote = result.message;
+      _autoOfflineNoteGood =
+          result.outcome == AutoOfflineOutcome.submitted ||
+          result.outcome == AutoOfflineOutcome.alreadySubmitted ||
+          result.outcome == AutoOfflineOutcome.alreadyInTasks ||
+          result.outcome == AutoOfflineOutcome.alreadyInDrive;
+      if (result.outcome == AutoOfflineOutcome.submitted ||
+          result.outcome == AutoOfflineOutcome.alreadySubmitted) {
+        final index = _magnets.indexWhere((m) => m.url == result.chosenUrl);
+        if (index >= 0) _submittedMagnetRows.add(index);
+      }
+    });
+  }
+
+  /// 生产网盘池找片器：登录判据/搜索/取链全走引擎既有链。
+  /// 测试经 widget.drivePlayFinder 注入假件。
+  late final DriveCodePlayFinder _prodDriveFinder = DriveCodePlayFinder(
+    isLoggedIn: () async {
+      final engine = await CloudDriveFactory.engine();
+      return engine.pan115LoggedIn;
+    },
+    search: (keyword) async {
+      final engine = await CloudDriveFactory.engine();
+      return engine.searchPan115Files(keyword);
+    },
+    directLink: (file) async {
+      final engine = await CloudDriveFactory.engine();
+      return engine.pan115DirectLink(file);
+    },
+  );
+
+  /// 网盘线解析：115 里按番号找到成品文件就取直链作候选，
+  /// 找不到/未登入/超时由找片器回 null（弃池）。
+  Future<ActressPlayTarget?> _resolveDriveLine() async {
+    final finder = widget.drivePlayFinder ?? _prodDriveFinder;
+    final hit = await finder.find(_code);
+    if (hit == null) return null;
+    return ActressPlayTarget(hit.url, hit.headers);
+  }
+
+  /// 磁力播放当前等待帧（null = 没在等）：等待态在海报区
+  /// （未起播时）与下载区状态行（已起播时）两处实显。
+  MagnetPlayProgress? _magnetPlayProgress;
+
+  /// 磁力播放代次：取消/新一轮都会推进，迟到的旧轮结果
+  /// 不许覆写新状态。
+  var _magnetPlayGen = 0;
+
+  /// 115 会员标：探针确认是在期会员才 true、才贴标；读
+  /// 不到/不是会员保持 false（不臆造）。
+  var _pan115Vip = false;
+  var _vipProbeStarted = false;
+
+  /// 生产磁力播放等待器：找片走网盘池同款找片器，查重
+  /// 闸与自动离线共用指纹表/任务查重，提交走离线客户
+  /// 端。测试经 widget.magnetPlay 注入假件。
+  late final MagnetPlayWaiter _prodMagnetPlayer = MagnetPlayWaiter(
+    isLoggedIn: () async {
+      final engine = await CloudDriveFactory.engine();
+      return engine.pan115LoggedIn;
+    },
+    findInDrive: (code) =>
+        (widget.drivePlayFinder ?? _prodDriveFinder).find(code),
+    wasSubmitted: SubmittedOfflineLinks.contains,
+    markSubmitted: SubmittedOfflineLinks.add,
+    taskExists: _prodAutoOffline.taskExists,
+    submit: (url) async {
+      final engine = await CloudDriveFactory.engine();
+      final client = engine.pan115OfflineClient();
+      if (client == null) {
+        throw CloudDriveException('未登录 115 网盘');
+      }
+      return client.submitOffline(url);
+    },
+    listTasks: () async {
+      final engine = await CloudDriveFactory.engine();
+      final client = engine.pan115OfflineClient();
+      if (client == null) return const [];
+      return client.listTasks();
+    },
+  );
+
+  /// 生产会员探针：引擎读账号信息 → pan115IsVip 判定；
+  /// 任何失败回 null（不贴标、不挡播放）。
+  Future<bool?> _prodVipProbe() async {
+    final engine = await CloudDriveFactory.engine();
+    final info = await engine.pan115AccountInfo();
+    if (info == null) return null;
+    return pan115IsVip(info);
+  }
+
+  /// 会员探针只跑一次（下载链接落地时触发）：确认会员才
+  /// 点亮网盘状态小字的「会员」字样。
+  void _probeVipOnce() {
+    if (_vipProbeStarted) return;
+    _vipProbeStarted = true;
+    unawaited(() async {
+      bool? vip;
+      try {
+        vip = await (widget.pan115VipProbe ?? _prodVipProbe)();
+      } catch (_) {
+        vip = null;
+      }
+      if (!mounted || vip != true) return;
+      setState(() => _pan115Vip = true);
+    }());
+  }
+
+  /// 磁力播放入口：[specificUrl] 给定时播那一条磁力（行
+  /// 尾播放钮）；不给走优选挑最优一条（区顶主入口）。等
+  /// 待期间状态实显、可取消；就绪后验活再页内起播网盘
+  /// 那一份（不跳页）。自动离线已交过的片，等待器先查
+  /// 盘/认查重闸，不重复提交；自动离线开关关着也不影响
+  /// 这个手动入口。
+  Future<void> _startMagnetPlay({String? specificUrl}) async {
+    if (_magnetPlayProgress != null || _magnets.isEmpty) return;
+    final url =
+        specificUrl ??
+        pickBestMagnetPlayLink([
+          for (final m in _magnets) (name: m.name, url: m.url),
+        ])?.url;
+    if (url == null) {
+      _snack('没有可用的磁力链接');
+      return;
+    }
+    final waiter = widget.magnetPlay ?? _prodMagnetPlayer;
+    final gen = ++_magnetPlayGen;
+    setState(() {
+      _magnetPlayProgress = const MagnetPlayProgress(
+        MagnetPlayPhase.looking,
+        message: '正在准备磁力播放…',
+      );
+    });
+    final result = await waiter.run(
+      code: _code,
+      url: url,
+      onProgress: (progress) {
+        if (!mounted || gen != _magnetPlayGen) return;
+        if (progress.isWaiting) {
+          setState(() => _magnetPlayProgress = progress);
+        }
+      },
+    );
+    if (!mounted || gen != _magnetPlayGen) return;
+    setState(() => _magnetPlayProgress = null);
+    switch (result.phase) {
+      case MagnetPlayPhase.ready:
+        await _playMagnetDriveHit(result);
+      case MagnetPlayPhase.notLoggedIn:
+        await _showMagnetLoginDialog();
+      case MagnetPlayPhase.failed:
+      case MagnetPlayPhase.timedOut:
+        _snack(result.message);
+      default:
+        break; // cancelled 等：静默回原样。
+    }
+  }
+
+  /// 取消磁力播放等待：等待器置标收尾，页面立刻回原样，
+  /// 播放键照常走三池竞速，不锁死。
+  void _cancelMagnetPlay() {
+    _magnetPlayGen++;
+    (widget.magnetPlay ?? _prodMagnetPlayer).cancel();
+    if (!mounted) return;
+    setState(() => _magnetPlayProgress = null);
+  }
+
+  /// 磁力播放就绪：网盘直链先同尺验活，再以「115网盘」
+  /// 线页内起播（与竞速赢家同一条 _startPlayback 路）。
+  Future<void> _playMagnetDriveHit(MagnetPlayProgress result) async {
+    final hit = result.hit;
+    if (hit == null) return;
+    final target = ActressPlayTarget(hit.url, hit.headers);
+    if (!await _verify(target)) {
+      if (!mounted) return;
+      _snack('网盘文件已就绪，但取到的链接暂时播不了，请稍后再试');
+      return;
+    }
+    if (!mounted) return;
+    var line = _lines.where((row) => row.id == 'pan115-magnet').firstOrNull;
+    if (line == null) {
+      line = _Line(id: 'pan115-magnet', label: '115网盘', target: target);
+      _lines.add(line);
+    } else {
+      line.target = target;
+    }
+    line.verified = true;
+    await _startPlayback(line, target);
+    if (!mounted) return;
+    _snack(result.message);
+  }
+
+  /// 磁力条目点按分流（2026-11-27 用户新令，取代原「点按只
+  /// 复制」）：115 已登录 → 提交离线并弹成败提示（不许静默）；
+  /// 未登录 → 弹引导去登录。判定与文案在 MagnetOfflineSubmitter
+  /// 里（可测），本方法只负责忙碌态与弹窗/提示出口。
+  /// 自动离线（打开即交）落地后，点按只作手动兜底。
+  Future<void> _onMagnetTap(int index) async {
+    if (index < 0 || index >= _magnets.length) return;
+    if (_magnetBusyIndex != null) return;
+    final submitter = widget.magnetOffline ?? _prodMagnetSubmitter;
+    setState(() => _magnetBusyIndex = index);
+    MagnetTapResult result;
+    try {
+      result = await submitter.tap(_magnets[index].url);
+    } finally {
+      if (mounted) setState(() => _magnetBusyIndex = null);
+    }
+    if (!mounted) return;
+    switch (result.outcome) {
+      case MagnetTapOutcome.submitted:
+        setState(() => _submittedMagnetRows.add(index));
+        _snack(result.message);
+      case MagnetTapOutcome.failed:
+        _snack(result.message);
+      case MagnetTapOutcome.notLoggedIn:
+        await _showMagnetLoginDialog();
+      case MagnetTapOutcome.busy:
+        break; // 已有提交在飞，本次点按忽略。
+    }
+  }
+
+  /// 未登录 115 时的磁力点按引导弹窗：「去登录」跳登入中心
+  /// （网盘区就在那页里）。
+  Future<void> _showMagnetLoginDialog() async {
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('未登录 115 网盘'),
+        content: const Text('提交离线下载需要先登录 115 网盘，登录后点按磁力就能直接提交到 115 离线下载。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('去登录'),
+          ),
+        ],
+      ),
+    );
+    if (go != true || !mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const HongguoLoginPage()),
+    );
   }
 
   void _snack(String text) {
@@ -998,6 +1491,7 @@ class _ActressWorkDetailPageState extends State<ActressWorkDetailPage> {
     setState(() {
       _playingLineId = line.id;
       _playingUrl = url;
+      _resumePosition = null;
       _playError = null;
       for (final row in _lines) {
         row.nowPlaying = row.id == line.id;
@@ -1034,6 +1528,57 @@ class _ActressWorkDetailPageState extends State<ActressWorkDetailPage> {
         // 换线失败就停在当前错误态，等用户点行重试。
       }
     }());
+  }
+
+  /// 全屏（同片库详情页路径）：内嵌播放器点全屏时已先销毁
+  /// 自有播放器并把进度递来；这里卸载内嵌控件、推整页
+  /// PlayerPage（openFullScreen 进页即横屏全屏，与片库同一
+  /// 套播放页/全屏机制，音轨字幕/跳过片头片尾等能力随播放
+  /// 页自带）。取流直接回当前已备好的地址，不重走竞速。
+  /// 退出整页后回读它存进历史的进度（读不到就用进全屏时
+  /// 的进度兜底），原地恢复内嵌播放，进度不丢。
+  Future<void> _openFullscreenPlayer(Duration position) async {
+    final url = _playingUrl;
+    final lineId = _playingLineId;
+    if (url == null) return;
+    final bookId = 'actress:work:${widget.localVodId ?? _code}';
+    final title = _title.isEmpty ? _code : _title;
+    setState(() => _playingUrl = null);
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => PlayerPage(
+          bookId: bookId,
+          kind: 'video',
+          title: title,
+          cover: _poster,
+          eps: [Chapter(itemId: lineId ?? bookId, title: title, volumeName: '')],
+          startIndex: 0,
+          startPosition: position,
+          openFullScreen: true,
+          shortSeries: false,
+          cultivationCategory: CultivationCategory.video,
+          contentLoader: (_) async => {'video_url': url, 'key_hex': ''},
+          playerFactory: widget.playerFactory,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    var back = position;
+    try {
+      final saved = await PlayerHistory(LibraryStore.instance).load(bookId);
+      final raw = saved?['position'];
+      if (raw is num && raw.isFinite && raw > 0) {
+        back = Duration(milliseconds: (raw.toDouble() * 1000).round());
+      }
+    } catch (_) {
+      // 历史读不到不挡恢复：用进全屏时的进度兜底。
+    }
+    if (!mounted) return;
+    setState(() {
+      _playingLineId = lineId;
+      _playingUrl = url;
+      _resumePosition = back;
+    });
   }
 
   // ================= 界面 =================
@@ -1168,6 +1713,68 @@ class _ActressWorkDetailPageState extends State<ActressWorkDetailPage> {
     );
   }
 
+  /// 磁力播放等待态（海报区原地）：毛玻璃底不变，中央摆
+  /// 状态实显（提交/秒下/离线中 x%/排队）+ 取消等待。取
+  /// 消后回海报态，播放键照常走三池竞速。
+  Widget _magnetWaitStage() {
+    final progress = _magnetPlayProgress!;
+    return Stack(
+      key: const ValueKey('work-detail-magnet-wait'),
+      fit: StackFit.expand,
+      children: [
+        if (_poster.isNotEmpty)
+          ImageFiltered(
+            imageFilter: ui.ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+            child: ActressNetImage(url: _poster),
+          )
+        else
+          const ColoredBox(color: Color(0xFF171021)),
+        const ColoredBox(color: Color(0x59000000)),
+        Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const CircularProgressIndicator(
+                  color: Colors.white,
+                  strokeWidth: 2.5,
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  progress.message,
+                  key: const ValueKey('work-detail-magnet-wait-message'),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                ),
+                if (progress.percent != null) ...[
+                  const SizedBox(height: 10),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 220),
+                    child: LinearProgressIndicator(
+                      value: progress.percent,
+                      color: Neon.cyan,
+                      backgroundColor: Colors.white24,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 8),
+                TextButton(
+                  key: const ValueKey('work-detail-magnet-play-cancel'),
+                  onPressed: _cancelMagnetPlay,
+                  child: const Text(
+                    '取消等待',
+                    style: TextStyle(color: Colors.white70, fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   /// 海报/播放器区（钉顶）：未起播是毛玻璃底 + 海报 + 正中
   /// 央圆形播放键；起播后原地换成内嵌播放器。
   Widget _posterArea() {
@@ -1182,7 +1789,12 @@ class _ActressWorkDetailPageState extends State<ActressWorkDetailPage> {
               poster: _poster,
               playerFactory: widget.playerFactory,
               onPlaybackError: _onInlinePlaybackError,
+              onFullscreen: (position) =>
+                  unawaited(_openFullscreenPlayer(position)),
+              startPosition: _resumePosition,
             )
+          : _magnetPlayProgress != null
+          ? _magnetWaitStage()
           : Stack(
               fit: StackFit.expand,
               children: [
@@ -1351,6 +1963,27 @@ class _ActressWorkDetailPageState extends State<ActressWorkDetailPage> {
         ),
         const SizedBox(height: 12),
         _infoCard(),
+        // 底线（2026-11-27 用户实报详情页全空白后定）：补全
+        // 链全部落定、仍没补到任何资料时，给一行中文说明，
+        // 不留海报标题以下全空白；番号信息卡与播放入口在
+        // 上面照常。有任何一区补到内容，这行就不出。
+        if (_fillSettled &&
+            _synopsis.isEmpty &&
+            _cast.isEmpty &&
+            _stills.isEmpty &&
+            _tags.isEmpty &&
+            _magnets.isEmpty &&
+            _alsoStarred.isEmpty &&
+            _mayLike.isEmpty) ...[
+          const SizedBox(height: 12),
+          Text(
+            _code.isNotEmpty
+                ? '详细资料暂时没补到（各源都没查到这部片的资料），播放不受影响。'
+                : '这部片暂时没有更多资料，播放不受影响。',
+            key: const ValueKey('work-detail-fill-note'),
+            style: const TextStyle(color: Neon.textDim, fontSize: 12.5),
+          ),
+        ],
         if (_synopsis.isNotEmpty) ...[
           const SizedBox(height: 16),
           _sectionTitle('简介'),
@@ -1551,8 +2184,11 @@ class _ActressWorkDetailPageState extends State<ActressWorkDetailPage> {
   }
 
   /// 下载链接区：只有 JavDB 真返回磁力条目才出现；条目带
-  /// 高清标记/体积/日期等字段有啥摆啥。点按条目或行尾复制
-  /// 按钮都只做一件事：复制磁力链接并提示「已复制」。
+  /// 高清标记/体积/日期等字段有啥摆啥。打开页时自动离线
+  /// 一轮（见 _runAutoOffline），状态只在这里摆一行小字；
+  /// 点按条目走 115 离线提交分流（手动兜底，见
+  /// _onMagnetTap），长按条目与行尾复制按钮复制磁力链接
+  /// 并提示「已复制」；交过的行打「已提交」标。
   Widget _magnetsSection() {
     return Container(
       key: const ValueKey('work-detail-magnets'),
@@ -1561,10 +2197,99 @@ class _ActressWorkDetailPageState extends State<ActressWorkDetailPage> {
       decoration: actressNeonCardDecoration(radius: 12),
       child: Column(
         children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 2, bottom: 2),
+            child: Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    '点按磁力提交到 115 离线下载，长按复制链接',
+                    style: TextStyle(color: Neon.textDim, fontSize: 12),
+                  ),
+                ),
+                TextButton.icon(
+                  key: const ValueKey('work-detail-magnet-play'),
+                  onPressed: _magnetPlayProgress != null
+                      ? null
+                      : () => unawaited(_startMagnetPlay()),
+                  icon: const Icon(Icons.play_circle_fill_rounded, size: 18),
+                  label: const Text('磁力播放'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Neon.cyan,
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (_pan115Vip)
+            const Padding(
+              key: ValueKey('work-detail-pan115-vip'),
+              padding: EdgeInsets.only(top: 1, bottom: 3),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  '115 网盘 · 会员',
+                  style: TextStyle(color: Color(0xFF55B16C), fontSize: 12),
+                ),
+              ),
+            ),
+          if (_magnetPlayProgress != null && _playingUrl != null)
+            Padding(
+              key: const ValueKey('work-detail-magnet-wait-note'),
+              padding: const EdgeInsets.only(top: 1, bottom: 3),
+              child: Row(
+                children: [
+                  const SizedBox(
+                    width: 13,
+                    height: 13,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _magnetPlayProgress!.message,
+                      style: const TextStyle(
+                        color: Neon.textDim,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                  TextButton(
+                    key: const ValueKey(
+                      'work-detail-magnet-play-cancel-note',
+                    ),
+                    onPressed: _cancelMagnetPlay,
+                    child: const Text('取消等待', style: TextStyle(fontSize: 12)),
+                  ),
+                ],
+              ),
+            ),
+          if (_autoOfflineNote.isNotEmpty)
+            Padding(
+              key: const ValueKey('work-detail-auto-offline-note'),
+              padding: const EdgeInsets.only(top: 1, bottom: 3),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  _autoOfflineNote,
+                  style: TextStyle(
+                    color: _autoOfflineNoteGood
+                        ? const Color(0xFF55B16C)
+                        : Neon.textDim,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ),
           for (var i = 0; i < _magnets.length; i++)
             InkWell(
               key: ValueKey('work-detail-magnet-$i'),
-              onTap: () => unawaited(_copyMagnet(i)),
+              onTap: _magnetBusyIndex == i
+                  ? null
+                  : () => unawaited(_onMagnetTap(i)),
+              onLongPress: () => unawaited(_copyMagnet(i)),
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 9),
                 child: Column(
@@ -1618,6 +2343,61 @@ class _ActressWorkDetailPageState extends State<ActressWorkDetailPage> {
                           style: TextStyle(color: Neon.cyan, fontSize: 11),
                         ),
                       ),
+                    if (_submittedMagnetRows.contains(i))
+                      Container(
+                        key: ValueKey('work-detail-magnet-submitted-$i'),
+                        margin: const EdgeInsets.only(left: 6),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 5,
+                          vertical: 1,
+                        ),
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            color: const Color(0xFF55B16C),
+                          ),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Text(
+                          '已提交',
+                          style: TextStyle(
+                            color: Color(0xFF55B16C),
+                            fontSize: 11,
+                          ),
+                        ),
+                      ),
+                        if (_magnetBusyIndex == i)
+                          const Padding(
+                            padding: EdgeInsets.only(left: 8),
+                            child: SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                              ),
+                            ),
+                          ),
+                        IconButton(
+                          key: ValueKey('work-detail-magnet-play-$i'),
+                          tooltip: '磁力播放',
+                          icon: const Icon(
+                            Icons.play_circle_outline_rounded,
+                            size: 18,
+                            color: Neon.cyan,
+                          ),
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 30,
+                            minHeight: 30,
+                          ),
+                          onPressed: _magnetPlayProgress != null
+                              ? null
+                              : () => unawaited(
+                                  _startMagnetPlay(
+                                    specificUrl: _magnets[i].url,
+                                  ),
+                                ),
+                        ),
                         IconButton(
                           key: ValueKey('work-detail-magnet-copy-$i'),
                           icon: const Icon(
@@ -1702,6 +2482,8 @@ class _ActressWorkDetailPageState extends State<ActressWorkDetailPage> {
                     child: ActressAvatar(
                       name: person.name,
                       avatarUrl: person.avatar,
+                      sameCodeAvatarUrl:
+                          _sameCodeAvatars[actressNameKey(person.name)] ?? '',
                       javdbClient: _javdb,
                     ),
                   ),

@@ -11,6 +11,8 @@ import 'aes_cipher.dart';
 import 'package:html/parser.dart' as html_parser;
 import 'package:http/http.dart' as http;
 
+import '../cloud_drive/cloud_drive_client.dart';
+
 import 'api_client.dart';
 import 'backend_transport.dart';
 import 'drama_playback.dart';
@@ -3952,6 +3954,13 @@ class _CoreOnlyFallback implements DramaSiteContentClient {
 }
 
 DramaSiteContentClient? dramaSiteContentClient(String siteId) {
+  if (siteId.startsWith('cloud:')) {
+    // 网盘当站：cloud:<网盘id>（与 SourceRegistry._clientForRaw
+    // 同一条分支，两处解析一致）。
+    return CloudDriveContentClient(
+      providerId: siteId.substring('cloud:'.length),
+    );
+  }
   if (siteId == 'original') return OriginalContentClient();
   if (siteId == 'huangju') {
     return CoreDramaContentClient(

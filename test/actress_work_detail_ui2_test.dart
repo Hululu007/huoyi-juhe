@@ -3,6 +3,7 @@
 // 力才出、字段形态、点按复制；无数据整区不出）、剧照截帧
 // 兜底（JavDB 无剧照 → 假截帧器回填 + 缓存命中不重截）。
 // 全部注入假件，不碰真库真网。
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -18,6 +19,9 @@ import 'package:fqapp/actress/actress_javdb_api.dart';
 import 'package:fqapp/actress/actress_library_db.dart';
 import 'package:fqapp/actress/actress_still_capture.dart';
 import 'package:fqapp/actress/actress_work_detail_page.dart';
+import 'package:fqapp/cloud_drive/cloud_115_offline.dart';
+import 'package:fqapp/cloud_drive/cloud_providers.dart';
+import 'package:fqapp/cloud_drive/magnet_offline.dart';
 
 import 'support/controlled_player.dart';
 
@@ -277,6 +281,7 @@ void main() {
   ActressWorkDetailPage page({
     JavdbApiClient? javdbClient,
     ActressStillCapturer? capturer,
+    MagnetOfflineSubmitter? magnetOffline,
   }) {
     return ActressWorkDetailPage.local(
       vodId: 'sigl-020',
@@ -287,6 +292,7 @@ void main() {
       repository: _FakeRepository(),
       javdbClient: javdbClient,
       stillCapturer: capturer,
+      magnetOffline: magnetOffline,
       stillCache: ActressStillCache(directoryOf: () async => cacheDir),
       probeFetch: _probeOk,
       playerFactory: () => ControlledNativePlayer(),
@@ -345,7 +351,9 @@ void main() {
     );
   });
 
-  testWidgets('下载链接区：有磁力才出，字段形态齐，点按复制磁力', (tester) async {
+  testWidgets('下载链接区：有磁力才出，字段形态齐，未登入点按弹引导、长按复制', (
+    tester,
+  ) async {
     tallView(tester);
     String? clipboardText;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -359,10 +367,18 @@ void main() {
       () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(SystemChannels.platform, null),
     );
+    var submitCalls = 0;
     await tester.pumpWidget(
       MaterialApp(
         home: page(
           javdbClient: JavdbApiClient(fetch: _javdbFetch(magnets: true)),
+          magnetOffline: MagnetOfflineSubmitter(
+            isLoggedIn: () async => false,
+            submit: (url) async {
+              submitCalls++;
+              return const Pan115SubmitResult(ok: true);
+            },
+          ),
         ),
       ),
     );
@@ -373,40 +389,165 @@ void main() {
     expect(find.text('字幕'), findsOneWidget);
     expect(find.text('5.26 GB'), findsOneWidget);
     expect(find.text('2026-11-26'), findsOneWidget);
-    // 裁决：在在线平台行不摆（隐藏令优先）。
+    // 裁决：在线平台行不摆（隐藏令优先）。
     expect(find.text('在线平台'), findsNothing);
     expect(find.text('播放线路'), findsNothing);
-    // 点按条目 = 只复制磁力链接 + 提示「已复制」；全页不
-    // 出现任何 115/离线/提交字样（2026-11-27 撤 115 接线
-    // 后的口径：下载区只是 AvPlay 版式展示＋复制）。
+    // 区内提示文案与实情一致：点按提交离线 / 长按复制。
+    expect(find.text('点按磁力提交到 115 离线下载，长按复制链接'), findsOneWidget);
+    // 点按（未登入）→ 引导弹窗：不提交、不复制。
     await tester.tap(find.byKey(const ValueKey('work-detail-magnet-0')));
+    await _until(
+      tester,
+      () => find.text('未登录 115 网盘').evaluate().isNotEmpty,
+    );
+    expect(find.text('未登录 115 网盘'), findsOneWidget);
+    expect(find.text('去登录'), findsOneWidget);
+    expect(find.text('取消'), findsOneWidget);
+    expect(submitCalls, 0);
+    expect(clipboardText, isNull);
+    await tester.tap(find.text('取消'));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('未登录 115 网盘'), findsNothing);
+    // 长按条目 = 复制磁力链接 + 提示「已复制」。
+    await tester.longPress(find.byKey(const ValueKey('work-detail-magnet-0')));
     await _until(tester, () => clipboardText != null);
     expect(
       clipboardText,
+      startsWith(
+        'magnet:?xt=urn:btih:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+      ),
+    );
+    await _until(tester, () => find.text('已复制').evaluate().isNotEmpty);
+    expect(find.text('已复制'), findsOneWidget);
+    // 行尾复制按钮同义：同样复制。
+    clipboardText = null;
+    await tester.tap(find.byKey(const ValueKey('work-detail-magnet-copy-0')));
+    await _until(tester, () => clipboardText != null);
+    expect(
+      clipboardText,
+      startsWith(
+        'magnet:?xt=urn:btih:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+      ),
+    );
+  });
+
+  testWidgets('下载链接区：已登入点按磁力走提交假件并提示成功', (tester) async {
+    tallView(tester);
+    String? submittedUrl;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: page(
+          javdbClient: JavdbApiClient(fetch: _javdbFetch(magnets: true)),
+          magnetOffline: MagnetOfflineSubmitter(
+            isLoggedIn: () async => true,
+            submit: (url) async {
+              submittedUrl = url;
+              return const Pan115SubmitResult(ok: true);
+            },
+          ),
+        ),
+      ),
+    );
+    await _until(tester, () => find.text('下载链接').evaluate().isNotEmpty);
+    await tester.tap(find.byKey(const ValueKey('work-detail-magnet-0')));
+    await _until(tester, () => submittedUrl != null);
+    expect(
+      submittedUrl,
       startsWith(
         'magnet:?xt=urn:btih:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
       ),
     );
     await _until(
       tester,
-      () => find.text('已复制').evaluate().isNotEmpty,
+      () => find.text('已提交到 115 离线下载').evaluate().isNotEmpty,
     );
-    expect(find.text('已复制'), findsOneWidget);
-    expect(find.textContaining('115网盘'), findsNothing);
-    expect(find.textContaining('离线'), findsNothing);
-    expect(find.textContaining('提交'), findsNothing);
-    // 行尾复制按钮同义：同样复制 + 同一提示。
-    clipboardText = null;
-    await tester.tap(
-      find.byKey(const ValueKey('work-detail-magnet-copy-0')),
-    );
-    await _until(tester, () => clipboardText != null);
-    expect(
-      clipboardText,
-      startsWith(
-        'magnet:?xt=urn:btih:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+    expect(find.text('已提交到 115 离线下载'), findsOneWidget);
+    expect(find.text('未登录 115 网盘'), findsNothing);
+  });
+
+  testWidgets('下载链接区：提交失败弹原因（异常中文信息优先）', (tester) async {
+    tallView(tester);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: page(
+          javdbClient: JavdbApiClient(fetch: _javdbFetch(magnets: true)),
+          magnetOffline: MagnetOfflineSubmitter(
+            isLoggedIn: () async => true,
+            submit: (url) async =>
+                throw CloudDriveException('离线配额已用完'),
+          ),
+        ),
       ),
     );
+    await _until(tester, () => find.text('下载链接').evaluate().isNotEmpty);
+    await tester.tap(find.byKey(const ValueKey('work-detail-magnet-0')));
+    await _until(
+      tester,
+      () => find.text('提交失败：离线配额已用完').evaluate().isNotEmpty,
+    );
+    expect(find.text('提交失败：离线配额已用完'), findsOneWidget);
+  });
+
+  group('MagnetOfflineSubmitter 判定', () {
+    test('未登入不调提交、回 notLoggedIn', () async {
+      var submitCalls = 0;
+      final submitter = MagnetOfflineSubmitter(
+        isLoggedIn: () async => false,
+        submit: (url) async {
+          submitCalls++;
+          return const Pan115SubmitResult(ok: true);
+        },
+      );
+      final result = await submitter.tap('magnet:?xt=urn:btih:x');
+      expect(result.outcome, MagnetTapOutcome.notLoggedIn);
+      expect(submitCalls, 0);
+    });
+
+    test('接口回失败（无原因）用通用兜底文案，不静默', () async {
+      final submitter = MagnetOfflineSubmitter(
+        isLoggedIn: () async => true,
+        submit: (url) async => const Pan115SubmitResult(ok: false),
+      );
+      final result = await submitter.tap('magnet:?xt=urn:btih:x');
+      expect(result.outcome, MagnetTapOutcome.failed);
+      expect(result.message, '提交失败，请稍后重试');
+    });
+
+    test('非中文异常不糊原文、用通用兜底文案', () async {
+      final submitter = MagnetOfflineSubmitter(
+        isLoggedIn: () async => true,
+        submit: (url) async => throw StateError('https://secret.example/x'),
+      );
+      final result = await submitter.tap('magnet:?xt=urn:btih:x');
+      expect(result.outcome, MagnetTapOutcome.failed);
+      expect(result.message, '提交失败，请稍后重试');
+    });
+
+    test('防重复点：提交在飞时第二次 tap 回 busy 且只提交一次', () async {
+      final gate = Completer<Pan115SubmitResult>();
+      var submitCalls = 0;
+      final submitter = MagnetOfflineSubmitter(
+        isLoggedIn: () async => true,
+        submit: (url) {
+          submitCalls++;
+          return gate.future;
+        },
+      );
+      final first = submitter.tap('magnet:?xt=urn:btih:x');
+      // 等第一次 tap 走到 submit（登录判据是微任务，轮询 busy）。
+      for (var i = 0; i < 50 && !submitter.busy; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      expect(submitter.busy, isTrue);
+      final second = await submitter.tap('magnet:?xt=urn:btih:x');
+      expect(second.outcome, MagnetTapOutcome.busy);
+      gate.complete(const Pan115SubmitResult(ok: true));
+      final firstResult = await first;
+      expect(firstResult.outcome, MagnetTapOutcome.submitted);
+      expect(firstResult.message, '已提交到 115 离线下载');
+      expect(submitCalls, 1);
+      expect(submitter.busy, isFalse);
+    });
   });
 
   testWidgets('下载链接区：没磁力数据整区不出', (tester) async {

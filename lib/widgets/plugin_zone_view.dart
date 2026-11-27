@@ -8,18 +8,20 @@ import '../services/idj_plugin_store.dart';
 import 'series_detail/moyi_detail_theme.dart';
 import 'site_grid_dialog.dart';
 
-/// 插件区组件（选站弹窗第三区）：已装插件的站网格由弹窗本体渲染，
-/// 本文件提供市场区段（订阅列表 + 安装）、右上角「+」的添加
-/// 面板（本地插件包 / 远程插件源）、卸载确认与已装条目构建。
+/// 插件组件：已装插件的站网格由选站弹窗本体渲染（弹窗插件区只
+/// 留显示），本文件提供市场区段（订阅列表 + 安装）、添加面板
+/// （本地插件包 / 远程插件源）、卸载确认与已装条目构建——市场
+/// 与管理全套挂在「我的 → 插件管理」页（plugin_manage_page.dart，
+/// 用户 2026-11-27 新布局令），弹窗里不再出现。
 ///
 /// 更新口径（用户 2026-11-27 令）：插件第一次由用户手动安装后，
 /// 之后的新版由仓库在市场加载时后台静默自动装上——市场与已装
 /// 列表不显示任何「更新 / 可更新 / 有新版本」字样或角标。
-/// 卸载有两处长按入口：选站弹窗插件区的已装站网格（弹窗本体），
-/// 与下方市场卡（已装条目长按弹同一确认框）。卸载清已装账
-/// （包、索引、站点注册）并留一条「已卸载」记录（仓库持久化）：
-/// 市场条目自此隐藏，远程版本高于卸载时版本才重新出现、可
-/// 安装；装回后记录清除（四态见仓库 marketEntryHiddenAfterUninstall）。
+/// 卸载入口只在插件管理页：已装列表长按/行尾按钮与市场卡长按
+/// （弹同一确认框）。卸载清已装账（包、索引、站点注册）并留一条
+/// 「已卸载」记录（仓库持久化）：市场条目自此隐藏，远程版本高于
+/// 卸载时版本才重新出现、可安装；装回后记录清除（四态见仓库
+/// marketEntryHiddenAfterUninstall）。
 ///
 /// 远程地址口径（用户 2026-11-26 令）：订阅地址绑定在程序里、
 /// 界面永不显示地址原文——内置源只显示「官方插件源」，用户源只
@@ -61,8 +63,8 @@ List<SiteGridEntry> pluginZoneEntriesFromInstalled(
   ];
 }
 
-/// 卸载确认框（插件区长按与市场共用）：说清后果——站从列表移除、
-/// 运行数据保留、重装可恢复。
+/// 卸载确认框（插件管理页已装列表与市场卡共用）：说清后果——站
+/// 从列表移除、运行数据保留、重装可恢复。
 Future<bool> confirmUninstallPlugin(BuildContext context, String name) async {
   final confirmed = await showDialog<bool>(
     context: context,
@@ -105,8 +107,8 @@ void _showSnack(BuildContext context, String message) {
   );
 }
 
-/// 右上角「+」的添加面板：添加本地插件包 / 添加远程插件源。
-/// 完成后经 [onChanged] 通知弹窗刷新插件区。
+/// 插件管理页右上角「+」的添加面板：添加本地插件包 / 添加远程
+/// 插件源。完成后经 [onChanged] 通知管理页刷新。
 Future<void> showPluginAddSheet(
   BuildContext context, {
   required IdjPluginStore store,
@@ -260,7 +262,7 @@ class PluginMarketSection extends StatefulWidget {
 
   final IdjPluginStore store;
 
-  /// 装/卸/订阅变化后通知弹窗刷新插件区网格。
+  /// 装/卸/订阅变化后通知插件管理页刷新已装列表。
   final VoidCallback onChanged;
 
   @override
@@ -362,10 +364,10 @@ class _PluginMarketSectionState extends State<PluginMarketSection> {
     }
   }
 
-  /// 市场卡长按卸载（用户 2026-11-27 令，与选站弹窗插件区站网格
-  /// 长按同一入口口径）：弹共用确认框，确认后走仓库卸载——包、
-  /// 索引、站点注册清干净，并留「已卸载」记录；本卡随列表重拉
-  /// 消失（远程升版后才重新出现，见仓库四态口径）。
+  /// 市场卡长按卸载（用户 2026-11-27 令，入口在插件管理页）：
+  /// 弹共用确认框，确认后走仓库卸载——包、索引、站点注册清干净，
+  /// 并留「已卸载」记录；本卡随列表重拉消失（远程升版后才重新
+  /// 出现，见仓库四态口径）。
   Future<void> _uninstallFromCard(IdjSubscriptionPlugin plugin) async {
     final confirmed = await confirmUninstallPlugin(context, plugin.name);
     if (!confirmed || !mounted) return;

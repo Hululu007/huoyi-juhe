@@ -122,6 +122,10 @@ class ActressPyBridge {
   /// 浏览取卡（MissAV / 潮流页签用）：query 非空走搜索，
   /// 否则走分类目录。卡的 pageUrl 暂存种子内的作品 id，
   /// resolvePlay 时凭它回仓储取详情。
+  ///
+  /// 失败不许吞成空表（2026-11-27 整类堵，与 18AV 同尺）：
+  /// 仓储/蜘蛛真失败时抛 [AppFailure] 中文原因，界面显错
+  /// 不显「暂时没有内容」；只有真查无结果才回空表。
   Future<List<OnlineVideoCard>> browseCards({
     required String siteId,
     required String category,
@@ -144,8 +148,9 @@ class ActressPyBridge {
             duration: drama.description,
           ),
       ];
-    } catch (_) {
-      return const [];
+    } catch (error) {
+      if (error is AppFailure) rethrow;
+      throw AppFailure('这个源暂时取不到内容，点按重试');
     }
   }
 

@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:sqflite/sqflite.dart';
 
 import 'actress_database.dart' show applyActressDbReadPragmas;
+import 'actress_db_source.dart';
+import 'actress_models.dart' show normalizeAvCode;
 import 'actress_mytv_bind.dart';
 
 /// 合并演员库页的本地女优库兜底查询：参数化只读 SQL 的形态。
@@ -62,9 +64,12 @@ class ActressLibraryDbFallback {
   /// 绑定层收敛），dbPath 为空 = 没有可用库。
   static Future<String?> _resolveBoundDbPath() async {
     try {
-      final bind = await ActressMytvBind.instance.ensureBound();
-      if (!bind.hasVideoDb || bind.dbPath.isEmpty) return null;
-      return bind.dbPath;
+      // 双库批：走来源层生效路径（外置/导入二选一，imported
+      // 缺失自动回落 external）；为空 = 没有可用库。本服务自带
+      // 文件戳失效（路径+大小+mtime），切换换路径必然重开。
+      final effective = await ActressDbSource.instance.effectiveDbPath();
+      if (effective.isEmpty) return null;
+      return effective;
     } catch (_) {
       return null;
     }
@@ -168,6 +173,8 @@ class ActressLibraryDbFallback {
           return await _tags(query, tables);
         case 'detail':
           return await _detail(query, tables, params);
+        case 'sameCode':
+          return await _sameCode(query, tables, params);
         default:
           return {'ok': false, 'error': '未知 op：$op'};
       }
@@ -621,6 +628,81 @@ class ActressLibraryDbFallback {
     };
   }
 
+  /// 同番号互补（详情页专用）：本行简介为空、同行演员没头像
+  /// 时，按归一化番号找库里**其他同番号行**借数据——简介取
+  /// 最长的一份非空 content，同番号行演员头像原样回（名字
+  /// 匹配与地址可用判定在详情页/头像链做）。来源只限库内同
+  /// 番号行，不外呼、不编造；全程只读，不回写库。
+  ///
+  /// 查询口径：候选 slug 集（见 [actressSameCodeCandidateIds]，
+  /// ≤24 个）走 vod_id 主键 IN 命中，不全表扫；简介只取 1
+  /// 行（按 LENGTH 降序），头像最多 64 行；硬线排除与其它
+  /// 操作同口径（$_exclusionSql）在每条查询里都在。
+  Future<Map<String, dynamic>> _sameCode(
+    ActressLibRawQuery query,
+    Set<String> tables,
+    Map<String, dynamic> params,
+  ) async {
+    final vodId = (params['vodId'] ?? '').toString().trim().toLowerCase();
+    final code = (params['code'] ?? '').toString().trim();
+    if (vodId.isEmpty && code.isEmpty) {
+      return {'ok': false, 'error': '缺少番号'};
+    }
+    final candidates = actressSameCodeCandidateIds(vodId: vodId, code: code);
+    if (candidates.isEmpty) {
+      return {'ok': true, 'content': '', 'avatars': const []};
+    }
+    final inMarks = List.filled(candidates.length, '?').join(',');
+    // 本行自己排除（按番号入口没有本行 id 时不排除：借到
+    // 「自己」的内容/头像也是正解）。
+    final selfSql = vodId.isEmpty ? '' : ' AND v.vod_id <> ?';
+    List<Object?> scopeArgs() => [
+      ...candidates,
+      if (vodId.isNotEmpty) vodId,
+      ..._exclusionArgs,
+    ];
+
+    var content = '';
+    final videoCols = await _columnSet(query, 'videos');
+    if (videoCols.contains('content')) {
+      final rows = await query(
+        'SELECT v.content AS content FROM videos v '
+        'WHERE v.vod_id IN ($inMarks)$selfSql AND $_exclusionSql '
+        "AND v.content IS NOT NULL AND TRIM(v.content) <> '' "
+        'ORDER BY LENGTH(v.content) DESC LIMIT 1',
+        scopeArgs(),
+      );
+      if (rows.isNotEmpty) {
+        content = rows.first['content']?.toString().trim() ?? '';
+      }
+    }
+
+    var avatars = <Map<String, dynamic>>[];
+    if (tables.contains('video_actress') && tables.contains('actresses')) {
+      final actressCols = await _columnSet(query, 'actresses');
+      if (actressCols.contains('avatar')) {
+        final rows = await query(
+          'SELECT a.name AS name, a.avatar AS avatar FROM video_actress va '
+          'JOIN actresses a ON a.cate_id = va.cate_id '
+          'JOIN videos v ON v.vod_id = va.vod_id '
+          'WHERE va.vod_id IN ($inMarks)$selfSql AND $_exclusionSql '
+          "AND a.avatar IS NOT NULL AND TRIM(a.avatar) <> '' "
+          'LIMIT 64',
+          scopeArgs(),
+        );
+        avatars = [
+          for (final row in rows)
+            if ((row['name']?.toString() ?? '').isNotEmpty)
+              {
+                'name': row['name'].toString(),
+                'avatar': row['avatar']?.toString() ?? '',
+              },
+        ];
+      }
+    }
+    return {'ok': true, 'content': content, 'avatars': avatars};
+  }
+
   /// 表的列名集（PRAGMA table_info）：给可选列（content /
   /// avatar 这类不是每版库都有的列）做在场判定，查不到/出
   /// 错按无列处理，绝不让可选列把主查询打挂。结果按表缓存，
@@ -647,4 +729,72 @@ class ActressLibraryDbFallback {
       .replaceAll('\\', '\\\\')
       .replaceAll('%', '\\%')
       .replaceAll('_', '\\_');
+}
+
+/// 同番号候选 slug 集（sameCode 操作用）：库里同番号多行只是
+/// 写法不同——分隔符（`-` / `_` / 无）× 数字尾零填充宽度不
+/// 同（如 ssis-1 / ssis-01 / ssis-001 / ssis_0001）。从本行
+/// vodId、入口番号、归一化键三处拆「头＋数字尾」生成有限候
+/// 选（≤24 个、去重、含原拼法），供 vod_id 主键 IN 查询命
+/// 中——不做全表扫、不做前缀 LIKE。覆盖不到的拼法（分隔符
+/// 三种与宽度 +4 之外）如实漏检，不冒充全覆盖。
+List<String> actressSameCodeCandidateIds({
+  required String vodId,
+  required String code,
+}) {
+  final out = <String>[];
+  final seen = <String>{};
+  void add(String slug) {
+    final text = slug.trim().toLowerCase();
+    if (text.isNotEmpty && seen.add(text) && out.length < 24) {
+      out.add(text);
+    }
+  }
+
+  // 一个「头＋数字尾」拆法：头去尾部分隔符后，分隔符三种 ×
+  // 数字宽度（归一宽..归一宽+4、上限 8）全组合；头内部带分
+  // 隔符的原形态（fc2-ppv- 这类）另按原头补一轮窄宽。
+  void expand(String head, String digits) {
+    final core = digits.replaceFirst(RegExp(r'^0+'), '');
+    final coreDigits = core.isEmpty ? '0' : core;
+    final baseHead = head.replaceAll(RegExp(r'[-_]+$'), '');
+    if (baseHead.isEmpty && coreDigits.isEmpty) return;
+    for (final sep in const ['-', '_', '']) {
+      for (
+        var w = coreDigits.length;
+        w <= coreDigits.length + 4 && w <= 8;
+        w++
+      ) {
+        add('$baseHead$sep${coreDigits.padLeft(w, '0')}');
+      }
+    }
+    if (head != baseHead) {
+      for (
+        var w = coreDigits.length;
+        w <= coreDigits.length + 2 && w <= 8;
+        w++
+      ) {
+        add('$head${coreDigits.padLeft(w, '0')}');
+      }
+    }
+  }
+
+  void expandFrom(String raw) {
+    final text = raw.trim().toLowerCase();
+    if (text.isEmpty) return;
+    add(text);
+    final match = RegExp(r'^(.*?)(\d+)$').firstMatch(text);
+    if (match != null) expand(match.group(1)!, match.group(2)!);
+  }
+
+  expandFrom(vodId);
+  expandFrom(code);
+  // 归一化键再拆一次：入口番号带多余符号时与 slug 拆法互补
+  //（如 'SSIS-001' 归一 SSIS1 → ssis-1/ssis-001/... 一族）。
+  final key = normalizeAvCode(code.isNotEmpty ? code : vodId);
+  final keyMatch = RegExp(r'^([A-Z]+)(\d+)$').firstMatch(key);
+  if (keyMatch != null) {
+    expand(keyMatch.group(1)!.toLowerCase(), keyMatch.group(2)!);
+  }
+  return out;
 }

@@ -6,15 +6,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:fqapp/pages/plugin_manage_page.dart';
 import 'package:fqapp/services/idj_plugin_store.dart';
-import 'package:fqapp/widgets/site_grid_dialog.dart';
 
 /// 插件自动更新 + 市场四态的界面测试（用户 2026-11-27 令）：
-/// - 已装 v1、远程出 v2：打开插件区后后台静默装上 v2，市场卡
+/// 承载面是「我的 → 插件管理」页（2026-11-27 新布局令：市场与
+/// 管理搬进管理页，选站弹窗插件区只留显示，自动更新行为不变）。
+/// - 已装 v1、远程出 v2：打开管理页后后台静默装上 v2，市场卡
 ///   只显示版本号 + 已安装，全程无「更新」字样；
-/// - 市场卡长按卸载：确认后卡片与站网格条目一起消失、留已卸载
+/// - 市场卡长按卸载：确认后卡片与已装列表行一起消失、留已卸载
 ///   记录；远程同版本时市场里不再出现，远程升版后重新出现
-///   （可安装），装回后记录清除、站点恢复。
+///   （可安装），装回后记录清除、已装列表恢复。
 /// 仓库用临时目录 + 内存 prefs + 假 probe + 可切换版本的假
 /// 下载；文件 IO 与网络都是真异步，按本树口径 runAsync 轮询。
 void main() {
@@ -77,22 +79,13 @@ void main() {
         body: Center(
           child: Builder(
             builder: (buttonContext) => TextButton(
-              onPressed: () => showSiteGridDialog(
-                context: buttonContext,
-                sites: const [
-                  (
-                    id: 'b-video',
-                    name: '内置影视',
-                    zone: SiteGridZone.builtin,
-                    group: SiteGridGroup.video,
-                  ),
-                ],
-                initialZone: SiteGridZone.plugin,
-                enablePluginZone: true,
-                pluginStore: store,
-                onDeleteSite: deleteSiteGridEntry,
+              onPressed: () => Navigator.push(
+                buttonContext,
+                MaterialPageRoute<void>(
+                  builder: (_) => PluginManagePage(store: store),
+                ),
               ),
-              child: const Text('打开切换站点'),
+              child: const Text('打开插件管理'),
             ),
           ),
         ),
@@ -100,17 +93,15 @@ void main() {
     );
   }
 
-  Future<void> openDialog(WidgetTester tester) async {
+  Future<void> openManagePage(WidgetTester tester) async {
     tester.view.devicePixelRatio = 1.0;
     tester.view.physicalSize = const Size(390, 844);
     addTearDown(tester.view.reset);
     await tester.pumpWidget(host());
-    await tester.tap(find.text('打开切换站点'));
+    await tester.tap(find.text('打开插件管理'));
     await tester.pumpAndSettle();
-    // 市场区段在站网格下方，滚一下让它构建出来（构建才触发加载
-    // 与自动更新）。
-    await tester.drag(find.byType(ListView), const Offset(0, -400));
-    await tester.pumpAndSettle();
+    // 市场区段在管理页顶部，进页即构建并触发加载与自动更新。
+    expect(find.byKey(const ValueKey('plugin-market-section')), findsOneWidget);
   }
 
   Future<void> pumpUntilFound(WidgetTester tester, Finder finder) async {
@@ -151,25 +142,26 @@ void main() {
   final marketCard = find.byKey(
     const ValueKey('plugin-market-row-com.idj.ext.alpha'),
   );
-  final siteRow = find.byKey(const ValueKey('site-grid-row-idj_alpha'));
+  final installedRow = find.byKey(
+    const ValueKey('plugin-installed-row-com.idj.ext.alpha'),
+  );
 
-  testWidgets('自动更新：已装 v1、远程 v2，开插件区后静默装上且无更新字样', (
+  testWidgets('自动更新：已装 v1、远程 v2，开管理页后静默装上且无更新字样', (
     tester,
   ) async {
     remoteVersion = '2.0.0';
     await tester.runAsync(() => store.installBundleText(bundleText('1.0.0')));
-    await openDialog(tester);
+    await openManagePage(tester);
     await pumpUntilFound(tester, marketCard);
     // 后台自动更新装完 v2（真异步下载 + 写盘，轮询仓库版本）。
     await pumpUntilVersion(tester, '2.0.0');
     final installed = await tester.runAsync(() => store.listInstalled());
     expect(installed!.single.entry.version, '2.0.0');
-    // 卡片状态只剩版本号 + 已安装；整个弹窗找不到「更新」二字，
+    // 卡片状态只剩版本号 + 已安装；整个管理页找不到「更新」二字，
     // 也没有旧版 → 新版的箭头状态行。
     expect(find.text('已安装'), findsOneWidget);
-    // 区段可能因弹窗对账重挂载：装更新的实例与当前可见实例未必
-    // 同一个，可见卡的文案靠其自身那轮自动更新收尾刷新，轮询等
-    // 它落定（真异步 + 假时钟区续链，本树既有轮询口径）。
+    // 可见卡的文案靠其自身那轮自动更新收尾刷新，轮询等它落定
+    // （真异步 + 假时钟区续链，本树既有轮询口径）。
     await pumpUntilFound(tester, find.text('v2.0.0'));
     expect(find.text('v2.0.0'), findsWidgets);
     expect(find.text('更新'), findsNothing);
@@ -178,20 +170,30 @@ void main() {
     expect(find.textContaining('可更新'), findsNothing);
   });
 
-  testWidgets('市场卡长按卸载四态：同版隐藏、升版重现、装回清记录站点恢复', (
+  testWidgets('市场卡长按卸载四态：同版隐藏、升版重现、装回清记录已装恢复', (
     tester,
   ) async {
     remoteVersion = '1.0.0';
     await tester.runAsync(() => store.installBundleText(bundleText('1.0.0')));
-    await openDialog(tester);
+    await openManagePage(tester);
     await pumpUntilFound(tester, marketCard);
     expect(find.text('已安装'), findsOneWidget);
-    // 站网格里也有它。
-    await tester.drag(find.byType(ListView), const Offset(0, 400));
+    // 等首轮后台自动更新收尾落定再卸载：它的收尾刷新会重读已装
+    // 映射，若与卸载撞车会把卸载前的状态刷回卡片（时序竞态）。
+    for (var i = 0; i < 15; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 100)),
+      );
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    await pumpUntilFound(tester, marketCard);
+    expect(find.text('已安装'), findsOneWidget);
+    // 已装列表里也有它（滚一下让行构建出来）。
+    await tester.drag(find.byType(ListView), const Offset(0, -300));
     await tester.pumpAndSettle();
-    await pumpUntilFound(tester, siteRow);
-    expect(siteRow, findsOneWidget);
-    await tester.drag(find.byType(ListView), const Offset(0, -400));
+    await pumpUntilFound(tester, installedRow);
+    expect(installedRow, findsOneWidget);
+    await tester.drag(find.byType(ListView), const Offset(0, 300));
     await tester.pumpAndSettle();
     // 长按市场卡 → 共用卸载确认框。
     await tester.longPress(marketCard);
@@ -199,12 +201,13 @@ void main() {
     await pumpUntilFound(tester, confirm);
     expect(confirm, findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('plugin-uninstall-ok')));
-    // 卸载后：市场卡消失（同版本 → 已卸载隐藏）、站网格条目消失。
+    // 卸载后：市场卡消失（同版本 → 已卸载隐藏）、已装列表行消失。
     await pumpUntilGone(tester, marketCard);
     expect(marketCard, findsNothing);
-    await tester.drag(find.byType(ListView), const Offset(0, 400));
+    await tester.drag(find.byType(ListView), const Offset(0, -300));
     await tester.pumpAndSettle();
-    expect(siteRow, findsNothing);
+    await pumpUntilGone(tester, installedRow);
+    expect(installedRow, findsNothing);
     final afterUninstall = await tester.runAsync(
       () => store.readUninstalledVersions(),
     );
@@ -213,7 +216,7 @@ void main() {
     expect(installedNow, isEmpty);
     // 远程升版：刷新市场，条目重新出现且可安装。
     remoteVersion = '2.0.0';
-    await tester.drag(find.byType(ListView), const Offset(0, -400));
+    await tester.drag(find.byType(ListView), const Offset(0, 300));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('plugin-market-refresh')));
     await pumpUntilFound(tester, marketCard);
@@ -223,7 +226,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('更新'), findsNothing);
-    // 装回：记录清除、站点恢复、版本为 v2。
+    // 装回：记录清除、已装列表恢复、版本为 v2。
     await tester.tap(
       find.byKey(const ValueKey('plugin-install-com.idj.ext.alpha')),
     );
@@ -232,9 +235,9 @@ void main() {
       () => store.readUninstalledVersions(),
     );
     expect(records, isEmpty);
-    await tester.drag(find.byType(ListView), const Offset(0, 400));
-    await pumpUntilFound(tester, siteRow);
-    expect(siteRow, findsOneWidget);
+    await tester.drag(find.byType(ListView), const Offset(0, -300));
+    await pumpUntilFound(tester, installedRow);
+    expect(installedRow, findsOneWidget);
   });
 }
 

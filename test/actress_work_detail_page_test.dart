@@ -16,6 +16,9 @@ import 'package:fqapp/actress/actress_library_db.dart';
 import 'package:fqapp/actress/actress_online_parse.dart';
 import 'package:fqapp/actress/actress_online_sources.dart';
 import 'package:fqapp/actress/actress_work_detail_page.dart';
+import 'package:fqapp/cloud_drive/cloud_providers.dart'
+    show CloudDirectLink;
+import 'package:fqapp/cloud_drive/drive_code_play.dart';
 
 import 'support/controlled_player.dart';
 
@@ -460,6 +463,16 @@ void main() {
           fallback: _fallback(_FakeDb()),
           repository: _FakeRepository(),
           onlineFetch: _fakeAv123Fetch,
+          // 网盘池注入未登入假件：生产找片器背后是引擎单例，
+          // 其期约在测试假时钟区里跨测试不可靠（同仓其他接
+          // 缝一律注入假件，本条全灭竞速要等全线收账，必须
+          // 注入）。断言口径不变。
+          drivePlayFinder: DriveCodePlayFinder(
+            isLoggedIn: () async => false,
+            search: (keyword) async => const [],
+            directLink: (file) async =>
+                const CloudDirectLink(url: 'https://x.test/none.m3u8'),
+          ),
           probeFetch: _probeDead,
           playerFactory: () => ControlledNativePlayer(),
           playUrlPrep: (url, headers) async => url,

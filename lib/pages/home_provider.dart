@@ -13,6 +13,7 @@ import '../services/home_page_affinity.dart';
 import '../services/midnight_gate.dart';
 import '../services/source_registry.dart';
 import '../services/user_facing_error.dart';
+import '../widgets/home/home_tab_bar.dart';
 
 typedef HomepageLoader =
     Future<HomepagePage> Function({int tabType, int offset, String? sessionId});
@@ -398,7 +399,25 @@ class HomeNotifier extends Notifier<HomeState> {
   /// 短剧页（`dramaProvider`）用本地表下标驱动自己的频道条，它的 state.tabs
   /// 同样会被服务端那 11 项填满，若跟着服务端下标解析，它的「短剧」（本地 2）
   /// 就会变成服务端的「经典」。
+  /// 首页「网盘」档的卡片种类：没有书城流，内容区直接画网盘页主体。
+  static const panKind = 'pan';
+
+  /// 网盘档在本地表里的下标：以 homeCategories 里「网盘」的位置
+  /// 为准（现与本地 tabs 的「视频」位同格），不写死数字、不移位
+  /// 既有下标。
+  int get panTabIndex =>
+      homeCategories.indexWhere((c) => c.label == panHomeCategoryLabel);
+
+  /// 这一格是不是网盘档：只认首页实例（[panTabEnabled]）+ 本地表
+  /// 口径。短剧页的 dramaProvider 同用本地表，它的第 7 格是「视频」
+  /// 频道（推荐），不许被网盘特判抢走，故缺省关、只首页开。
+  bool isPanTab(int tabIndex) =>
+      panTabEnabled && usesLocalTabs && tabIndex == panTabIndex;
+
   ({String name, String kind, int? tabType}) identityOf(int tabIndex) {
+    if (isPanTab(tabIndex)) {
+      return (name: panHomeCategoryLabel, kind: panKind, tabType: null);
+    }
     final server = state.tabs;
     if (!usesLocalTabs && tabIndex >= 0 && tabIndex < server.length) {
       final tab = server[tabIndex];
@@ -466,6 +485,10 @@ class HomeNotifier extends Notifier<HomeState> {
   /// 固定走本地表，不能靠 `state.tabs` 空不空来猜。
   final bool usesLocalTabs;
 
+  /// 首页网盘档特判开关：只有首页的 homeProvider 打开（见类上
+  /// [isPanTab] 的说明），短剧页实例保持关闭。
+  final bool panTabEnabled;
+
   HomeNotifier({
     /// 只关心 `tabType` 的加载器（测试注入点）。给了它就不再看下标，所以
     /// 这里在构造期直接把它适配成带下标的形状。
@@ -484,6 +507,7 @@ class HomeNotifier extends Notifier<HomeState> {
     Future<List<MediaItem>> Function()? adultRecommendationsLoader,
     this.initialTabIndex = 0,
     this.usesLocalTabs = false,
+    this.panTabEnabled = false,
   }) : _feedCache = feedCache ?? HomeFeedCache.instance,
        _adultRecommendationsLoader = adultRecommendationsLoader, // ignore: prefer_initializing_formals
        // 注入的 loader 只认 `tabType`；生产路径要额外带上顶栏下标，所以
@@ -585,6 +609,22 @@ class HomeNotifier extends Notifier<HomeState> {
     final tabIndex = state.tabIndex;
     final generation = ++_generation;
     final feed = _feedFor(tabIndex)..reset();
+    // 网盘档不拉书城流：内容区直接画网盘页主体，这里只置空闲态
+    // （无条目、无区块、不报错、没有下一页）。
+    if (isPanTab(tabIndex)) {
+      feed.loaded = true;
+      feed.hasMore = false;
+      state = state.copyWith(
+        items: const [],
+        cells: const [],
+        cellsTabIndex: tabIndex,
+        isLoading: false,
+        isLoadMore: false,
+        hasMore: false,
+        clearError: true,
+      );
+      return;
+    }
     // Stale-while-revalidate: show the last rendered cards while the network
     // refresh runs. The cursors stay reset, so the response replaces page one.
     final snapshot = manualRefresh ? null : _feedCache?.load(tabIndex);
@@ -855,6 +895,17 @@ class HomeNotifier extends Notifier<HomeState> {
   }
 
   Future<_FetchedFeed> _loadInitial(int tabIndex) async {
+    // 网盘档兜底（loadMore 等路径万一走到这里）：回空页，不搜「网盘」。
+    if (isPanTab(tabIndex)) {
+      return const _FetchedFeed(
+        items: [],
+        nextOffset: null,
+        sessionId: null,
+        searchPage: 0,
+        recommendExhausted: true,
+        hasMore: false,
+      );
+    }
     final identity = identityOf(tabIndex);
     final name = identity.name;
     if (name == '全部') return _loadAllInitial();
@@ -1503,7 +1554,7 @@ final homeProvider = NotifierProvider<HomeNotifier, HomeState>(
   // 漫剧/漫画/听书），不用服务端下发的 11 项——服务端表里没有「短剧/漫剧」，
   // 过滤不出这套组合，所以身份口径整条走本地表（同 dramaProvider 的
   // usesLocalTabs 机制）。
-  () => HomeNotifier(usesLocalTabs: true),
+  () => HomeNotifier(usesLocalTabs: true, panTabEnabled: true),
 );
 
 // Note: 底部导航的短剧目的地用第二个 HomeNotifier 实例而不是复用 homeProvider，

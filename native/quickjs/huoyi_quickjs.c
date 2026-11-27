@@ -237,7 +237,12 @@ static JSValue js_pd(JSContext *ctx, JSValueConst this_val, int argc, JSValueCon
 
 static char *json_escape(const char *s) {
     size_t len = strlen(s);
-    char *out = (char *)malloc(len * 2 + 3);
+    /* 缓冲区按最坏情况算账：普通字符 1 字节、引号/反斜杠与
+       \n \r \t 是 2 字节，但 c<0x20 的控制字符走 \u%04x 是
+       6 字节/字。原来按 len*2+3 分配，异常消息里控制字符一多
+       就写出界（堆溢出）。改按 6 倍 + 3 分配：6*len 正文 +
+       两端引号 2 + 结尾 NUL 1，任何输入都够。 */
+    char *out = (char *)malloc(len * 6 + 3);
     if (!out) return NULL;
     size_t j = 0;
     out[j++] = '"';

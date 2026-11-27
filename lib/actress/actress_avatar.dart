@@ -154,6 +154,11 @@ class ActressAvatarCache {
 typedef ActressAvatarBytesFetcher =
     Future<({Uint8List bytes, String actorId})?> Function(String name);
 
+/// 远程取图覆盖（可注入，测试用假实现）：按地址回图片字
+/// 节，取不到/失败回 null。不传时走生产路（ContentHttp 字
+/// 节路＋图床解密，见 _ActressAvatarState._loadRemote）。
+typedef ActressAvatarRemoteLoader = Future<Uint8List?> Function(String url);
+
 /// 生产取数：JavDB 按名查演员（jar 路线客户端）→ 取头像图
 /// （图床带 Referer、XOR 加密字节解密，与 B1 图片口径同）。
 /// 查不到人/没头像/图拉不到都回 null，不抛错。
@@ -187,28 +192,38 @@ ActressAvatarBytesFetcher javdbAvatarBytesFetcher(
 
 /// 演员头像（补全链组件，详情页演员区与演员库三列网格共用）：
 /// 1. 本地缓存（预热/此前补过的）命中直接出；
-/// 2. 本地库头像地址：取字节带 10 秒超时，超时/失败判死落
-///    下一级——不许无限转圈（加载中只出静态首字占位，不出
-///    转圈）；取到顺手落缓存；
-/// 3. JavDB 按演员名取头像（取数见 javdbAvatarBytesFetcher），
+/// 2. 本地库头像地址（本行）：取字节带 10 秒超时，超时/失败
+///    判死落下一级——不许无限转圈（加载中只出静态首字占位，
+///    不出转圈）；取到顺手落缓存；
+/// 3. 同番号互补（只有详情页传）：本行没头像/占位/死址时，
+///    用同番号其他行里同名演员的头像地址（详情页按归一化番
+///    号查回），取到落缓存再出；
+/// 4. JavDB 按演员名取头像（取数见 javdbAvatarBytesFetcher），
 ///    取到落缓存再出；
-/// 4. 都没有：名字首字静态占位收尾，不转圈、不留空白块。
+/// 5. 都没有：名字首字静态占位收尾，不转圈、不留空白块。
 class ActressAvatar extends StatefulWidget {
   const ActressAvatar({
     super.key,
     required this.name,
     this.avatarUrl = '',
+    this.sameCodeAvatarUrl = '',
     this.actorId = '',
     this.javdbClient,
     this.avatarFetcher,
+    this.remoteLoader,
     this.cache,
     this.fit = BoxFit.cover,
   });
 
   final String name;
 
-  /// 本地库里存的头像地址（第一级的外源）。
+  /// 本地库里存的头像地址（第二级的外源，本行）。
   final String avatarUrl;
+
+  /// 同番号互补头像地址（第三级的外源）：详情页按番号从本
+  /// 地库其他同番号行查回的、同名演员的头像地址；网格等无
+  /// 番号语境不传（默认空 = 这一级跳过）。
+  final String sameCodeAvatarUrl;
 
   /// 演员 id（有就带，缓存键双保险用；本地库行没有可空）。
   final String actorId;
@@ -216,6 +231,9 @@ class ActressAvatar extends StatefulWidget {
 
   /// 取数覆盖（测试注入）；不传时按 javdbClient 现造。
   final ActressAvatarBytesFetcher? avatarFetcher;
+
+  /// 远程取图覆盖（测试注入）；不传时走生产 ContentHttp 路。
+  final ActressAvatarRemoteLoader? remoteLoader;
   final ActressAvatarCache? cache;
   final BoxFit fit;
 
@@ -233,6 +251,11 @@ class _ActressAvatarState extends State<ActressAvatar> {
   var _generation = 0;
   var _resolving = false;
 
+  /// 同番号地址在主链解析中途才到：先记下，主链收尾仍无图
+  /// 时单独补跑同番号一级（见 _resolve 的 finally）。
+  var _pendingSameCode = false;
+  var _sameCodeResolving = false;
+
   @override
   void initState() {
     super.initState();
@@ -248,6 +271,20 @@ class _ActressAvatarState extends State<ActressAvatar> {
       _bytes = null;
       _file = null;
       unawaited(_resolve());
+      return;
+    }
+    // 同番号互补地址迟到（详情页后台查回晚于开页）：已出图
+    // 的不降级替换；主链还在跑的记一笔、收尾补跑；已停在
+    // 占位的单独补跑这一级。
+    if (oldWidget.sameCodeAvatarUrl != widget.sameCodeAvatarUrl &&
+        widget.sameCodeAvatarUrl.trim().isNotEmpty &&
+        _bytes == null &&
+        _file == null) {
+      if (_resolving) {
+        _pendingSameCode = true;
+      } else {
+        unawaited(_resolveSameCodeOnly());
+      }
     }
   }
 
@@ -284,9 +321,9 @@ class _ActressAvatarState extends State<ActressAvatar> {
         setState(() => _file = cached);
         return;
       }
-      // 2) 本地库头像地址：先过有效口径（占位形态本地判定
-      // 直接跳过、不发请求），有效的才取字节（10 秒超时，
-      // 死地址落下一级）。
+      // 2) 本地库头像地址（本行）：先过有效口径（占位形态本
+      // 地判定直接跳过、不发请求），有效的才取字节（10 秒
+      // 超时，死地址落下一级）。
       final url = widget.avatarUrl.trim();
       if (actressAvatarUrlUsable(url)) {
         final bytes = await _loadRemote(url);
@@ -299,7 +336,11 @@ class _ActressAvatarState extends State<ActressAvatar> {
           return;
         }
       }
-      // 3) JavDB 按名取头像。
+      // 3) 同番号互补：本行没头像/占位/死址才轮到——同番号
+      // 其他行里同名演员的头像地址（详情页查回传入）。
+      if (await _loadSameCode(generation)) return;
+      if (!mounted || generation != _generation) return;
+      // 4) JavDB 按名取头像。
       final fetcher =
           widget.avatarFetcher ??
           javdbAvatarBytesFetcher(widget.javdbClient ?? JavdbApiClient());
@@ -316,17 +357,61 @@ class _ActressAvatarState extends State<ActressAvatar> {
         );
         return;
       }
-      // 4) 首字占位（build 里 _bytes/_file 都空即占位）。
+      // 5) 首字占位（build 里 _bytes/_file 都空即占位）。
     } catch (_) {
       // 任一级出错都收尾到占位，不把异常带上屏。
     } finally {
       _resolving = false;
+      // 同番号地址在解析中途到的：主链没出图就补跑这一级。
+      if (_pendingSameCode) {
+        _pendingSameCode = false;
+        if (mounted && _bytes == null && _file == null) {
+          unawaited(_resolveSameCodeOnly());
+        }
+      }
+    }
+  }
+
+  /// 同番号互补一级：地址先过有效口径（占位形态直接跳过、
+  /// 不发请求），取到图落缓存再出、算命中；其余一律不命中。
+  Future<bool> _loadSameCode(int generation) async {
+    final url = widget.sameCodeAvatarUrl.trim();
+    if (!actressAvatarUrlUsable(url)) return false;
+    final bytes = await _loadRemote(url);
+    if (!mounted || generation != _generation) return false;
+    if (bytes == null) return false;
+    setState(() => _bytes = bytes);
+    unawaited(_cache.write(widget.name, id: widget.actorId, bytes: bytes));
+    return true;
+  }
+
+  /// 同番号一级单独补跑（地址迟到、主链已收尾停在占位时）。
+  Future<void> _resolveSameCodeOnly() async {
+    if (_sameCodeResolving || _resolving) return;
+    _sameCodeResolving = true;
+    final generation = ++_generation;
+    try {
+      await _loadSameCode(generation);
+    } catch (_) {
+      // 补跑失败就停在占位，不把异常带上屏。
+    } finally {
+      _sameCodeResolving = false;
     }
   }
 
   /// 远程取图：统一走字节路（10 秒超时是硬线），JavDB 图床
-  /// 字节解密。失败/超时/非 2xx 回 null。
+  /// 字节解密。失败/超时/非 2xx 回 null。测试注入
+  /// [ActressAvatar.remoteLoader] 时走注入路（同样回 null 表
+  /// 失败）。
   Future<Uint8List?> _loadRemote(String url) async {
+    final loader = widget.remoteLoader;
+    if (loader != null) {
+      try {
+        return await loader(url);
+      } catch (_) {
+        return null;
+      }
+    }
     try {
       final http = _http ??= ContentHttp();
       final raw = await http.getRaw(

@@ -14,9 +14,13 @@ import 'site_thumb_image.dart';
 /// 站点在哪个区：builtin 内置区 / import 导入区 / plugin 插件区。
 ///
 /// 插件区是用户 2026-11-26 新令（推翻 2026-11-24「不要插件系统」
-/// 的旧令）：安卓与 iOS 同一界面结构，选站由两区变三区；插件市场
-/// 就放在插件区里（见 plugin_zone_view.dart）。旧调用点不传
-/// `enablePluginZone` 时仍是两区，行为不变。
+/// 的旧令）：安卓与 iOS 同一界面结构，选站由两区变三区。
+/// 2026-11-27 新布局令：插件区在本弹窗里只保留显示——已装插件站
+/// 能看、能点、能播；插件市场与已装插件管理（安装、卸载、启停、
+/// 添加本地包/远程源）全套搬到「我的 → 插件管理」页
+/// （plugin_manage_page.dart），弹窗里不再有市场区段、添加按钮与
+/// 插件条目长按卸载。旧调用点不传 `enablePluginZone` 时仍是两区，
+/// 行为不变。
 enum SiteGridZone { builtin, import, plugin }
 
 extension SiteGridZoneLabel on SiteGridZone {
@@ -66,8 +70,9 @@ String? resolveCurrentSiteId(String? currentId, List<String> visibleIds) {
 /// 返回 true 表示删/藏成了，弹窗把该行摘掉；false 则行留着。
 Future<bool> deleteSiteGridEntry(SiteGridEntry entry) async {
   if (entry.zone == SiteGridZone.plugin) {
-    // 插件条目的长按卸载由弹窗本体走 IdjPluginStore（删包 + 摘站），
-    // 不经这里；这里只作兜底：摘掉登记行，包由插件区管理。
+    // 插件条目的卸载在「我的 → 插件管理」页走 IdjPluginStore
+    // （删包 + 摘站），弹窗里不挂长按；这里只作兜底：摘掉登记行，
+    // 包由插件管理页处理。
     await SourceRegistry.instance.removeCustom(entry.id);
     return true;
   }
@@ -90,8 +95,7 @@ Future<bool> deleteSiteGridEntry(SiteGridEntry entry) async {
 /// 下方，点签或左右滑切区；区内再按短剧 / 视频 / 午夜分组（组标题
 /// 「名 + 空格 + 数」）。搜索框只过滤活动区内的站。长按站名删/藏
 /// （见 [deleteSiteGridEntry]，确认框由弹窗内弹，导入站删、内置站
-/// 藏、插件站走卸载）。启用插件区时标题行右上角有「+」号，可添加
-/// 本地插件包与远程插件源；插件区下半是插件市场。
+/// 藏）；插件站不在弹窗里挂长按——卸载去「我的 → 插件管理」。
 Future<String?> showSiteGridDialog({
   required BuildContext context,
   required List<SiteGridEntry> sites,
@@ -111,7 +115,8 @@ Future<String?> showSiteGridDialog({
   Widget Function(String url)? thumbImageBuilder,
 
   /// 插件区开关：三个生产调用点（片库影视 / 短剧 / 午夜）传 true，
-  /// 弹窗变三区并带插件市场与右上角「+」；其余调用点默认两区。
+  /// 弹窗变三区，插件区只显示已装插件站（市场与管理在「我的 →
+  /// 插件管理」页）；其余调用点默认两区。
   bool enablePluginZone = false,
 
   /// 插件仓库注入缝：不传用登记表的共用实例；测试 / 预览传假的。
@@ -273,55 +278,10 @@ class _SiteGridDialogState extends State<SiteGridDialog> {
     }
   }
 
-  /// 插件条目长按 = 卸载：确认后走插件仓库卸载（删包 + 摘站），
-  /// 再按已装清单刷新插件区。
-  Future<void> _confirmUninstallPlugin(SiteGridEntry entry) async {
-    // 插件 id 以插件仓库（事实来源）为准，登记行指针作兜底。
-    String? pluginId;
-    try {
-      final installed = await _pluginStore.listInstalled();
-      for (final plugin in installed) {
-        if (plugin.entry.siteKey == entry.id) {
-          pluginId = plugin.entry.pluginId;
-          break;
-        }
-      }
-    } catch (_) {}
-    pluginId ??=
-        SourceRegistry.instance.customById(entry.id)?.extra['pluginId']
-            as String?;
-    if (!mounted) return;
-    if (pluginId == null || pluginId.isEmpty) {
-      // 登记行丢了插件指针：只摘行，包由下次对账处理。
-      setState(() {
-        _entries.removeWhere((item) => item.id == entry.id);
-      });
-      return;
-    }
-    final confirmed = await confirmUninstallPlugin(context, entry.name);
-    if (!confirmed || !mounted) return;
-    try {
-      await _pluginStore.uninstall(pluginId);
-    } catch (error) {
-      if (!mounted) return;
-      debugPrint('卸载插件失败（$pluginId）：$error');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(idjPluginUserErrorText(error, '卸载失败，请稍后重试')),
-        ),
-      );
-      return;
-    }
-    await _reloadPluginEntries();
-  }
-
-  /// 长按删/藏：先弹确认框（导入站删、内置站藏、插件站卸载），
-  /// 确认后调调用方的执行入口；成了就把该行从列表摘掉。
+  /// 长按删/藏：先弹确认框（导入站删、内置站藏），确认后调调用方
+  /// 的执行入口；成了就把该行从列表摘掉。插件站不走这里——弹窗
+  /// 插件区只留显示，卸载在「我的 → 插件管理」页（见 _canDelete）。
   Future<void> _confirmDelete(SiteGridEntry entry) async {
-    if (entry.zone == SiteGridZone.plugin && widget.enablePluginZone) {
-      await _confirmUninstallPlugin(entry);
-      return;
-    }
     final handler = widget.onDeleteSite;
     if (handler == null) return;
     final isImport = entry.zone == SiteGridZone.import;
@@ -371,10 +331,10 @@ class _SiteGridDialogState extends State<SiteGridDialog> {
     });
   }
 
+  /// 插件站永不挂长按（管理只留「我的 → 插件管理」一处）；其余站
+  /// 有删/藏执行入口时才挂。
   bool _canDelete(SiteGridEntry entry) =>
-      entry.zone == SiteGridZone.plugin
-      ? widget.enablePluginZone
-      : widget.onDeleteSite != null;
+      entry.zone != SiteGridZone.plugin && widget.onDeleteSite != null;
 
   @override
   Widget build(BuildContext context) {
@@ -408,9 +368,9 @@ class _SiteGridDialogState extends State<SiteGridDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
+              const Row(
                 children: [
-                  const Text(
+                  Text(
                     '切换站点',
                     style: TextStyle(
                       fontSize: 16,
@@ -418,18 +378,7 @@ class _SiteGridDialogState extends State<SiteGridDialog> {
                       color: Colors.white,
                     ),
                   ),
-                  const Spacer(),
-                  if (widget.enablePluginZone)
-                    IconButton(
-                      key: const ValueKey('site-grid-add'),
-                      icon: const Icon(Icons.add, color: moyiCyan),
-                      tooltip: '添加插件',
-                      onPressed: () => showPluginAddSheet(
-                        context,
-                        store: _pluginStore,
-                        onChanged: () => unawaited(_reloadPluginEntries()),
-                      ),
-                    ),
+                  Spacer(),
                 ],
               ),
               const SizedBox(height: 12),
@@ -470,7 +419,7 @@ class _SiteGridDialogState extends State<SiteGridDialog> {
                   ),
                 ),
               ),
-              if (widget.onDeleteSite != null || widget.enablePluginZone) ...[
+              if (widget.onDeleteSite != null) ...[
                 const SizedBox(height: 8),
                 const Text(
                   '长按站点可删除或隐藏',
@@ -610,35 +559,31 @@ class _SiteGridDialogState extends State<SiteGridDialog> {
     );
   }
 
-  /// 插件区本体：已装插件的站网格在上、插件市场在下，同一个滚动
-  /// 区。搜索时只过滤站网格、不显示市场；一个插件都没装时只剩
-  /// 市场（市场里点安装即可），不显示空态文案。
+  /// 插件区本体（只留显示）：只有已装插件的站网格，点卡即选中。
+  /// 市场与管理已搬到「我的 → 插件管理」页，这里不挂市场区段、
+  /// 添加按钮与长按卸载。一个插件都没装时显示空态文案指路。
   Widget _pluginZoneBody(
     List<SiteGridEntry> filtered,
     List<SiteGridGroup> visibleGroups,
     bool searching,
     Color selectedColor,
   ) {
-    if (searching && filtered.isEmpty) {
-      return const Center(
+    if (filtered.isEmpty) {
+      return Center(
         child: Text(
-          '没有匹配的站点',
-          style: TextStyle(fontSize: 14, color: moyiMutedOnDark),
+          searching ? '没有匹配的站点' : '还没有插件站，去「我的 → 插件管理」安装',
+          style: const TextStyle(fontSize: 14, color: moyiMutedOnDark),
         ),
       );
     }
     return ListView(
       shrinkWrap: true,
-      children: [
-        ..._groupSections(filtered, visibleGroups, searching, selectedColor),
-        if (!searching) ...[
-          const SizedBox(height: 16),
-          PluginMarketSection(
-            store: _pluginStore,
-            onChanged: () => unawaited(_reloadPluginEntries()),
-          ),
-        ],
-      ],
+      children: _groupSections(
+        filtered,
+        visibleGroups,
+        searching,
+        selectedColor,
+      ),
     );
   }
 

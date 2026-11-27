@@ -202,11 +202,25 @@ Java_com_fanrenxiuxianguanyingchuan_QuickJSBridge_nativeEval(JNIEnv *env, jclass
         if (local) {
             g_bridge_class = (jclass)(*env)->NewGlobalRef(env, local);
             (*env)->DeleteLocalRef(env, local);
+            /* 病因（初始化不清异常）：GetStaticMethodID 失败会留下
+               pending 的 NoSuchMethodError，此后 JS 照跑、NewStringUTF
+               照调都不在「JNI 异常挂起时的安全调用集」里，进程会被
+               ART 带走。所以每个方法 ID 取完立即查 ExceptionCheck：
+               失败就清掉异常并把该 ID 置 NULL——call_static_string
+               本就对 NULL 方法回 NULL，JS 侧拿到的是失败而不是崩溃。
+               FindClass 失败同理，在 else 分支清异常。 */
             g_fetch_method = (*env)->GetStaticMethodID(env, g_bridge_class, "fetch", "(Ljava/lang/String;)Ljava/lang/String;");
+            if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); g_fetch_method = NULL; }
             g_request_method = (*env)->GetStaticMethodID(env, g_bridge_class, "requestJson", "(Ljava/lang/String;)Ljava/lang/String;");
+            if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); g_request_method = NULL; }
             g_pdfa_method = (*env)->GetStaticMethodID(env, g_bridge_class, "pdfaJson", "(Ljava/lang/String;)Ljava/lang/String;");
+            if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); g_pdfa_method = NULL; }
             g_pdfh_method = (*env)->GetStaticMethodID(env, g_bridge_class, "pdfhJson", "(Ljava/lang/String;)Ljava/lang/String;");
+            if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); g_pdfh_method = NULL; }
             g_pd_method = (*env)->GetStaticMethodID(env, g_bridge_class, "pdJson", "(Ljava/lang/String;)Ljava/lang/String;");
+            if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); g_pd_method = NULL; }
+        } else if ((*env)->ExceptionCheck(env)) {
+            (*env)->ExceptionClear(env);
         }
         huoyi_qjs_set_fetch(jni_fetch);
         huoyi_qjs_set_request(jni_request);

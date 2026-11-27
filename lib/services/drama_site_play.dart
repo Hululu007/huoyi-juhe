@@ -3,6 +3,8 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
+import '../cloud_drive/cloud_drive_client.dart';
+import '../cloud_drive/cloud_drive_factory.dart';
 import '../models/media_item.dart';
 import '../models/playlet_comment.dart';
 import '../models/series_detail.dart';
@@ -728,6 +730,14 @@ Future<void> openFilmCategoryTag(
   );
 }
 
+/// 片库网格点按是否走「网盘文件夹下钻」分支（纯判定，可单测）：
+/// 网盘站（siteId 以 `cloud:` 开头）的条目里，文件夹条目 id 带
+/// `folder:` 前缀——这类条目没有详情/播放，点按应进钉死在该
+/// 文件夹上的浏览页下钻，而不是走 detail（现状会报错）。
+bool isCloudFolderDrillDown(String siteId, DramaSiteItem item) =>
+    siteId.startsWith('cloud:') &&
+    CloudDriveContentClient.isFolderItemId(item.id);
+
 Future<void> openDramaSiteItem(
   BuildContext context,
   String siteId,
@@ -742,6 +752,31 @@ Future<void> openDramaSiteItem(
       : await SourceRegistry.instance.clientFor(siteId);
   if (!context.mounted) return;
   if (client == null) return;
+  // 网盘文件夹下钻：文件夹条目不走详情/扣费，进钉死在该文件夹
+  // 上的浏览页（rooted 客户端），标题用文件夹名，分类直接选中
+  // 该文件夹；文件夹里的文件条目再点按走回本函数正常详情链。
+  if (isCloudFolderDrillDown(siteId, item)) {
+    final providerId = siteId.substring('cloud:'.length);
+    final folderId = CloudDriveContentClient.folderCategoryOf(item.id);
+    final rooted = CloudDriveFactory.rootedClient(
+      providerId,
+      folderId,
+      rootFolderName: item.title,
+    );
+    await Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => SiteBrowsePage(
+          siteId: siteId,
+          siteName: item.title,
+          client: rooted,
+          initialCategoryId:
+              '${CloudDriveContentClient.folderItemPrefix}$folderId',
+        ),
+      ),
+    );
+    return;
+  }
   final entry = SourceRegistry.instance.customById(siteId);
   // 阅读站（小说/漫画/听书）详情 extra 是空的，相关推荐没有分类
   // 信号，兜底等于白抓两次上游；影视站保持老行为。

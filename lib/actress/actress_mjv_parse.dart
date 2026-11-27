@@ -41,9 +41,26 @@ String _firstGroup(String text, Pattern pattern) {
 /// 搜索/列表页卡片解析（chaoliu.py _parse_posts 的两式：
 /// post 块式优先、无命中才走松散式；小说/图片分类不在本层
 /// 处理，调用方按 ctype 自行过滤）。
+///
+/// 2026-11-27 活站模板变更（18AV 实测，列表/搜索同构）：
+/// post 块改成 `<div class='post video_9s'>` + `<figure>`
+/// 包裹 + img 后跟 `<video>` 预览元素，旧 post 式与松散式
+/// （img 只认双引号 src、活站是单引号）双双 0 命中、列表
+/// 被吞成空态（用户实报「没数据」）。新增现行结构式打头，
+/// 旧式与放宽引号的松散式兜底，任一式有命中即回。
 List<MjvCard> parseMjvCards(String text) {
   if (text.isEmpty) return const [];
   final items = <MjvCard>[];
+  // 现行结构式（2026-11-27 活站）：post 后缀类名 + figure
+  // 包裹 + img 后 video/loader 元素 + con/h3 标题。
+  final p0 = RegExp(
+    r'''<div class='post[^']*'>\s*<figure[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>\s*<img[^>]*src=['"]([^'"]+)['"][^>]*>.*?</a>\s*</figure>\s*<div class='con'>\s*<h3[^>]*><a[^>]*>([^<]+)</a></h3>''',
+    dotAll: true,
+  );
+  for (final m in p0.allMatches(text)) {
+    _addMjvCard(items, m.group(1)!, m.group(3)!, m.group(2)!);
+  }
+  if (items.isNotEmpty) return _dedupeMjvCards(items);
   final p1 = RegExp(
     r'''<div class='post'>\s*<a[^>]*href="([^"]+)"[^>]*><img[^>]*src='([^']+)'[^>]*>\s*</a>\s*<div class='con'>\s*<h3[^>]*><a[^>]*>([^<]+)</a></h3>''',
     dotAll: true,
@@ -53,16 +70,25 @@ List<MjvCard> parseMjvCards(String text) {
     found1 = true;
     _addMjvCard(items, m.group(1)!, m.group(3)!, m.group(2)!);
   }
-  if (found1) return items;
+  if (found1) return _dedupeMjvCards(items);
   final p2 = RegExp(
-    r'''<a[^>]+href="([^"]*zh/[^"]*_content/[^"]*)"[^>]*>.*?<img[^>]+src="([^"]+)"[^>]*>.*?<(?:h3|h2|h4|div\s+class="title")[^>]*>(.*?)</''',
+    r'''<a[^>]+href="([^"]*zh/[^"]*_content/[^"]*)"[^>]*>.*?<img[^>]+src=['"]([^'"]+)['"][^>]*>.*?<(?:h3|h2|h4|div\s+class="title")[^>]*>(.*?)</''',
     dotAll: true,
     caseSensitive: false,
   );
   for (final m in p2.allMatches(text)) {
     _addMjvCard(items, m.group(1)!, _stripTags(m.group(3)!), m.group(2)!);
   }
-  return items;
+  return _dedupeMjvCards(items);
+}
+
+/// 同页同卡去重（详情坐标一致即同卡，保留先出现的）。
+List<MjvCard> _dedupeMjvCards(List<MjvCard> items) {
+  final seen = <String>{};
+  return [
+    for (final card in items)
+      if (seen.add('${card.ctype}/${card.num}/${card.slug}')) card,
+  ];
 }
 
 void _addMjvCard(List<MjvCard> items, String href, String title, String pic) {

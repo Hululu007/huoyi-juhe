@@ -301,6 +301,66 @@ ActressOnlineSource? actressOnlineSourceById(String id) {
   return null;
 }
 
+/// 从一段文本里提取 JAV 番号（详情页补全链的钥匙）：
+/// FC2 系优先，其次「字母+分隔+数字」，最后「字母数字连写」
+/// 整词。提取不到回 null（不硬凑，年份/时长这类数字不算）。
+/// 返回展示形：大写、空格折成连字符。
+String? actressExtractCode(String text) {
+  if (text.trim().isEmpty) return null;
+  final fc2 = RegExp(
+    r'FC2(?:[- ]?PPV)?[- ]?\d{5,7}',
+    caseSensitive: false,
+  ).firstMatch(text);
+  if (fc2 != null) {
+    return fc2.group(0)!.toUpperCase().replaceAll(' ', '-');
+  }
+  final separated = RegExp(
+    r'[A-Za-z]{2,8}[- ]\d{2,7}(?![\d])',
+  ).firstMatch(text);
+  if (separated != null) {
+    return separated.group(0)!.toUpperCase().replaceAll(' ', '-');
+  }
+  final joined = RegExp(
+    r'(?:^|[^A-Za-z0-9])([A-Za-z]{2,8}\d{2,7})(?![A-Za-z0-9])',
+  ).firstMatch(text);
+  if (joined != null) return joined.group(1)!.toUpperCase();
+  return null;
+}
+
+/// 一张在线卡的番号（全源统一提取，2026-11-27）：此前只有
+/// 123AV 从详情地址提番号，其余源（MissAV / 潮流 / 18AV /
+/// PH）进详情页时番号为空——按番号的补全链（JavDB、同番
+/// 号互补）与竞速线全部早退，详情页海报标题以下全空白
+/// （用户实报 UMSO-659）。提取顺序：源自有坐标（123AV
+/// 地址、18AV 地址尾段 slug）→ 卡 id 的尾段（py 桥卡 id
+/// 形如 ctype#num#slug 或番号本身）→ 标题扫描。
+String actressOnlineCardCode(
+  ActressOnlineSource source,
+  OnlineVideoCard card,
+) {
+  if (source.id == '123av') return av123CodeOf(card.pageUrl);
+  if (source.id == 'av18') {
+    final slug = card.pageUrl.split('/').last.replaceAll('.html', '');
+    if (slug.isNotEmpty) return slug.toUpperCase();
+    return '';
+  }
+  if (source.id == 'pornhub') {
+    // PH 没有番号体系、详情地址是 viewkey（字母数字串会被
+    // 连写式误判），只认标题里明写的番号。
+    return actressExtractCode(card.title) ?? '';
+  }
+  final idTail = card.pageUrl
+      .split('#')
+      .last
+      .split('/')
+      .last
+      .replaceAll('.html', '');
+  final fromId =
+      actressExtractCode(idTail) ?? actressExtractCode(card.pageUrl);
+  if (fromId != null) return fromId;
+  return actressExtractCode(card.title) ?? '';
+}
+
 /// 按 id 选页签，选不到回第一项（各源 fetchCards 共用）。
 OnlineTabOption actressPickTab(List<OnlineTabOption> tabs, String id) =>
     tabs.firstWhere((row) => row.id == id, orElse: () => tabs.first);

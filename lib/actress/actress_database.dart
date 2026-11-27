@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
 
+import 'actress_db_source.dart';
 import 'actress_generic_db.dart';
 import 'actress_models.dart';
 import 'actress_mytv_bind.dart';
@@ -504,8 +505,10 @@ class SqfliteActressDatabase implements ActressDatabase {
     // MYTV/db/女优库.db；绑定不到它（dbPath 为空）就抛
     // ActressNoExternalDbException，界面显示空态提示；外置库
     // 损坏/打不开也直接抛错，不回落任何内置库、不建新库。
-    final bind = await ActressMytvBind.instance.ensureBound();
-    final filePath = bind.dbPath;
+    await ActressMytvBind.instance.ensureBound();
+    // 双库批：开库路径走来源层生效路径（外置/导入二选一，
+    // imported 缺失自动回落 external），不再直读绑定路径。
+    final filePath = await ActressDbSource.instance.effectiveDbPath();
     _openFallbackNote = null;
     if (filePath.isEmpty) {
       throw const ActressNoExternalDbException(
@@ -951,8 +954,11 @@ class SqfliteActressDatabase implements ActressDatabase {
   }) async {
     // 重解析绑定：新放进 / 删掉的女优库.db 只有重解析才看得到
     // （“重新加载数据库”与进页热换库都靠它）。
-    final bind = await ActressMytvBind.instance.ensureBound(refresh: true);
-    final currentPath = bind.dbPath;
+    await ActressMytvBind.instance.ensureBound(refresh: true);
+    // 双库批：重读目标同样走来源层生效路径；切换必然换路径，
+    // 下面的路径比对会触发关旧连接重开新库（同路径换文件靠
+    // force 或文件戳，见 actress_db_source.dart 类注释）。
+    final currentPath = await ActressDbSource.instance.effectiveDbPath();
     if (currentPath.isEmpty) {
       return (reloaded: false, error: '未找到外置数据库：MYTV/db/女优库.db');
     }
@@ -1054,8 +1060,20 @@ class SqfliteActressDatabase implements ActressDatabase {
     // 手动映射文件与库文件放一起（MYTV/db/字段映射.json；未绑定
     // 时在 documents 下），换同结构库直接复用。
     final bind = await ActressMytvBind.instance.ensureBound();
+    // 双库批：映射文件跟实际打开的库放一起（生效路径优先，
+    // 没有才退绑定路径，与改前的外置库口径一致）。
+    final openedPath = _openedPath;
     final store = GenericDbMappingStore(
-      file: File(path.join(path.dirname(bind.dbPath), '字段映射.json')),
+      file: File(
+        path.join(
+          path.dirname(
+            openedPath != null && openedPath.isNotEmpty
+                ? openedPath
+                : bind.dbPath,
+          ),
+          '字段映射.json',
+        ),
+      ),
     );
     var resolvedSchema = schema;
     final saved = await store.loadMapping(schema.fingerprint);

@@ -12,9 +12,10 @@ import 'preview_test_support.dart';
 import 'package:fqapp/services/idj_plugin_store.dart';
 import 'package:fqapp/widgets/site_grid_dialog.dart';
 
-/// 选站弹窗插件区预览图：改前（两区）与改后（三区 + 插件区含已装
-/// 站与市场列表）各一张。数据全是假实现（临时目录仓库 + 假订阅
-/// 下载），不碰真网络；单独跑，不与普通测试混链。
+/// 选站弹窗插件区预览图：改前（两区）与改后（插件区只显示已装站
+/// 卡、长按卸载；市场已搬到「我的 → 插件管理」）各一张。数据全是
+/// 假实现（临时目录仓库 + 假订阅下载），不碰真网络；单独跑，不与
+/// 普通测试混链。
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -171,45 +172,12 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('插件区（3）'), findsOneWidget);
-    // 市场区段也等加载完再截，画面不留「正在加载」。
-    await pumpUntilFound(
-      tester,
-      find.byKey(const ValueKey('plugin-market-row-com.idj.ext.aiguo')),
-    );
-    await capture(tester, 'plugin_zone_installed_grid');
-  });
-
-  testWidgets('预览：插件区·市场网格（三列卡片）', (tester) async {
-    await tester.runAsync(
-      () => store.installBundleText(_demoBundleText()),
-    );
-    await pumpHost(
-      tester,
-      enablePluginZone: true,
-      initialZone: SiteGridZone.plugin,
-    );
-    // 等插件区对账把已装站带进表。
-    await pumpUntilFound(
-      tester,
-      find.byKey(const ValueKey('site-grid-row-idj_demo')),
-    );
-    expect(find.byKey(const ValueKey('site-grid-row-idj_demo')), findsOneWidget);
-    expect(find.text('插件区（1）'), findsOneWidget);
-    expect(find.byKey(const ValueKey('site-grid-add')), findsOneWidget);
-    // 等市场订阅（假下载，真异步）加载出卡片，再滚一下让卡片入镜。
-    await pumpUntilFound(
-      tester,
-      find.byKey(const ValueKey('plugin-market-row-com.idj.ext.aiguo')),
-    );
+    // 弹窗内已无市场区段（搬到「我的 → 插件管理」），断言不在场。
     expect(
       find.byKey(const ValueKey('plugin-market-row-com.idj.ext.aiguo')),
-      findsOneWidget,
+      findsNothing,
     );
-    expect(find.text('爱果短剧'), findsOneWidget);
-    await tester.drag(find.byType(ListView), const Offset(0, -160));
-    await tester.pumpAndSettle();
-    await capture(tester, 'plugin_zone_market_grid');
-    await capture(tester, 'site_picker_after_plugin_zone');
+    await capture(tester, 'plugin_zone_installed_grid');
   });
 }
 

@@ -15,7 +15,13 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 
 class QuickJSBridge {
-    private val executor = Executors.newCachedThreadPool()
+    // eval 并发上限 3：原来是无界的 newCachedThreadPool，市场自动
+    // 更新、手点安装 probe、打开插件站三路能同时跑多个 eval，每个
+    // QuickJS runtime 堆上限 32MB 再加 jsoup 解析，内存峰值没顶，
+    // 鸿蒙容器内存更紧时会被系统杀掉（外观就是闪退）。改成固定
+    // 3 线程池把同时执行的 eval 收住，多出来的排队；status 等轻
+    // 调用不走这个池，不受影响。
+    private val executor = Executors.newFixedThreadPool(3)
     private val mainHandler = Handler(Looper.getMainLooper())
 
     companion object {
@@ -55,7 +61,17 @@ class QuickJSBridge {
                     .header("User-Agent", USER_AGENT)
                     .build()
                 httpClient.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) null else response.body?.string()
+                    if (!response.isSuccessful) return@use null
+                    // 与 requestJson 同口径设体积上限：原来用
+                    // body.string() 整页无上限读入，插件 init 里
+                    // fetch 一个大页面就能把内存顶爆（鸿蒙容器
+                    // 内存更紧，被系统杀掉外观就是闪退）。改读
+                    // bytes、上限 8MB、按 UTF-8 解码；超限按失败
+                    // 回 null（JS 侧 fetch failed），不截半页
+                    // 假装成功。
+                    val bytes = response.body?.bytes() ?: return@use null
+                    if (bytes.size > 8 * 1024 * 1024) return@use null
+                    String(bytes, Charsets.UTF_8)
                 }
             } catch (error: Throwable) {
                 null

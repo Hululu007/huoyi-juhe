@@ -21,6 +21,19 @@
 # "HttpBridge does not implement the native streaming I/O contract".
 -keep class com.example.shortplay.HttpBridge { *; }
 
+# --- libhuoyi_quickjs.so (native/quickjs/quickjs_jni.c) ------------------
+# quickjs_jni.c resolves these five static methods on QuickJSBridge
+# through GetStaticMethodID, i.e. by the literal strings "fetch",
+# "requestJson", "pdfaJson", "pdfhJson" and "pdJson" -- the same
+# by-name JNI contract as HttpBridge above. The five methods are only
+# ever called from native code, never from Java/Kotlin, so without a
+# keep R8 renames or strips them in release builds (isMinifyEnabled)
+# and plugin evaluation fails at runtime even though the build
+# succeeds. The methods live on the Companion object, so keep both
+# the outer class and the Companion class whole.
+-keep class com.fanrenxiuxianguanyingchuan.QuickJSBridge { *; }
+-keep class com.fanrenxiuxianguanyingchuan.QuickJSBridge$Companion { *; }
+
 # --- generic JNI safety net ---------------------------------------------
 # Keeps the class and method name of every native method, which is what the
 # JNI naming convention depends on.

@@ -9,6 +9,7 @@ import 'actress_db_fields_page.dart';
 import 'actress_generic_db.dart';
 import 'actress_json_fallback.dart';
 import 'actress_models.dart';
+import 'actress_db_source.dart';
 import 'actress_mytv_bind.dart';
 import 'actress_neon.dart';
 import 'actress_adapter_repository.dart';
@@ -232,13 +233,15 @@ class FilmLibraryService implements FilmDbFallbackProvider {
   Future<FilmLibraryOpenResult> open() async {
     await close();
     final bind = await ActressMytvBind.instance.ensureBound();
-    final dbPath = bind.dbPath;
+    // 双库批：影视库同样走来源层生效路径；展示名只有生效的
+    // 就是绑定外置库时才用绑定的展示名，导入库另标。
+    final dbPath = await ActressDbSource.instance.effectiveDbPath();
     _dbPath = dbPath;
-    _displayPath = bind.displayPath;
+    _displayPath = dbPath == bind.dbPath ? bind.displayPath : '导入库（应用内）';
     if (dbPath.isEmpty) {
       return FilmLibraryOpenResult(
         dbPath: dbPath,
-        displayPath: bind.displayPath,
+        displayPath: _displayPath ?? bind.displayPath,
         strict: false,
         total: 0,
         schema: const GenericDbSchema(tables: [], fingerprint: ''),
@@ -250,7 +253,7 @@ class FilmLibraryService implements FilmDbFallbackProvider {
     if (!file.existsSync() || file.lengthSync() == 0) {
       return FilmLibraryOpenResult(
         dbPath: dbPath,
-        displayPath: bind.displayPath,
+        displayPath: _displayPath ?? bind.displayPath,
         strict: false,
         total: 0,
         schema: const GenericDbSchema(tables: [], fingerprint: ''),
@@ -277,7 +280,7 @@ class FilmLibraryService implements FilmDbFallbackProvider {
     final domain = await _currentDomainFromDb();
     return FilmLibraryOpenResult(
       dbPath: dbPath,
-      displayPath: bind.displayPath,
+      displayPath: _displayPath ?? bind.displayPath,
       strict: strict,
       total: total,
       schema: schema,
@@ -1026,8 +1029,10 @@ class FilmLibraryService implements FilmDbFallbackProvider {
   /// 就关旧连接重开。失败回 false，调用方回空、不拖垮兜底。
   Future<bool> _ensureFilmOpen() async {
     try {
-      final bind = await ActressMytvBind.instance.ensureBound();
-      if (isOpen && _dbPath == bind.dbPath) return true;
+      await ActressMytvBind.instance.ensureBound();
+      // 双库批：守卫比对走来源层生效路径，切换后路径变了就重开。
+      final effective = await ActressDbSource.instance.effectiveDbPath();
+      if (isOpen && _dbPath == effective) return true;
       await close();
       final result = await open();
       return result.error == null;

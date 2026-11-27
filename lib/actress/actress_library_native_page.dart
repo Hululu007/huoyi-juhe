@@ -31,6 +31,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import 'actress_adapter_repository.dart';
+import 'actress_db_manage_page.dart';
 import 'actress_adapter_store.dart';
 import 'actress_avatar.dart';
 import 'actress_javdb_api.dart' show JavdbApiClient;
@@ -46,6 +47,7 @@ import 'actress_online_parse.dart'
     show OnlineTabOption, OnlineVideoCard, av123CodeOf;
 import 'actress_online_sources.dart';
 import 'actress_py_lines.dart';
+import 'actress_site_bridge.dart';
 import 'actress_work_detail_page.dart';
 
 /// 本地源一级页签（照 whos 官方五维的前四维，厂牌是二级条）。
@@ -183,12 +185,14 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
   late final ActressPyBridge _pyBridge = ActressPyBridge(widget.repository);
 
   /// 可浏览在线源（源条顺序）：123AV → PH → MissAV →
-  /// 潮流 → 18AV。
+  /// 潮流 → 18AV → 片库桥接站平铺（2026-11-27 用户令，
+  /// 见 actress_site_bridge.dart 注册表）。
   late final List<ActressOnlineSource> _browsableSources = [
     kActressOnlineSources[0],
     kActressOnlineSources[1],
     ...actressPyBrowsableSources(_pyBridge),
     kActressOnlineSources[2],
+    ...actressBridgedLibrarySources(_pyBridge),
   ];
 
   List<(String, String)> get _onlineTabs => [
@@ -472,6 +476,8 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
 
   /// 123AV / PH 的 Dart 直连加载（2026-11-27 照魔蚁修正版
   /// 移植的新链，替代 jar 旧链）：页签取卡、空页即止。
+  /// 桥接站（actress_site_bridge）同走此路，首拉前先装
+  /// 源站真实分类进页签。
   Future<void> _loadDartOnline(
     String sourceId,
     _OnlineState state, {
@@ -482,6 +488,10 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
     if (state.primaryId.isEmpty) {
       state.primaryId = source.defaultPrimaryId;
       state.secondaryId = source.defaultSecondaryId;
+    }
+    if (!more && source is ActressBridgedSiteSource) {
+      await source.ensureTabs(widget.repository);
+      if (!mounted) return;
     }
     final cards = await source
         .fetchCards(
@@ -843,6 +853,30 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
                       await _reloadLocalSource();
                     },
                   ),
+                ListTile(
+                  key: const ValueKey('native-manage-dual-page'),
+                  leading: const Icon(
+                    Icons.swap_horiz_rounded,
+                    color: Neon.cyan,
+                  ),
+                  title: const Text(
+                    '数据库管理页（导入/切换）',
+                    style: TextStyle(color: Neon.text),
+                  ),
+                  subtitle: const Text(
+                    '导入 .db / .sql、外置库与导入库切换',
+                    style: TextStyle(color: Neon.textDim, fontSize: 12),
+                  ),
+                  onTap: () async {
+                    Navigator.of(sheetContext).pop();
+                    await Navigator.of(context).push<void>(
+                      MaterialPageRoute(
+                        builder: (_) => const ActressDbManagePage(),
+                      ),
+                    );
+                    await _reloadLocalSource();
+                  },
+                ),
                 ListTile(
                   key: const ValueKey('native-manage-list-page'),
                   leading: const Icon(Icons.tune_rounded, color: Neon.cyan),

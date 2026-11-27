@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
 
+import '../cloud_drive/cloud_drive_login.dart';
 import '../services/hongguo_account.dart';
 import '../services/hongguo_account_sync.dart';
 import '../widgets/series_detail/moyi_detail_theme.dart';
@@ -343,6 +344,9 @@ class _HongguoLoginPageState extends State<HongguoLoginPage> {
           '换设备能回来；本机历史与书架不动，退出登录也不清。',
           color: Colors.blue,
         ),
+        // 网盘账号区（登入中心并入）：五家网盘各一行，登录/退出
+        // 走网盘共享登录层，与红果账号互不影响。
+        const CloudDriveAccountSection(),
       ],
     );
   }
@@ -482,6 +486,8 @@ class _HongguoLoginPageState extends State<HongguoLoginPage> {
           '退出登录只清账号数据，本机历史与书架不动。',
           color: Colors.blue,
         ),
+        // 网盘账号区（登入中心并入）：与红果账号互不影响。
+        const CloudDriveAccountSection(),
       ],
     );
   }

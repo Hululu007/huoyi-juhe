@@ -223,8 +223,11 @@ void main() {
     expect(find.byKey(const ValueKey('native-source-missav')), findsOneWidget);
     expect(find.byKey(const ValueKey('native-source-chaoliu')), findsOneWidget);
     expect(find.byKey(const ValueKey('native-source-av18')), findsOneWidget);
-    // 在线五段都带「未验」小标（与 123AV/PH 现行口径一致）。
-    expect(find.text('未验'), findsNWidgets(5));
+    // 在线段都带「未验」小标（与 123AV/PH 现行口径一致）；
+    // 2026-11-27 桥接批后源条尾段平铺 110 个桥接站、同带
+    // 未验标，横滑懒建出的段数随滑动位置变——断言至少五段
+    // 在位（原断言的五段口径不变）。
+    expect(find.text('未验'), findsAtLeastNWidgets(5));
     // 切到 MissAV 页签：py 桥经仓储 catalog 列出卡片。
     await tester.tap(find.byKey(const ValueKey('native-source-missav')));
     await _until(

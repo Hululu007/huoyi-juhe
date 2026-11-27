@@ -11,6 +11,10 @@ class HomeCategory {
   const HomeCategory(this.label, this.icon);
 }
 
+/// 首页「网盘」档的标签（home_provider 的网盘特判按这个标签对位，
+/// 不写死下标）。
+const panHomeCategoryLabel = '网盘';
+
 const homeCategories = [
   HomeCategory('推荐', Icons.circle),
   HomeCategory('小说', Icons.circle),
@@ -19,6 +23,9 @@ const homeCategories = [
   HomeCategory('漫剧', Icons.circle),
   HomeCategory('漫画', Icons.circle),
   HomeCategory('听书', Icons.circle),
+  // 网盘档：其余七项都用 Icons.circle 占位，这项给贴切的云盘图标
+  // Icons.cloud_outlined（条带实际只画文字，图标是分类元数据）。
+  HomeCategory(panHomeCategoryLabel, Icons.cloud_outlined),
 ];
 
 /// 书城顶部 tab 条。官方对照（`res/layout/alx.xml` 的 `SlidingTabLayout

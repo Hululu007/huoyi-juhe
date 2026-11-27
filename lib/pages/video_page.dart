@@ -24,6 +24,20 @@ import 'web_scrape_page.dart';
 
 /// 影视页选站规则：只列用户自己导入的站，预置的内置站不列。
 /// 新用户打开影视区是空白的，按空态提示去站源管理添加或导入。
+/// 影视区站表汇合点：登记表条目 + 网盘站内存条目（cloud:）。
+/// 网盘站只存内存（SourceRegistry.cloudDriveEntries，不落盘），
+/// 影视区的各条站表链路都经这里并入，按 id 去重（登记表优先）。
+List<SourceEntry> withCloudDriveSites(List<SourceEntry> entries) {
+  final cloud = SourceRegistry.instance.cloudDriveEntries;
+  if (cloud.isEmpty) return entries;
+  final seen = {for (final entry in entries) entry.id};
+  return [
+    ...entries,
+    for (final entry in cloud)
+      if (seen.add(entry.id)) entry,
+  ];
+}
+
 List<SourceEntry> videoPagePlayableSites(List<SourceEntry> entries) {
   return [
     for (final entry in entries)
@@ -33,6 +47,7 @@ List<SourceEntry> videoPagePlayableSites(List<SourceEntry> entries) {
               entry.kind == SourceKind.jsImport ||
               entry.kind == SourceKind.xbpqImport ||
               entry.kind == SourceKind.idjPlugin ||
+              entry.kind == SourceKind.cloudDrive ||
               (entry.kind == SourceKind.legadoImport &&
                   entry.extra['hasExplore'] == true)) &&
           entry.extra['builtin'] != true &&
@@ -232,7 +247,9 @@ List<({String id, String name, String kind})> visibleFilmZoneSites(
   int xp, [
   List<SourceEntry>? customEntries,
 ]) {
-  final entries = customEntries ?? SourceRegistry.instance.custom;
+  final entries = withCloudDriveSites(
+    customEntries ?? SourceRegistry.instance.custom,
+  );
   final out = <({String id, String name, String kind})>[
     for (final site in visibleVideoZoneSites(entries, xp))
       (id: site.id, name: site.name, kind: 'video'),
@@ -351,7 +368,10 @@ class _VideoPageState extends State<VideoPage> {
     // 只从已解锁的站里选：修为不到的站完全不显示，保存过的选择若在
     // 未解锁档里也回落到第一个已解锁站。
     final xp = CultivationService.instance.snapshot.totalXp;
-    final videoZone = visibleVideoZoneSites(SourceRegistry.instance.custom, xp);
+    final videoZone = visibleVideoZoneSites(
+      withCloudDriveSites(SourceRegistry.instance.custom),
+      xp,
+    );
     setState(() {
       _loading = false;
       _selectedId = sites.isEmpty ? null : sites.first.id;
@@ -397,7 +417,7 @@ class _VideoPageState extends State<VideoPage> {
     // 用户自导站也过一遍现有可见性逻辑：能归一化到分档表里的成人站
     // 按档位解锁，未解锁的不进列表；不在表里的站原样保留。
     return visibleVideoPagePlayableSites(
-      SourceRegistry.instance.custom,
+      withCloudDriveSites(SourceRegistry.instance.custom),
       CultivationService.instance.snapshot.totalXp,
     );
   }
@@ -428,7 +448,10 @@ class _VideoPageState extends State<VideoPage> {
   /// 这一排，分类弹窗已废弃）。
   Future<void> _openVideoZoneSiteSwitcher() async {
     final xp = CultivationService.instance.snapshot.totalXp;
-    final entries = videoZoneSiteEntries(SourceRegistry.instance.custom, xp);
+    final entries = videoZoneSiteEntries(
+      withCloudDriveSites(SourceRegistry.instance.custom),
+      xp,
+    );
     if (entries.isEmpty || !mounted) return;
     final initialZone = await _resolveInitialZone(entries);
     if (!mounted) return;
@@ -465,7 +488,10 @@ class _VideoPageState extends State<VideoPage> {
   /// 弹窗里删/藏了当前午夜站：当前站不在可见表里就回落到首站（或空）。
   Future<void> _fallBackVideoZoneSiteIfHidden() async {
     final xp = CultivationService.instance.snapshot.totalXp;
-    final entries = videoZoneSiteEntries(SourceRegistry.instance.custom, xp);
+    final entries = videoZoneSiteEntries(
+      withCloudDriveSites(SourceRegistry.instance.custom),
+      xp,
+    );
     final resolved = resolveCurrentSiteId(
       _videoZoneId,
       [for (final entry in entries) entry.id],
@@ -633,7 +659,7 @@ class _VideoPageState extends State<VideoPage> {
     // 出现（秀果/欲火聚合/百年直播只在直播 tab，影视区不混直播）。
     final xp = CultivationService.instance.snapshot.totalXp;
     final unifiedSites = visibleVideoZoneSites(
-      SourceRegistry.instance.custom,
+      withCloudDriveSites(SourceRegistry.instance.custom),
       xp,
     );
 

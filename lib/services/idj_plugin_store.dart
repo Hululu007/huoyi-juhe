@@ -798,7 +798,27 @@ class IdjPluginStore {
     IdjProbeFn? probe,
   }) => _serialized(() => _installBundleText(text, probe: probe));
 
+  /// 安装链兜底包装：链上任何一步（读索引、算站 key 的外部接线
+  /// 回调、写索引、清已卸载记录、装后通知回调等）漏出的未包装
+  /// 原始异常 / StateError 一律在这里收成中文 [IdjPluginFailure]，
+  /// 原文只进日志——安装失败的口径恒为「抛中文原因」，不许把
+  /// 英文异常原文甚至进程级崩溃漏给界面。既有步骤自己抛的
+  /// [IdjPluginFailure] 原样透传，不改任何既有行为口径。
   Future<IdjInstalledPlugin> _installBundleText(
+    String text, {
+    IdjProbeFn? probe,
+  }) async {
+    try {
+      return await _installBundleTextInner(text, probe: probe);
+    } on IdjPluginFailure {
+      rethrow;
+    } catch (error) {
+      debugPrint('idj 安装失败（未包装异常兜底）：$error');
+      throw IdjPluginFailure('安装失败：插件没能装上，请稍后重试');
+    }
+  }
+
+  Future<IdjInstalledPlugin> _installBundleTextInner(
     String text, {
     IdjProbeFn? probe,
   }) async {
@@ -1593,7 +1613,24 @@ class IdjPluginStore {
 
   /// 从订阅安装一个插件：按 `manifestUrl` 下载正文再分流
   /// （包 JSON 直接装；裸 manifest 从同目录下载脚本拼包再装）。
+  /// 订阅安装兜底包装：与 [_installBundleText] 同口径——下载与
+  /// interpret 分流里漏出的未包装原始异常一律收成中文
+  /// [IdjPluginFailure]，原文只进日志；已有的中文失败原样透传。
   Future<IdjInstalledPlugin> installFromSubscriptionPlugin(
+    IdjSubscriptionPlugin plugin, {
+    IdjProbeFn? probe,
+  }) async {
+    try {
+      return await _installFromSubscriptionPluginInner(plugin, probe: probe);
+    } on IdjPluginFailure {
+      rethrow;
+    } catch (error) {
+      debugPrint('idj 订阅安装失败（未包装异常兜底）：$error');
+      throw IdjPluginFailure('安装失败：插件没能装上，请稍后重试');
+    }
+  }
+
+  Future<IdjInstalledPlugin> _installFromSubscriptionPluginInner(
     IdjSubscriptionPlugin plugin, {
     IdjProbeFn? probe,
   }) async {

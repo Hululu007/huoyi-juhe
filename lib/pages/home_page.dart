@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../cloud_drive/cloud_drive_screen.dart';
 import '../models/home_cell.dart';
 import '../models/media_item.dart';
 import '../services/api_client.dart';
@@ -1017,6 +1018,15 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   List<Widget> _contentSlivers(HomeState state, double gridWidth) {
+    // 网盘档：不画书城流与其余分类的内容，内容区直接渲染网盘页
+    // 主体（与独立网盘页共用 CloudDriveBody 的嵌入形态）。
+    if (state.tabIndex >= 0 &&
+        state.tabIndex < homeCategories.length &&
+        homeCategories[state.tabIndex].label == panHomeCategoryLabel) {
+      return const [
+        SliverToBoxAdapter(child: CloudDriveBody(embedded: true)),
+      ];
+    }
     // 选了有取数客户端的外站时，短剧页不再画原站首页流，改画该站列表；
     // 原站与未接通的站照旧走下面的原站流。
     if (state.tabIndex >= 0 &&

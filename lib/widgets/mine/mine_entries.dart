@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
 
+import '../../actress/actress_db_manage_page.dart';
 import '../../pages/cached_books_page.dart';
+import '../../pages/plugin_manage_page.dart';
 import '../../pages/cached_dramas_page.dart';
 import '../../pages/library_backup_page.dart';
 import '../home/home_design.dart';
@@ -9,7 +11,9 @@ import '../home/home_shelf.dart';
 import '../home/home_sheet.dart';
 import '../series_detail/moyi_detail_theme.dart';
 
-/// 我的 页底部的入口列表：离线缓存 / 备份与导入。应用设置在标题栏齿轮。
+/// 我的 页底部的入口列表：离线缓存 / 备份与导入 / 数据库导入 /
+/// 插件管理（插件市场与已装插件管理在那一页，选站弹窗插件区只留
+/// 显示）。应用设置在标题栏齿轮。
 class MineEntries extends StatelessWidget {
   const MineEntries({super.key});
 
@@ -34,6 +38,16 @@ class MineEntries extends StatelessWidget {
             icon: LucideIcons.archive_restore,
             label: '备份与导入',
             onTap: () => _push(context, const LibraryBackupPage()),
+          ),
+          MineEntryRow(
+            icon: LucideIcons.database,
+            label: '数据库导入',
+            onTap: () => _push(context, const ActressDbManagePage()),
+          ),
+          MineEntryRow(
+            icon: LucideIcons.puzzle,
+            label: '插件管理',
+            onTap: () => _push(context, const PluginManagePage()),
           ),
         ],
       ),

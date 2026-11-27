@@ -12,6 +12,13 @@ import '../services/native_player.dart' show NativePlayer;
 /// 代理注册成裸地址再递进来）；自带播放/暂停键、进度条与
 /// 失败态（失败原因上屏 + 重试/换线由外层接），加载有总时
 /// 限——超时落错误态，不许无限转圈。
+///
+/// 全屏走片库详情页同款路径（2026-11-27 修复「演员库不能
+/// 全屏」）：本控件只带全屏按钮，点按时先销毁自己的播放器
+/// （避免与整页播放器两台原生播放器抢解码器，同
+/// FilmInlinePlayer 的做法），再把当前进度经 [onFullscreen]
+/// 交给外层，外层推整页 PlayerPage 续播；不传 [onFullscreen]
+/// 就不出全屏按钮，不留死入口。
 class ActressInlinePlayer extends StatefulWidget {
   const ActressInlinePlayer({
     super.key,
@@ -19,6 +26,8 @@ class ActressInlinePlayer extends StatefulWidget {
     this.poster = '',
     this.playerFactory,
     this.onPlaybackError,
+    this.onFullscreen,
+    this.startPosition,
     this.loadTimeout = const Duration(seconds: 30),
   });
 
@@ -34,6 +43,14 @@ class ActressInlinePlayer extends StatefulWidget {
   /// 播放出错（原生报错/起播超时）时回调外层（外层可自动
   /// 换下一条已验活线路）；参数是给用户看的原因。
   final void Function(String message)? onPlaybackError;
+
+  /// 全屏：点按时本控件先销毁自有播放器，再把当前播放
+  /// 进度交给外层推整页播放器。为空则不显示全屏按钮。
+  final void Function(Duration position)? onFullscreen;
+
+  /// 起播位置（从整页播放器退回时续播用）：经原生 create
+  /// 的 startMs 下发，零/空则从头播。
+  final Duration? startPosition;
 
   /// 起播总时限：create + 首帧超过它落错误态。
   final Duration loadTimeout;
@@ -89,12 +106,13 @@ class _ActressInlinePlayerState extends State<ActressInlinePlayer> {
     final stamp = ++_stamp;
     _loadTimer?.cancel();
     _teardownPlayer();
+    final startAt = widget.startPosition ?? Duration.zero;
     setState(() {
       _textureId = null;
       _firstFrame = false;
       _playing = false;
       _buffering = true;
-      _position = Duration.zero;
+      _position = startAt;
       _duration = Duration.zero;
       _error = null;
     });
@@ -146,7 +164,11 @@ class _ActressInlinePlayerState extends State<ActressInlinePlayer> {
       _fail('起播超时，这条线路可能已失效', stamp);
     });
     try {
-      final textureId = await player.create(widget.url, '');
+      final textureId = await player.create(
+        widget.url,
+        '',
+        startMs: startAt > Duration.zero ? startAt.inMilliseconds : null,
+      );
       if (!mounted || stamp != _stamp) return;
       setState(() {
         _textureId = textureId;
@@ -183,6 +205,28 @@ class _ActressInlinePlayerState extends State<ActressInlinePlayer> {
     } else {
       await player.play();
     }
+  }
+
+  /// 全屏（同 FilmInlinePlayer 的交接法）：先把自有播放器
+  /// 销毁，再把当前进度交给外层推整页播放器——整页播放器
+  /// 会另建一台原生实例，两台并存会抢解码器。交接后本控件
+  /// 回到海报垫底态，外层随即卸载本控件并推页。
+  void _openFullscreen() {
+    final callback = widget.onFullscreen;
+    if (callback == null || _error != null) return;
+    final position = _position;
+    _stamp++;
+    _loadTimer?.cancel();
+    _teardownPlayer();
+    if (mounted) {
+      setState(() {
+        _textureId = null;
+        _firstFrame = false;
+        _playing = false;
+        _buffering = false;
+      });
+    }
+    callback(position);
   }
 
   String _clock(Duration value) {
@@ -318,6 +362,17 @@ class _ActressInlinePlayerState extends State<ActressInlinePlayer> {
                         fontSize: 11,
                       ),
                     ),
+                    if (widget.onFullscreen != null)
+                      IconButton(
+                        key: const ValueKey('inline-player-fullscreen'),
+                        tooltip: '全屏',
+                        onPressed: _openFullscreen,
+                        icon: const Icon(
+                          Icons.fullscreen_rounded,
+                          color: Colors.white,
+                          size: 26,
+                        ),
+                      ),
                     const SizedBox(width: 6),
                   ],
                 ),
