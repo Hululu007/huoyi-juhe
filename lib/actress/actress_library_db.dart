@@ -4,7 +4,7 @@ import 'package:sqflite/sqflite.dart';
 
 import 'actress_database.dart' show applyActressDbReadPragmas;
 import 'actress_db_source.dart';
-import 'actress_models.dart' show normalizeAvCode;
+import 'actress_models.dart' show actressNameKey, normalizeAvCode;
 import 'actress_mytv_bind.dart';
 
 /// 合并演员库页的本地女优库兜底查询：参数化只读 SQL 的形态。
@@ -64,9 +64,10 @@ class ActressLibraryDbFallback {
   /// 绑定层收敛），dbPath 为空 = 没有可用库。
   static Future<String?> _resolveBoundDbPath() async {
     try {
-      // 双库批：走来源层生效路径（外置/导入二选一，imported
-      // 缺失自动回落 external）；为空 = 没有可用库。本服务自带
-      // 文件戳失效（路径+大小+mtime），切换换路径必然重开。
+      // 激活批：走来源层生效路径——只有 imported 槽里经导入
+      // 激活的库才有路径；未激活（或存量未补记）为空 = 演员库
+      // 未激活，本服务回未就绪、页面出导入引导。本服务自带
+      // 文件戳失效（路径+大小+mtime），换库必然重开。
       final effective = await ActressDbSource.instance.effectiveDbPath();
       if (effective.isEmpty) return null;
       return effective;
@@ -153,7 +154,10 @@ class ActressLibraryDbFallback {
     try {
       final query = await _ensureQuery();
       if (query == null) {
-        return {'ok': false, 'error': '本地女优库尚未就绪（未绑定或未导入）'};
+        return {
+          'ok': false,
+          'error': '演员库还没激活：请到数据库管理页导入女优库完成激活（需带版本字段）',
+        };
       }
       final tables = await _tableSet(query);
       if (!tables.contains('videos')) {
@@ -165,6 +169,8 @@ class ActressLibraryDbFallback {
           return await _list(query, tables, params);
         case 'search':
           return await _search(query, tables, params);
+        case 'globalSearch':
+          return await _globalSearch(query, tables, params);
         case 'works':
           return await _works(query, tables, params);
         case 'actresses':
@@ -175,6 +181,12 @@ class ActressLibraryDbFallback {
           return await _detail(query, tables, params);
         case 'sameCode':
           return await _sameCode(query, tables, params);
+        case 'magnetCategories':
+          return await _magnetCategories(query, tables);
+        case 'magnetWorks':
+          return await _magnetWorks(query, tables, params);
+        case 'magnetUrls':
+          return await _magnetUrls(query, tables, params);
         default:
           return {'ok': false, 'error': '未知 op：$op'};
       }
@@ -343,6 +355,193 @@ class ActressLibraryDbFallback {
     return {'ok': true, 'items': items};
   }
 
+  int _cap(Object? value, {required int fallback, required int max}) {
+    final parsed = int.tryParse('${value ?? ''}') ?? fallback;
+    return parsed < 1 ? 1 : (parsed > max ? max : parsed);
+  }
+
+  /// 首页全局搜索专用：一次调用回「演员」与「作品」两段（各自
+  /// 带上限与 hasMore）。查的库就是来源层当前生效的那一本
+  /// （路径解析与其它 op 同路：外置/导入二选一，不混查）。
+  ///
+  /// 查询策略（真库 448,277 部实测打底，数字见批次报告）：
+  /// - 番号候选精确命中走 vod_id 主键 IN（亚毫秒）；
+  /// - vod_id 前缀 LIKE 走主键索引补齐（十毫秒级）；
+  /// - 前两步没填满才做包含兜底（vod_id/title 的 %q% LIKE）：
+  ///   无命中时是全表扫（秒级），只作最后一段、词长 < 2 不跑；
+  ///   旧 search op 的 OR 写法恒全表扫，不在这里沿用。
+  /// - 演员按名包含查（actresses 约 3.2 万行小表）：精确 >
+  ///   前缀 > 包含，同档按作品数降序；显示层同名合并与演员
+  ///   页同口径（actressNameKey 归一、计数取大、头像取首个
+  ///   非空），合并在取够候选后做，hasMore 按合并后判。
+  /// 硬线排除与其它 op 同口径；actresses 表不在时演员段回空
+  /// （不拖垮作品段）。
+  Future<Map<String, dynamic>> _globalSearch(
+    ActressLibRawQuery query,
+    Set<String> tables,
+    Map<String, dynamic> params,
+  ) async {
+    final raw = (params['q'] ?? '').toString().trim();
+    if (raw.isEmpty) {
+      return {
+        'ok': true,
+        'actresses': const [],
+        'works': const [],
+        'actressesHasMore': false,
+        'worksHasMore': false,
+      };
+    }
+    final actressLimit = _cap(
+      params['actressLimit'],
+      fallback: 8,
+      max: 24,
+    );
+    final workLimit = _cap(params['workLimit'], fallback: 12, max: 50);
+
+    // ---- 演员段 ----
+    var actresses = <Map<String, dynamic>>[];
+    var actressesHasMore = false;
+    if (tables.contains('actresses')) {
+      final hasCounts = tables.contains('index_categories');
+      final countExpr = hasCounts
+          ? '(SELECT ic.video_count FROM index_categories ic '
+                "WHERE ic.category_type = 'actress' "
+                'AND ic.category_name = a.name)'
+          : null;
+      // 多取候选给同名合并留余量；合并后仍超上限才算 hasMore，
+      // 原始行取满请求数时也按有更多处理（合并只减不会增）。
+      final want = (actressLimit + 1) * 2;
+      final rows = await query(
+        'SELECT a.name AS name, a.avatar AS avatar'
+        '${countExpr == null ? '' : ', $countExpr AS cnt'} '
+        'FROM actresses a '
+        "WHERE a.name LIKE ? ESCAPE '\\' "
+        'ORDER BY CASE WHEN a.name = ? THEN 0 '
+        "WHEN a.name LIKE ? ESCAPE '\\' THEN 1 ELSE 2 END"
+        '${countExpr == null ? ', a.name ASC' : ', cnt DESC, a.name ASC'} '
+        'LIMIT ?',
+        [
+          '%${_escapeLike(raw)}%',
+          raw,
+          '${_escapeLike(raw)}%',
+          want,
+        ],
+      );
+      final merged = <Map<String, dynamic>>[];
+      final byKey = <String, Map<String, dynamic>>{};
+      for (final row in rows) {
+        final name = row['name']?.toString() ?? '';
+        final key = actressNameKey(name);
+        if (key.isEmpty) continue;
+        final count = (row['cnt'] as num?)?.toInt() ?? 0;
+        final existing = byKey[key];
+        if (existing == null) {
+          final entry = <String, dynamic>{
+            'name': name,
+            'avatar': row['avatar']?.toString() ?? '',
+            'count': count,
+          };
+          byKey[key] = entry;
+          merged.add(entry);
+          continue;
+        }
+        if (count > ((existing['count'] as num?)?.toInt() ?? 0)) {
+          existing['count'] = count;
+        }
+        if ((existing['avatar'] ?? '').toString().isEmpty) {
+          existing['avatar'] = row['avatar']?.toString() ?? '';
+        }
+      }
+      actressesHasMore =
+          merged.length > actressLimit || rows.length >= want;
+      actresses = merged.take(actressLimit).toList();
+    }
+
+    // ---- 作品段 ----
+    final works = <Map<String, dynamic>>[];
+    final found = <String>{};
+    var seen = 0;
+    Future<void> stage(
+      Future<List<Map<String, dynamic>>> Function(int want) run,
+    ) async {
+      if (works.length >= workLimit) return;
+      final want = workLimit - works.length + 1;
+      final rows = await run(want);
+      seen += rows.length;
+      for (final row in rows) {
+        final id = (row['vodId'] ?? '').toString();
+        if (id.isNotEmpty) found.add(id);
+        if (works.length < workLimit) works.add(row);
+      }
+    }
+
+    String notInClause() => found.isEmpty
+        ? ''
+        : ' AND v.vod_id NOT IN (${List.filled(found.length, '?').join(',')})';
+
+    // 第一段：番号候选精确命中（主键 IN）。
+    final candidates = actressSameCodeCandidateIds(vodId: '', code: raw);
+    if (candidates.isNotEmpty) {
+      final marks = List.filled(candidates.length, '?').join(',');
+      await stage(
+        (want) => _videoRows(
+          query,
+          tables,
+          where: '$_exclusionSql AND v.vod_id IN ($marks)',
+          whereArgs: [..._exclusionArgs, ...candidates],
+          orderBy: 'v.vod_pubdate DESC, v.vod_id DESC',
+          limit: want,
+          offset: 0,
+        ),
+      );
+    }
+    // 第二段：vod_id 前缀（主键索引）。
+    final lower = raw.toLowerCase();
+    await stage(
+      (want) => _videoRows(
+        query,
+        tables,
+        where: "$_exclusionSql AND v.vod_id LIKE ? ESCAPE '\\'"
+            '${notInClause()}',
+        whereArgs: [
+          ..._exclusionArgs,
+          '${_escapeLike(lower)}%',
+          ...found,
+        ],
+        orderBy: 'v.vod_id ASC',
+        limit: want,
+        offset: 0,
+      ),
+    );
+    // 第三段：包含兜底（全表扫，只在没填满且词够长时跑）。
+    if (raw.length >= 2) {
+      await stage(
+        (want) => _videoRows(
+          query,
+          tables,
+          where: "$_exclusionSql AND (v.vod_id LIKE ? ESCAPE '\\' "
+              "OR v.title LIKE ? ESCAPE '\\')${notInClause()}",
+          whereArgs: [
+            ..._exclusionArgs,
+            '%${_escapeLike(lower)}%',
+            '%${_escapeLike(raw)}%',
+            ...found,
+          ],
+          orderBy: 'v.vod_pubdate DESC, v.vod_id DESC',
+          limit: want,
+          offset: 0,
+        ),
+      );
+    }
+    return {
+      'ok': true,
+      'actresses': actresses,
+      'works': works,
+      'actressesHasMore': actressesHasMore,
+      'worksHasMore': seen > workLimit,
+    };
+  }
+
   Future<Map<String, dynamic>> _works(
     ActressLibRawQuery query,
     Set<String> tables,
@@ -483,6 +682,129 @@ class ActressLibraryDbFallback {
     return {'ok': false, 'error': '本地库无标签数据'};
   }
 
+  /// 磁力登记表在场探针：合并只写导入槽，登记表只可能出现在
+  /// 导入槽库里；生效库不是导入槽时这两张表不存在、磁力分类
+  /// 自然为空——页面侧的「仅导入槽生效时显示」靠这一条成立。
+  bool _hasMagnetTables(Set<String> tables) =>
+      tables.contains('magnet_libraries') &&
+      tables.contains('magnet_library_works');
+
+  /// 磁力分类组（演员库分类栏用）：登记分类名 + 并集去重计数
+  /// （video_category 主分类 ∪ 来源登记，同番号两边都有只
+  /// 数一次，照移植施工图的并集口径）。没登记回空列表。
+  Future<Map<String, dynamic>> _magnetCategories(
+    ActressLibRawQuery query,
+    Set<String> tables,
+  ) async {
+    if (!_hasMagnetTables(tables)) {
+      return {'ok': true, 'categories': const []};
+    }
+    final rows = await query(
+      'SELECT category AS name FROM magnet_libraries '
+      "WHERE TRIM(category) <> '' GROUP BY category ORDER BY category",
+    );
+    final categories = <Map<String, dynamic>>[];
+    for (final row in rows) {
+      final name = row['name']?.toString() ?? '';
+      if (name.isEmpty) continue;
+      final counted = await query(
+        'SELECT COUNT(DISTINCT vod_id) AS c FROM ('
+        'SELECT vod_id FROM video_category WHERE main_category = ? '
+        'UNION SELECT mlw.vod_id FROM magnet_library_works mlw '
+        'JOIN magnet_libraries ml ON ml.id = mlw.library_id '
+        'WHERE ml.category = ?)',
+        [name, name],
+      );
+      categories.add({
+        'name': name,
+        'count': (counted.first['c'] as num?)?.toInt() ?? 0,
+      });
+    }
+    return {'ok': true, 'categories': categories};
+  }
+
+  /// 磁力分类下的作品：谓词走「主分类 ∪ 登记」并集——样本里
+  /// 绝大多数磁力作品与主库同番号、只有登记能把它们归进这
+  /// 个分类，只查 video_category 会漏掉大半。
+  Future<Map<String, dynamic>> _magnetWorks(
+    ActressLibRawQuery query,
+    Set<String> tables,
+    Map<String, dynamic> params,
+  ) async {
+    final category = (params['category'] ?? '').toString().trim();
+    if (category.isEmpty) {
+      return {'ok': false, 'error': '磁力分类为空'};
+    }
+    if (!_hasMagnetTables(tables)) {
+      return {'ok': true, 'items': const []};
+    }
+    final page = _page(params);
+    final limit = _limit(params);
+    final items = await _videoRows(
+      query,
+      tables,
+      where: '$_exclusionSql AND v.vod_id IN ('
+          'SELECT vod_id FROM video_category WHERE main_category = ? '
+          'UNION SELECT mlw.vod_id FROM magnet_library_works mlw '
+          'JOIN magnet_libraries ml ON ml.id = mlw.library_id '
+          'WHERE ml.category = ?)',
+      whereArgs: [..._exclusionArgs, category, category],
+      orderBy: 'v.vod_pubdate DESC, v.vod_id DESC',
+      limit: limit,
+      offset: (page - 1) * limit,
+    );
+    return {'ok': true, 'items': items};
+  }
+
+  /// 一批作品的磁力地址（卡片三态徽标合成用）：只回带磁力
+  /// 线路的作品，键是 vod_id。判定两道尺与数据层同口径：
+  /// play_from = 'magnet' 或地址本身以 magnet: 开头。
+  Future<Map<String, dynamic>> _magnetUrls(
+    ActressLibRawQuery query,
+    Set<String> tables,
+    Map<String, dynamic> params,
+  ) async {
+    final raw = params['vodIds'];
+    final vodIds = <String>[
+      if (raw is List)
+        for (final value in raw)
+          if (value.toString().isNotEmpty) value.toString(),
+    ];
+    if (vodIds.isEmpty || !tables.contains('video_play_urls')) {
+      return {'ok': true, 'urls': const <String, List<String>>{}};
+    }
+    final urls = <String, List<String>>{};
+    // play_from 列不在的库只走地址尺（列在场判定与 _detail 同
+    // 口径，免得可选列把整批查询打挂）。
+    final playUrlCols = await _columnSet(query, 'video_play_urls');
+    final magnetWhere = playUrlCols.contains('play_from')
+        ? "(LOWER(TRIM(COALESCE(play_from, ''))) = 'magnet' "
+              "OR LOWER(TRIM(play_url)) LIKE 'magnet:%')"
+        : "LOWER(TRIM(play_url)) LIKE 'magnet:%'";
+    // 分批查，避开 SQLite 变量上限（与魔蚁侧同为 400 一批）。
+    for (var start = 0; start < vodIds.length; start += 400) {
+      final batch = vodIds.sublist(
+        start,
+        start + 400 > vodIds.length ? vodIds.length : start + 400,
+      );
+      final marks = List.filled(batch.length, '?').join(',');
+      final rows = await query(
+        'SELECT vod_id, play_url FROM video_play_urls '
+        'WHERE vod_id IN ($marks) AND $magnetWhere '
+        'ORDER BY rowid',
+        batch,
+      );
+      for (final row in rows) {
+        final vodId = row['vod_id']?.toString() ?? '';
+        final url = row['play_url']?.toString() ?? '';
+        if (vodId.isEmpty || url.isEmpty) continue;
+        final list = urls.putIfAbsent(vodId, () => <String>[]);
+        if (!list.contains(url)) list.add(url);
+      }
+    }
+    return {'ok': true, 'urls': urls};
+  }
+
   Future<Map<String, dynamic>> _detail(
     ActressLibRawQuery query,
     Set<String> tables,
@@ -521,6 +843,21 @@ class ActressLibraryDbFallback {
     addUrl(item['play'] as String);
     addUrl(rows.first['playAlt']?.toString() ?? '');
     if (playUrls.isNotEmpty) item['play'] = playUrls.first;
+
+    // 库内磁力线路（详情页「磁力（库内）」区用）：单独全量取，
+    // 不受上面多线路 8 条上限影响；判定两道尺同 _magnetUrls。
+    var magnetUrls = <String>[];
+    if (tables.contains('video_play_urls')) {
+      final single = await _magnetUrls(query, tables, {
+        'vodIds': [vodId],
+      });
+      final byWork = single['urls'];
+      if (byWork is Map && byWork[vodId] is List) {
+        magnetUrls = [
+          for (final url in byWork[vodId] as List) url.toString(),
+        ];
+      }
+    }
 
     var actresses = <String>[];
     var actressInfo = <Map<String, dynamic>>[];
@@ -620,6 +957,7 @@ class ActressLibraryDbFallback {
       'item': {
         ...item,
         'playUrls': playUrls,
+        'magnetUrls': magnetUrls,
         'actresses': actresses,
         'actressInfo': actressInfo,
         'tags': tags,

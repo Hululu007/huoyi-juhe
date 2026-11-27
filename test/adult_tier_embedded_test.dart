@@ -1,7 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fqapp/pages/video_page.dart';
-import 'package:fqapp/services/builtin_imported_sites.dart';
 import 'package:fqapp/services/cultivation.dart';
 import 'package:fqapp/services/jar_bridge.dart';
 import 'package:fqapp/services/zakatv_builtin.dart';
@@ -162,31 +161,24 @@ void main() {
     );
   });
 
-  test('内嵌站全有档位：种子 + jar + 核心 3 站覆盖全部 281 个登记 id', () {
-    // 201 站旧表 + 72 个资源站 + 2026-11-24 魔蚁 v63 合入 5 站 = 278，
-    // 2026-11-26 MissAV 收拢删 3 站 = 275。
+  test('内嵌站全有档位：站点库条目 + 核心 3 站覆盖分档表（zy360 除外）', () {
+    // 站点库批（2026-11-27）适配：登记来源改站点库条目
+    // （embeddedTestEntries，按随包名单搭）。分档表 281 个 id 里
+    // zy360 的 py 种子按评估剔除令未进站点库、jar 里也没有此站，
+    // 该 id 暂成孤儿（种子文件其实在盘上，恢复与否待定版），
+    // 覆盖数 280；其余全覆盖。
     final covered = <String>{};
-    for (final seed in builtinImportedSeeds) {
-      final id = 'seed_${seed.seedId}';
-      if (adultTierForSiteId(id, adultVideoSiteOrder) != null) {
-        covered.add(adultSiteIdForUnifiedId(id));
-      }
-    }
-    for (final site in zakatvBuiltinSites) {
-      final id = JarSiteSpec.siteIdFor(zakatvJarId, site.key);
-      if (adultTierForSiteId(id, adultVideoSiteOrder) != null) {
-        covered.add(adultSiteIdForUnifiedId(id));
-      }
-    }
-    for (final site in oneBuiltinSites) {
-      final id = JarSiteSpec.siteIdFor(oneJarId, site.key);
-      if (adultTierForSiteId(id, adultVideoSiteOrder) != null) {
-        covered.add(adultSiteIdForUnifiedId(id));
+    for (final entry in embeddedTestEntries()) {
+      if (adultTierForSiteId(entry.id, adultVideoSiteOrder) != null) {
+        covered.add(adultSiteIdForUnifiedId(entry.id));
       }
     }
     covered.addAll(['hgdj', 'hgdj58', 'hgdjv']);
-    expect(covered.length, 281);
-    expect(covered, adultVideoSiteOrder.toSet());
+    expect(covered.length, 280);
+    expect(
+      covered,
+      adultVideoSiteOrder.toSet()..remove('zy360'),
+    );
   });
 
   test('影视区可见站表：内嵌行按档位放，门禁开关开/关两态都正常', () {

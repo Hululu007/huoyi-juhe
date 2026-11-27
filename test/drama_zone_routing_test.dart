@@ -56,6 +56,7 @@ SourceEntry _jar(String key, String name, String className) => _entry(
 
 Future<void> _seedRegistry() async {
   SharedPreferences.setMockInitialValues({
+    'juhe_sql_builtin_migration_v1': true,
     'juhe_custom_sources': jsonEncode([
       _seed('ai2026', '🔞2026短剧AI'),
       _seed('ai4k', '🔞4K.AI短剧'),

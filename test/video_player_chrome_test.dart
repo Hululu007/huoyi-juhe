@@ -10,6 +10,7 @@ import 'package:fqapp/models/audio_extra.dart';
 import 'package:fqapp/models/media_item.dart';
 import 'package:fqapp/models/playlet_comment.dart';
 import 'package:fqapp/services/episode_source_cache.dart';
+import 'package:fqapp/services/player_menu_preferences.dart';
 import 'package:fqapp/services/player_preferences.dart';
 import 'package:fqapp/services/player_style_config.dart';
 import 'package:fqapp/services/short_series_font_scale.dart';
@@ -32,6 +33,9 @@ void main() {
     view.physicalSize = const Size(400, 888);
     view.devicePixelRatio = 1;
     SharedPreferences.setMockInitialValues({'player_playback_rate': 1.5});
+    // 2026-11-27 内嵌批起长按倍速读偏好（默认 3）：本文件的长按
+    // 用例按旧固定 2 倍写，统一把偏好钉在 2。
+    PlayerMenuPreferences.boostRate.value = 2;
     // 本文件的面板用例钉住深色分支（style=1）：药丸拖选/取消行/开关行是
     // 深色面板的交互；浅色分支（发布的默认）另有用例覆盖。
     PlayerStyleConfig.instance = const PlayerStyleConfig(

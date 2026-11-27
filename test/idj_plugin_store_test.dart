@@ -233,20 +233,29 @@ void main() {
   });
 
   group('看门狗', () {
-    test('连续 3 次非瞬时失败自动停用，成功清零', () async {
+    test('累计 3 次非瞬时失败自动停用，成功清零；冷却窗内连发只计一次', () async {
       final store = makeStore();
       await store.installBundleText(_bundleText());
-      await store.recordFailure('com.idj.ext.demo', code: 'E_PLUGIN');
-      await store.recordFailure('com.idj.ext.demo', code: 'E_PLUGIN');
+      final t0 = DateTime(2026, 11, 27, 12);
+      DateTime at(int minutes) => t0.add(Duration(minutes: minutes));
+      // 同一次使用里的连环失败（开站连发两调用＋报错页点重试）
+      // 在冷却窗内只计一次，不再凑满 3 次把站误杀。
+      await store.recordFailure('com.idj.ext.demo', code: 'E_PLUGIN', now: at(0));
+      await store.recordFailure('com.idj.ext.demo', code: 'E_PLUGIN', now: at(0));
+      await store.recordFailure('com.idj.ext.demo', code: 'E_PLUGIN', now: at(1));
       var index = await store.readIndex();
       expect(index['com.idj.ext.demo']!.enabled, isTrue);
+      expect(index['com.idj.ext.demo']!.failures, 1);
+      // 跨过冷却窗的失败继续累积。
+      await store.recordFailure('com.idj.ext.demo', code: 'E_PLUGIN', now: at(11));
+      index = await store.readIndex();
       expect(index['com.idj.ext.demo']!.failures, 2);
       await store.recordSuccess('com.idj.ext.demo');
       index = await store.readIndex();
       expect(index['com.idj.ext.demo']!.failures, 0);
-      await store.recordFailure('com.idj.ext.demo', code: 'E_PLUGIN');
-      await store.recordFailure('com.idj.ext.demo', code: 'E_PLUGIN');
-      await store.recordFailure('com.idj.ext.demo', code: 'E_PLUGIN');
+      await store.recordFailure('com.idj.ext.demo', code: 'E_PLUGIN', now: at(12));
+      await store.recordFailure('com.idj.ext.demo', code: 'E_PLUGIN', now: at(23));
+      await store.recordFailure('com.idj.ext.demo', code: 'E_PLUGIN', now: at(34));
       index = await store.readIndex();
       expect(index['com.idj.ext.demo']!.enabled, isFalse);
     });

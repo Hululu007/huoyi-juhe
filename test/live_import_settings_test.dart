@@ -22,7 +22,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// ③ 直播页：左下「+」本地导入成订阅源并自动切源、导入失败
 ///   显示原因、选源弹窗「导入源」组出现订阅源且长按删除；
 /// ④ 直播设置：睡眠默认落盘且直播侧读得到（applyLiveSleepDefault
-///   起算）、设置页直播分类三行、恢复默认生效。
+///   起算）；2026-11-27 起设置页直播分类已摘除，睡眠默认改在
+///   直播睡眠定时弹窗的「默认时长」行里改。
 const _m3uA = '#EXTM3U\n'
     '#EXTINF:-1 group-title="新闻",导入频道甲\n'
     'https://example.com/a.m3u8\n'
@@ -396,43 +397,59 @@ void main() {
       expect(LiveSleepTimer.instance.active, isFalse);
     });
 
-    testWidgets('设置页有直播设置分类：解码/睡眠默认/恢复默认', (tester) async {
+    // 2026-11-27 播放器内嵌批：设置页「直播设置」整类按用户令
+    // 摘除——解码进播放器菜单、恢复默认随类撤销；睡眠默认迁进
+    // 直播睡眠定时弹窗的「默认时长」行（同一支偏好、值不丢）。
+    testWidgets('设置页不再有直播设置分类', (tester) async {
       tester.view.devicePixelRatio = 1.0;
       tester.view.physicalSize = const Size(390, 844);
       addTearDown(tester.view.reset);
-      await DecoderPreferenceCache.set(VideoDecoderPreference.software);
-      await LiveSettingsStore.instance.setSleepDefaultMinutes(15);
       await tester.pumpWidget(const MaterialApp(home: SettingsPage()));
       await tester.pumpAndSettle();
-      await tester.scrollUntilVisible(find.text('直播设置'), 120);
-      await tester.tap(find.text('直播设置'));
-      await tester.pumpAndSettle();
-      expect(find.text('视频解码器'), findsOneWidget);
-      expect(find.text('睡眠定时'), findsOneWidget);
-      expect(find.text('恢复默认'), findsOneWidget);
-      expect(find.text('15 分钟'), findsOneWidget);
+      expect(find.text('直播设置'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
 
-      // 改睡眠默认到 30 分钟：落盘 + 行上文案更新。
-      await tester.tap(find.text('睡眠定时'));
+    testWidgets('睡眠默认新家：直播定时弹窗里改默认时长并落盘', (tester) async {
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = const Size(390, 844);
+      addTearDown(tester.view.reset);
+      await LiveSettingsStore.instance.setSleepDefaultMinutes(15);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => Center(
+                child: ElevatedButton(
+                  onPressed: () => showLiveSleepTimerDialog(context),
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('30 分钟'));
+      // 弹窗里有「默认时长」行，行尾是当前默认（15 分钟；与定时
+      // 选项行同名文案并存，故限定在该行内找）。
+      expect(find.text('默认时长'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('live-sleep-default')),
+          matching: find.text('15 分钟'),
+        ),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const ValueKey('live-sleep-default')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('live-sleep-default-30')),
+      );
       await tester.pumpAndSettle();
       expect(LiveSettingsStore.instance.sleepDefaultMinutes, 30);
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getInt('juhe_live_sleep_minutes'), 30);
-      expect(find.text('30 分钟'), findsOneWidget);
-
-      // 恢复默认：睡眠回关闭、解码回自动。
-      await tester.tap(find.text('恢复默认'));
-      await tester.pumpAndSettle();
-      expect(LiveSettingsStore.instance.sleepDefaultMinutes, 0);
-      expect(prefs.getInt('juhe_live_sleep_minutes'), 0);
-      expect(
-        await PlayerPreferences.loadVideoDecoder(),
-        VideoDecoderPreference.automatic,
-      );
-      expect(DecoderPreferenceCache.current, VideoDecoderPreference.automatic);
-      expect(find.text('关闭'), findsOneWidget);
     });
   });
 }

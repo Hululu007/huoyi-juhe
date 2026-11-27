@@ -181,7 +181,13 @@ class PlayerTrackInfo {
   }
 }
 
-enum TrackMenuKind { audio, subtitleEmbedded, subtitleExternal, subtitleOff }
+enum TrackMenuKind {
+  audio,
+  video,
+  subtitleEmbedded,
+  subtitleExternal,
+  subtitleOff,
+}
 
 class TrackMenuEntry {
   const TrackMenuEntry({
@@ -237,6 +243,22 @@ List<TrackMenuEntry> buildAudioMenu(List<PlayerTrackInfo> audio) {
         label: track.label.isNotEmpty
             ? track.label
             : (track.language.isNotEmpty ? track.language : '音轨'),
+        selected: track.selected,
+      ),
+  ];
+}
+
+/// 视轨菜单模型（照录屏改造批 M17）：无关闭项；标签优先用宿主给
+/// 的 label，没有时用格式 id 兜底（多码率流的轨通常带分辨率标签）。
+List<TrackMenuEntry> buildVideoMenu(List<PlayerTrackInfo> video) {
+  return <TrackMenuEntry>[
+    for (final track in video)
+      TrackMenuEntry(
+        kind: TrackMenuKind.video,
+        id: track.id,
+        label: track.label.isNotEmpty
+            ? track.label
+            : (track.formatId.isNotEmpty ? track.formatId : '视频轨'),
         selected: track.selected,
       ),
   ];

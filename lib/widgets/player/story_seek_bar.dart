@@ -33,7 +33,8 @@ class StorySeekBar extends StatefulWidget {
     required this.onEnd,
     required this.onCancel,
     this.trackWidth = 2,
-    this.thumbRadius = 3,
+    // 照录屏改造批 B1：拇指直径对齐参考 ≈15dp（半径 7.5）。
+    this.thumbRadius = 7.5,
     this.progressColor = Colors.white,
     this.trackColor = Colors.white24,
     this.thumbColor = Colors.white,

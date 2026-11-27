@@ -33,6 +33,7 @@ import 'actress_javdb_api.dart';
 import 'actress_javdb_image.dart';
 import 'actress_still_capture.dart';
 import 'actress_library_db.dart' show ActressLibraryDbFallback;
+import 'actress_magnet_state.dart';
 import 'actress_models.dart' show actressNameKey;
 import 'actress_neon.dart';
 import 'actress_online_parse.dart'
@@ -139,6 +140,7 @@ class ActressWorkDetailPage extends StatefulWidget {
     this.autoOffline,
     this.drivePlayFinder,
     this.magnetPlay,
+    this.magnetStateResolver,
     this.pan115VipProbe,
     this.onActress,
     this.onTag,
@@ -169,6 +171,7 @@ class ActressWorkDetailPage extends StatefulWidget {
     this.autoOffline,
     this.drivePlayFinder,
     this.magnetPlay,
+    this.magnetStateResolver,
     this.pan115VipProbe,
     this.onActress,
     this.onTag,
@@ -203,6 +206,7 @@ class ActressWorkDetailPage extends StatefulWidget {
     this.autoOffline,
     this.drivePlayFinder,
     this.magnetPlay,
+    this.magnetStateResolver,
     this.pan115VipProbe,
     this.onActress,
     this.onTag,
@@ -254,6 +258,10 @@ class ActressWorkDetailPage extends StatefulWidget {
   /// 磁力播放等待器：磁力经 115 离线落盘后页内直接播网
   /// 盘那一份（测试注入假件，生产缺省见 _prodMagnetPlayer）。
   final MagnetPlayWaiter? magnetPlay;
+
+  /// 库内磁力三态解析器（测试注入假件；生产缺省现建默认
+  /// 解析器，接 115 任务/已提交表/查盘，见 actress_magnet_state）。
+  final MagnetDriveStateResolver? magnetStateResolver;
 
   /// 115 会员状态探针：回 true 才贴「会员」标；回 null/
   /// false 不贴（读不到不臆造）。测试注入假件，生产缺省
@@ -312,6 +320,15 @@ class _ActressWorkDetailPageState extends State<ActressWorkDetailPage> {
 
   /// 下载链接（JavDB 磁力真数据）：没数据整区不出、不编造。
   var _magnets = <JavdbMagnet>[];
+
+  /// 库内磁力线路（本地库 video_play_urls 里 play_from 为
+  /// magnet 或地址本身是 magnet: 的行）：只有本地入口、库里
+  /// 真有才出「磁力（库内）」区，与 JavDB 下载链接区分开。
+  var _dbMagnets = <String>[];
+
+  /// 库内磁力的网盘三态（整部作品一份，解析器带查盘确认
+  /// 后合成，见 _resolveDbMagnetState）。
+  MagnetDriveState? _dbMagnetState;
 
   var _poster = '';
   var _date = '';
@@ -434,6 +451,11 @@ class _ActressWorkDetailPageState extends State<ActressWorkDetailPage> {
               (name: row.toString(), avatar: ''),
           ];
         }
+        _dbMagnets = [
+          for (final row in (item['magnetUrls'] as List? ?? const []))
+            if (row.toString().isNotEmpty) row.toString(),
+        ];
+        _dbMagnetState = null;
         final playUrls = [
           for (final row in (item['playUrls'] as List? ?? const []))
             row.toString(),
@@ -453,6 +475,9 @@ class _ActressWorkDetailPageState extends State<ActressWorkDetailPage> {
             if (row is Map) Map<String, dynamic>.from(row),
         ];
       });
+      if (_dbMagnets.isNotEmpty) {
+        unawaited(_resolveDbMagnetState());
+      }
       _appendOnlineLines();
       _startSupplements();
     } catch (error) {
@@ -1127,6 +1152,37 @@ class _ActressWorkDetailPageState extends State<ActressWorkDetailPage> {
       _snack('没有可用的磁力链接');
       return;
     }
+    await _runMagnetPlayWaiter(url);
+  }
+
+  /// 库内磁力三态合成：解析器带查盘确认（网盘里真有这部片
+  /// 才升「网盘可播」）；合成失败保持无副标，不挡详情页。
+  Future<void> _resolveDbMagnetState() async {
+    if (_dbMagnets.isEmpty || _code.isEmpty) return;
+    try {
+      final resolver =
+          widget.magnetStateResolver ?? MagnetDriveStateResolver();
+      final state = await resolver.resolveForWork(
+        code: _code,
+        magnetUrls: _dbMagnets,
+      );
+      if (!mounted) return;
+      setState(() => _dbMagnetState = state);
+    } catch (_) {
+      // 三态读不到就不贴副标，磁力行照常能点播。
+    }
+  }
+
+  /// 库内磁力行点播：与 JavDB 磁力同一条 MagnetPlayWaiter
+  /// 链（查盘 → 查重闸 → 提交 → 轮询），未登入同走登录引导。
+  Future<void> _startDbMagnetPlay(String url) async {
+    if (_magnetPlayProgress != null) return;
+    await _runMagnetPlayWaiter(url);
+  }
+
+  /// 磁力播放等待器一轮：等待帧实显、就绪验活起播、未登入
+  /// 引导、失败给中文原因。JavDB 磁力与库内磁力共用。
+  Future<void> _runMagnetPlayWaiter(String url) async {
     final waiter = widget.magnetPlay ?? _prodMagnetPlayer;
     final gen = ++_magnetPlayGen;
     setState(() {
@@ -1149,6 +1205,12 @@ class _ActressWorkDetailPageState extends State<ActressWorkDetailPage> {
     setState(() => _magnetPlayProgress = null);
     switch (result.phase) {
       case MagnetPlayPhase.ready:
+        // 网盘那一份已就绪：库内磁力副标同步升「网盘可播」。
+        if (_dbMagnets.isNotEmpty) {
+          setState(
+            () => _dbMagnetState = MagnetDriveState.drivePlayable,
+          );
+        }
         await _playMagnetDriveHit(result);
       case MagnetPlayPhase.notLoggedIn:
         await _showMagnetLoginDialog();
@@ -1555,6 +1617,9 @@ class _ActressWorkDetailPageState extends State<ActressWorkDetailPage> {
           startIndex: 0,
           startPosition: position,
           openFullScreen: true,
+          // 借来的全屏页：退出全屏直接退页，回到本页恢复内嵌
+          // 舞台续播（下方 push 返回后的恢复逻辑接住）。
+          popOnFullscreenExit: true,
           shortSeries: false,
           cultivationCategory: CultivationCategory.video,
           contentLoader: (_) async => {'video_url': url, 'key_hex': ''},
@@ -2051,6 +2116,12 @@ class _ActressWorkDetailPageState extends State<ActressWorkDetailPage> {
           const SizedBox(height: 8),
           _magnetsSection(),
         ],
+        if (_dbMagnets.isNotEmpty) ...[
+          const SizedBox(height: 18),
+          _sectionTitle('磁力（库内）'),
+          const SizedBox(height: 8),
+          _dbMagnetsSection(),
+        ],
         if (_alsoStarred.isNotEmpty) ...[
           const SizedBox(height: 18),
           _sectionTitle('她们还演出过'),
@@ -2441,6 +2512,133 @@ class _ActressWorkDetailPageState extends State<ActressWorkDetailPage> {
                                 ),
                               ),
                           ],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// 磁力（库内）区：本地库自带的磁力线路，与 JavDB「下载
+  /// 链接」区分开。每行带整部作品的网盘三态副标（解析器带
+  /// 查盘确认合成）；点按走 MagnetPlayWaiter 链点播，长按
+  /// 复制链接。等待帧与 JavDB 磁力共用 _magnetPlayProgress，
+  /// 在本区内实显。
+  Widget _dbMagnetsSection() {
+    final state = _dbMagnetState;
+    final stateColor = state == null
+        ? null
+        : switch (state) {
+            MagnetDriveState.drivePlayable => const Color(0xFF55B16C),
+            MagnetDriveState.offlineRunning => const Color(0xFFE8A33D),
+            MagnetDriveState.notDownloaded => const Color(0xFF9E9E9E),
+          };
+    return Container(
+      key: const ValueKey('work-detail-db-magnets'),
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 6, 14, 6),
+      decoration: actressNeonCardDecoration(radius: 12),
+      child: Column(
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(top: 2, bottom: 2),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '库里自带的磁力链接，点按走 115 网盘离线播放，长按复制链接',
+                style: TextStyle(color: Neon.textDim, fontSize: 12),
+              ),
+            ),
+          ),
+          if (_magnetPlayProgress != null)
+            Padding(
+              key: const ValueKey('work-detail-db-magnet-wait-note'),
+              padding: const EdgeInsets.only(top: 1, bottom: 3),
+              child: Row(
+                children: [
+                  const SizedBox(
+                    width: 13,
+                    height: 13,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _magnetPlayProgress!.message,
+                      style: const TextStyle(
+                        color: Neon.textDim,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: _cancelMagnetPlay,
+                    child: const Text(
+                      '取消等待',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          for (var i = 0; i < _dbMagnets.length; i++)
+            InkWell(
+              key: ValueKey('work-detail-db-magnet-$i'),
+              onTap: _magnetPlayProgress != null
+                  ? null
+                  : () => unawaited(_startDbMagnetPlay(_dbMagnets[i])),
+              onLongPress: () async {
+                await Clipboard.setData(
+                  ClipboardData(text: _dbMagnets[i]),
+                );
+                if (!mounted) return;
+                _snack('磁力链接已复制');
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 9),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.cloud_download_outlined,
+                          size: 16,
+                          color: Neon.textDim,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _dbMagnets[i],
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Neon.text,
+                              fontSize: 12.5,
+                            ),
+                          ),
+                        ),
+                        const Icon(
+                          Icons.play_circle_outline_rounded,
+                          size: 18,
+                          color: Neon.cyan,
+                        ),
+                      ],
+                    ),
+                    if (state != null && stateColor != null)
+                      Padding(
+                        key: ValueKey('work-detail-db-magnet-state-$i'),
+                        padding: const EdgeInsets.only(top: 3, left: 24),
+                        child: Text(
+                          '115 · ${state.label}',
+                          style: TextStyle(
+                            color: stateColor,
+                            fontSize: 12,
+                          ),
                         ),
                       ),
                   ],

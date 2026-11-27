@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -23,22 +24,96 @@ import 'actress_mytv_bind.dart';
 ///   导入都只往这里写，两平台语义一致。
 ///
 /// 当前选择存 SharedPreferences 键 [actressDbSlotPrefsKey]
-/// （值 `external` / `imported`）：
-/// - 安卓默认 external（没存过 = 外置库，与改前行为一致）；
-/// - iOS 维持现状：imported 是唯一来源，选择恒为 imported，
-///   存了别的值也不认（iOS 没有外置直读这条路，不许回退）。
+/// （值 `external` / `imported`）：2026-11-27 激活批起，这个
+/// 选择只剩存量兼容意义（旧测试与旧存值可读），**不再决定生效
+/// 路径**——生效与否只看激活状态（见下）。iOS 恒 imported 的
+/// 旧口径同样只剩兼容意义。
 ///
-/// 生效路径解析：选 imported 但导入库文件不存在/为空 → 回落
-/// external，并在状态里标明（[ActressDbSourceStatus.fellBack]），
-/// 界面据此如实显示「已回落外置库」，不假装在用导入库。
+/// 【激活语义（2026-11-27 演员库激活批，用户令「演员库也要
+/// 通过数据库激活」）】
+/// - 女优库只有 imported 槽里的库能被激活，且必须经导入链
+///   （.db 收编 / .sql 导入 / 外置文件点「导入激活」）走完
+///   结构校验＋版本门（见 actress_library_version.dart）后，
+///   由导入服务调 [markActivated] 落一条激活记录才生效。
+/// - 外置槽**不再直通**：MYTV/db/女优库.db 放着不生效，它只是
+///   管理页里看得见的「导入来源」，不点导入永远不激活。
+/// - 没激活（或已激活但导入库文件没了）→ 生效路径为空，演员
+///   库只有未激活空态＋导入引导，全局搜索的演员库段同样不出
+///   （读库层拿不到路径即静默，与「没库静默」同口径）。
+/// - 存量过渡：升级后首次解析状态时，若导入槽里已有库文件
+///   且没有激活记录，视为 +2 时代已在用的存量库，自动补一条
+///   origin=legacy 的激活记录继续可用——版本门只管新导入，
+///   不把人锁死。外置槽不享受这条：它从来没经导入槽「激活」
+///   过，按新规矩走导入。
 ///
-/// 变更通知：[revision] 每次切换/导入/删除后 +1。读库层的失效
-/// 主要靠既有的「路径 + 文件戳」机制（切换必然换路径、换路径
-/// 必然触发重开；同路径换文件靠戳变化）；[revision] 供界面与
-/// 后续监听方订阅，本层不直接关任何连接。
+/// 变更通知：[revision] 每次激活/导入/删除后 +1。读库层的失效
+/// 主要靠既有的「路径 + 文件戳」机制（激活必然给出路径、删库
+/// 必然收回路径）；[revision] 供界面与后续监听方订阅，本层不
+/// 直接关任何连接。
 
-/// 当前库槽的 SharedPreferences 键。
+/// 当前库槽的 SharedPreferences 键（存量兼容，见类注释）。
 const actressDbSlotPrefsKey = 'actress_db_current_slot_v1';
+
+/// 激活记录的 SharedPreferences 键（JSON 一条，见
+/// [ActressDbActivation]）。
+const actressDbActivationPrefsKey = 'actress_db_activation_v1';
+
+/// 一条激活记录：哪个来源激活的、库自报的版本字段、激活时间。
+/// 只记 imported 槽（唯一能激活的槽），槽文件不在了记录自动
+/// 失效（status 解析时以文件存在为准）。
+class ActressDbActivation {
+  const ActressDbActivation({
+    required this.origin,
+    this.libraryVersion = '',
+    this.formatVersion = '',
+    this.coreVersion = '',
+    this.activatedAtMs = 0,
+  });
+
+  /// 'import' = 经导入链过版本门激活；'legacy' = 存量过渡
+  /// （+2 时代导入槽里已在用的库，无版本字段也继续可用）。
+  final String origin;
+  final String libraryVersion;
+  final String formatVersion;
+  final String coreVersion;
+  final int activatedAtMs;
+
+  bool get isLegacy => origin == 'legacy';
+
+  /// 管理页展示用一句话。
+  String get describe {
+    if (isLegacy) return '存量库（升级前已在用，无版本字段，继续可用）';
+    return '库版本 ${libraryVersion.isEmpty ? '未知' : libraryVersion}'
+        ' · 格式 $formatVersion · 要求核心 $coreVersion';
+  }
+
+  Map<String, Object?> toJson() => {
+    'origin': origin,
+    'libraryVersion': libraryVersion,
+    'formatVersion': formatVersion,
+    'coreVersion': coreVersion,
+    'activatedAtMs': activatedAtMs,
+  };
+
+  static ActressDbActivation? fromJson(Object? raw) {
+    if (raw is! String || raw.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return null;
+      final origin = '${decoded['origin'] ?? ''}';
+      if (origin != 'import' && origin != 'legacy') return null;
+      return ActressDbActivation(
+        origin: origin,
+        libraryVersion: '${decoded['libraryVersion'] ?? ''}',
+        formatVersion: '${decoded['formatVersion'] ?? ''}',
+        coreVersion: '${decoded['coreVersion'] ?? ''}',
+        activatedAtMs: (decoded['activatedAtMs'] as num?)?.toInt() ?? 0,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+}
 
 /// 两个库槽。
 enum ActressDbSlot { external, imported }
@@ -87,22 +162,30 @@ class ActressDbSourceStatus {
     required this.fellBack,
     required this.external,
     required this.imported,
+    this.activation,
   });
 
-  /// 用户存的选择（iOS 恒为 imported）。
+  /// 用户存的选择（存量兼容字段，不再决定生效，见类注释）。
   final ActressDbSlot selection;
 
-  /// 实际生效的槽（回落时与 [selection] 不同）。
+  /// 实际生效的槽：已激活时恒为 imported；未激活时为 external
+  /// 但 [effectivePath] 为空（[isEffective] 两槽都 false）。
   final ActressDbSlot effectiveSlot;
 
-  /// 实际生效的库文件路径；两个槽都不可用时为空字符串。
+  /// 实际生效的库文件路径；未激活时为空字符串。
   final String effectivePath;
 
-  /// true = 选了 imported 但导入库不在，已回落 external。
+  /// 存量兼容字段：激活制下没有回落，恒为 false。
   final bool fellBack;
 
   final ActressDbSlotInfo external;
   final ActressDbSlotInfo imported;
+
+  /// 当前激活记录（未激活为 null；含存量过渡的 legacy 记录）。
+  final ActressDbActivation? activation;
+
+  /// 演员库是否已激活（有记录且导入库文件在）。
+  bool get activated => activation != null && imported.exists;
 
   ActressDbSlotInfo infoOf(ActressDbSlot slot) =>
       slot == ActressDbSlot.imported ? imported : external;
@@ -221,7 +304,59 @@ class ActressDbSource {
     }
   }
 
-  /// 完整状态：两槽快照 + 生效解析（含 imported 缺失回落）。
+  /// 读激活记录（不含存量补记；补记在 [status] 里做）。
+  Future<ActressDbActivation?> loadActivation() async {
+    try {
+      final prefs = await _preferences();
+      return ActressDbActivation.fromJson(
+        prefs.getString(actressDbActivationPrefsKey),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 落一条激活记录并通知变更（导入服务在导入成功换库后调；
+  /// origin 只认 'import' / 'legacy'）。
+  Future<void> markActivated({
+    required String origin,
+    String libraryVersion = '',
+    String formatVersion = '',
+    String coreVersion = '',
+  }) async {
+    final record = ActressDbActivation(
+      origin: origin == 'legacy' ? 'legacy' : 'import',
+      libraryVersion: libraryVersion,
+      formatVersion: formatVersion,
+      coreVersion: coreVersion,
+      activatedAtMs: DateTime.now().millisecondsSinceEpoch,
+    );
+    try {
+      final prefs = await _preferences();
+      await prefs.setString(
+        actressDbActivationPrefsKey,
+        jsonEncode(record.toJson()),
+      );
+    } catch (_) {
+      // 存不下不崩：本次进程内仍靠文件与记录的内存态走不通，
+      // 如实让 status 按无记录处理（下次导入会再落）。
+    }
+    notifyChanged();
+  }
+
+  /// 清激活记录（删导入库时调）。
+  Future<void> clearActivation() async {
+    try {
+      final prefs = await _preferences();
+      await prefs.remove(actressDbActivationPrefsKey);
+    } catch (_) {}
+  }
+
+  /// 完整状态：两槽快照 + 激活解析（激活制，见类注释）。
+  ///
+  /// 存量过渡在本方法内补记：没有激活记录但 imported 槽已有
+  /// 库文件 → 视为 +2 时代已在用的存量库，补 origin=legacy
+  /// 记录并继续生效（只补一次，落盘后走正常记录路径）。
   Future<ActressDbSourceStatus> status() async {
     final selection = await loadSelection();
     final externalInfo = _infoOf(
@@ -232,35 +367,33 @@ class ActressDbSource {
       ActressDbSlot.imported,
       await _importedPath(),
     );
-    if (selection == ActressDbSlot.imported) {
-      if (importedInfo.exists) {
-        return ActressDbSourceStatus(
-          selection: selection,
-          effectiveSlot: ActressDbSlot.imported,
-          effectivePath: importedInfo.dbPath,
-          fellBack: false,
-          external: externalInfo,
-          imported: importedInfo,
-        );
-      }
-      // 选了导入库但它不在：回落外置库并标明（iOS 没有外置路，
-      // 回落结果就是空路径，界面显示未导入，与改前一致）。
-      return ActressDbSourceStatus(
-        selection: selection,
-        effectiveSlot: ActressDbSlot.external,
-        effectivePath: externalInfo.exists ? externalInfo.dbPath : '',
-        fellBack: !_isIOS(),
-        external: externalInfo,
-        imported: importedInfo,
+    var activation = await loadActivation();
+    if (activation == null && importedInfo.exists) {
+      activation = ActressDbActivation(
+        origin: 'legacy',
+        activatedAtMs: DateTime.now().millisecondsSinceEpoch,
       );
+      try {
+        final prefs = await _preferences();
+        await prefs.setString(
+          actressDbActivationPrefsKey,
+          jsonEncode(activation.toJson()),
+        );
+      } catch (_) {
+        // 补记落盘失败不挡本次生效：内存里的记录先用着。
+      }
     }
+    final activated = activation != null && importedInfo.exists;
     return ActressDbSourceStatus(
       selection: selection,
-      effectiveSlot: ActressDbSlot.external,
-      effectivePath: externalInfo.exists ? externalInfo.dbPath : '',
+      effectiveSlot: activated
+          ? ActressDbSlot.imported
+          : ActressDbSlot.external,
+      effectivePath: activated ? importedInfo.dbPath : '',
       fellBack: false,
       external: externalInfo,
       imported: importedInfo,
+      activation: activated ? activation : null,
     );
   }
 
@@ -310,8 +443,8 @@ class ActressDbSource {
   }
 
   /// 删除导入库（仅 imported 槽；外置库永不经本层删除）。
-  /// 连同 .bak 与导入临时文件一起清；删完通知变更。当前选择
-  /// 仍是 imported 时，生效解析自动回落 external（见 [status]）。
+  /// 连同 .bak 与导入临时文件一起清，并清激活记录——删完演员
+  /// 库回到未激活态（不回落外置库，外置只是导入来源）。
   Future<bool> deleteImported() async {
     final importedPath = await _importedPath();
     if (importedPath.isEmpty) return false;
@@ -344,7 +477,10 @@ class ActressDbSource {
         }
       }
     } catch (_) {}
-    if (removed) notifyChanged();
+    if (removed) {
+      await clearActivation();
+      notifyChanged();
+    }
     return removed;
   }
 }

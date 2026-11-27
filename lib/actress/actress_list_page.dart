@@ -873,7 +873,7 @@ class _ActressListPageState extends State<ActressListPage> {
       final result = await _db.reloadIfChanged(force: true);
       if (!mounted) return;
       if (result.error != null) {
-        final noDb = result.error!.startsWith('未找到外置数据库');
+        final noDb = result.error!.startsWith('未找到已激活的女优库');
         setState(() {
           _mytvDbError = result.error;
           _noExternalDb = noDb;
@@ -2614,7 +2614,7 @@ class _ActressListPageState extends State<ActressListPage> {
                 ? '没有找到“$_query”'
                 : '暂无人物'
           : _noExternalDb
-          ? '未找到外置数据库：请把 女优库.db 放进 MYTV/db/，再点“重新加载数据库”'
+          ? '演员库还没激活：请到数据库管理页导入女优库完成激活'
           : _query.isNotEmpty
           ? '没有找到“$_query”'
           : _source != ActressSiteFilter.all

@@ -4,7 +4,10 @@ import '../services/app_log.dart';
 import 'dart:async';
 import 'dart:io';
 
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/audio_extra.dart' show RelatedWork;
 import '../models/media_item.dart';
@@ -36,13 +39,19 @@ import '../services/library_store.dart';
 import '../services/native_player.dart';
 import '../services/playback_fallback.dart';
 import '../services/player_tracks.dart';
+import '../services/app_update.dart';
 import '../services/playback_issue.dart';
+import '../services/player_failure_report.dart';
 import '../services/player_history.dart';
 import '../services/player_layout_preferences.dart';
 import '../services/player_load_diagnostics.dart';
 import '../services/player_display_preferences.dart';
 import '../services/player_preferences.dart';
+import '../services/player_menu_preferences.dart';
 import '../services/player_sleep_timer.dart';
+import '../services/drama_mute_preferences.dart';
+import '../services/hls_ad_filter.dart';
+import '../services/danmaku_xml.dart';
 import '../services/player_style_config.dart';
 import '../services/quality_memory.dart';
 import '../services/season_autoplay.dart';
@@ -55,8 +64,7 @@ import '../widgets/player/playlet_danmaku_layer.dart';
 import '../widgets/player/playlet_danmaku_loader.dart';
 import '../widgets/player/playlet_danmaku_settings.dart';
 import '../widgets/player/player_persistent_progress.dart';
-import '../widgets/player/player_playback_extras_sheet.dart';
-import '../widgets/player/player_track_picker.dart';
+import '../widgets/player/player_embed_menu.dart';
 import '../widgets/player/story_player_panel.dart';
 import '../widgets/player/player_feedback.dart';
 import '../widgets/player/player_split_panel.dart';
@@ -125,6 +133,13 @@ class PlayerPage extends StatefulWidget {
   /// 靠这个参数在进页时置全屏态。
   final bool openFullScreen;
 
+  /// 借来的全屏页（详情页内嵌播放器交接）：本页只为全屏播放存在，
+  /// 退出全屏（底栏全屏键/顶栏返回/系统返回）= 直接退页回详情页，
+  /// 由详情页恢复内嵌舞台续播；不落竖屏整页形态（用户 2026-11-27
+  /// 实报）。与 [openFullScreen] 成对由交接方传入，普通整页播放
+  /// 不传（退出全屏留在页内是那边的既有语义）。
+  final bool popOnFullscreenExit;
+
   /// 离线下载引擎与缓存的注入缝（测试用）。缺省用全局单例 —— 生产环境
   /// 下载队列就是进程级的一个，测试里换成假实现才不碰 Hive 与真网。
   final DramaDownloader? downloader;
@@ -157,6 +172,7 @@ class PlayerPage extends StatefulWidget {
     this.cultivationCategory = CultivationCategory.video,
     this.aiGenerated = false,
     this.openFullScreen = false,
+    this.popOnFullscreenExit = false,
     this.onAddToShelf,
     this.downloader,
     this.store,
@@ -192,6 +208,8 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   int? _pendingCompletion;
   NativePlayer? _pendingAutoplay;
   PlaybackIssue? _error;
+  PlayerFailureReport? _failureReport;
+  String _versionText = '';
   int _loadGeneration = 0;
 
   final Stopwatch _watchTime = Stopwatch();
@@ -349,6 +367,11 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
         .registerFlushHandler(_persistProgress);
     unawaited(NativePlayer.setKeepScreenOn(true).catchError((Object _) {}));
     unawaited(PlayerPreferences.loadFloatingWindow());
+    // 照录屏改造批：菜单偏好（屏显/播放顺序/长按倍速/常驻进度/字幕
+    // 样式）进页读一次；播放顺序变化时同步旧自动连播字段（跨季门禁
+    // 与回退链还读它）。
+    unawaited(PlayerMenuPreferences.loadAll());
+    PlayerMenuPreferences.playOrder.addListener(_syncAutoAdvanceFromPlayOrder);
     _index = widget.eps.isEmpty
         ? 0
         : widget.startIndex.clamp(0, widget.eps.length - 1);
@@ -370,6 +393,16 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       _seekHintTimer = Timer(const Duration(seconds: 5), _consumeSeekHint);
     }
     _diagnostics = widget.loadDiagnostics ?? PlayerLoadDiagnostics();
+    // 失败诊断里要带应用版本：进页时异步取一次缓存住，取不到就留空，
+    // 不让版本查询挡起播（与上游 AboutPage.versionText 常量等价的本地落法）。
+    unawaited(() async {
+      try {
+        final version = await AppUpdateChecker.instance.currentVersion();
+        if (mounted) _versionText = version.toString();
+      } catch (_) {
+        // 版本只是诊断附带信息，失败保持空串。
+      }
+    }());
     _sources = EpisodeSourceCache(
       loader: (episode) async => EpisodeSource.fromResponse(
         await (widget.contentLoader?.call(episode) ??
@@ -460,12 +493,6 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     }
   }
 
-  /// 音轨/字幕轨选择层（A8）：实时向宿主枚举轨道，点选即切。
-  void _openTrackPicker() {
-    final player = _player;
-    if (player == null) return;
-    unawaited(showPlayerTrackPicker(context: context, player: player));
-  }
 
   /// 热评（官方 `SeriesHotCommentView`）：与评论计数同源，来自
   /// `comment/list` 的 `comment_source=4/count=20` 那次请求，
@@ -479,6 +506,16 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
 
   /// 弹幕设置（官方 `danmaku_config` 五项，默认值同官方）。
   DanmakuSettings _danmakuSettings = const DanmakuSettings();
+
+  /// 外部加载的弹幕（照录屏改造批 D1/D2）：只活在当前集，切集即
+  /// 清空（D4）；与官方弹幕合并进同一时间轴显示。
+  List<PlayletComment> _externalDanmaku = const [];
+
+  /// 播放顺序 → 旧自动连播字段的同步（菜单里改顺序时即时跟上）。
+  void _syncAutoAdvanceFromPlayOrder() {
+    _autoAdvance =
+        PlayerMenuPreferences.playOrder.value == PlayOrderMode.autoNext;
+  }
 
   /// 分段预加载 + seek 补数的调度器；一次只飞一个请求，旧响应按
   /// 代际作废。取数实现可注入（[PlayerPage.danmakuFetcher]）。
@@ -911,6 +948,22 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
             : PlayerDisplayMode.fit;
       }
     });
+    // 照录屏改造批：设置页「默认静音」原行写的是另一支偏好
+    // （drama_mute_when_cold_start）。入口迁进播放器菜单后以那支为
+    // 准对齐一次：盘上有这个键（= 用户动过那一行）才按它初始化，
+    // 没动过保持页面现行值，两边都不丢。
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.containsKey('drama_mute_when_cold_start')) {
+        final muted = prefs.getBool('drama_mute_when_cold_start') ?? false;
+        if (mounted && muted != _defaultMute) {
+          setState(() => _defaultMute = muted);
+          PlayerPanelPreferences.setDefaultMute(muted);
+        }
+      }
+    } catch (_) {
+      // 对齐失败不影响起播：保持页面现行值。
+    }
   }
 
   /// 旋转角、跨季开关与自动连播的落盘值（画面模式在
@@ -973,17 +1026,6 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     unawaited(SeasonAutoplayPreference.save(enabled));
   }
 
-  void _applySleepChoice(PlayerSleepChoice choice) {
-    choice.applyTo(_sleepTimer);
-    setState(() {});
-    if (!mounted) return;
-    PlayerToast.show(
-      context,
-      choice == PlayerSleepChoice.off
-          ? '定时停止已关闭'
-          : '定时停止：${_sleepTimer.label}',
-    );
-  }
 
   /// 定时停止到期（分钟档）：暂停当前播放并落一次进度。5 秒进度
   /// 心跳里调用，到期即停，不等下一集；用户手动点播放可恢复，
@@ -1017,30 +1059,42 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     }
   }
 
-  /// 播放控制弹层（画面模式 / 旋转 / 定时停止 / 跨季连播）。
-  void _openPlaybackExtras() {
-    unawaited(
-      showPlayerPlaybackExtras(
-        context: context,
-        displayMode: _displayMode,
-        onDisplayModeChanged: _setDisplayMode,
-        rotation: _userRotation,
-        onRotationChanged: _setUserRotation,
-        sleepTimer: _sleepTimer,
-        onSleepChoice: _applySleepChoice,
-        seasonAutoplay: _seasonAutoplay,
-        onSeasonAutoplayChanged: _setSeasonAutoplay,
-        autoAdvance: _autoAdvance,
-        skipSettings: _skipSettings,
-        onSkipSettingsChanged: _setSkipSettings,
-        onOpenTracks: _openTrackPicker,
-      ),
-    );
+  /// 画面模式循环（统一菜单行）：只在当前可落地的档位间轮换
+  /// （拉伸铺满未接布局，不进循环），回新档名给菜单行刷新。
+  String _cycleDisplayMode() {
+    final appliable = PlayerDisplayMode.values
+        .where((mode) => mode.appliableNow)
+        .toList();
+    final next =
+        appliable[(appliable.indexOf(_displayMode) + 1) % appliable.length];
+    _setDisplayMode(next);
+    return next.label;
+  }
+
+  /// 旋转循环（统一菜单行）：当前可落地的只有 0°/180°。
+  String _cycleRotation() {
+    final next = _userRotation == 0 ? 180 : 0;
+    _setUserRotation(next);
+    return '$next°';
+  }
+
+  /// 解码偏好切换（统一菜单 M12–M14）：落盘 + 以新偏好重载当前集
+  /// 生效（create 时才读偏好），并给用户一个明确反馈。
+  Future<void> _changeDecoderPreference(
+    VideoDecoderPreference preference,
+  ) async {
+    await DecoderPreferenceCache.set(preference);
+    if (!mounted) return;
+    PlayerToast.show(context, '解码已切换为${preference.label}，正在重载');
+    await _loadVideo(refresh: true);
   }
 
   void _setDefaultMute(bool enabled) {
     setState(() => _defaultMute = enabled);
     PlayerPanelPreferences.setDefaultMute(enabled);
+    // 与设置页原行同一支偏好同写（入口迁移后只有一个值，见
+    // _loadPanelPreferences 的对齐）。
+    unawaited(DramaMutePreferences.instance.set(enabled));
     // 官方默认静音是「起播时的音量」，切换时立刻作用到当前播放器，
     // 与官方「开启时默认静音/关闭默认静音」的即时反馈一致。
     final player = _player;
@@ -1092,7 +1146,9 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   /// 失败不显示弹幕，不影响播放。调度（预取/补数/竞态）都在
   /// [DanmakuLoader] 里。
   void _loadDanmaku() {
-    if (!widget.shortSeries || widget.eps.isEmpty) return;
+    // 照录屏改造批：拆 shortSeries 形态门——任何入口都尝试取数；
+    // 非官方集的 vid 在官方接口取不到弹幕时自然为空，不挡播放。
+    if (widget.eps.isEmpty) return;
     final vid = widget.eps[_index].itemId;
     if (vid.isEmpty) return;
     _danmakuFlight?.cancel();
@@ -1112,7 +1168,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   }
 
   void _rememberDanmakuResume(int index, int positionMs) {
-    if (!widget.shortSeries || positionMs <= 0) return;
+    if (positionMs <= 0) return;
     if (index < 0 || index >= widget.eps.length) return;
     if (_danmakuLoader.videoId == widget.eps[index].itemId) return;
     _danmakuResumeIndex = index;
@@ -1122,8 +1178,92 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   /// chrome 上报的最终 seek 目标（官方 `ON_SEEK_FINISH`）：调度器自行
   /// 判断目标是否已被覆盖、是否需要清游标重拉。
   void _onDanmakuSeek(Duration target) {
-    if (!widget.shortSeries) return;
     _danmakuLoader.onSeek(target.inMilliseconds);
+  }
+
+  /// 外部弹幕合并（照录屏改造批 D3）：解析出的条目并进当前时间轴，
+  /// 与官方弹幕一起显示；条数回给调用方做提示。
+  int _mergeExternalDanmaku(List<PlayletComment> entries) {
+    if (entries.isEmpty) return 0;
+    _externalDanmaku = [..._externalDanmaku, ...entries];
+    setState(() {
+      _danmaku.load(entries);
+    });
+    return entries.length;
+  }
+
+  /// 弹幕加载 · 输入 XML 地址（D1）：拉取 → 解析 → 合并。失败如实
+  /// 提示，不假装加载成功。
+  Future<void> _loadExternalDanmakuFromUrl() async {
+    final controller = TextEditingController();
+    final url = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('输入弹幕 XML 地址'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: TextInputType.url,
+          decoration: const InputDecoration(
+            hintText: 'https://…（B 站格式弹幕 XML）',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(controller.text.trim()),
+            child: const Text('加载'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (url == null || url.isEmpty || !mounted) return;
+    try {
+      final response = await http
+          .get(Uri.parse(url))
+          .timeout(const Duration(seconds: 15));
+      if (!mounted) return;
+      if (response.statusCode != 200) {
+        PlayerToast.show(context, '弹幕加载失败：服务器返回 ${response.statusCode}');
+        return;
+      }
+      final count = _mergeExternalDanmaku(
+        parseDanmakuXml(response.body),
+      );
+      PlayerToast.show(
+        context,
+        count > 0 ? '已加载 $count 条弹幕' : '这个地址里没有可用的弹幕',
+      );
+    } catch (_) {
+      if (mounted) PlayerToast.show(context, '弹幕加载失败：地址打不开');
+    }
+  }
+
+  /// 弹幕加载 · 本地 XML 文件（D2）：系统文件选择器选 .xml → 解析
+  /// → 合并。
+  Future<void> _loadExternalDanmakuFromFile() async {
+    try {
+      final file = await openFile(
+        acceptedTypeGroups: const [
+          XTypeGroup(label: '弹幕 XML', extensions: ['xml']),
+        ],
+      );
+      if (file == null || !mounted) return;
+      final text = await file.readAsString();
+      if (!mounted) return;
+      final count = _mergeExternalDanmaku(parseDanmakuXml(text));
+      PlayerToast.show(
+        context,
+        count > 0 ? '已加载 $count 条弹幕' : '这个文件里没有可用的弹幕',
+      );
+    } catch (_) {
+      if (mounted) PlayerToast.show(context, '弹幕加载失败：文件读不出来');
+    }
   }
 
   /// 官方开关切换：落盘 + Toast 文案（`i95/i.java:339-346`）。重新打开时
@@ -1184,6 +1324,9 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    PlayerMenuPreferences.playOrder.removeListener(
+      _syncAutoAdvanceFromPlayOrder,
+    );
     // 会话内切软解（A6）只在本页有效：退出时把解码偏好缓存恢复原值。
     if (_decoderBeforeFallback != null) {
       DecoderPreferenceCache.current = _decoderBeforeFallback!;
@@ -1665,6 +1808,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     setState(() {
       _initVideo = true;
       _error = null;
+      _failureReport = null;
       _duration = Duration.zero;
       _playing = false;
     });
@@ -1961,12 +2105,43 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       ApiException() => error.statusCode,
       _ => null,
     };
-    _loadTrace?.fail(errorCode: errorCode, httpStatusCode: httpStatusCode);
+    _loadTrace?.fail(
+      errorCode: errorCode,
+      httpStatusCode: httpStatusCode,
+      errorCategory: switch (error) {
+        FormatException() => 'format',
+        StateError() => 'state',
+        _ => PlaybackIssue.fromError(error).name,
+      },
+    );
     _sources.invalidate(widget.eps[_index].itemId);
     if (_retrySilently()) return;
     if (_tryPostDisplayDecoderFallback()) return;
     _prefetchTimer?.cancel();
     _prefetchTimer = null;
+    // 失败报告在拆播放器前冻结：重试与切集都不能改掉这次失败的现场
+    // （上游 #497 同口径；样本只认同一次尝试、同集数、结果为 error 的那份）。
+    final issue = PlaybackIssue.fromError(error);
+    final sample = _diagnostics.latestSample;
+    final failureReport = PlayerFailureReport(
+      version: _versionText,
+      title: widget.title,
+      bookId: widget.bookId,
+      episodeId: widget.eps[_index].itemId,
+      episode: _index + 1,
+      attempt: generation,
+      issue: issue,
+      sample:
+          sample?.attempt == generation &&
+              sample?.episode == _index + 1 &&
+              sample?.outcome == 'error'
+          ? sample
+          : null,
+      duringPlayback: _hasDisplayed,
+      errorCode: errorCode,
+      httpStatusCode: httpStatusCode,
+      upstreamCode: error is ApiException ? error.upstreamCode : null,
+    );
     ++_loadGeneration;
     _progressTimer?.cancel();
     _watchTime.stop();
@@ -1977,7 +2152,8 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       unawaited(NativePlayer.updateFloating(owner: owner, playing: false));
     }
     setState(() {
-      _error = PlaybackIssue.fromError(error);
+      _error = issue;
+      _failureReport = failureReport;
       _initVideo = false;
       _playing = false;
     });
@@ -2186,6 +2362,21 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
         if (_sleepTimer.episodeEnded()) {
           return;
         }
+        // 播放顺序（照录屏改造批 M5）：单集循环回开头重播本集、
+        // 播完暂停停在末尾，都排在自动连播之前。
+        final playOrder = PlayerMenuPreferences.playOrder.value;
+        if (playOrder == PlayOrderMode.singleLoop) {
+          unawaited(
+            player
+                .seek(Duration.zero)
+                .then((_) => player.play())
+                .catchError((Object _) {}),
+          );
+          return;
+        }
+        if (playOrder == PlayOrderMode.stopAtEnd) {
+          return;
+        }
         if (_paging) {
           _pendingCompletion = generation;
           return;
@@ -2265,6 +2456,8 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       _index = index;
       // 切集：官方清时间线整池重灌（container/l.java:1496-1528）。
       _danmaku.reset();
+      // 外部弹幕只活在当前集（D4）：切集一并清空。
+      _externalDanmaku = const [];
       // 热评按集取：先撤掉上一集的，免得新集画面上挂着旧热评。
       _hotComments = const [];
     });
@@ -2285,8 +2478,9 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
         fit: StackFit.expand,
         children: [
           _chrome(layoutMode),
-          if (!_externalPanelOpen && !_switchingSeries)
-            _playbackExtrasButton(),
+          // 左缘播放控制浮钮已按改造批删除：它的全部功能（定时/
+          // 跳片头片尾/音轨字幕/画面模式/旋转/跨季连播）迁进统一
+          // 「更多」菜单（见 _buildEmbedActions）。
           if (!_externalPanelOpen &&
               !_switchingSeries &&
               widget.shortSeries &&
@@ -2297,8 +2491,8 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     );
   }
 
-  /// 发弹幕浮钮：挂在左缘、定时钮下方（与③组的播放控制浮钮错开，
-  /// 不碰它）。只在短剧页 + 弹幕开启时出现；点开底部输入条发当前
+  /// 发弹幕浮钮：挂在左缘中部（播放控制浮钮删除后它回到正中）。
+  /// 只在短剧页 + 弹幕开启时出现；点开底部输入条发当前
   /// 时间点的弹幕，成功后立即插进本地时间轴，不用等服务端回包。
   Widget _danmakuSendButton() {
     return Positioned(
@@ -2309,8 +2503,6 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // 定时钮 40 高、居中；往下空 56 再放发弹幕钮。
-            const SizedBox(height: 96),
             Material(
               color: Colors.black.withValues(alpha: 0.45),
               shape: const CircleBorder(),
@@ -2391,37 +2583,129 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     );
   }
 
-  /// 播放控制浮钮（画面模式 / 旋转 / 定时停止 / 跨季连播）：chrome 的
-  /// 「更多」面板不在本次归属内，入口先挂在左缘中部；定时生效时图标
-  /// 变橙，点开弹层见 `player_playback_extras_sheet.dart`。
-  Widget _playbackExtrasButton() {
-    final sleepActive = _sleepTimer.active;
-    return Positioned(
-      left: 8,
-      top: 0,
-      bottom: 0,
-      child: Center(
-        child: Material(
-          color: Colors.black.withValues(alpha: 0.45),
-          shape: const CircleBorder(),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: _openPlaybackExtras,
-            child: SizedBox(
-              width: 40,
-              height: 40,
-              child: Icon(
-                sleepActive ? Icons.timer : Icons.timer_outlined,
-                color: sleepActive
-                    ? const Color(0xFFFA6725)
-                    : Colors.white,
-                size: 22,
+  /// 统一「更多」菜单的页面级数据/动作（照录屏改造批）：每次 build
+  /// 组装一份当前快照，控制层打开菜单时用。原左缘浮钮的全部功能
+  /// 都在这里汇合（定时/跳片头片尾/解码/画面模式/旋转/跨季连播/
+  /// 迁移的设置页行）。
+  PlayerEmbedPageActions _buildEmbedActions() {
+    final source = _currentSource;
+    return PlayerEmbedPageActions(
+      seriesTitle: _seriesTitle.isNotEmpty ? _seriesTitle : widget.title,
+      episodeLabel: widget.eps.length > 1 ? '第 ${_index + 1} 集' : '',
+      sourceLabel: _embedSourceLabel(),
+      source: source,
+      sleepTimer: _sleepTimer,
+      introSkipSeconds: _skipEnabled ? _skipSettings.introSeconds : 0,
+      outroSkipSeconds: _skipEnabled ? _skipSettings.outroSeconds : 0,
+      onSkipSettingsChanged: (intro, outro) {
+        final next = IntroOutroSkipSettings(
+          introSeconds: intro,
+          outroSeconds: outro,
+        );
+        _setSkipSettings(next);
+        if (!_skipEnabled) {
+          unawaited(IntroOutroSkipStore.saveEnabled(true));
+          setState(() => _skipEnabled = true);
+        }
+      },
+      onReload: () => unawaited(_loadVideo(refresh: true)),
+      decoder: DecoderPreferenceCache.current,
+      onDecoderChanged: _changeDecoderPreference,
+      backgroundPlay: PlayerPreferences.floatingWindow.value,
+      onBackgroundPlayChanged: (value) {
+        unawaited(PlayerPreferences.setFloatingWindow(value));
+        setState(() {});
+      },
+      mutedDefault: _defaultMute,
+      onMutedDefaultChanged: _setDefaultMute,
+      adBlockEnabled: AdBlockPreference.enabledListenable.value,
+      onAdBlockChanged: (value) =>
+          unawaited(AdBlockPreference.setEnabled(value)),
+      fallbackMode: _fallback.mode,
+      onFallbackModeChanged: (mode) {
+        setState(() => _fallback.mode = mode);
+        unawaited(PlaybackFallbackMode.save(mode));
+      },
+      layoutMode: PlayerLayoutPreferences.mode.value,
+      onLayoutModeChanged: (mode) {
+        // 先改全局通知值（本页 chrome 就挂在它上面，立即生效），
+        // 再落盘——与原设置页 _setPlayerLayout 的写序一致。
+        PlayerLayoutPreferences.mode.value = mode;
+        unawaited(PlayerLayoutPreferences.save(mode));
+      },
+      episodeIndex: _index,
+      episodeCount: widget.eps.length,
+      onOpenListenMode: widget.eps.isNotEmpty
+          ? () => unawaited(_openListenMode())
+          : null,
+      onOpenDownload: widget.shortSeries && widget.eps.isNotEmpty
+          ? () => unawaited(_openDownloadSheet())
+          : null,
+      onOpenQuality: _currentSource != null && _currentSource!.variants.length > 1
+          ? () => unawaited(_openQualityPickerFromMenu())
+          : null,
+      onLoadDanmakuUrl: () => unawaited(_loadExternalDanmakuFromUrl()),
+      onLoadDanmakuFile: () => unawaited(_loadExternalDanmakuFromFile()),
+      displayModeLabel: _displayMode.label,
+      onCycleDisplayMode: _cycleDisplayMode,
+      rotationLabel: '$_userRotation°',
+      onCycleRotation: _cycleRotation,
+      seasonAutoplay: _seasonAutoplay,
+      onSeasonAutoplayChanged: _setSeasonAutoplay,
+    );
+  }
+
+  /// 播放源名（播放地址/信息弹窗用）：站源播放带站名时用站名，
+  /// 官方短剧用剧名兜底——只报手里真有的，不编造线路名。
+  String _embedSourceLabel() {
+    final scope = widget.sourceScopeId;
+    if (scope != null && scope.isNotEmpty) return scope;
+    return _seriesTitle.isNotEmpty ? _seriesTitle : widget.title;
+  }
+
+  /// 「播放信息」弹窗的页面侧数据（宿主实时字段由控制层补）。
+  Future<PlayerInfoData> _loadEmbedInfo() async {
+    final source = _currentSource;
+    return PlayerInfoData(
+      seriesTitle: _seriesTitle.isNotEmpty ? _seriesTitle : widget.title,
+      episodeLabel: widget.eps.length > 1 ? '第 ${_index + 1} 集' : '',
+      sourceLabel: _embedSourceLabel(),
+      sourceUrl: source?.url ?? '',
+      decoderPrefLabel: DecoderPreferenceCache.current.label,
+      position: _player?.position ?? Duration.zero,
+      duration: _duration,
+      rate: 1,
+      episodeIndex: _index,
+      episodeCount: widget.eps.length,
+    );
+  }
+
+  /// 菜单里的「清晰度」行：复用页面既有清晰度选择（选档走
+  /// _switchVariant）。页面没有独立面板函数时退回轨道/档位弹层。
+  Future<void> _openQualityPickerFromMenu() async {
+    final source = _currentSource;
+    if (source == null || source.variants.length <= 1) return;
+    final picked = await showModalBottomSheet<EpisodeVariant>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final variant in source.variants)
+              ListTile(
+                title: Text(variant.name),
+                trailing: variant.url == source.url
+                    ? const Icon(Icons.check)
+                    : null,
+                onTap: () => Navigator.of(sheetContext).pop(variant),
               ),
-            ),
-          ),
+          ],
         ),
       ),
     );
+    if (picked == null || !mounted) return;
+    PlayerToast.show(context, '清晰度已成功切换至${picked.name}');
+    unawaited(_switchVariant(picked));
   }
 
   Widget _chrome(PlayerLayoutMode layoutMode) {
@@ -2444,6 +2728,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
           : widget.eps[_index].vertical ??
                 _episodeVerticals[widget.eps[_index].itemId],
       openFullScreen: widget.openFullScreen,
+      popOnFullscreenExit: widget.popOnFullscreenExit,
       watchedEpisodes: watchedIndexes(_watchedIds, widget.eps),
       interactionBlocked: _externalPanelOpen || _switchingSeries,
       aiGenerated: widget.aiGenerated,
@@ -2483,16 +2768,21 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       seriesCover: _seriesCover,
       episodeLabel: _episodeLabel,
       fillScreen: _fillScreen,
-      onFillScreenChanged: widget.shortSeries ? _setFillScreen : null,
+      // 照录屏改造批：拆 shortSeries 形态门——撑满/默认静音/弹幕
+      // 开关与设置对所有入口的播放页开放（演员库全屏同享）。
+      onFillScreenChanged: _setFillScreen,
       defaultMute: _defaultMute,
-      onDefaultMuteChanged: widget.shortSeries ? _setDefaultMute : null,
+      onDefaultMuteChanged: _setDefaultMute,
       danmaku: _danmaku.entries,
       danmakuEnabled: _danmakuEnabled,
-      onToggleDanmaku: widget.shortSeries ? _toggleDanmaku : null,
+      onToggleDanmaku: _toggleDanmaku,
       danmakuSettings: _danmakuSettings,
-      onDanmakuSettingsChanged: widget.shortSeries
-          ? (settings) => setState(() => _danmakuSettings = settings)
-          : null,
+      onDanmakuSettingsChanged: (settings) =>
+          setState(() => _danmakuSettings = settings),
+      // 统一「更多」菜单（照录屏改造批）：页面级数据/动作 + 播放
+      // 信息组装，全形态共用。
+      embedActions: _buildEmbedActions(),
+      embedLoadInfo: _loadEmbedInfo,
       // 听视频（官方 `jm3.d0.y()`）：暂停视频页播放，打开听书页；关闭时
       // 回传进度写回视频页续看。
       onOpenListenMode: widget.shortSeries && widget.eps.isNotEmpty
@@ -2506,14 +2796,12 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       // 官方 `oi3/k.P()` 门：上游只有单流时不显示清晰度行。
       qualityVariants: _currentSource?.variants ?? const [],
       currentQualityUrl: _currentSource?.url,
-      onQualitySelected: widget.shortSeries
-          ? (variant) {
-              // 官方 `bgw`：切换的 Toast 立即出，不等换流完成。
-              PlayerToast.show(context, '清晰度已成功切换至${variant.name}');
-              unawaited(_switchVariant(variant));
-            }
-          : null,
-      onSeeked: widget.shortSeries ? _onDanmakuSeek : null,
+      onQualitySelected: (variant) {
+        // 官方 `bgw`：切换的 Toast 立即出，不等换流完成。
+        PlayerToast.show(context, '清晰度已成功切换至${variant.name}');
+        unawaited(_switchVariant(variant));
+      },
+      onSeeked: _onDanmakuSeek,
       // 常驻进度细条的显隐就接这个：seek 栏在屏时细条藏起来，
       // seek 栏不在屏时细条才出现，两条进度不重叠。
       onSeekBarVisibilityChanged: (visible) =>
@@ -2688,6 +2976,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
           PlayerErrorFeedback(
             key: const ValueKey('player-error'),
             issue: _error!,
+            report: _failureReport,
             onRetry: widget.eps.isEmpty ? null : retry,
           ),
         if (_error == null && (waiting || _player!.buffering))
@@ -2697,9 +2986,10 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
             onRetry: retry,
           ),
         // 常驻进度细条（对照 hongguoTV `PlaybackProgressDisplay`）：
-        // 贴在视频画面底缘；只在 chrome 的 seek 栏不在屏时显示，seek 栏
-        // 一出来就藏起来——控制里本来就有带圆点的进度条，两条不能同时
-        // 出现。显隐状态由 chrome 的 `onSeekBarVisibilityChanged` 回调
+        // 贴在视频画面底缘；展示方式走菜单偏好（照录屏改造批 M11）：
+        // 自动 = 只在 chrome 的 seek 栏不在屏时显示（改造前行为）；
+        // 始终展示 = 与 seek 栏同屏也不藏；不展示 = 永不出现。
+        // 显隐状态由 chrome 的 `onSeekBarVisibilityChanged` 回调
         // 推进这里，不另起 Timer。
         if (_error == null && !waiting)
           Positioned(
@@ -2707,13 +2997,21 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
             right: 0,
             bottom: 0,
             child: IgnorePointer(
-              child: ValueListenableBuilder<bool>(
-                valueListenable: _chromeSeekBarVisible,
-                builder: (context, seekBarVisible, _) =>
-                    PlayerPersistentProgress(
-                  player: _player,
-                  duration: _duration,
-                  visible: !seekBarVisible,
+              child: ValueListenableBuilder<PersistentProgressMode>(
+                valueListenable: PlayerMenuPreferences.progressMode,
+                builder: (context, progressMode, _) =>
+                    ValueListenableBuilder<bool>(
+                  valueListenable: _chromeSeekBarVisible,
+                  builder: (context, seekBarVisible, _) =>
+                      PlayerPersistentProgress(
+                    player: _player,
+                    duration: _duration,
+                    visible: switch (progressMode) {
+                      PersistentProgressMode.always => true,
+                      PersistentProgressMode.auto => !seekBarVisible,
+                      PersistentProgressMode.never => false,
+                    },
+                  ),
                 ),
               ),
             ),

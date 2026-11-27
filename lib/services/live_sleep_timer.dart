@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'live_settings.dart';
+
 /// 直播睡眠定时：对齐火蚁TV 的 SleepTimerController。
 ///
 /// 火蚁TV 的定时器是纯 Dart Timer + ChangeNotifier，不依赖账号与存储；
@@ -140,6 +142,9 @@ enum LiveSleepTimerChoice {
 ///（深色底 0xFF16171B、圆角 24、白色描边、最大宽 320）。
 Future<void> showLiveSleepTimerDialog(BuildContext context) async {
   final timer = LiveSleepTimer.instance;
+  // 「默认时长」行（设置页原行迁入，同一支 LiveSettingsStore 偏好）。
+  await LiveSettingsStore.instance.load();
+  var wantDefault = false;
   final options = const [
     LiveSleepTimerChoice.off,
     LiveSleepTimerChoice.minutes15,
@@ -203,6 +208,37 @@ Future<void> showLiveSleepTimerDialog(BuildContext context) async {
                       ),
                     ),
                   ),
+                const Divider(height: 12),
+                InkWell(
+                  key: const ValueKey('live-sleep-default'),
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () {
+                    wantDefault = true;
+                    Navigator.pop(dialogContext);
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 9,
+                      horizontal: 10,
+                    ),
+                    child: Row(
+                      children: [
+                        const Text(
+                          '默认时长',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                        const Spacer(),
+                        Text(
+                          LiveSettingsStore.instance.sleepDefaultLabel,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.white54,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
                 Align(
                   alignment: Alignment.centerRight,
                   child: TextButton(
@@ -217,8 +253,45 @@ Future<void> showLiveSleepTimerDialog(BuildContext context) async {
       ),
     ),
   );
+  if (wantDefault) {
+    if (!context.mounted) return;
+    await _showLiveSleepDefaultPicker(context);
+    return;
+  }
   if (picked == null) return;
   timer.select(picked);
+}
+
+/// 默认时长选择（原设置页「睡眠定时」行的新家）：档位与
+/// [LiveSettingsStore.sleepOptions] 同表，选中即落盘。
+Future<void> _showLiveSleepDefaultPicker(BuildContext context) async {
+  final store = LiveSettingsStore.instance;
+  final picked = await showDialog<int>(
+    context: context,
+    builder: (dialogContext) => Theme(
+      data: ThemeData.dark(),
+      child: AlertDialog(
+        backgroundColor: const Color(0xFF16171B),
+        title: const Text('睡眠定时默认时长', style: TextStyle(fontSize: 15)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final minutes in LiveSettingsStore.sleepOptions)
+              ListTile(
+                key: ValueKey('live-sleep-default-$minutes'),
+                dense: true,
+                title: Text(minutes <= 0 ? '关闭' : '$minutes 分钟'),
+                trailing: store.sleepDefaultMinutes == minutes
+                    ? const Icon(Icons.check, size: 18)
+                    : null,
+                onTap: () => Navigator.pop(dialogContext, minutes),
+              ),
+          ],
+        ),
+      ),
+    ),
+  );
+  if (picked != null) await store.setSleepDefaultMinutes(picked);
 }
 
 /// 火蚁TV GlassDialog 的本地同款（见 tree_104 glass_panel.dart）：

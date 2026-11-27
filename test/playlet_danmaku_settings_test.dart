@@ -34,6 +34,55 @@ void main() {
       );
     });
 
+    test('new fields default to the pre-extension behaviour', () {
+      const settings = DanmakuSettings();
+      expect(settings.fontPercent, 100);
+      expect(settings.fullscreenFontPercent, 120);
+      expect(settings.scrollDurationSec, 0);
+      expect(settings.staticDurationSec, 4);
+      expect(settings.lineHeightFactor, 1.6);
+      expect(settings.fontWeightValue, 400);
+      expect(settings.fontWeight, FontWeight.w400);
+      expect(settings.strokeWidth, 0);
+      expect(settings.displayAreaPercent, 0);
+      // 百分比参与实际字号；全屏另用全屏百分比。
+      expect(const DanmakuSettings(fontPercent: 150).fontSize, 24);
+      expect(settings.fontSizeFor(fullscreen: false), 16);
+      expect(settings.fontSizeFor(fullscreen: true), 19.2);
+    });
+
+    test('new field values are clamped to their ranges', () {
+      final settings = const DanmakuSettings().copyWith(
+        fontPercent: 999,
+        fullscreenFontPercent: 1,
+        scrollDurationSec: 1,
+        staticDurationSec: 99,
+        lineHeightFactor: 0.5,
+        fontWeightValue: 450,
+        strokeWidth: 1.3,
+        displayAreaPercent: 5,
+      );
+      expect(settings.fontPercent, 200);
+      expect(settings.fullscreenFontPercent, 50);
+      expect(settings.scrollDurationSec, 3);
+      expect(settings.staticDurationSec, 10);
+      expect(settings.lineHeightFactor, 1.0);
+      expect(settings.fontWeightValue, 500);
+      expect(settings.strokeWidth, 1.5);
+      expect(settings.displayAreaPercent, 10);
+      // 0 是「沿用默认/自动」的哨兵，不能被钳成下限。
+      expect(
+        const DanmakuSettings().copyWith(scrollDurationSec: 0)
+            .scrollDurationSec,
+        0,
+      );
+      expect(
+        const DanmakuSettings().copyWith(displayAreaPercent: 0)
+            .displayAreaPercent,
+        0,
+      );
+    });
+
     test('tier lookups map to the official enum values', () {
       expect(const DanmakuSettings(speedTier: 1).speed, 0.5);
       expect(const DanmakuSettings(speedTier: 2).speed, 0.7);
@@ -42,6 +91,44 @@ void main() {
       expect(const DanmakuSettings(sizeTier: 1).fontSize, 12);
       expect(const DanmakuSettings(sizeTier: 5).fontSize, 20);
     });
+  });
+
+  testWidgets('new fields survive a save/load round trip', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    // 旧存档（只有老键）读出来新字段全回默认值。
+    await DanmakuSettings.save(const DanmakuSettings(alpha: 128));
+    final legacy = await DanmakuSettings.load();
+    expect(legacy.alpha, 128);
+    expect(legacy.fontPercent, 100);
+    expect(legacy.fullscreenFontPercent, 120);
+    expect(legacy.scrollDurationSec, 0);
+    expect(legacy.staticDurationSec, 4);
+    expect(legacy.lineHeightFactor, 1.6);
+    expect(legacy.fontWeightValue, 400);
+    expect(legacy.strokeWidth, 0);
+    expect(legacy.displayAreaPercent, 0);
+
+    const changed = DanmakuSettings(
+      fontPercent: 150,
+      fullscreenFontPercent: 200,
+      scrollDurationSec: 8,
+      staticDurationSec: 6,
+      lineHeightFactor: 2,
+      fontWeightValue: 700,
+      strokeWidth: 1.5,
+      displayAreaPercent: 50,
+    );
+    await DanmakuSettings.save(changed);
+    final restored = await DanmakuSettings.load();
+    expect(restored.fontPercent, 150);
+    expect(restored.fullscreenFontPercent, 200);
+    expect(restored.scrollDurationSec, 8);
+    expect(restored.staticDurationSec, 6);
+    expect(restored.lineHeightFactor, 2);
+    expect(restored.fontWeightValue, 700);
+    expect(restored.strokeWidth, 1.5);
+    expect(restored.displayAreaPercent, 50);
+    expect(restored.fontSize, 24);
   });
 
   testWidgets('the panel reports slider changes live', (tester) async {

@@ -228,8 +228,11 @@ Future<void> _initializeLocalData() async {
       );
     }
   }());
-  // ZakaTV jar 内置站首次启动补进登记表：幂等、开关保留、删过的不复活。
-  unawaited(SourceRegistry.instance.ensureBuiltinJarSites());
+  // 站点库对账：旧的 ensureBuiltinJarSites()/ensureBuiltinImportedSites()
+  // 启动调用已解除（方法本体保留，瘦身阶段总管处置）——内置种子/jar
+  // 行改由站点库导入激活，未导入时只有名单。registry load 末尾已调
+  // 一次 syncSqlSites，这里保留一次冗余对账兜底。
+  unawaited(SourceRegistry.instance.syncSqlSites());
   // 内置 jar 启动时校验一次落盘：覆盖安装后指纹变了就重解，避免用户
   // 第一次点站才解包、还撞上并发（见 jar_bridge 的竞态修复说明）。
   // 尽力而为，不挡启动；已落盘且指纹对得上时只是两次 MD5 读盘。
@@ -247,8 +250,8 @@ Future<void> _initializeLocalData() async {
       md5: youtubeJarMd5,
     ),
   );
-  // 内置导入站（随包 py / 阅读 JSON）首次启动补进登记表：同款规矩。
-  unawaited(SourceRegistry.instance.ensureBuiltinImportedSites());
+  // （内置导入站的 ensureBuiltinImportedSites 启动调用同样已解除，
+  // 见上方站点库对账说明。）
   // 插件系统接线（用户 2026-11-26 令）：试加载走 QuickJS 运行时
   // 探针；装/卸/启停后登记表对账；站 key 撞名判定查登记表 + 站表。
   IdjPluginStore.probeHandler =

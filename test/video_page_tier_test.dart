@@ -74,15 +74,16 @@ void main() {
     // ZakaMissavOff/ZakaMirror/missavt），分档表 278→275 使 airav
     // 1→0、shunvwang 2→1、danaizizy 3→2（heitaoduanju 同步换档但
     // 无统一表行），行数 386→382，逐行增减已核（IMPL_REPORT）。
+    // 2026-11-27 站点库批：条目改按名单口径，行数 382→377。
     expect(ids.length, unifiedVideoZoneSites(entries).length);
-    expect(ids.length, 382);
+    expect(ids.length, 377);
   });
 
   test('门禁开关开时修为 0 也全可见', () {
     cultivationAdultTierGateDisabledForTesting = true;
     final visible = visibleVideoZoneSites(entries, 0);
     expect(visible.length, unifiedVideoZoneSites(entries).length);
-    expect(visible.length, 382);
+    expect(visible.length, 377);
   });
 
   test('第 4 档末尾顺序：missav 在前、鉴黄师压最后', () {

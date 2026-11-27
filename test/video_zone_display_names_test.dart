@@ -27,7 +27,7 @@ int _displayWidth(String name) {
 
 void main() {
   test('短名表全是修仙词·短名两段式，重名只许 whos/wohs 同站共用，弹窗两行看得全', () {
-    expect(videoZoneDisplayNames.length, 219);
+    expect(videoZoneDisplayNames.length, 216);
     final values = videoZoneDisplayNames.values.toList();
     // 唯一重名：种子 whos 与 jar wohs 是同一站（whos识图）共用
     // '炼虚·识图'；种子 id 不走 jar 别名，表里只能写两条。
@@ -64,11 +64,14 @@ void main() {
     expect(videoZoneDisplayName('seed_new_site', '新站原名'), '新站原名');
   });
 
-  test('统一表 386 行全走短名，去重后 308 个站名', () {
+  test('统一表 377 行全走短名，去重后 301 个站名', () {
     final sites = unifiedVideoZoneSites(embeddedTestEntries());
-    expect(sites.length, 386);
+    expect(sites.length, 377);
     final names = sites.map((site) => site.name).toSet();
-    expect(names.length, 308);
+    // 站点库批（2026-11-27）：行数 386 → 377、去重站名 308 → 301，
+    // 随站集变化（工具行 3 剔除、zy360 未进库、legado 按真实分区
+    // 计入、重复 canon 同名合并），逐项与生成器 ACCOUNT 对过。
+    expect(names.length, 301);
     for (final site in sites) {
       expect(
         _displayWidth(site.name),

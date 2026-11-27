@@ -58,6 +58,34 @@ DramaSiteCatalogPage parseTvboxCatalog(Map<String, dynamic> json) {
   return DramaSiteCatalogPage(items: items, hasMore: hasMore);
 }
 
+/// 详情扩展字段键名归一：TVBox/MacCMS 回包用 vod_ 前缀长键，页面只读
+/// 短键（actor/category/tags/year/area/remarks 等），不归一则分类标签、
+/// 演员恒空、推荐同分类匹配失效。这里只改名不造值：原 vod_ 键保留，
+/// 已有短键优先不覆盖；vod_class 与 vod_tag 同映射 tags，先到者占位。
+Map<String, String> normalizeTvboxDetailExtra(Map<String, String> extra) {
+  const aliases = <String, String>{
+    'vod_actor': 'actor',
+    'vod_actress': 'actress',
+    'vod_director': 'director',
+    'vod_year': 'year',
+    'vod_area': 'area',
+    'vod_remarks': 'remarks',
+    'vod_lang': 'lang',
+    'vod_score': 'score',
+    'vod_play_from': 'play_from',
+    'vod_type_name': 'category',
+    'vod_class': 'tags',
+    'vod_tag': 'tags',
+  };
+  final result = Map<String, String>.from(extra);
+  for (final entry in extra.entries) {
+    final shortKey = aliases[entry.key];
+    if (shortKey == null || entry.value.isEmpty) continue;
+    result.putIfAbsent(shortKey, () => entry.value);
+  }
+  return result;
+}
+
 DramaSiteDetail parseTvboxDetail(Map<String, dynamic> json) {
   final rows = _rows(json['list']);
   if (rows.isEmpty) {
@@ -115,7 +143,7 @@ DramaSiteDetail parseTvboxDetail(Map<String, dynamic> json) {
     title: title,
     cover: cover,
     synopsis: _text(row['vod_content']),
-    extra: extra,
+    extra: normalizeTvboxDetailExtra(extra),
     stills: parseDetailStills(
       row['stills'] ?? row['vod_stills'] ?? row['vod_pic_screenshot'],
     ),

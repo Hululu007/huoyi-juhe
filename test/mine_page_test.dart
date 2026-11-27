@@ -12,6 +12,9 @@ import 'package:fqapp/services/app_theme.dart';
 import 'package:fqapp/services/library_store.dart';
 import 'package:fqapp/widgets/home/home_shelf.dart';
 import 'package:fqapp/widgets/home/home_sheet.dart';
+import 'package:fqapp/widgets/mine/mine_entries.dart';
+import 'package:fqapp/widgets/mine/mine_plugin_section.dart';
+import 'package:fqapp/widgets/mine/mine_summary.dart';
 
 void main() {
   late Directory directory;
@@ -54,7 +57,11 @@ void main() {
         ),
       );
       await tester.pump(const Duration(milliseconds: 100));
-      expect(find.text('今日阅读'), findsOneWidget);
+      // 插件区段在两地标上方，先等它加载落定（高度不再变），
+      // 再按页内顺序逐段滚到断言（大字号下地标不在首屏内）。
+      await _settlePluginSection(tester);
+      await tester.scrollUntilVisible(find.text('阅读热力图'), 200);
+      await tester.pump(const Duration(milliseconds: 50));
       expect(find.text('阅读热力图'), findsOneWidget);
       for (final weekday in {0: '周一', 2: '周三', 4: '周五'}.entries) {
         final label = find.text(weekday.value);
@@ -69,9 +76,36 @@ void main() {
           reason: '${weekday.value} must align with its calendar row',
         );
       }
+      await tester.scrollUntilVisible(find.text('今日阅读'), 200);
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(find.text('今日阅读'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   }
+
+  testWidgets('plugin section takes the summary slot; summary above entries', (
+    tester,
+  ) async {
+    addTearDown(() => tester.pumpWidget(const SizedBox.shrink()));
+    await tester.pumpWidget(const MaterialApp(home: MinePage()));
+    await tester.pump(const Duration(milliseconds: 100));
+    // 直接查列表子组件顺序（不依赖滚动位置）：插件管理区段占了
+    // 今日阅读原来的位置（档案卡正下方），今日阅读没删、挪到
+    // 入口列表正上方（用户 2026-11-27 20:16 令）。
+    final list = tester.widget<ListView>(find.byType(ListView).first);
+    final children =
+        (list.childrenDelegate as SliverChildListDelegate).children;
+    final pluginAt = children.indexWhere((w) => w is MinePluginSection);
+    final summaryAt = children.indexWhere((w) => w is MineSummary);
+    final entriesAt = children.indexWhere((w) => w is MineEntries);
+    expect(pluginAt, isNonNegative);
+    expect(summaryAt, greaterThan(pluginAt), reason: '今日阅读已让位');
+    expect(entriesAt, summaryAt + 1, reason: '今日阅读在入口列表正上方');
+    expect(
+      find.byKey(const ValueKey('mine-plugin-section')),
+      findsOneWidget,
+    );
+  });
 
   testWidgets('the profile card and colored shortcut tiles are gone', (
     tester,
@@ -108,7 +142,9 @@ void main() {
     addTearDown(() => tester.pumpWidget(const SizedBox.shrink()));
     await tester.pumpWidget(const MaterialApp(home: MinePage()));
     await tester.pump(const Duration(milliseconds: 100));
+    await _settlePluginSection(tester);
     await tester.scrollUntilVisible(find.text('离线缓存'), 200);
+    await _dragIntoView(tester, find.text('离线缓存'));
     await tester.tap(find.text('离线缓存'));
     await tester.pump(const Duration(milliseconds: 100));
     expect(find.text('小说离线缓存'), findsOneWidget);
@@ -233,6 +269,24 @@ void main() {
     expect(page.item.id, 'book6');
     expect(page.item.kind, 'audio');
   });
+}
+
+/// 等内嵌插件区段的两路加载落定（「正在加载…」占位消失）。
+///
+/// 区段在入口列表上方，落定前高度会变、把下方行顶出屏幕；
+/// 后续滚动/点按必须等它稳定（真机同理，只是人眼跟得上）。
+/// 加载链要真事件循环推进，假时钟区里靠 runAsync 轮询。
+Future<void> _settlePluginSection(WidgetTester tester) async {
+  for (var i = 0; i < 80; i++) {
+    final loading =
+        find.text('正在加载插件市场…').evaluate().isNotEmpty ||
+        find.text('正在加载已装插件…').evaluate().isNotEmpty;
+    if (!loading) return;
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 100)),
+    );
+    await tester.pump(const Duration(milliseconds: 50));
+  }
 }
 
 /// Drags until [finder] is fully inside the MinePage ListView viewport.

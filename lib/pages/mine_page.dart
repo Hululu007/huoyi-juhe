@@ -12,6 +12,7 @@ import '../widgets/home/home_shelf.dart';
 import '../widgets/mine/cultivation_profile_card.dart';
 import '../widgets/mine/mine_entries.dart';
 import '../widgets/mine/mine_heatmap.dart';
+import '../widgets/mine/mine_plugin_section.dart';
 import '../widgets/mine/mine_summary.dart';
 import '../widgets/mine/mine_top_books.dart';
 import '../widgets/series_detail/moyi_detail_theme.dart';
@@ -20,8 +21,11 @@ import 'detail_page.dart';
 import 'hongguo_login_page.dart';
 import 'settings_page.dart';
 
-/// 我的：首屏直接是阅读统计（今日 / 本周 / 累计 / 连续），下面热力图、
-/// 读得最多，最后是离线缓存 / 备份与导入。应用设置在标题栏齿轮。
+/// 我的：修仙档案卡下面是内嵌插件管理（用户 2026-11-27 20:16
+/// 令：占今日阅读原来的位置，市场与已装两段原地折叠展开、不跳
+/// 页），再往下是阅读统计（今日阅读已挪到读得最多下面、入口列
+/// 表上面，内容不变）、热力图、读得最多，最后是离线缓存 /
+/// 备份与导入 / 数据库导入。应用设置在标题栏齿轮。
 ///
 /// 统计来自本地阅读历史与实测阅读时长；页面在 tab 隐藏或被不透明路由盖住
 /// 时不跟着存储刷新，下次可见时一次追上。
@@ -160,9 +164,10 @@ class _MinePageState extends State<MinePage> {
                       ),
                     ),
                   ),
-                  MineSummary(stats: _stats, today: today),
+                  const MinePluginSection(),
                   MineHeatmap(stats: _stats, today: today),
                   MineTopBooks(rank: _stats.rank, onOpen: _openEntry),
+                  MineSummary(stats: _stats, today: today),
                   const MineEntries(),
                 ],
               ),

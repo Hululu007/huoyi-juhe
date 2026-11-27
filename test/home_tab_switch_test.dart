@@ -9,6 +9,7 @@ import 'package:fqapp/models/media_item.dart';
 import 'package:fqapp/pages/home_page.dart';
 import 'package:fqapp/pages/home_provider.dart';
 import 'package:fqapp/services/api_client.dart';
+import 'package:fqapp/services/source_registry.dart';
 import 'package:fqapp/widgets/home/drama_site_grid.dart';
 import 'package:fqapp/widgets/home/home_feed_states.dart';
 import 'package:fqapp/widgets/home/home_hero.dart';
@@ -56,6 +57,11 @@ void main() {
     // 注册表与午夜门禁在测试里读偏好：不种 mock 值时那次读取挂住，
     // 首页首载会被成人推荐的 10 秒兜底拖住，骨架与计时断言全跟着错。
     SharedPreferences.setMockInitialValues({});
+    // 站点库批（2026-11-27）后登记表 load 末尾含站点库落盘同步（真实
+    // 文件读），在假异步里完不成、会把成人推荐的 10 秒兜底计时器悬在
+    // 测试结尾。先在真异步里把登记表单例加载完（load 有幂等标记），
+    // 页面内的 load 调用即刻返回。断言一字未动。
+    await tester.runAsync(() => SourceRegistry.instance.load());
     await tester.binding.setSurfaceSize(surface);
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(

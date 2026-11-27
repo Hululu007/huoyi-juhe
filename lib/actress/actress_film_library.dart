@@ -246,7 +246,7 @@ class FilmLibraryService implements FilmDbFallbackProvider {
         total: 0,
         schema: const GenericDbSchema(tables: [], fingerprint: ''),
         domain: '',
-        error: '未找到外置数据库：MYTV/db/女优库.db',
+        error: '未找到已激活的女优库：请先到数据库管理页导入女优库完成激活',
       );
     }
     final file = File(dbPath);

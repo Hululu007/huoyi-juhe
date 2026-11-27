@@ -12,7 +12,7 @@ import 'package:fqapp/widgets/site_grid_dialog.dart';
 /// 三区渲染（区签带插件区）、切到插件区能看到已装插件站卡、点卡
 /// 能选中返回；市场区段不在弹窗里、无插件添加按钮、长按插件卡
 /// 不弹卸载（市场与管理全套在「我的 → 插件管理」页，见
-/// plugin_manage_page_test.dart）。插件仓库用临时目录 + 内存
+/// plugin_inline_section_test.dart）。插件仓库用临时目录 + 内存
 /// prefs + 假 probe，不碰真网络。文件 IO 是真异步：按本树口径
 /// 用 runAsync 真时间轮询等待。
 void main() {

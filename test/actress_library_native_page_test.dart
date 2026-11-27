@@ -350,7 +350,8 @@ void main() {
     await tester.pumpWidget(app(fallback: _fallback(_FakeDb(), hasDb: false)));
     await _settle(tester);
     expect(find.text('演员库'), findsOneWidget);
-    expect(find.textContaining('本地女优库尚未就绪'), findsOneWidget);
+    // 2026-11-27 激活批：无库文案换成激活引导（导入激活前不出数据）。
+    expect(find.textContaining('演员库还没激活'), findsOneWidget);
     expect(find.byKey(const ValueKey('native-state-manage')), findsOneWidget);
     expect(find.text('去授权 / 打开管理'), findsOneWidget);
   });

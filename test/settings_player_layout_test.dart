@@ -1,3 +1,8 @@
+// 播放页布局入口迁移（2026-11-27 播放器内嵌批）：设置页「外观」
+// 里的「播放页布局」行已按用户令摘除，改从播放器 ⋮ 菜单进入；
+// 偏好本体（PlayerLayoutPreferences）不动、存量值不丢。本文件
+// 改验：①设置页外观里不再有这一行；②偏好往返仍完整（菜单侧
+// 读写的是同一份）。
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -38,78 +43,41 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('外观分类里的播放页布局三选一并落盘', (tester) async {
+  testWidgets('设置页外观里不再有播放页布局行（已迁入播放器菜单）', (
+    tester,
+  ) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
     try {
       await mountSettings(tester);
       await tester.tap(find.text('外观'));
       await tester.pumpAndSettle();
-
-      expect(find.text('播放页布局'), findsOneWidget);
-      // 行尾先显示当前选择（默认沉浸式）。
-      expect(find.text('沉浸式'), findsOneWidget);
-
-      await tester.tap(find.text('播放页布局'));
-      await tester.pumpAndSettle();
-
-      // 行标题 + 弹层标题各一个。
-      expect(find.text('播放页布局'), findsNWidgets(2));
-      for (final mode in PlayerLayoutMode.values) {
-        expect(find.text(mode.label), findsWidgets);
-        expect(find.text(mode.description), findsOneWidget);
-      }
-
-      await tester.tap(find.text('始终分屏'));
-      await tester.pumpAndSettle();
-
-      expect(PlayerLayoutPreferences.mode.value, PlayerLayoutMode.split);
-      final sp = await SharedPreferences.getInstance();
-      expect(sp.getString(PlayerLayoutPreferences.key), 'split');
-      // 弹层关闭后行尾跟随新选择，旧的「沉浸式」不再出现。
-      expect(find.text('始终分屏'), findsOneWidget);
-      expect(find.text('沉浸式'), findsNothing);
+      expect(find.text('播放页布局'), findsNothing);
       expect(tester.takeException(), isNull);
     } finally {
       debugDefaultTargetPlatformOverride = null;
     }
   });
 
-  testWidgets('选择与当前一致时不重复落盘也不报错', (tester) async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.android;
-    try {
-      PlayerLayoutPreferences.mode.value = PlayerLayoutMode.auto;
-      await mountSettings(tester);
-      await tester.tap(find.text('外观'));
-      await tester.pumpAndSettle();
-      expect(find.text('自动分屏'), findsOneWidget);
-
-      await tester.tap(find.text('播放页布局'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('自动适配布局'));
-      await tester.pumpAndSettle();
-
-      // 早退分支：偏好不变，也没有失败提示。
-      expect(PlayerLayoutPreferences.mode.value, PlayerLayoutMode.auto);
-      expect(find.text('自动分屏'), findsOneWidget);
-      expect(find.text('未能保存播放页布局，已恢复原设置'), findsNothing);
-      // 真正的「不重复落盘」：SP 里仍是初始的「未写入」状态。
-      final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getString(PlayerLayoutPreferences.key), isNull);
-      expect(tester.takeException(), isNull);
-    } finally {
-      debugDefaultTargetPlatformOverride = null;
-    }
-  });
-
-  testWidgets('桌面端不提供播放页布局入口', (tester) async {
+  testWidgets('桌面设置台同样不再有播放页布局行', (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.windows;
     try {
       await mountSettings(tester, window: const Size(1280, 800));
-      // Windows 走桌面设置台，默认侧栏已选中外观。
       expect(find.text('主题模式'), findsOneWidget);
       expect(find.text('播放页布局'), findsNothing);
     } finally {
       debugDefaultTargetPlatformOverride = null;
     }
+  });
+
+  test('偏好往返不丢：save 写键、decode 读回同一值（菜单侧共用）', () async {
+    await PlayerLayoutPreferences.save(PlayerLayoutMode.split);
+    final sp = await SharedPreferences.getInstance();
+    expect(sp.getString(PlayerLayoutPreferences.key), 'split');
+    expect(
+      PlayerLayoutPreferences.decode(
+        sp.getString(PlayerLayoutPreferences.key),
+      ),
+      PlayerLayoutMode.split,
+    );
   });
 }

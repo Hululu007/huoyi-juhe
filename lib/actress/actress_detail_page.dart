@@ -828,7 +828,7 @@ class _ActressDetailPageState extends State<ActressDetailPage> {
               ? Center(
                   child: Text(
                     _noDatabase
-                        ? '未找到外置数据库：请把 女优库.db 放进 MYTV/db/，再点“重新加载数据库”'
+                        ? '演员库还没激活：请到数据库管理页导入女优库完成激活'
                         : '人物不存在',
                   ),
                 )

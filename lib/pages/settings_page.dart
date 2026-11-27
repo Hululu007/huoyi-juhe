@@ -12,18 +12,12 @@ import 'package:path_provider/path_provider.dart';
 import '../services/app_theme.dart';
 import '../services/audio_preferences.dart';
 import '../services/native_player.dart';
-import '../services/player_preferences.dart';
-import '../services/playback_fallback.dart';
-import '../services/player_layout_preferences.dart';
 import '../services/source_registry.dart';
 import '../services/file_text_picker.dart';
 import '../services/book_open_preferences.dart';
-import '../services/drama_mute_preferences.dart';
 import '../services/library_store.dart';
 import '../services/live_settings.dart';
 import '../services/site_health.dart';
-import '../services/hls_ad_filter.dart';
-import '../services/intro_outro_skip.dart';
 import '../widgets/settings/settings_widgets.dart';
 import '../widgets/series_detail/moyi_detail_theme.dart';
 import 'api_service_page.dart';
@@ -55,10 +49,11 @@ class SettingsPage extends StatelessWidget {
       SettingsCategory(
         icon: LucideIcons.palette,
         title: '外观',
-        subtitle: '主题模式、OLED 纯黑、背景主题、播放页布局',
+        subtitle: '主题模式、OLED 纯黑、背景主题',
         // 用 builder 而不是固定 items：切到深色 / 切回浅色后，分类页重建
         // 时会重新判定，OLED 行不必退出重进就能出现或消失。
-        // 播放页布局只在手机端有效（Windows 由 DesktopVideoChrome 承担）。
+        // 播放页布局已按改造批迁进播放器「更多」菜单（设置值不丢、
+        // 仍是 PlayerLayoutPreferences 同一支偏好）。
         itemsBuilder: (context) => [
           _themeModeItem(),
           if (isDarkAppearance(
@@ -66,7 +61,6 @@ class SettingsPage extends StatelessWidget {
           ))
             _oledModeItem(),
           _backgroundItem(),
-          if (!isWindowsDesktop) _playerLayoutItem(),
           if (!isWindowsDesktop)
             SettingsItem(
               icon: LucideIcons.layout_grid,
@@ -121,14 +115,13 @@ class SettingsPage extends StatelessWidget {
       SettingsCategory(
         icon: LucideIcons.film,
         title: '短剧',
-        subtitle: '播放',
+        subtitle: '工具',
+        // 播放相关六行（默认静音/跳片头片尾/去广告/自动回退/悬浮窗/
+        // 视频解码器）已按改造批迁进播放器「更多」菜单，设置值不丢、
+        // 仍走各自原偏好；这里只留 bytevc2 验证这个工具入口（不搬）。
+        // 直播设置整类同批摘除：解码行与播放器菜单重复、睡眠默认
+        // 迁进直播全屏页的定时弹窗（同一支 LiveSettingsStore 偏好）。
         items: [
-          _muteWhenColdStartItem(),
-          _introOutroSkipItem(),
-          _adBlockItem(),
-          _fallbackModeItem(),
-          if (!isWindowsDesktop) _floatingWindowItem(),
-          if (!isWindowsDesktop) _videoDecoderItem(),
           if (!isWindowsDesktop)
             SettingsItem(
               icon: LucideIcons.file_video_camera,
@@ -141,18 +134,6 @@ class SettingsPage extends StatelessWidget {
                 ),
               ),
             ),
-        ],
-      ),
-      SettingsCategory(
-        icon: LucideIcons.tv,
-        title: '直播设置',
-        subtitle: '解码模式、睡眠定时默认时长',
-        // builder：解码与睡眠默认都是可变偏好，分类页每次重建
-        // 重新生成行，改完回来即是新值。
-        itemsBuilder: (context) => [
-          _videoDecoderItem(),
-          _liveSleepDefaultItem(),
-          _liveResetDefaultsItem(),
         ],
       ),
       SettingsCategory(
@@ -783,132 +764,8 @@ class SettingsPage extends StatelessWidget {
     }
   }
 
-  /// 播放页布局：沉浸式 / 横屏片源自动分屏 / 始终分屏。
-  ///
-  /// 只影响短剧播放页，Windows 隐藏（桌面已有 304dp 停靠选集面板）。
-  SettingsItem _playerLayoutItem() => SettingsItem(
-    icon: LucideIcons.columns_2,
-    title: '播放页布局',
-    subtitle: '短剧可分屏显示选集和评论，横屏时左右分栏',
-    trailingBuilder: (context) => ValueListenableBuilder<PlayerLayoutMode>(
-      valueListenable: PlayerLayoutPreferences.mode,
-      builder: (context, value, _) {
-        return Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              value.shortLabel,
-              style: TextStyle(fontSize: 13, color: moyiMutedOnDark),
-            ),
-            const SizedBox(width: 4),
-            Icon(LucideIcons.chevron_right, size: 18, color: moyiMutedOnDark),
-          ],
-        );
-      },
-    ),
-    onTap: (context, setState) => _showPlayerLayoutDialog(context),
-  );
-
-  Future<void> _showPlayerLayoutDialog(BuildContext context) async {
-    final current = PlayerLayoutPreferences.mode.value;
-    final selected = await showDialog<PlayerLayoutMode>(
-      context: context,
-      builder: (dialogContext) => SimpleDialog(
-        backgroundColor: moyiSheetFill,
-        title: const Text('播放页布局', style: TextStyle(color: Colors.white)),
-        children: [
-          RadioGroup<PlayerLayoutMode>(
-            groupValue: current,
-            onChanged: (value) {
-              if (value != null) Navigator.pop(dialogContext, value);
-            },
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (final mode in PlayerLayoutMode.values)
-                  RadioListTile<PlayerLayoutMode>(
-                    value: mode,
-                    title: Text(
-                      mode.label,
-                      style: const TextStyle(color: Colors.white),
-                    ),
-                    subtitle: Text(
-                      mode.description,
-                      style: const TextStyle(color: moyiMutedOnDark),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-    if (selected == null || !context.mounted) return;
-    await _setPlayerLayout(context, selected);
-  }
-
-  Future<void> _setPlayerLayout(
-    BuildContext context,
-    PlayerLayoutMode value,
-  ) async {
-    final previous = PlayerLayoutPreferences.mode.value;
-    if (previous == value) return;
-    PlayerLayoutPreferences.mode.value = value;
-    try {
-      if (!await PlayerLayoutPreferences.save(value)) {
-        throw StateError('Player layout preference was not saved');
-      }
-    } catch (_) {
-      // 落盘失败就退回原选择，避免界面显示与实际不一致。
-      PlayerLayoutPreferences.mode.value = previous;
-      if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('未能保存播放页布局，已恢复原设置')));
-      }
-    }
-  }
-
   // ── 阅读 ──────────────────────────────────────────────────────────────
 
-  /// issue #19 第 3 条：点书跳过详情页，直接按上次进度进阅读器（小说/漫画）。
-  /// 切后台悬浮窗播放（#24，默认关）：开启且已授予悬浮窗权限时，切到
-  /// 后台或锁屏用悬浮小窗继续播；关闭则切后台暂停（现有行为）。
-  /// 开启时若无权限，先打开系统设置让用户授予，授予后回来再点一次。
-  SettingsItem _floatingWindowItem() => SettingsItem(
-    icon: LucideIcons.video,
-    title: '切后台悬浮窗播放',
-    subtitle: '切到后台或锁屏时用悬浮小窗继续播放，需要悬浮窗权限',
-    trailingBuilder: (context) => ValueListenableBuilder<bool>(
-      valueListenable: PlayerPreferences.floatingWindow,
-      builder: (context, value, _) => SettingsSwitch(
-        value: value,
-        semanticLabel: '切后台悬浮窗播放',
-        onChanged: (enabled) => unawaited(_setFloatingWindow(context, enabled)),
-      ),
-    ),
-    onTap: (context, setState) {
-      final current = PlayerPreferences.floatingWindow.value;
-      unawaited(_setFloatingWindow(context, !current));
-    },
-  );
-
-  Future<void> _setFloatingWindow(BuildContext context, bool enabled) async {
-    if (!enabled) {
-      await PlayerPreferences.setFloatingWindow(false);
-      return;
-    }
-    if (await NativePlayer.canDrawOverlays()) {
-      await PlayerPreferences.setFloatingWindow(true);
-      return;
-    }
-    await NativePlayer.requestOverlayPermission();
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请在系统设置中允许“显示在其他应用的上层”，然后回来再开启')),
-      );
-    }
-  }
 
   /// 默认关＝现有行为（先进详情页）。听书/短剧与加载失败时仍停留在详情页。
   ///
@@ -1085,326 +942,6 @@ class SettingsPage extends StatelessWidget {
 
   // ── 短剧 ──────────────────────────────────────────────────────────────
 
-  /// 官方设置项「开启应用时默认静音」（`GlobalMuteConfig` 标题，持久层
-  /// `open_mute_when_cold_start`，默认 false＝有声起播）。
-  /// 跳过片头片尾总开关（同步批 A7）：按剧秒数在播放页「播放
-  /// 控制」里设，这里只管总开关。总开关的进程内镜像进页时同步
-  /// 一次落盘值（SettingsPage 是无状态页，照默认静音的套路走）。
-  SettingsItem _introOutroSkipItem() => SettingsItem(
-    icon: LucideIcons.fast_forward,
-    title: '跳过片头片尾',
-    subtitle: '秒数在播放页「播放控制」里按剧设置；关掉后全部不跳',
-    trailingBuilder: (context) {
-      unawaited(IntroOutroSkipStore.syncEnabledListenable());
-      return ValueListenableBuilder<bool>(
-        valueListenable: IntroOutroSkipStore.enabledListenable,
-        builder: (context, value, _) => SettingsSwitch(
-          value: value,
-          semanticLabel: '跳过片头片尾',
-          onChanged: (v) => unawaited(IntroOutroSkipStore.setEnabled(v)),
-        ),
-      );
-    },
-    onTap: (context, setState) {
-      unawaited(
-        IntroOutroSkipStore.setEnabled(
-          !IntroOutroSkipStore.enabledListenable.value,
-        ),
-      );
-    },
-  );
-
-  /// 播放去广告开关（同步批 B1）：默认开；过滤挂在本地媒体代理
-  /// 的清单改写前，只对经代理的 HLS 清单生效。副标题照魔蚁口径。
-  SettingsItem _adBlockItem() => SettingsItem(
-    icon: LucideIcons.ban,
-    title: '播放去广告',
-    subtitle: '个别片源出现缺集或跳段时关掉重试',
-    trailingBuilder: (context) {
-      unawaited(AdBlockPreference.load());
-      return ValueListenableBuilder<bool>(
-        valueListenable: AdBlockPreference.enabledListenable,
-        builder: (context, value, _) => SettingsSwitch(
-          value: value,
-          semanticLabel: '播放去广告',
-          onChanged: (v) => unawaited(AdBlockPreference.setEnabled(v)),
-        ),
-      );
-    },
-    onTap: (context, setState) {
-      unawaited(
-        AdBlockPreference.setEnabled(
-          !AdBlockPreference.enabledListenable.value,
-        ),
-      );
-    },
-  );
-
-  /// 播放失败自动回退档位（同步批 A6）：四档单选，存
-  /// playerCoreFallbackMode，进播放页时读一次。
-  SettingsItem _fallbackModeItem() => SettingsItem(
-    icon: LucideIcons.life_buoy,
-    title: '播放失败自动回退',
-    subtitle: '失败后自动换地址、换清晰度、换解码重试的范围',
-    trailingBuilder: (context) => FutureBuilder<PlaybackFallbackMode>(
-      future: PlaybackFallbackMode.load(),
-      builder: (context, snapshot) {
-        return Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              (snapshot.data ?? PlaybackFallbackMode.all).label,
-              style: TextStyle(fontSize: 13, color: moyiMutedOnDark),
-            ),
-            const SizedBox(width: 4),
-            Icon(LucideIcons.chevron_right, size: 18, color: moyiMutedOnDark),
-          ],
-        );
-      },
-    ),
-    onTap: (context, setState) => _showFallbackModeDialog(context, setState),
-  );
-
-  Future<void> _showFallbackModeDialog(
-    BuildContext context,
-    StateSetter refresh,
-  ) async {
-    final current = await PlaybackFallbackMode.load();
-    if (!context.mounted) return;
-    final selected = await showDialog<PlaybackFallbackMode>(
-      context: context,
-      builder: (c) => SimpleDialog(
-        backgroundColor: moyiSheetFill,
-        title: const Text('播放失败自动回退', style: TextStyle(color: Colors.white)),
-        children: [
-          RadioGroup<PlaybackFallbackMode>(
-            groupValue: current,
-            onChanged: (v) {
-              if (v != null) Navigator.pop(c, v);
-            },
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (final value in PlaybackFallbackMode.values)
-                  RadioListTile<PlaybackFallbackMode>(
-                    value: value,
-                    title: Text(
-                      value.label,
-                      style: const TextStyle(color: Colors.white),
-                    ),
-                    subtitle: Text(
-                      value.description,
-                      style: TextStyle(color: moyiMutedOnDark),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-    if (selected == null) return;
-    await PlaybackFallbackMode.save(selected);
-    refresh(() {});
-  }
-
-  SettingsItem _muteWhenColdStartItem() => SettingsItem(
-    icon: LucideIcons.volume_x,
-    title: '开启应用时默认静音',
-    subtitle: '进入短剧时静音播放，可在播放页取消',
-    // Switch 走 ValueListenableBuilder，翻转后无需依赖页面的 setState。
-    trailingBuilder: (context) => ValueListenableBuilder<bool>(
-      valueListenable: DramaMutePreferences.instance.muteWhenColdStart,
-      builder: (context, value, _) => SettingsSwitch(
-        value: value,
-        semanticLabel: '开启应用时默认静音',
-        onChanged: (v) => unawaited(DramaMutePreferences.instance.set(v)),
-      ),
-    ),
-    onTap: (context, setState) {
-      final current = DramaMutePreferences.instance.muteWhenColdStart.value;
-      unawaited(DramaMutePreferences.instance.set(!current));
-    },
-  );
-
-  /// 视频解码器（issue #92）：硬解异常的机型可以手动切软解。
-  ///
-  /// 只有**新起的播放器**会采用新设置——ExoPlayer 的 renderer 在 build 时
-  /// 定型，所以行内说明写明需重新进入播放页。
-  SettingsItem _videoDecoderItem() => SettingsItem(
-    icon: LucideIcons.monitor_play,
-    title: '视频解码器',
-    subtitle: '画面异常（黑屏、卡住、绿屏）时改用软解，重新进入播放页生效',
-    trailingBuilder: (context) => FutureBuilder<VideoDecoderPreference>(
-      future: PlayerPreferences.loadVideoDecoder(),
-      builder: (context, snapshot) {
-        return Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              (snapshot.data ?? VideoDecoderPreference.automatic).label,
-              style: TextStyle(fontSize: 13, color: moyiMutedOnDark),
-            ),
-            const SizedBox(width: 4),
-            Icon(LucideIcons.chevron_right, size: 18, color: moyiMutedOnDark),
-          ],
-        );
-      },
-    ),
-    onTap: (context, setState) => _showVideoDecoderDialog(context, setState),
-  );
-
-  Future<void> _showVideoDecoderDialog(
-    BuildContext context,
-    StateSetter refresh,
-  ) async {
-    final current = await PlayerPreferences.loadVideoDecoder();
-    if (!context.mounted) return;
-    final selected = await showDialog<VideoDecoderPreference>(
-      context: context,
-      builder: (c) => SimpleDialog(
-        backgroundColor: moyiSheetFill,
-        title: const Text('视频解码器', style: TextStyle(color: Colors.white)),
-        children: [
-          RadioGroup<VideoDecoderPreference>(
-            groupValue: current,
-            onChanged: (v) {
-              if (v != null) Navigator.pop(c, v);
-            },
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (final value in VideoDecoderPreference.values)
-                  RadioListTile<VideoDecoderPreference>(
-                    value: value,
-                    title: Text(
-                      value.label,
-                      style: const TextStyle(color: Colors.white),
-                    ),
-                    subtitle: value == VideoDecoderPreference.software
-                        ? const Text(
-                            '更耗电，但能绕开部分芯片的硬解缺陷',
-                            style: TextStyle(color: moyiMutedOnDark),
-                          )
-                        : null,
-                  ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-    if (selected == null || !context.mounted) return;
-    try {
-      await DecoderPreferenceCache.set(selected);
-    } catch (_) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('解码器设置未能保存')));
-      }
-      return;
-    }
-    refresh(() {});
-  }
-
-  // ── 直播设置 ──────────────────────────────────────────────────────────
-  // 解码模式行直接复用 _videoDecoderItem（全局 PlayerPreferences /
-  // DecoderPreferenceCache，直播与点播共用那份、经 NativePlayer
-  // 真实生效，不另立直播专用键）；这里只补睡眠默认与恢复默认。
-
-  /// 睡眠定时默认时长：进直播页/全屏页时按这个默认自动起算
-  ///（0 = 关闭）。落盘在 LiveSettingsStore（juhe_live_sleep_minutes）。
-  SettingsItem _liveSleepDefaultItem() => SettingsItem(
-    icon: LucideIcons.moon,
-    title: '睡眠定时',
-    subtitle: '进入直播时自动起算的默认时长，到时暂停播放',
-    trailingBuilder: (context) => AnimatedBuilder(
-      animation: LiveSettingsStore.instance,
-      builder: (context, _) => Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            LiveSettingsStore.instance.sleepDefaultLabel,
-            style: TextStyle(fontSize: 13, color: moyiMutedOnDark),
-          ),
-          const SizedBox(width: 4),
-          Icon(LucideIcons.chevron_right, size: 18, color: moyiMutedOnDark),
-        ],
-      ),
-    ),
-    onTap: (context, setState) => _showLiveSleepDefaultDialog(context, setState),
-  );
-
-  Future<void> _showLiveSleepDefaultDialog(
-    BuildContext context,
-    StateSetter refresh,
-  ) async {
-    await LiveSettingsStore.instance.load();
-    if (!context.mounted) return;
-    final current = LiveSettingsStore.instance.sleepDefaultMinutes;
-    final selected = await showDialog<int>(
-      context: context,
-      builder: (c) => SimpleDialog(
-        backgroundColor: moyiSheetFill,
-        title: const Text('睡眠定时', style: TextStyle(color: Colors.white)),
-        children: [
-          RadioGroup<int>(
-            groupValue: current,
-            onChanged: (v) {
-              if (v != null) Navigator.pop(c, v);
-            },
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (final minutes in LiveSettingsStore.sleepOptions)
-                  RadioListTile<int>(
-                    value: minutes,
-                    title: Text(
-                      minutes <= 0 ? '关闭' : '$minutes 分钟',
-                      style: const TextStyle(color: Colors.white),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-    if (selected == null) return;
-    await LiveSettingsStore.instance.setSleepDefaultMinutes(selected);
-    refresh(() {});
-  }
-
-  /// 恢复默认：本分类涉及的偏好全复位——解码模式回自动
-  ///（全局那份，走 DecoderPreferenceCache.set 同步进程内缓存）、
-  /// 睡眠默认时长回关闭。
-  SettingsItem _liveResetDefaultsItem() => SettingsItem(
-    icon: LucideIcons.rotate_ccw,
-    title: '恢复默认',
-    subtitle: '解码模式回自动、睡眠定时回关闭',
-    onTap: (context, setState) {
-      unawaited(_resetLiveSettings(context, setState));
-    },
-  );
-
-  Future<void> _resetLiveSettings(
-    BuildContext context,
-    StateSetter refresh,
-  ) async {
-    await LiveSettingsStore.instance.resetDefaults();
-    try {
-      await DecoderPreferenceCache.set(VideoDecoderPreference.automatic);
-    } catch (_) {
-      // 解码偏好落盘失败不挡另一半复位；睡眠默认已复位。
-    }
-    refresh(() {});
-    if (context.mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('直播设置已恢复默认')));
-    }
-  }
 
   // ── 数据 ──────────────────────────────────────────────────────────────
 

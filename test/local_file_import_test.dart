@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:fqapp/services/site_library.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fqapp/pages/source_management_page.dart';
 import 'package:fqapp/pages/video_page.dart';
@@ -445,13 +446,35 @@ void main() {
           .defaultBinaryMessenger
           .setMockMethodCallHandler(selectorChannel, null);
     });
+    // 站点库批（2026-11-27）：管理页初始化新增站点库服务加载，
+    // 测试环境要给 path_provider 假通道（与 site_library_registry
+    // 测试同款），并在真时钟区预热名单缓存，页面才建得出列表。
+    final supportDir = Directory.systemTemp.createTempSync('lfi_support');
+    addTearDown(() => supportDir.deleteSync(recursive: true));
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => supportDir.path,
+        );
+    addTearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            const MethodChannel('plugins.flutter.io/path_provider'),
+            null,
+          );
+    });
+    await tester.runAsync(() => SiteLibraryService.instance.roster());
     await tester.pumpWidget(
       const MaterialApp(home: SourceManagementPage()),
     );
+    await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));
+    // 站点库批（2026-11-27）：未导入态页面多了 639 行的未激活名单
+    // 组，批量导入按钮被推到名单组之后，滚动次数要放大。
     await tester.scrollUntilVisible(
       find.text('批量导入本地文件（.py / .json / .html）'),
       500,
+      maxScrolls: 250,
     );
     await tester.pumpAndSettle();
     await tester.ensureVisible(

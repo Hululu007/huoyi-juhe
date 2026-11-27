@@ -9,6 +9,7 @@ import 'drama_site_content.dart';
 import 'drama_sites.dart' show DramaSiteCategory;
 import 'idj_plugin_store.dart';
 import 'js_bridge.dart';
+import 'shell_proxy_url.dart';
 
 /// idj1 插件运行时（修仙版）：把 `.idjplugin` 的入口脚本跑在安卓
 /// 现行 QuickJS 桥上，用一段 host 垫片脚本把桥的原生全局
@@ -83,12 +84,18 @@ String buildIdjDriverScript({
     for (final domain in manifest.mediaDomains)
       if (!manifest.httpDomains.contains(domain)) domain,
   ];
+  // 注入变量必须排在垫片之前：垫片在加载期就读 __idjStorageAllowed
+  // 决定 host.storage 装真实现还是降级实现，而 var 只有声明被提升、
+  // 赋值不提升——变量排垫片后面时垫片读到的恒是 undefined，
+  // 声明了 storage 的插件也会被装上拒绝分支（MissAV 实测整站被
+  // 「未声明 storage 权限」挡死的真根因）。其余变量只在调用期被读，
+  // 一并前置保持口径统一。
   return [
-    idjHostPrelude,
     'var __idjDomains = ${jsonEncode(domains)};',
     'var __idjStorageAllowed = ${manifest.storagePermission};',
     'var __idjStorage = ${jsonEncode(storage)};',
     'var __idjCaps = ${jsonEncode(manifest.capabilities)};',
+    idjHostPrelude,
     transformed,
     idjDriverTemplate
         .replaceAll('__IDJ_OP__', op)
@@ -289,8 +296,16 @@ function __idjParseHost(url) {
 function __idjHostAllowed(url) {
   var host = __idjParseHost(url);
   if (!host) return false;
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return false;
   if (host === 'localhost') return false;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) {
+    // IP 字面量：只认白名单里逐字写明的 IP（真实插件有接口挂在
+    // 公网 IP 上的）；回环永不放行（本机有本地代理）。
+    if (host.split('.')[0] === '127' || host === '0.0.0.0') return false;
+    for (var i = 0; i < __idjDomains.length; i++) {
+      if (host === __idjDomains[i]) return true;
+    }
+    return false;
+  }
   for (var i = 0; i < __idjDomains.length; i++) {
     var d = __idjDomains[i];
     if (d.indexOf('*.') === 0) {
@@ -985,26 +1000,36 @@ if (__idjStorageAllowed) {
     keys: function () { return Object.keys(__idjStorage); },
   };
 } else {
+  // 未声明 storage：降级为本次调用内的临时存储——读写只活在本次
+  // 调用的 __idjStorage 里（宿主侧未声明时既不读盘也不回写落盘，
+  // 见 IdjRuntime._invoke），并在日志里留一条。不再抛错：插件在
+  // home 里顺手读一次存储就整站打不开，处置过重（2026-11-27
+  // 手机实测 MissAV 整站被这一条挡死；魔蚁同口径抛错、同病）。
+  var __idjStorageWarned = false;
+  var __idjStorageDegradedNote = function () {
+    if (__idjStorageWarned) return;
+    __idjStorageWarned = true;
+    try {
+      host.log('[idj] 插件未声明 storage 权限，存储降级为临时（不落盘）');
+    } catch (e) {}
+  };
   host.storage = {
-    get: function () {
-      var e = new Error('插件未声明 storage 权限');
-      e.code = 'E_PERMISSION';
-      throw e;
+    get: function (key) {
+      __idjStorageDegradedNote();
+      var value = __idjStorage[key];
+      return value === undefined ? null : value;
     },
-    set: function () {
-      var e = new Error('插件未声明 storage 权限');
-      e.code = 'E_PERMISSION';
-      throw e;
+    set: function (key, value) {
+      __idjStorageDegradedNote();
+      __idjStorage[key] = value;
     },
-    delete: function () {
-      var e = new Error('插件未声明 storage 权限');
-      e.code = 'E_PERMISSION';
-      throw e;
+    delete: function (key) {
+      __idjStorageDegradedNote();
+      delete __idjStorage[key];
     },
     keys: function () {
-      var e = new Error('插件未声明 storage 权限');
-      e.code = 'E_PERMISSION';
-      throw e;
+      __idjStorageDegradedNote();
+      return Object.keys(__idjStorage);
     },
   };
 }
@@ -1222,21 +1247,36 @@ Map<String, dynamic> _idjMap(Object? value) =>
 
 List<dynamic> _idjList(Object? value) => value is List ? value : const [];
 
+/// 多个别名里取第一个非空文本（插件生态字段名不统一时兜底）。
+String _idjFirstText(Map<String, dynamic> map, List<String> keys) {
+  for (final key in keys) {
+    final value = _idjText(map[key]);
+    if (value.isNotEmpty) return value;
+  }
+  return '';
+}
+
 /// home 结果 → 分类（前置「全部」id=''）+ 首页条目。
+/// 分类名读 name（iDuanJu 规格与魔蚁 idj_contract 同口径），title /
+/// label / type_name 作别名兜底；此前只读 title，标准插件回
+/// {id, name} 时名字落空、界面直接拿 id 当名显示（手机实测
+/// 321AV 分类片全是 latest/20/21 这类生词）。
 ({List<DramaSiteCategory> categories, List<DramaSiteItem> items})
 parseIdjHome(Object? raw) {
   final json = _idjMap(raw);
-  final categories = <DramaSiteCategory>[
-    const DramaSiteCategory('', '全部'),
-    for (final row in _idjList(json['categories']))
-      if (_idjMap(row)['id'] != null)
-        DramaSiteCategory(
-          _idjText(_idjMap(row)['id']),
-          _idjText(_idjMap(row)['title']).isEmpty
-              ? _idjText(_idjMap(row)['id'])
-              : _idjText(_idjMap(row)['title']),
-        ),
-  ];
+  final categories = <DramaSiteCategory>[const DramaSiteCategory('', '全部')];
+  for (final row in _idjList(json['categories'])) {
+    final map = _idjMap(row);
+    final id = _idjFirstText(map, const ['id', 'value', 'type_id']);
+    if (id.isEmpty) continue;
+    final name = _idjFirstText(map, const [
+      'name',
+      'title',
+      'label',
+      'type_name',
+    ]);
+    categories.add(DramaSiteCategory(id, name.isEmpty ? id : name));
+  }
   return (categories: categories, items: parseIdjItems(json['items']));
 }
 
@@ -1269,7 +1309,9 @@ List<DramaSiteItem> parseIdjItems(Object? raw) {
 /// episode.videoId 约定 `线路名\u0001集id`（与 py/js 客户端同约定）。
 DramaSiteDetail parseIdjDetail(Object? raw, String requestedId) {
   final json = _idjMap(raw);
-  final id = _idjText(json['id']).isEmpty ? requestedId : _idjText(json['id']);
+  final id = _idjFirstText(json, const ['id', 'vod_id']).isEmpty
+      ? requestedId
+      : _idjFirstText(json, const ['id', 'vod_id']);
   final episodes = <DramaSiteEpisode>[];
   for (final lineRow in _idjList(json['lines'])) {
     final line = _idjMap(lineRow);
@@ -1291,34 +1333,83 @@ DramaSiteDetail parseIdjDetail(Object? raw, String requestedId) {
     }
     if (episodes.length >= 5000) break;
   }
+  // MacCMS 形态（321AV 等插件的 detail 直接回 vod_* 字段、播放串
+  // 是 vod_play_url 的「线路$$$线路、集#集、名$址」拼串）：标准
+  // lines 为空时按这套拼串拆集，集 id 就是该集地址（这类插件的
+  // play 入参正是集地址，与 MacCMS 惯例一致）。
+  if (episodes.isEmpty) {
+    episodes.addAll(_idjEpisodesFromPlayString(json, id));
+  }
   final extra = <String, String>{};
-  for (final key in const [
-    'year',
-    'region',
-    'language',
-    'director',
-    'actors',
-    'status',
-  ]) {
-    final value = _idjText(json[key]);
-    if (value.isNotEmpty) extra[key] = value;
+  const extraAliases = <String, List<String>>{
+    'year': ['year', 'vod_year'],
+    'region': ['region', 'vod_area'],
+    'language': ['language', 'vod_lang'],
+    'director': ['director', 'vod_director'],
+    'actors': ['actors', 'vod_actor'],
+    'status': ['status', 'vod_remarks'],
+  };
+  for (final entry in extraAliases.entries) {
+    final value = _idjFirstText(json, entry.value);
+    if (value.isNotEmpty) extra[entry.key] = value;
   }
   return DramaSiteDetail(
     id: id,
-    title: _idjTruncate(_idjText(json['title']), 200),
-    cover: _idjText(json['poster']).isNotEmpty
-        ? _idjText(json['poster'])
-        : _idjText(json['cover']),
+    title: _idjTruncate(
+      _idjFirstText(json, const ['title', 'vod_name']),
+      200,
+    ),
+    cover: _idjFirstText(json, const ['poster', 'cover', 'vod_pic']),
     synopsis: _idjTruncate(
-      _idjText(json['description']).isNotEmpty
-          ? _idjText(json['description'])
-          : _idjText(json['synopsis']),
+      _idjFirstText(json, const [
+        'description',
+        'synopsis',
+        'vod_content',
+        'vod_blurb',
+      ]),
       4000,
     ),
     extra: extra,
-    stills: parseDetailStills(json['stills']),
+    stills: parseDetailStills(json['stills'] ?? json['vod_stills']),
     episodes: episodes,
   );
+}
+
+/// MacCMS 播放拼串 → 选集：vod_play_url 按 `$$$` 分线路、按 `#`
+/// 分集、每集 `名$址`；线路名取 vod_play_from 的同位段，缺了用
+/// 「线路N」。拼串为空返回空表（调用方只在标准 lines 为空时用）。
+List<DramaSiteEpisode> _idjEpisodesFromPlayString(
+  Map<String, dynamic> json,
+  String seriesId,
+) {
+  final playUrl = _idjText(json['vod_play_url']);
+  if (playUrl.isEmpty) return const [];
+  final fromList = _idjText(json['vod_play_from']).split('\$\$\$');
+  final groups = playUrl.split('\$\$\$');
+  final episodes = <DramaSiteEpisode>[];
+  for (var g = 0; g < groups.length; g++) {
+    final flag = g < fromList.length && fromList[g].trim().isNotEmpty
+        ? fromList[g].trim()
+        : '线路${g + 1}';
+    for (final part in groups[g].split('#')) {
+      final segment = part.trim();
+      if (segment.isEmpty) continue;
+      final split = segment.indexOf('\$');
+      final name = split >= 0 ? segment.substring(0, split).trim() : '';
+      final url = split >= 0 ? segment.substring(split + 1).trim() : segment;
+      if (url.isEmpty) continue;
+      episodes.add(
+        DramaSiteEpisode(
+          videoId: '$flag\u0001$url',
+          title: name.isEmpty ? url : name,
+          seriesId: seriesId,
+        ),
+      );
+      if (episodes.length >= 5000) break;
+    }
+    if (episodes.length >= 5000) break;
+  }
+  return episodes;
 }
 
 /// play 结果 → 播放源：只取第一条合规流（https、无 userinfo、
@@ -1388,6 +1479,55 @@ class IdjSiteContentClient extends DramaSiteContentClient {
     return (manifest: bundle.manifest, script: bundle.script);
   }
 
+  /// 封面后处理（实测症状：321AV、黄果短剧封面全占位，rouAV 正常）：
+  /// - 协议相对地址（`//cdn…`，黄果短剧）补 https——原样交给图片
+  ///   组件发不出请求；
+  /// - 站内相对路径按插件第一个 http 域名补成绝对地址；
+  /// - 绝对地址打包成壳代理载荷并带插件站点作 Referer：图片组件
+  ///   直取 https 封面不带任何请求头，图床查 Referer 的（321AV
+  ///   图床在自家域名下）直接拒、落占位；[resolveCoverUrl] 解包后
+  ///   https 目标直取但带 Referer 头、http 目标走本地代理取回。
+  ///   不查 Referer 的图床（rouAV）多带一个头没有副作用。
+  String _posterForDisplay(String raw, IdjPluginManifest manifest) {
+    var url = raw.trim();
+    if (url.isEmpty) return url;
+    if (url.startsWith('//')) url = 'https:$url';
+    final referer = _posterReferer(manifest);
+    if (url.startsWith('/')) {
+      if (referer == null) return url;
+      url = '$referer${url.substring(1)}';
+    }
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      return url;
+    }
+    if (referer == null) return url;
+    return 'http://127.0.0.1:9978/proxy?p='
+        '${packShellProxyPayload(url, referer: referer)}';
+  }
+
+  /// 封面 Referer：插件 manifest 第一个非通配 http 域名拼成站点
+  /// 根地址；一个都没有时返回 null（封面只能原样直取）。
+  String? _posterReferer(IdjPluginManifest manifest) {
+    for (final domain in manifest.httpDomains) {
+      if (domain.startsWith('*.')) continue;
+      return 'https://$domain/';
+    }
+    return null;
+  }
+
+  List<DramaSiteItem> _wrapPosters(
+    List<DramaSiteItem> items,
+    IdjPluginManifest manifest,
+  ) => [
+    for (final item in items)
+      DramaSiteItem(
+        id: item.id,
+        title: item.title,
+        cover: _posterForDisplay(item.cover, manifest),
+        remark: item.remark,
+      ),
+  ];
+
   Future<dynamic> _call(String op, Map<String, dynamic> args) async {
     final bundle = await _bundle();
     try {
@@ -1443,13 +1583,21 @@ class IdjSiteContentClient extends DramaSiteContentClient {
   Future<DramaSiteCatalogPage> catalog(String categoryId, int page) async {
     final bundle = await _bundle();
     final List<DramaSiteItem> items;
-    if (categoryId.isEmpty || !bundle.manifest.capabilities.contains('category')) {
+    // 'all' 是宿主伪分类：其他客户端（py/核心/JS）都把 'all' 转空串
+    // 走首页，只有这里曾把 'all' 原样喂给插件的 category op——插件
+    // 不认这个 id 就会抛错（手机实测 18AV「分类加载失败」的一环）。
+    if (categoryId.isEmpty ||
+        categoryId == 'all' ||
+        !bundle.manifest.capabilities.contains('category')) {
       final home = parseIdjHome(await _call('home', const {}));
-      items = home.items;
+      items = _wrapPosters(home.items, bundle.manifest);
       return DramaSiteCatalogPage(items: items, hasMore: false);
     }
     final raw = await _call('category', {'id': categoryId, 'page': page});
-    items = parseIdjItems(_idjMap(raw)['items']);
+    items = _wrapPosters(
+      parseIdjItems(_idjMap(raw)['items']),
+      bundle.manifest,
+    );
     final declared = _idjMap(raw)['hasMore'];
     return DramaSiteCatalogPage(
       items: items,
@@ -1459,8 +1607,21 @@ class IdjSiteContentClient extends DramaSiteContentClient {
 
   @override
   Future<DramaSiteDetail> detail(String seriesId) async {
+    final bundle = await _bundle();
     final raw = await _call('detail', {'id': seriesId});
-    return parseIdjDetail(raw, seriesId);
+    final parsed = parseIdjDetail(raw, seriesId);
+    return DramaSiteDetail(
+      id: parsed.id,
+      title: parsed.title,
+      cover: _posterForDisplay(parsed.cover, bundle.manifest),
+      synopsis: parsed.synopsis,
+      extra: parsed.extra,
+      stills: [
+        for (final still in parsed.stills)
+          _posterForDisplay(still, bundle.manifest),
+      ],
+      episodes: parsed.episodes,
+    );
   }
 
   @override
@@ -1468,7 +1629,10 @@ class IdjSiteContentClient extends DramaSiteContentClient {
     final bundle = await _bundle();
     if (!bundle.manifest.capabilities.contains('search')) return const [];
     final raw = await _call('search', {'keyword': query, 'page': 1});
-    return parseIdjItems(_idjMap(raw)['items']);
+    return _wrapPosters(
+      parseIdjItems(_idjMap(raw)['items']),
+      bundle.manifest,
+    );
   }
 
   @override

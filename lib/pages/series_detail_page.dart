@@ -16,6 +16,7 @@ import '../services/api_client.dart';
 import '../services/backend_transport.dart';
 import '../services/cultivation.dart';
 import '../services/drama_site_content.dart' show DramaSiteItem;
+import '../services/film_detail_fill.dart';
 import '../services/library_store.dart';
 import '../services/player_history.dart';
 import '../services/shelf_store.dart';
@@ -34,6 +35,7 @@ import '../widgets/series_detail/series_detail_reviews.dart';
 import '../widgets/series_detail/series_detail_theme.dart';
 import '../widgets/series_detail/series_detail_top_bar.dart';
 import '../widgets/series_detail/film_inline_player.dart';
+import '../widgets/series_detail/film_stills_gallery.dart';
 import '../widgets/series_detail/moyi_detail_theme.dart';
 import 'detail_page.dart' show openBookDetail;
 import 'player_page.dart' show PlayerPage;
@@ -91,6 +93,8 @@ class SeriesDetailPage extends StatefulWidget {
     this.onOpenRelatedFilm,
     this.onOpenRelatedSeries,
     this.onFilmCategoryTap,
+    this.siteSearchLoader,
+    this.filmFillLoader,
     this.engineSiteId = '',
     this.shelfKind = 'video',
   });
@@ -174,6 +178,17 @@ class SeriesDetailPage extends StatefulWidget {
   /// 短剧头项标签保持原样不动。
   final ValueChanged<String>? onFilmCategoryTap;
 
+  /// 影视区专属：同站同名搜索加载器（`openDramaSiteItem` 传站客户端
+  /// 的 `search`）。非 JAV 片（提不出番号）时用它按标题在同站搜同名
+  /// 条目回填空缺的封面 / 简介 / 演员 / 剧照。为空时不回填。
+  final Future<List<DramaSiteItem>> Function(String query)? siteSearchLoader;
+
+  /// 影视区专属：番号补全加载器（测试缝）。非空时页面用它代替直调
+  /// `fillFilmDetailByCode`；生产为空走真服务，第二个参数是当前
+  /// 已匹配到的 `_codeMeta`。
+  final Future<FilmDetailFill> Function(String code, CodeMeta? meta)?
+  filmFillLoader;
+
   @override
   State<SeriesDetailPage> createState() => _SeriesDetailPageState();
 }
@@ -214,6 +229,26 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
   /// 头区不画演员行。只在影视区入口查，短剧没有番号不查。
   CodeMeta? _codeMeta;
   int _codeMetaGeneration = 0;
+
+  /// 影视区番号补全结果（JavDB 按番号补的资料：原名 / 发行日期 /
+  /// 制作商 / 评分 / 剧照等）。null = 还没回来或没补到；补全只跑
+  /// 一次，失败吞错、页面照常。
+  FilmDetailFill? _fill;
+  int _fillGeneration = 0;
+  bool _fillStarted = false;
+
+  /// 补全是否已落定（JAV 补全或非 JAV 搜索回填跑完，成败都算）。
+  /// 底线说明要等落定后才判断「全空」。
+  bool _fillSettled = false;
+
+  /// 非 JAV 同站同名搜索回填：命中条目的站详情（只填空位，生效
+  /// getter 里排在本站详情与番号补全之后）与命中条目的封面。
+  FilmSiteDetail? _searchFill;
+  String _searchFillCover = '';
+
+  /// 大标题翻译切换：true 时标题处显示补全回来的原名
+  /// （`_fill.originTitle`），只影响这一处标题，不影响播放器标题。
+  bool _showOriginTitle = false;
 
   /// 影视区推荐视频：同站同分类（relatedLoader 那套算法），取 6 个；
   /// 没回来或取不到时整块不占位，不留空白块。
@@ -363,9 +398,217 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
       dramaId: widget.seriesId,
       title: _titleText,
       sourceId: widget.engineSiteId,
+      remark: _detail.episodeLabel,
     );
     if (!mounted || generation != _codeMetaGeneration) return;
     setState(() => _codeMeta = meta);
+    // 元数据落定后再跑番号补全 / 非 JAV 回填（只跑一次，见 _loadFilmFill）。
+    unawaited(_loadFilmFill());
+  }
+
+  /// 影视区资料补全（只跑一次，失败吞错）：先用 id / 标题 / 备注提
+  /// 番号——提到走 JavDB 番号补全（测试缝 [SeriesDetailPage.filmFillLoader]
+  /// 优先，否则真服务 `fillFilmDetailByCode`）；提不到番号走非 JAV
+  /// 同站同名搜索回填。代次守卫照 `_codeMetaGeneration` 先例。
+  Future<void> _loadFilmFill() async {
+    if (_fillStarted || !_isFilmSite) return;
+    _fillStarted = true;
+    final code = resolveFilmCode(
+      id: widget.seriesId,
+      title: _titleText,
+      remark: _detail.episodeLabel,
+    );
+    if (code.isEmpty) {
+      await _loadSearchFill();
+      return;
+    }
+    final generation = ++_fillGeneration;
+    try {
+      final loader = widget.filmFillLoader;
+      final fill = loader != null
+          ? await loader(code, _codeMeta)
+          : await _callRealFilmFill(code);
+      if (!mounted || generation != _fillGeneration) return;
+      setState(() {
+        _fill = fill;
+        _fillSettled = true;
+      });
+    } catch (_) {
+      if (!mounted || generation != _fillGeneration) return;
+      setState(() => _fillSettled = true);
+    }
+  }
+
+  /// 真补全服务调用：放到根区跑——服务内部有联网超时定时器，
+  /// 挂在页面区里会被测试的假时钟扣住不放（旧详情页测试因此收尾
+  /// 报定时器未消）；结果经 Completer 回到页面区再 setState。
+  /// 生产环境页面区与根区是同一套调度，行为不变。
+  Future<FilmDetailFill> _callRealFilmFill(String code) {
+    final completer = Completer<FilmDetailFill>();
+    final meta = _codeMeta;
+    Zone.root.run(() async {
+      try {
+        completer.complete(
+          await fillFilmDetailByCode(code: code, codeMeta: meta),
+        );
+      } catch (error, stack) {
+        completer.completeError(error, stack);
+      }
+    });
+    return completer.future;
+  }
+
+  /// 标题归一（同名判定用）：去首尾空白、去掉全部空白、小写。
+  static String _normalizeSearchTitle(String value) =>
+      value.replaceAll(RegExp(r'\s+'), '').trim().toLowerCase();
+
+  /// 非 JAV 回填：同站按标题搜同名条目（标题归一相等、id 不同），
+  /// 命中且本站生效封面 / 简介 / 演员 / 剧照有任一为空时，拉命中
+  /// 条目的站详情只填空位。全程吞错、只跑一次（由 _loadFilmFill 的
+  /// `_fillStarted` 守卫保证）。
+  Future<void> _loadSearchFill() async {
+    final search = widget.siteSearchLoader;
+    final detailLoader = widget.siteDetailLoader;
+    if (search == null) {
+      if (mounted) setState(() => _fillSettled = true);
+      return;
+    }
+    try {
+      final results = await search(_titleText);
+      if (!mounted) return;
+      final wanted = _normalizeSearchTitle(_titleText);
+      DramaSiteItem? hit;
+      if (wanted.isNotEmpty) {
+        for (final item in results) {
+          if (item.id == widget.seriesId) continue;
+          if (_normalizeSearchTitle(item.title) == wanted) {
+            hit = item;
+            break;
+          }
+        }
+      }
+      if (hit == null || detailLoader == null) {
+        setState(() => _fillSettled = true);
+        return;
+      }
+      final hasGap =
+          _coverText.isEmpty ||
+          _effectiveSynopsis().isEmpty ||
+          _mergedCast().isEmpty ||
+          _effectiveStills().isEmpty;
+      if (!hasGap) {
+        setState(() => _fillSettled = true);
+        return;
+      }
+      final detail = await detailLoader(hit.id);
+      if (!mounted) return;
+      setState(() {
+        _searchFill = detail;
+        _searchFillCover = hit!.cover;
+        _fillSettled = true;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _fillSettled = true);
+    }
+  }
+
+  /// 生效番号（信息卡番号行用）：补全已回来时只认补全回填的番号
+  /// （补全全空、连番号都没回填时不画番号行，免得空卡冒充有资料）；
+  /// 补全还没回来时先用现提的番号占位。
+  String get _filmCode {
+    final fill = _fill;
+    if (fill != null) return fill.code;
+    if (!_isFilmSite) return '';
+    return resolveFilmCode(
+      id: widget.seriesId,
+      title: _titleText,
+      remark: _detail.episodeLabel,
+    );
+  }
+
+  /// 生效简介：本站详情优先，其次番号补全，其次同名搜索回填。
+  String _effectiveSynopsis() {
+    final own = _filmDetail?.synopsis ?? '';
+    if (own.isNotEmpty) return own;
+    final filled = _fill?.synopsis ?? '';
+    if (filled.isNotEmpty) return filled;
+    return _searchFill?.synopsis ?? '';
+  }
+
+  /// 生效剧照：本站在前 + 番号补全 + 搜索回填，去重、上限 24。
+  List<String> _effectiveStills() {
+    final seen = <String>{};
+    final result = <String>[];
+    for (final source in [
+      _filmDetail?.stills ?? const <String>[],
+      _fill?.stills ?? const <String>[],
+      _searchFill?.stills ?? const <String>[],
+    ]) {
+      for (final url in source) {
+        if (url.isEmpty) continue;
+        if (seen.add(url)) result.add(url);
+        if (result.length >= 24) return result;
+      }
+    }
+    return result;
+  }
+
+  /// 生效封面（未补绝对地址的原值）：页面封面优先，其次番号补全，
+  /// 其次搜索回填命中条目的封面。播放器封面不走这里。
+  String _effectiveCover() {
+    if (_coverText.isNotEmpty) return _coverText;
+    final filled = _fill?.cover ?? '';
+    if (filled.isNotEmpty) return filled;
+    return _searchFillCover;
+  }
+
+  /// 生效导演：站原字段 → 番号补全 → 番号元数据，依次取第一个非空。
+  String _effectiveDirector() {
+    for (final value in [
+      _filmExtra('director'),
+      _fill?.director ?? '',
+      _codeMeta?.director ?? '',
+    ]) {
+      if (value.isNotEmpty) return value;
+    }
+    return '';
+  }
+
+  /// 合并演员（头区演员行吃这一份）：番号元数据在前 → 番号补全里
+  /// 没出现过的追加 → 站字段（本站 + 搜索回填）里没出现过的追加
+  /// （头像从补全演员表按归一名查）。名字一律按归一名去重。
+  List<({String name, String avatar})> _mergedCast() {
+    final result = <({String name, String avatar})>[];
+    final seen = <String>{};
+    void add(String name, String avatar) {
+      final trimmed = name.trim();
+      if (trimmed.isEmpty) return;
+      if (seen.add(_normalizeName(trimmed))) {
+        result.add((name: trimmed, avatar: avatar));
+      }
+    }
+
+    for (final actor in _codeMeta?.castWithAvatars ?? const []) {
+      add(actor.name, actor.avatarUrl);
+    }
+    final fillCast = _fill?.cast ?? const [];
+    for (final actor in fillCast) {
+      add(actor.name, actor.avatar);
+    }
+    final fillAvatarByName = <String, String>{
+      for (final actor in fillCast)
+        if (actor.avatar.isNotEmpty) _normalizeName(actor.name): actor.avatar,
+    };
+    for (final key in const ['actor', 'actress']) {
+      for (final name in _splitFilmField(_filmExtra(key))) {
+        add(name, fillAvatarByName[_normalizeName(name)] ?? '');
+      }
+      for (final name in _splitFilmField(_searchFill?.extra[key] ?? '')) {
+        add(name, fillAvatarByName[_normalizeName(name)] ?? '');
+      }
+    }
+    return result;
   }
 
   /// 名字归一（与魔蚁详情页同一口径）：去首尾空白；“々”展开成前一字
@@ -508,10 +751,15 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
   List<CastMember> _filmCast() {
     final seen = <String>{};
     final result = <CastMember>[];
-    final codeCast = _codeMeta?.cast.map(_normalizeName).toSet() ?? const {};
+    // 头区演员行（合并演员）已显示的人这里不再重复：排除集是合并
+    // 演员的全部名字（番号元数据 + 番号补全 + 站字段）。
+    final shown = _mergedCast().map((a) => _normalizeName(a.name)).toSet();
     for (final key in const ['actor', 'actress']) {
-      for (final name in _splitFilmField(_filmExtra(key))) {
-        if (codeCast.contains(_normalizeName(name))) continue;
+      for (final name in [
+        ..._splitFilmField(_filmExtra(key)),
+        ..._splitFilmField(_searchFill?.extra[key] ?? ''),
+      ]) {
+        if (shown.contains(_normalizeName(name))) continue;
         if (seen.add(name)) result.add(CastMember(actor: name));
       }
     }
@@ -675,10 +923,10 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
       widget.onPlayEpisode!(_currentIndex);
       return;
     }
-    _play(_currentIndex);
+    _play(_currentIndex, fromInlineFullscreen: true);
   }
 
-  void _play(int index) {
+  void _play(int index, {bool fromInlineFullscreen = false}) {
     if (_episodes.isEmpty) return;
     final target = index.clamp(0, _episodes.length - 1);
     if (_episodes[target].disabled) {
@@ -695,25 +943,40 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
       widget.onPlayEpisode!(target);
       return;
     }
-    unawaited(
-      Navigator.push(
-        context,
-        MaterialPageRoute<void>(
-          builder: (_) => PlayerPage(
-            bookId: widget.seriesId,
-            kind: widget.kind,
-            title: _titleText.isEmpty ? '第${target + 1}集' : _titleText,
-            cover: _coverText,
-            eps: _episodes,
-            startIndex: target,
-            shortSeries: true,
-            // 全集播放页是短剧，记 drama（看完一集 +300、时长记短剧）。
-            cultivationCategory: CultivationCategory.drama,
-            initialSeriesDetail: _detail,
-            historyStore: widget.historyStore,
-          ),
+    final push = Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => PlayerPage(
+          bookId: widget.seriesId,
+          kind: widget.kind,
+          title: _titleText.isEmpty ? '第${target + 1}集' : _titleText,
+          cover: _coverText,
+          eps: _episodes,
+          startIndex: target,
+          shortSeries: true,
+          // 全集播放页是短剧，记 drama（看完一集 +300、时长记短剧）。
+          cultivationCategory: CultivationCategory.drama,
+          initialSeriesDetail: _detail,
+          historyStore: widget.historyStore,
+          // 内嵌全屏交接：进页即全屏、退出全屏直接退页；普通选集
+          // 播放不带这两个标记，仍是整页播放语义。
+          openFullScreen: fromInlineFullscreen,
+          popOnFullscreenExit: fromInlineFullscreen,
         ),
       ),
+    );
+    if (!fromInlineFullscreen) {
+      unawaited(push);
+      return;
+    }
+    // 全屏交接的回程：整页退回来后，内嵌会话的播放器在交接时已
+    // 销毁，这里按历史进度重新激活内嵌舞台续播（playEpisode 自带
+    // 历史续播点读取），形态回到详情页内的 16:9 舞台。
+    unawaited(
+      push.then((_) async {
+        if (!mounted) return;
+        await _inlinePlayerKey.currentState?.playEpisode(target);
+      }),
     );
   }
 
@@ -815,9 +1078,7 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
                           // 剧评 / 原著是短剧专属，影视区没有。
                           SliverToBoxAdapter(child: _filmMoyiDetail()),
                           SliverToBoxAdapter(child: _filmStillsSection()),
-                          SliverToBoxAdapter(
-                            child: _filmRecommendedSection(),
-                          ),
+                          SliverToBoxAdapter(child: _filmRecommendedSection()),
                           SliverToBoxAdapter(child: _filmRelatedSection()),
                         ] else ...[
                           SliverToBoxAdapter(child: _hero()),
@@ -963,7 +1224,7 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
   Widget _filmIntroSection() => SeriesDetailIntroSection(
     loading: !_filmDetailDone,
     failed: _filmDetailFailed,
-    intro: _filmDetail?.synopsis ?? '',
+    intro: _effectiveSynopsis(),
     cast: _filmCast(),
     onRetry: () => unawaited(_loadFilmDetail()),
   );
@@ -1018,14 +1279,16 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
   /// 选集与简介两区复用现有组件，靠深色主题取浅色字。
   /// 播放线路不单独成区：线路名折进「站源」卡片（见 [_filmSourceLines]）。
   Widget _filmMoyiDetail() {
-    final cover = ApiClient.instance.absoluteUrl(_coverText);
+    // 生效封面：页面封面为空时回落番号补全 / 搜索回填的封面（只影响
+    // 这里的海报与背景，播放器封面不动）。
+    final cover = ApiClient.instance.absoluteUrl(_effectiveCover());
     final lines = _filmLines();
     final count = _episodes.isNotEmpty
         ? _episodes.length
         : (_detail.episodeCount > 0 ? _detail.episodeCount : 0);
-    // 剧照背景取详情页自带剧照（与「本片剧照」同一来源），没有剧照时
+    // 剧照背景取生效剧照（与「本片剧照」同一来源），没有剧照时
     // 回落到海报原图。
-    final stills = _filmDetail?.stills ?? const <String>[];
+    final stills = _effectiveStills();
     final backgroundUrl = stills.isNotEmpty
         ? ApiClient.instance.absoluteUrl(stills.first)
         : cover;
@@ -1050,11 +1313,7 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              _titleText,
-                              key: const ValueKey('film-detail-title'),
-                              style: moyiTitleStyle,
-                            ),
+                            _filmTitleRow(),
                             const SizedBox(height: 8),
                             // 分类标签（站原字段 category + tags，见 _filmCategories）：
                             // 标题正下方的横排小标签，照原始版 fqapp 可点，点后按
@@ -1092,14 +1351,202 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
                   ),
                   const SizedBox(height: 12),
                   _followButton(),
+                  // 信息卡（番号补全）：站源卡片之后、选集之前；
+                  // 整卡无任何行时不画。
+                  ..._filmInfoCardBlock(),
                 ],
               ),
             ),
             // 选集与简介复用现有区（自带左右 16 间距，与上面对齐）。
             _episodeSection(),
             _filmIntroSection(),
+            _filmFillEmptyNote(),
           ],
         ),
+      ),
+    );
+  }
+
+  /// 大标题行：补全回来的原名与原标题不同时，标题旁出「[翻译]」
+  /// 可点切换（只切这一处标题显示，不影响播放器标题）。
+  Widget _filmTitleRow() {
+    final origin = _fill?.originTitle ?? '';
+    final hasOrigin = origin.isNotEmpty && origin != _titleText;
+    final shown = hasOrigin && _showOriginTitle ? origin : _titleText;
+    if (!hasOrigin) {
+      return Text(
+        _titleText,
+        key: const ValueKey('film-detail-title'),
+        style: moyiTitleStyle,
+      );
+    }
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Text(
+            shown,
+            key: const ValueKey('film-detail-title'),
+            style: moyiTitleStyle,
+          ),
+        ),
+        const SizedBox(width: 6),
+        InkWell(
+          key: const ValueKey('film-detail-title-translate'),
+          borderRadius: BorderRadius.circular(6),
+          onTap: () => setState(() => _showOriginTitle = !_showOriginTitle),
+          child: const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            child: Text(
+              '[翻译]',
+              style: TextStyle(fontSize: 13, color: moyiGold),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 信息卡的行（只收真有值的）：番号 / 发行日期 / 时长 / 制作商 /
+  /// 系列 / 导演 / 评分。年份已在头区状态行里有，不在这里重复。
+  List<({String label, String value, String keyName})> _filmInfoRows() {
+    final fill = _fill;
+    final rows = <({String label, String value, String keyName})>[];
+    final code = _filmCode;
+    if (code.isNotEmpty) {
+      rows.add((label: '番号', value: code, keyName: 'film-info-code'));
+    }
+    if (fill != null && fill.releaseDate.isNotEmpty) {
+      rows.add((
+        label: '发行日期',
+        value: fill.releaseDate,
+        keyName: 'film-info-release-date',
+      ));
+    }
+    if (fill != null && fill.durationText.isNotEmpty) {
+      rows.add((
+        label: '时长',
+        value: fill.durationText,
+        keyName: 'film-info-duration',
+      ));
+    }
+    if (fill != null && fill.maker.isNotEmpty) {
+      rows.add((label: '制作商', value: fill.maker, keyName: 'film-info-maker'));
+    }
+    if (fill != null && fill.series.isNotEmpty) {
+      rows.add((label: '系列', value: fill.series, keyName: 'film-info-series'));
+    }
+    final director = _effectiveDirector();
+    if (director.isNotEmpty) {
+      rows.add((label: '导演', value: director, keyName: 'film-info-director'));
+    }
+    if (fill != null && fill.score.isNotEmpty) {
+      rows.add((
+        label: '评分',
+        value: fill.scoreCount > 0
+            ? '${fill.score} · 共 ${fill.scoreCount} 人评分'
+            : fill.score,
+        keyName: 'film-info-score',
+      ));
+    }
+    return rows;
+  }
+
+  /// 信息卡块（带上方间距）：整卡无任何行时整块不占位；评分非空时
+  /// 卡片右上角挂金色缎带（照演员库信息卡缎带）。
+  List<Widget> _filmInfoCardBlock() {
+    final rows = _filmInfoRows();
+    if (rows.isEmpty) return const [];
+    final score = _fill?.score ?? '';
+    return [
+      const SizedBox(height: 12),
+      Stack(
+        key: const ValueKey('film-info-card'),
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: moyiCardDecoration(radius: 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final row in rows)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(
+                          width: 76,
+                          child: Text(
+                            '${row.label}：',
+                            style: const TextStyle(
+                              fontSize: 13,
+                              height: 1.5,
+                              color: Colors.white54,
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: Text(
+                            row.value,
+                            key: ValueKey(row.keyName),
+                            style: const TextStyle(
+                              fontSize: 13,
+                              height: 1.5,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          if (score.isNotEmpty)
+            Positioned(
+              right: 14,
+              top: 0,
+              child: Container(
+                key: const ValueKey('film-info-score-ribbon'),
+                padding: const EdgeInsets.fromLTRB(8, 6, 8, 10),
+                decoration: const BoxDecoration(
+                  color: Color(0xFFF2B33D),
+                  borderRadius: BorderRadius.vertical(
+                    bottom: Radius.circular(4),
+                  ),
+                ),
+                child: Text(
+                  score,
+                  style: const TextStyle(
+                    color: Color(0xFF4A2F00),
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    ];
+  }
+
+  /// 底线说明：站详情回来且补全已落定，生效简介 / 演员 / 剧照全空
+  /// 且信息卡无行时，出这一行（与演员库页同文案），明说没补到、
+  /// 播放不受影响；有任一资料时不画。
+  Widget _filmFillEmptyNote() {
+    if (!_filmDetailDone || !_fillSettled) return const SizedBox.shrink();
+    if (_effectiveSynopsis().isNotEmpty) return const SizedBox.shrink();
+    if (_mergedCast().isNotEmpty) return const SizedBox.shrink();
+    if (_effectiveStills().isNotEmpty) return const SizedBox.shrink();
+    if (_filmInfoRows().isNotEmpty) return const SizedBox.shrink();
+    return const Padding(
+      padding: EdgeInsets.fromLTRB(16, 12, 16, 0),
+      child: Text(
+        '详细资料暂时没补到（各源都没查到这部片的资料），播放不受影响。',
+        key: ValueKey('film-detail-fill-empty-note'),
+        style: TextStyle(fontSize: 13, height: 1.5, color: Colors.white70),
       ),
     );
   }
@@ -1192,10 +1639,11 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
   /// 导演跟一只“导演：X” chip。查不到元数据、或既无导演又无演员时
   /// 不占位。放在分类标签行下面、站源卡片上面。
   List<Widget> _filmActorRow() {
-    final meta = _codeMeta;
-    if (meta == null) return const [];
-    final cast = meta.castWithAvatars;
-    if (cast.isEmpty && meta.director.isEmpty) return const [];
+    // 吃合并演员（番号元数据 + 番号补全 + 站字段，见 _mergedCast）；
+    // 导演走生效导演（站字段 → 补全 → 元数据）。都没有时不占位。
+    final cast = _mergedCast();
+    final director = _effectiveDirector();
+    if (cast.isEmpty && director.isEmpty) return const [];
     final onTap = widget.onFilmCategoryTap;
     return [
       const SizedBox(height: 10),
@@ -1205,11 +1653,11 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
         runSpacing: 8,
         children: [
           for (final actor in cast)
-            _filmActorChip(actor.name, actor.avatarUrl, onTap),
-          if (meta.director.isNotEmpty)
+            _filmActorChip(actor.name, actor.avatar, onTap),
+          if (director.isNotEmpty)
             Chip(
               key: const ValueKey('film-detail-director'),
-              label: Text('导演：${meta.director}'),
+              label: Text('导演：$director'),
               backgroundColor: moyiPurple.withValues(alpha: 0.35),
               side: BorderSide(color: moyiPurple.withValues(alpha: 0.6)),
               labelStyle: const TextStyle(fontSize: 12, color: Colors.white),
@@ -1305,7 +1753,7 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
   /// 影视区本片剧照：取详情页自带剧照（`FilmSiteDetail.stills`），横排
   /// 滑动，点一张全屏看。站没给剧照就不画本区，不拿封面冒充。
   Widget _filmStillsSection() {
-    final stills = _filmDetail?.stills ?? const <String>[];
+    final stills = _effectiveStills();
     if (stills.isEmpty) {
       return const SizedBox.shrink(
         key: ValueKey('series-detail-stills-section'),
@@ -1316,7 +1764,26 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const SeriesSectionHeader(title: '本片剧照'),
+          SeriesSectionHeader(
+            title: '本片剧照',
+            action: InkWell(
+              key: const ValueKey('film-stills-all'),
+              borderRadius: BorderRadius.circular(6),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) =>
+                      FilmStillsGalleryPage(stills: stills, title: _titleText),
+                ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                child: Text(
+                  '全部 ${stills.length} >',
+                  style: const TextStyle(fontSize: 12, color: Colors.white70),
+                ),
+              ),
+            ),
+          ),
           SizedBox(
             height: 96,
             child: ListView.separated(
@@ -1415,11 +1882,9 @@ class _SeriesDetailPageState extends State<SeriesDetailPage> {
           SeriesSectionHeader(title: title),
           LayoutBuilder(
             builder: (context, constraints) {
-              final columns =
-                  (constraints.maxWidth / _recommendColumnWidth).floor().clamp(
-                    2,
-                    6,
-                  );
+              final columns = (constraints.maxWidth / _recommendColumnWidth)
+                  .floor()
+                  .clamp(2, 6);
               final tileWidth =
                   (constraints.maxWidth - (columns - 1) * 10) / columns;
               return GridView.builder(

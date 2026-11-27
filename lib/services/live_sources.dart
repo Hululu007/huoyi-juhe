@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:http/http.dart' as http;
@@ -626,7 +627,12 @@ List<LiveChannel> parseTxtList(
 class LiveSources {
   LiveSources._();
 
-  static const builtin = <LiveSource>[
+  /// 原生直播行（不进站点库）：whos_lib 读用户外置女优库、没有包内
+  /// 定义可搬；bilibili 走 Dart 专用接口代码（live_api.dart），
+  /// 同样搬不动。原 23 个 m3u 清单源（含 user_m3u）与 3 个平台源
+  /// （秀果/欲火聚合/百年直播）已改由站点库供数（sqlSources），
+  /// 数据由生成器进库，本表不再保留那 26 行。
+  static const _nativeBuiltin = <LiveSource>[
     // 内置片库（2026-11-24 与魔蚁对齐，登记表第 1 项）：优先读本地
     // 数据库 MYTV/db/女优库.db（34 万+，全是 m3u8 直链），没库才读
     // documents/actress_json/ 里的两个 JSON；包里不带任何种子。
@@ -642,248 +648,6 @@ class LiveSources {
       group: '内置片库',
       adult: true,
     ),
-    LiveSource(
-      id: 'xiuguo',
-      name: '秀果',
-      description: '主播直播 · 实时开播',
-      protocol: LiveProtocol.pingtai,
-      endpoints: [
-        'http://api.vipmisss.com:81/xcdsw',
-        'http://api.hclyz.com:81/mf',
-      ],
-      adult: true,
-    ),
-    LiveSource(
-      id: 'maiyoux',
-      name: '欲火聚合',
-      description: '欲火移植 · 平台动态聚合 · 实时开播',
-      protocol: LiveProtocol.pingtai,
-      endpoints: [
-        'http://api.maiyoux.com:81/mf',
-        'http://api.vipmisss.com:81/xcdsw',
-      ],
-      adult: true,
-    ),
-    LiveSource(
-      id: 'bnzb',
-      name: '百年直播',
-      description: '百年直播 · 多平台聚合 · 实时开播',
-      protocol: LiveProtocol.pingtai,
-      endpoints: ['http://api.vipmisss.com:81/xcdsw'],
-      adult: true,
-    ),
-    LiveSource(
-      id: 'user_m3u',
-      name: '成人点播',
-      description: '用户提供的 m3u · 点开即播',
-      protocol: LiveProtocol.list,
-      endpoints: ['asset://assets/live/user_m3u.m3u'],
-      adult: true,
-    ),
-    // 2026-11-22 魔蚁合入：22 个清洗版 m3u 清单，每文件一个源，文件对应
-    // 分组（group-title 缺失的条目落入 group 默认分组）。资产为魔蚁包内
-    // 清洗版字节原样，条目数见 live_REPORT.md（合计 EXTINF 127395 条，
-    // 修仙版 parseM3u 实出 127392 条频道，见 parseM3u 注释）。
-    // 全部 adult: true，走直播页整页境界门禁；名字沿修仙版既有写法
-    // 不带 🔞 前缀（魔蚁侧名字带 🔞，含义相同，见报告对照表）。
-    LiveSource(
-      id: 'm3u_zhubo',
-      name: '主播网红',
-      description: '用户提供的 m3u 清单 · 点开即播',
-      protocol: LiveProtocol.list,
-      endpoints: ['asset://assets/live/m3u/01_zhubo.m3u'],
-      group: '主播网红',
-      adult: true,
-    ),
-    LiveSource(
-      id: 'm3u_luanlun',
-      name: '乱伦精品',
-      description: '用户提供的 m3u 清单 · 点开即播',
-      protocol: LiveProtocol.list,
-      endpoints: ['asset://assets/live/m3u/02_luanlun.m3u'],
-      group: '乱伦精品',
-      adult: true,
-    ),
-    LiveSource(
-      id: 'm3u_huayu',
-      name: '华语精品',
-      description: '用户提供的 m3u 清单 · 点开即播',
-      protocol: LiveProtocol.list,
-      endpoints: ['asset://assets/live/m3u/03_huayu.m3u'],
-      group: '华语精品',
-      adult: true,
-    ),
-    LiveSource(
-      id: 'm3u_guochan',
-      name: '国产精品',
-      description: '用户提供的 m3u 清单 · 点开即播',
-      protocol: LiveProtocol.list,
-      endpoints: ['asset://assets/live/m3u/04_guochan.m3u'],
-      group: '国产精品',
-      adult: true,
-    ),
-    LiveSource(
-      id: 'm3u_xuesheng',
-      name: '学生合集',
-      description: '用户提供的 m3u 清单 · 点开即播',
-      protocol: LiveProtocol.list,
-      endpoints: ['asset://assets/live/m3u/05_xuesheng.m3u'],
-      group: '学生合集',
-      adult: true,
-    ),
-    LiveSource(
-      id: 'm3u_tanhua',
-      name: '探花约炮',
-      description: '用户提供的 m3u 清单 · 点开即播',
-      protocol: LiveProtocol.list,
-      endpoints: ['asset://assets/live/m3u/06_tanhua.m3u'],
-      group: '探花约炮',
-      adult: true,
-    ),
-    LiveSource(
-      id: 'm3u_riben',
-      name: '日本有码',
-      description: '用户提供的 m3u 清单 · 点开即播',
-      protocol: LiveProtocol.list,
-      endpoints: ['asset://assets/live/m3u/07_riben.m3u'],
-      group: '日本有码',
-      adult: true,
-    ),
-    LiveSource(
-      id: 'm3u_oumei',
-      name: '欧美大屌',
-      description: '用户提供的 m3u 清单 · 点开即播',
-      protocol: LiveProtocol.list,
-      endpoints: ['asset://assets/live/m3u/08_oumei.m3u'],
-      group: '欧美大屌',
-      adult: true,
-    ),
-    LiveSource(
-      id: 'm3u_heilian',
-      name: '黑料吃瓜',
-      description: '用户提供的 m3u 清单 · 点开即播',
-      protocol: LiveProtocol.list,
-      endpoints: ['asset://assets/live/m3u/09_heilian.m3u'],
-      group: '黑料吃瓜',
-      adult: true,
-    ),
-    LiveSource(
-      id: 'm3u_community10',
-      name: '社区合集 10',
-      description: '用户提供的 m3u 清单 · 点开即播',
-      protocol: LiveProtocol.list,
-      endpoints: ['asset://assets/live/m3u/10_community10.m3u8'],
-      group: '社区合集 10',
-      adult: true,
-    ),
-    LiveSource(
-      id: 'm3u_community11',
-      name: '社区合集 11',
-      description: '用户提供的 m3u 清单 · 点开即播',
-      protocol: LiveProtocol.list,
-      endpoints: ['asset://assets/live/m3u/11_community11.m3u8'],
-      group: '社区合集 11',
-      adult: true,
-    ),
-    LiveSource(
-      id: 'm3u_wuma',
-      name: '無碼專區',
-      description: '用户提供的 m3u 清单 · 点开即播',
-      protocol: LiveProtocol.list,
-      endpoints: ['asset://assets/live/m3u/12_wuma.m3u'],
-      group: '無碼專區',
-      adult: true,
-    ),
-    LiveSource(
-      id: 'm3u_wanghong',
-      name: '網紅頭條',
-      description: '用户提供的 m3u 清单 · 点开即播',
-      protocol: LiveProtocol.list,
-      endpoints: ['asset://assets/live/m3u/13_wanghong.m3u'],
-      group: '網紅頭條',
-      adult: true,
-    ),
-    LiveSource(
-      id: 'm3u_xingba',
-      name: '杏吧原創',
-      description: '用户提供的 m3u 清单 · 点开即播',
-      protocol: LiveProtocol.list,
-      endpoints: ['asset://assets/live/m3u/14_xingba.m3u'],
-      group: '杏吧原創',
-      adult: true,
-    ),
-    LiveSource(
-      id: 'm3u_chengtou',
-      name: '成人頭條',
-      description: '用户提供的 m3u 清单 · 点开即播',
-      protocol: LiveProtocol.list,
-      endpoints: ['asset://assets/live/m3u/15_chengtou.m3u'],
-      group: '成人頭條',
-      adult: true,
-    ),
-    LiveSource(
-      id: 'm3u_zhifu',
-      name: '制服絲襪',
-      description: '用户提供的 m3u 清单 · 点开即播',
-      protocol: LiveProtocol.list,
-      endpoints: ['asset://assets/live/m3u/16_zhifu.m3u'],
-      group: '制服絲襪',
-      adult: true,
-    ),
-    LiveSource(
-      id: 'm3u_qunjiao',
-      name: '群交淫亂',
-      description: '用户提供的 m3u 清单 · 点开即播',
-      protocol: LiveProtocol.list,
-      endpoints: ['asset://assets/live/m3u/17_qunjiao.m3u'],
-      group: '群交淫亂',
-      adult: true,
-    ),
-    LiveSource(
-      id: 'm3u_mingxing',
-      name: '明星換臉',
-      description: '用户提供的 m3u 清单 · 点开即播',
-      protocol: LiveProtocol.list,
-      endpoints: ['asset://assets/live/m3u/18_mingxing.m3u'],
-      group: '明星換臉',
-      adult: true,
-    ),
-    LiveSource(
-      id: 'm3u_zipai',
-      name: '自拍偷拍',
-      description: '用户提供的 m3u 清单 · 点开即播',
-      protocol: LiveProtocol.list,
-      endpoints: ['asset://assets/live/m3u/19_zipai.m3u'],
-      group: '自拍偷拍',
-      adult: true,
-    ),
-    LiveSource(
-      id: 'm3u_avxiongdi',
-      name: 'AV兄弟无码',
-      description: '用户提供的 m3u 清单 · 点开即播',
-      protocol: LiveProtocol.list,
-      endpoints: ['asset://assets/live/m3u/20_avxiongdi.m3u'],
-      group: 'AV兄弟无码',
-      adult: true,
-    ),
-    LiveSource(
-      id: 'm3u_guochanse',
-      name: '国产色情',
-      description: '用户提供的 m3u 清单 · 点开即播',
-      protocol: LiveProtocol.list,
-      endpoints: ['asset://assets/live/m3u/21_guochanse.m3u'],
-      group: '国产色情',
-      adult: true,
-    ),
-    LiveSource(
-      id: 'm3u_riben2',
-      name: '日本有码 2',
-      description: '用户提供的 m3u 清单 · 点开即播',
-      protocol: LiveProtocol.list,
-      endpoints: ['asset://assets/live/m3u/22_riben2.m3u'],
-      group: '日本有码',
-      adult: true,
-    ),
     // 2026-11-22 魔蚁合入：哔哩哔哩（唯一非成人直播源，adult: false）。
     // 走 LiveProtocol.api：分类与房间列表调 B 站公开接口，播放时按
     // roomId 现取播放地址（见 lib/services/live_api.dart）。
@@ -896,6 +660,20 @@ class LiveSources {
       protocol: LiveProtocol.api,
       adult: false,
     ),
+  ];
+
+  /// 站点库供数的直播源（SiteLibraryService.load() 组装）：
+  /// liveM3u 行的端点是落盘后的本地文件路径，livePlatform 行按
+  /// ext JSON 还原。未导入站点库时为空表。
+  static List<LiveSource> sqlSources = <LiveSource>[];
+
+  /// 全部内置直播源＝原生行＋站点库行。顺序保持站点库改造前的出厂序：
+  /// 内置片库第一、站点库供数的 26 源居中、哔哩哔哩殿后——默认源
+  /// （第一个非片库源）与选择器排布都不因改造变样。
+  static List<LiveSource> get builtin => [
+    if (_nativeBuiltin.isNotEmpty) _nativeBuiltin.first,
+    ...sqlSources,
+    ..._nativeBuiltin.skip(1),
   ];
 
   static LiveSource? byId(String id) {
@@ -924,6 +702,12 @@ class LiveSources {
     final String text;
     if (endpoint.startsWith('asset://')) {
       text = await rootBundle.loadString(endpoint.substring('asset://'.length));
+    } else if (endpoint.startsWith('/') || endpoint.startsWith('file://')) {
+      // 本地文件端点：站点库 liveM3u 行落盘后的代码文件路径。
+      final path = endpoint.startsWith('file://')
+          ? endpoint.substring('file://'.length)
+          : endpoint;
+      text = await File(path).readAsString();
     } else {
       final response = await http
           .get(Uri.parse(endpoint), headers: source.headers)

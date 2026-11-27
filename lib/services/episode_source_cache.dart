@@ -38,16 +38,32 @@ class EpisodeSource {
   /// 播放页起播时下发宿主挂载；无字幕时为空表。
   final List<ExternalSubtitle> subs;
 
+  /// 站源取流的请求头（播放地址弹窗展示用）：真正在播时头由本地
+  /// 代理带上，播放器不从这里取头。官方链恒空。
+  final Map<String, String> headers;
+
+  /// 代理映射前的原始链接（播放地址弹窗展示用）；未经映射时为空。
+  final String originalUrl;
+
   const EpisodeSource(
     this.url, [
     this.keyHex = '',
     this.variants = const [],
     this.vertical,
     this.subs = const [],
+    this.headers = const {},
+    this.originalUrl = '',
   ]);
 
-  EpisodeSource withVariant(EpisodeVariant variant) =>
-      EpisodeSource(variant.url, variant.keyHex, variants, vertical, subs);
+  EpisodeSource withVariant(EpisodeVariant variant) => EpisodeSource(
+    variant.url,
+    variant.keyHex,
+    variants,
+    vertical,
+    subs,
+    headers,
+    originalUrl,
+  );
 
   factory EpisodeSource.fromResponse(Map<String, dynamic> response) {
     final data = response['data'] is Map
@@ -91,12 +107,21 @@ class EpisodeSource {
         );
       }
     }
+    final rawHeaders = data['headers'];
+    final headers = <String, String>{};
+    if (rawHeaders is Map) {
+      rawHeaders.forEach((key, value) {
+        if (value != null) headers[key.toString()] = value.toString();
+      });
+    }
     return EpisodeSource(
       url,
       (data['key_hex'] ?? '').toString().trim(),
       variants,
       _verticalOf(data['vertical'] ?? response['vertical']),
       parseExternalSubtitles(data['subs'] ?? response['subs']),
+      headers,
+      (data['original_url'] ?? '').toString().trim(),
     );
   }
 }

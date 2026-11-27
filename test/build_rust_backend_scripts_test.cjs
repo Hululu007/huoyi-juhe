@@ -42,7 +42,11 @@ test('the build scripts pin the same flutter_rust_bridge version as the crate', 
     path.join(appDir, 'rust', 'Cargo.toml'),
     'utf8',
   );
-  const crateVersion = /flutter_rust_bridge\s*=\s*"=([0-9.]+)"/.exec(crate);
+  const crateVersion =
+    /flutter_rust_bridge\s*=\s*"=([0-9.]+)"/.exec(crate) ||
+    /flutter_rust_bridge\s*=\s*\{[^}]*version\s*=\s*"=([0-9.]+)"[^}]*\}/.exec(
+      crate,
+    );
   assert.ok(crateVersion, 'rust/Cargo.toml must pin an exact FRB version');
 
   for (const name of ['build_rust_backend.ps1', 'build_rust_backend.sh']) {

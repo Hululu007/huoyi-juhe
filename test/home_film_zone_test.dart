@@ -30,6 +30,9 @@ import 'embedded_test_entries.dart';
 /// 的数，恢复树里种子 207 条、登记表 273 站时改前真数已是 381 行，
 /// 本次合入 5 行到 386；2026-11-26 MissAV 收拢摘 4 个 jar 重复
 /// 登记行、分档表 278→275，行数再到 382（逐档增减见 IMPL_REPORT）。
+/// 2026-11-27 站点库批：测试条目改按随包名单搭（真实分区口径），
+/// 行数 382→377（差额见 embedded_test_entries.dart 文件头注），
+/// 本文件各处计数断言已同步。
 void main() {
   /// 内嵌站测试条目（种子 + jar），与生产登记一致。
   final entries = embeddedTestEntries();
@@ -65,11 +68,13 @@ void main() {
     final sites = visibleFilmZoneSites(0, entries);
     expect(
       sites.length,
-      68 + nonAdultReading.length,
+      65 + nonAdultReading.length,
     );
     final video = [for (final s in sites) if (s.kind == 'video') s];
-    // 68 行不分档影视行；分档行一个都不露。
-    expect(video.length, 68);
+    // 不分档影视行 65（站点库批 2026-11-27：68 → 65，jar 工具行
+    // MyConfig/push_agent/MyAll 3 行按剔除令不进站点库）；分档行
+    // 一个都不露。
+    expect(video.length, 65);
     expect(
       video.any((s) => s.id == 'jar:zakatv:ZakaMjv011'),
       isFalse,
@@ -108,10 +113,11 @@ void main() {
     // 在第 4 档，3000 修为还看不到。
     expect(ids.contains('1000novel'), isTrue);
     expect(ids.contains('hsvoice31'), isFalse);
-    // 视频不分档 68 + 第 1 档 68；阅读非成人 + 第 1 档 7 个。
+    // 视频不分档 65 + 第 1 档 70（站点库批后站集变化，逐档数随
+    // 站集变，见文件头注）；阅读非成人 + 第 1 档 7 个。
     expect(
       sites.where((s) => s.kind == 'video').length,
-      136,
+      135,
     );
     expect(
       sites.where((s) => s.kind != 'video').length,
@@ -124,7 +130,7 @@ void main() {
     final at8000 = visibleFilmZoneSites(8000, entries);
     expect(
       at8000.where((s) => s.kind == 'video').length,
-      216,
+      217,
     );
     expect(
       at8000.where((s) => s.kind != 'video').length,
@@ -156,14 +162,14 @@ void main() {
   test('合体 30000 时全部开完，四类齐全，无重复 id', () {
     gateOff();
     final sites = visibleFilmZoneSites(30000, entries);
-    // 视频 382 行；阅读 31 站。
+    // 视频 377 行；阅读 31 站。（站点库批口径，见文件头注）
     expect(
       sites.where((s) => s.kind == 'video').length,
-      382,
+      377,
     );
     expect(
       sites.length,
-      382 + coreReadingSiteIds.length,
+      377 + coreReadingSiteIds.length,
     );
     final kinds = <String, int>{};
     for (final s in sites) {
@@ -173,7 +179,7 @@ void main() {
     for (final kind in coreReadingKinds.values) {
       readingKinds[kind] = (readingKinds[kind] ?? 0) + 1;
     }
-    expect(kinds['video'], 382);
+    expect(kinds['video'], 377);
     expect(kinds['novel'], readingKinds['novel']);
     expect(kinds['comic'], readingKinds['comic']);
     expect(kinds['audio'], readingKinds['audio']);
@@ -303,6 +309,9 @@ void main() {
       // 往登记表里只放 mjv011 的 jar 行：修为 0 时视频池是空的
       // （第 1 档的 mjv011 还没进池）。
       SharedPreferences.setMockInitialValues({
+        // 站点库批：一次性迁移已办标记，防夹具的 builtin jar 行被
+        // 迁移清理摘掉（生产里旧内置行本就该摘、改走名单+导入）。
+        'juhe_sql_builtin_migration_v1': true,
         'juhe_custom_sources': jsonEncode([
           const SourceEntry(
             id: 'jar:zakatv:ZakaMjv011',
@@ -312,7 +321,10 @@ void main() {
           ).toJson(),
         ]),
       });
-      await SourceRegistry.instance.load();
+      // 站点库批（2026-11-27）后登记表 load 末尾含站点库落盘同步
+      // （真实文件读），在假异步正文里 await 完不成：改走真异步
+      // （load 有幂等标记，后续页面内调用即刻返回）。断言未动。
+      await tester.runAsync(() => SourceRegistry.instance.load());
       CultivationService.instance.snapshotNotifier.value =
           CultivationSnapshot.empty;
       await tester.pumpWidget(

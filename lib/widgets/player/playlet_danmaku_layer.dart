@@ -29,9 +29,10 @@ import '../../models/playlet_comment.dart';
 import '../../services/danmaku_layout.dart';
 import 'playlet_danmaku_settings.dart';
 
-/// 同时出现在屏幕上的弹幕行距（本地取值；官方行距由
-/// `vx1/b.java` 按字号度量计算，此处用近似恒量）。
-const _trackPitch = 28.0;
+/// 同时出现在屏幕上的弹幕行距：字号 × 行高系数 + 2.4
+/// （默认档 16 × 1.6 + 2.4 = 28，与旧恒量一致）。
+double danmakuTrackPitch(DanmakuSettings settings) =>
+    settings.fontSize * settings.lineHeightFactorClamped + 2.4;
 
 /// 一条弹幕在屏幕上飞过的时长基准（官方竖屏 10000ms，横屏 12000ms；
 /// `container/l.java:782-784,1371-1373`），实际还要除以弹幕速度与播放倍速。
@@ -46,8 +47,17 @@ const danmakuMaxLength = 50;
 /// `(横屏 ? 12000 : 10000) / (DanmakuSpeed × 播放器倍速)`，
 /// 横竖屏切换时实时重算（`container/l.java:782-784,1371-1373` 与
 /// 横竖屏回调 `o()` `:1940-1972`）。
-double danmakuFlightMs(double rate, {bool landscape = false}) =>
-    (landscape ? _flightBaseMsLandscape : _flightBaseMs) / _validRate(rate);
+double danmakuFlightMs(
+  double rate, {
+  bool landscape = false,
+  double scrollDurationSec = 0,
+}) {
+  final custom = DanmakuSettings.normalizeScrollDurationSec(scrollDurationSec);
+  final base = custom > 0
+      ? custom * 1000
+      : (landscape ? _flightBaseMsLandscape : _flightBaseMs);
+  return base / _validRate(rate);
+}
 
 double _validRate(double rate) =>
     !rate.isFinite || rate <= 0 ? 1 : math.max(rate, 0.1);
@@ -326,8 +336,14 @@ class _PlayletDanmakuLayerState extends State<PlayletDanmakuLayer>
   List<PlayletComment> _entries = const [];
   List<_DanmakuFlight> _flights = const [];
   List<_DanmakuFlight> _visible = const [];
+
+  /// 静态弹幕（顶部 mode 5 / 底部 mode 4），不进滚动调度。
+  List<PlayletComment> _staticEntries = const [];
+  List<_StaticPlacement> _visibleStatic = const [];
   double _visibleAtMs = 0;
   double _nextChangeMs = double.infinity;
+
+  double get _pitch => danmakuTrackPitch(widget.settings);
 
   @override
   void initState() {
@@ -396,14 +412,27 @@ class _PlayletDanmakuLayerState extends State<PlayletDanmakuLayer>
     _syncTicker();
   }
 
+  double get _timelineEndMs {
+    var end = 0.0;
+    if (_flights.isNotEmpty) end = _flights.last.endMs;
+    if (_staticEntries.isNotEmpty) {
+      end = math.max(
+        end,
+        _staticEntries.last.offsetMs +
+            widget.settings.staticDurationSecClamped * 1000,
+      );
+    }
+    return end;
+  }
+
   void _syncTicker() {
     final shouldTick =
         widget.enabled &&
         widget.playing &&
         _tickerMode &&
         _sinceSampleMs < _maxExtrapolationMs &&
-        _flights.isNotEmpty &&
-        _mediaMs.value < _flights.last.endMs;
+        (_flights.isNotEmpty || _staticEntries.isNotEmpty) &&
+        _mediaMs.value < _timelineEndMs;
     if (shouldTick && !_ticker.isActive) {
       _lastTick = Duration.zero;
       _ticker.start();
@@ -429,10 +458,24 @@ class _PlayletDanmakuLayerState extends State<PlayletDanmakuLayer>
         final offset = a.offsetMs.compareTo(b.offsetMs);
         return offset == 0 ? a.id.compareTo(b.id) : offset;
       });
+    // 静态弹幕（顶部/底部）不进滚动调度，单独走静态窗口。
+    _staticEntries = [
+      for (final entry in sorted)
+        if (entry.danmakuMode == 4 || entry.danmakuMode == 5) entry,
+    ];
+    final scrolling = [
+      for (final entry in sorted)
+        if (entry.danmakuMode != 4 && entry.danmakuMode != 5) entry,
+    ];
+    final byId = {for (final entry in scrolling) entry.id: entry};
     // 官方公式 (横屏?12000:10000)/(DanmakuSpeed×播放器倍速)；倍速已经
-    // 在媒体时钟里，这里再除以弹幕速度档。
+    // 在媒体时钟里，这里再除以弹幕速度档。用户设了滚动时长后基准
+    // 改用该值（不再分横竖屏）。
+    final customSec = widget.settings.scrollDurationSecClamped;
     final flightMs =
-        (widget.landscape ? _flightBaseMsLandscape : _flightBaseMs) /
+        (customSec > 0
+            ? customSec * 1000
+            : (widget.landscape ? _flightBaseMsLandscape : _flightBaseMs)) /
         widget.settings.speed;
     // 轨道调度（对照 hongguoTV DanmakuLayout）：轨道满了不再丢弃，
     // 而是顺延最多 3 秒或与同轨道重叠。
@@ -440,7 +483,7 @@ class _PlayletDanmakuLayerState extends State<PlayletDanmakuLayer>
     // 合并会改它们的身份与轨道（层测试要求各占各的轨道）。
     final scheduled = DanmakuLayout.assign(
       [
-        for (final entry in sorted)
+        for (final entry in scrolling)
           DanmakuLayoutItem(
             id: entry.id,
             text: entry.text,
@@ -456,7 +499,12 @@ class _PlayletDanmakuLayerState extends State<PlayletDanmakuLayer>
       // 合并后的文本（带 ×N）与顺延后的起点都落在新条目上；
       // 轨道号即 lane，结束时间 = 起点 + 飞行时长。
       final flight = _DanmakuFlight(
-        PlayletComment(id: item.id, text: item.text, offsetMs: item.startMs),
+        PlayletComment(
+          id: item.id,
+          text: item.text,
+          offsetMs: item.startMs,
+          danmakuMode: byId[item.id]?.danmakuMode ?? 0,
+        ),
         item.lane,
         flightMs,
       );
@@ -470,6 +518,13 @@ class _PlayletDanmakuLayerState extends State<PlayletDanmakuLayer>
   /// （`vx1/b.java b():164-186` 的 rows = 屏高×占比/(行高+竖边距)）。
   /// MediaQuery 只能在 didChangeDependencies 之后查，所以走字段。
   void _syncTracks() {
+    final percent = widget.settings.displayAreaPercentClamped;
+    if (percent > 0) {
+      // 显示区域百分比优先（横竖屏同一口径）：屏高 × 占比 / 行距。
+      final height = MediaQuery.sizeOf(context).height;
+      _tracks = math.max(1, (height * percent / 100 / _pitch).floor());
+      return;
+    }
     var tracks = widget.settings.lineCount;
     if (widget.landscape) {
       final tier = widget.settings.lineSpaceTier.clamp(1, 4);
@@ -478,7 +533,7 @@ class _PlayletDanmakuLayerState extends State<PlayletDanmakuLayer>
       } else {
         final factor = DanmakuSettings.lineSpaceFactors[tier - 1];
         final height = MediaQuery.sizeOf(context).height;
-        tracks = math.max(1, (height * factor / (_trackPitch + 4)).floor());
+        tracks = math.max(1, (height * factor / (_pitch + 4)).floor());
       }
     }
     _tracks = tracks;
@@ -502,8 +557,30 @@ class _PlayletDanmakuLayerState extends State<PlayletDanmakuLayer>
       visible.add(flight);
       _nextChangeMs = math.min(_nextChangeMs, flight.endMs);
     }
-    if (listEquals(_visible, visible)) return;
+    // 静态弹幕：窗口 [offsetMs, offsetMs + 静态时长)；同模式按 offset
+    // 顺序逐条占行，过期释放行位。
+    final staticVisible = <_StaticPlacement>[];
+    final staticDurationMs =
+        widget.settings.staticDurationSecClamped * 1000;
+    final lanesUsed = <int, int>{4: 0, 5: 0};
+    for (final entry in _staticEntries) {
+      if (entry.offsetMs > now) {
+        _nextChangeMs = math.min(_nextChangeMs, entry.offsetMs.toDouble());
+        break;
+      }
+      final endMs = entry.offsetMs + staticDurationMs;
+      if (now >= endMs) continue;
+      final lane = lanesUsed[entry.danmakuMode] ?? 0;
+      lanesUsed[entry.danmakuMode] = lane + 1;
+      staticVisible.add(_StaticPlacement(entry, lane));
+      _nextChangeMs = math.min(_nextChangeMs, endMs);
+    }
+    if (listEquals(_visible, visible) &&
+        listEquals(_visibleStatic, staticVisible)) {
+      return;
+    }
     _visible = visible;
+    _visibleStatic = staticVisible;
     // 只有弹幕入场/离场才重建；中间每帧只更新 Flow 的绘制变换。
     if (rebuild) setState(() {});
   }
@@ -517,36 +594,88 @@ class _PlayletDanmakuLayerState extends State<PlayletDanmakuLayer>
     return IgnorePointer(
       child: Padding(
         padding: EdgeInsets.only(top: widget.topInset),
-        child: Flow(
-          delegate: _DanmakuFlowDelegate(_mediaMs, _visible),
-          children: [for (final flight in _visible) _bubble(flight.entry)],
+        child: Stack(
+          children: [
+            Flow(
+              delegate: _DanmakuFlowDelegate(_mediaMs, _visible, _pitch),
+              children: [for (final flight in _visible) _bubble(flight.entry)],
+            ),
+            for (final placement in _visibleStatic)
+              if (placement.entry.danmakuMode == 5)
+                Positioned(
+                  top: 8.0 + placement.lane * _pitch,
+                  left: 0,
+                  right: 0,
+                  child: Center(child: _bubble(placement.entry)),
+                )
+              else
+                Positioned(
+                  bottom: 8.0 + placement.lane * _pitch,
+                  left: 0,
+                  right: 0,
+                  child: Center(child: _bubble(placement.entry)),
+                ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _bubble(PlayletComment entry) => Container(
-    key: ValueKey('danmaku-${entry.id}'),
-    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-    // 「弹幕背景透明」开后只留文字与描边阴影，压在亮画面上也不糊。
-    decoration: widget.settings.transparentBackground
-        ? null
-        : BoxDecoration(
-            color: const Color(0x66000000),
-            borderRadius: BorderRadius.circular(4),
-          ),
-    child: Text(
-      entry.text,
-      maxLines: 1,
-      // 官方字号/透明度来自 danmaku_config（DanmakuTextSize 5 档，
-      // key_alpha 默认 255）。
-      style: TextStyle(
-        fontSize: widget.settings.fontSize,
-        color: Color.fromRGBO(255, 255, 255, widget.settings.alpha / 255),
-        shadows: const [Shadow(color: Colors.black54, blurRadius: 2)],
-      ),
-    ),
-  );
+  Widget _bubble(PlayletComment entry) {
+    // 官方字号/透明度来自 danmaku_config（DanmakuTextSize 5 档，
+    // key_alpha 默认 255）。
+    final style = TextStyle(
+      fontSize: widget.settings.fontSize,
+      fontWeight: widget.settings.fontWeight,
+      color: Color.fromRGBO(255, 255, 255, widget.settings.alpha / 255),
+      shadows: const [Shadow(color: Colors.black54, blurRadius: 2)],
+    );
+    final strokeWidth = widget.settings.strokeWidthClamped;
+    final Widget text = strokeWidth > 0
+        ? Stack(
+            children: [
+              // 下层描边、上层填充，两层同字重叠。
+              Text(
+                entry.text,
+                maxLines: 1,
+                style: style.copyWith(
+                  foreground: Paint()
+                    ..style = PaintingStyle.stroke
+                    ..strokeWidth = strokeWidth
+                    ..color = Colors.black,
+                ),
+              ),
+              Text(entry.text, maxLines: 1, style: style),
+            ],
+          )
+        : Text(entry.text, maxLines: 1, style: style);
+    return Container(
+      key: ValueKey('danmaku-${entry.id}'),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      // 「弹幕背景透明」开后只留文字与描边阴影，压在亮画面上也不糊。
+      decoration: widget.settings.transparentBackground
+          ? null
+          : BoxDecoration(
+              color: const Color(0x66000000),
+              borderRadius: BorderRadius.circular(4),
+            ),
+      child: text,
+    );
+  }
+}
+
+class _StaticPlacement {
+  const _StaticPlacement(this.entry, this.lane);
+
+  final PlayletComment entry;
+  final int lane;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _StaticPlacement && other.entry == entry && other.lane == lane;
+
+  @override
+  int get hashCode => Object.hash(entry, lane);
 }
 
 class _DanmakuFlight {
@@ -562,10 +691,12 @@ class _DanmakuFlight {
 }
 
 class _DanmakuFlowDelegate extends FlowDelegate {
-  _DanmakuFlowDelegate(this.mediaMs, this.flights) : super(repaint: mediaMs);
+  _DanmakuFlowDelegate(this.mediaMs, this.flights, this.trackPitch)
+    : super(repaint: mediaMs);
 
   final ValueListenable<double> mediaMs;
   final List<_DanmakuFlight> flights;
+  final double trackPitch;
 
   @override
   BoxConstraints getConstraintsForChild(int i, BoxConstraints constraints) =>
@@ -584,7 +715,7 @@ class _DanmakuFlowDelegate extends FlowDelegate {
         i,
         transform: Matrix4.translationValues(
           context.size.width - progress * (context.size.width + width),
-          8.0 + flight.track * _trackPitch,
+          8.0 + flight.track * trackPitch,
           0,
         ),
       );
@@ -594,5 +725,6 @@ class _DanmakuFlowDelegate extends FlowDelegate {
   @override
   bool shouldRepaint(_DanmakuFlowDelegate oldDelegate) =>
       oldDelegate.mediaMs != mediaMs ||
+      oldDelegate.trackPitch != trackPitch ||
       !listEquals(oldDelegate.flights, flights);
 }

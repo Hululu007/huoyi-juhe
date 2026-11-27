@@ -33,6 +33,7 @@ import 'backend_service.dart';
 import 'backend_transport.dart';
 import 'chapter_text_formatter.dart';
 import 'request_gate.dart';
+import 'source_router.dart';
 
 export '../models/homepage_page.dart';
 part 'reader_video_api.dart';
@@ -46,9 +47,11 @@ class ApiClient {
     http.Client? client,
     BackendTransport? transport,
     String? baseUrl,
+    SourceRouter? sourceRouter,
     this._timeout = const Duration(seconds: 20),
     this._comicTimeout = const Duration(seconds: 90),
-  }) : _transport =
+  }) : _sourceRouter = sourceRouter ?? SourceRouter(),
+       _transport =
            transport ??
            (client != null || baseUrl != null
                ? HttpBackendTransport(
@@ -153,6 +156,11 @@ class ApiClient {
   /// build inject an [http.Client]/base URL and get the loopback HTTP adapter,
   /// which shares the same Rust dispatcher.
   final BackendTransport _transport;
+
+  /// Source routing decision point (A1). Consulted once per dispatch in
+  /// [_get]; under the default configuration every group resolves to the
+  /// local core, so this never changes behavior yet.
+  final SourceRouter _sourceRouter;
 
   /// 视频 tab（短剧 feed）的 cell id，按 tab_type 缓存：官方第二段
   /// `bookmall/cell/change` 必须带这个 tab 的 cell，而它只出现在第一段的响应里。
@@ -274,6 +282,9 @@ class ApiClient {
         if (remaining.inMilliseconds <= 0) {
           throw BackendRequestAborted('请求超时', timedOut: true);
         }
+        // A1 传输路由：默认全 local，此处恒放行；某组被配置切到 remote 时
+        // 在远程执行器落地前以 StateError 明确失败，不静默回落。
+        _sourceRouter.requireLocal(Uri.parse(url));
         final response = await _transport.send(
           method,
           Uri.parse(url),

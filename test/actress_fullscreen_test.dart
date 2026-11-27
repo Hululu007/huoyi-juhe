@@ -407,4 +407,32 @@ void main() {
     expect(players[2].createdStartMs, [30000]);
     expect(find.text('这是 SIGL-020 的简介内容。'), findsOneWidget);
   });
+
+  testWidgets('内嵌播放器：倍速钮在，点按切档并落到播放器', (tester) async {
+    final player = ControlledNativePlayer();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ActressInlinePlayer(
+            url: 'https://v.test/a.m3u8',
+            playerFactory: () => player,
+          ),
+        ),
+      ),
+    );
+    await _until(tester, () => player.calls.contains('created'));
+    player.emitFirstFrame();
+    await _until(
+      tester,
+      () => find
+          .byKey(const ValueKey('inline-player-rate'))
+          .evaluate()
+          .isNotEmpty,
+    );
+    expect(find.text('1x'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('inline-player-rate')));
+    await tester.pump();
+    expect(find.text('1.25x'), findsOneWidget);
+    expect(player.rate, 1.25);
+  });
 }

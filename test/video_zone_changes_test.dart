@@ -75,6 +75,7 @@ SourceEntry _entry({
 void main() {
   test('影视 tab 标签：成人站追加熟女，非成人站不加', () async {
     SharedPreferences.setMockInitialValues({
+    'juhe_sql_builtin_migration_v1': true,
       'juhe_custom_sources': jsonEncode([
         _entry(
           id: 'seed_91crdjai',

@@ -42,12 +42,18 @@ class DramaPlaySource {
   /// 起播时交给宿主挂载；没有字幕的站恒为空表。
   final List<ExternalSubtitle> subs;
 
+  /// 代理映射前的原始地址（播放地址弹窗的「原始链接」）：`url` 是
+  /// 映射后真正在播的地址，两者相同或未经映射时为空串。只供展示，
+  /// 播放链不读它。
+  final String originalUrl;
+
   const DramaPlaySource({
     required this.url,
     this.keyHex = '',
     this.variants = const [],
     this.headers = const {},
     this.subs = const [],
+    this.originalUrl = '',
   });
 
   Map<String, dynamic> toResponse() => {
@@ -56,6 +62,11 @@ class DramaPlaySource {
     'variants': [for (final variant in variants) variant.toMap()],
     if (subs.isNotEmpty)
       'subs': [for (final sub in subs) sub.toJson()],
+    // 播放地址弹窗（照录屏改造批）：请求头与原始链接随响应带到播放页
+    // 展示。头只用于展示——真正带头的是本地代理，播放链不从这里取。
+    if (headers.isNotEmpty) 'headers': headers,
+    if (originalUrl.isNotEmpty && originalUrl != url)
+      'original_url': originalUrl,
   };
 }
 

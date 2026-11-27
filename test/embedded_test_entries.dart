@@ -1,75 +1,43 @@
-import 'package:fqapp/services/builtin_imported_sites.dart';
-import 'package:fqapp/services/jar_bridge.dart';
-import 'package:fqapp/services/source_registry.dart';
-import 'package:fqapp/services/zakatv_builtin.dart';
+import 'dart:convert';
+import 'dart:io';
 
-/// 内嵌站测试条目：按生产登记原样搭（种子 `seed_<id>`、jar
-/// `jar:<jarId>:<key>`、builtin=true、contentType 照登记表），
-/// 供分档测试直接传给 visibleVideoZoneSites / visibleFilmZoneSites，
-/// 不走 SharedPreferences 与 asset 拷贝。
-///
-/// jar 251 行（zakatvBuiltinSites 249 条里 248 条视频/混合 + YouTube 1 条
-/// + one.jar 1 条；听书 go_tingshu 是 audio，不进视频区）+ 种子 210 条。
-/// 2026-11-26 MissAV 收拢：zakatv 253→249（摘 4 个 MissAV 重复登记）。
+import 'package:fqapp/services/source_registry.dart';
+
+/// 内嵌站测试条目（站点库批 2026-11-27 适配）：生产登记已移出包、
+/// 进站点库，本helper 改按随包名单 assets/site_library/roster.json
+/// 搭条目——形态与 SourceRegistry.buildSqlSiteEntries 的产出对齐
+/// （id=siteId、extra 带 contentType/sqlManaged/sqlCanon），供分档
+/// 测试直接传给 visibleVideoZoneSites / visibleFilmZoneSites。
+/// nativeGate 与直播行不在登记表条目形态里（前者是 drama 裸行、
+/// 后者走 LiveSources），与旧 helper 的集合口径一致地不纳入。
 List<SourceEntry> embeddedTestEntries() {
+  final raw = File('assets/site_library/roster.json').readAsStringSync();
+  final stations =
+      (jsonDecode(raw) as Map<String, dynamic>)['stations'] as List<dynamic>;
   final entries = <SourceEntry>[];
-  for (final site in zakatvBuiltinSites) {
+  for (final row in stations) {
+    final s = row as Map<String, dynamic>;
+    final kindName = s['kind'] as String;
+    if (kindName == 'nativeGate' ||
+        kindName == 'liveM3u' ||
+        kindName == 'livePlatform') {
+      continue;
+    }
+    final kind = switch (kindName) {
+      'pyImport' => SourceKind.pyImport,
+      'legadoImport' => SourceKind.legadoImport,
+      'jarImport' => SourceKind.jarImport,
+      _ => SourceKind.pyImport,
+    };
     entries.add(
       SourceEntry(
-        id: JarSiteSpec.siteIdFor(zakatvJarId, site.key),
-        name: site.name,
-        kind: SourceKind.jarImport,
-        address: zakatvJarAsset,
+        id: s['siteId'] as String,
+        name: s['name'] as String,
+        kind: kind,
         extra: {
-          'configId': zakatvJarId,
-          'className': site.className,
-          'contentType': site.contentTypeKey,
-          'builtin': true,
-        },
-      ),
-    );
-  }
-  entries.add(
-    SourceEntry(
-      id: JarSiteSpec.siteIdFor(youtubeJarId, youtubeBuiltinSite.key),
-      name: youtubeBuiltinSite.name,
-      kind: SourceKind.jarImport,
-      address: youtubeJarAsset,
-      extra: {
-        'configId': youtubeJarId,
-        'className': youtubeBuiltinSite.className,
-        'contentType': youtubeBuiltinSite.contentTypeKey,
-        'builtin': true,
-      },
-    ),
-  );
-  for (final site in oneBuiltinSites) {
-    entries.add(
-      SourceEntry(
-        id: JarSiteSpec.siteIdFor(oneJarId, site.key),
-        name: site.name,
-        kind: SourceKind.jarImport,
-        address: oneJarAsset,
-        extra: {
-          'configId': oneJarId,
-          'className': site.className,
-          'contentType': site.contentTypeKey,
-          'builtin': true,
-        },
-      ),
-    );
-  }
-  for (final seed in builtinImportedSeeds) {
-    entries.add(
-      SourceEntry(
-        id: 'seed_${seed.seedId}',
-        name: seed.name,
-        kind: seed.kind,
-        address: seed.fileName,
-        extra: {
-          'contentType': 'video',
-          'builtin': true,
-          'seedId': seed.seedId,
+          'contentType': s['zone'] as String,
+          'sqlManaged': true,
+          'sqlCanon': s['id'] as String,
         },
       ),
     );

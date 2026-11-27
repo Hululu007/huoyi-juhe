@@ -1,35 +1,37 @@
 import 'dart:convert';
+import 'dart:io';
 
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:fqapp/services/builtin_imported_sites.dart';
-import 'package:fqapp/services/legado_content.dart';
-import 'package:fqapp/services/source_registry.dart';
 
-/// 魔蚁 Legado 书源移植批（2026-11-26）种子结构验证：
-/// ① legado_ 前缀种子全是 legadoImport、全带分区分型、无音乐；
-/// ② 每份资产真在包里、能被修仙版引擎解析出名与地址；
-/// ③ 分区计数与移植定级表一致（见工作目录 classified.json）；
-/// ④ 未验通的带 verifyNote 标记，验通的不带。
-const kExpectedLegadoSeedCount = 101;
+/// 魔蚁 Legado 书源移植批（2026-11-26）种子结构验证。
+///
+/// 站点库批（2026-11-27）适配：Legado 种子已移出包、进站点库，
+/// 本文件改查随包名单 assets/site_library/roster.json：legadoImport
+/// 共 102 行（旧种子表里 101 条 legado_ 前缀 + dabaitu_video 1 条），
+/// 分区计数与移植定级表一致。逐份 JSON 的引擎解析验证随内容搬家
+/// 归生成器侧（verify_bundle.py 对站点库逐行哈希与内容复验，
+/// 见工作目录 ACCOUNT.md）；verifyNote 标记在库内 stations 表，
+/// 名单不带此字段，本文件不再断言。
+const kExpectedLegadoCount = 102;
 const kExpectedNovelCount = 86;
 const kExpectedComicCount = 5;
 const kExpectedAudioCount = 1;
-const kExpectedVideoCount = 9;
-const kExpectedUnverifiedCount = 101;
-void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
+const kExpectedVideoCount = 10;
 
-  final legadoSeeds = builtinImportedSeeds
-      .where((seed) => seed.seedId.startsWith('legado_'))
+void main() {
+  final raw = File('assets/site_library/roster.json').readAsStringSync();
+  final stations =
+      (jsonDecode(raw) as Map<String, dynamic>)['stations'] as List;
+  final legadoRows = stations
+      .where((s) => (s as Map<String, dynamic>)['kind'] == 'legadoImport')
       .toList();
 
-  test('legado 书源种子：总数与分区计数', () {
-    expect(legadoSeeds.length, kExpectedLegadoSeedCount);
+  test('legado 书源（站点库名单）：总数与分区计数', () {
+    expect(legadoRows.length, kExpectedLegadoCount);
     final byZone = <String, int>{};
-    for (final seed in legadoSeeds) {
-      byZone[seed.contentTypeKey ?? ''] =
-          (byZone[seed.contentTypeKey ?? ''] ?? 0) + 1;
+    for (final row in legadoRows) {
+      final zone = (row as Map<String, dynamic>)['zone'] as String;
+      byZone[zone] = (byZone[zone] ?? 0) + 1;
     }
     expect(byZone['novel'] ?? 0, kExpectedNovelCount);
     expect(byZone['comic'] ?? 0, kExpectedComicCount);
@@ -37,29 +39,13 @@ void main() {
     expect(byZone['video'] ?? 0, kExpectedVideoCount);
   });
 
-  test('legado 书源种子：类型与标记规矩', () {
-    for (final seed in legadoSeeds) {
-      expect(seed.kind, SourceKind.legadoImport, reason: seed.seedId);
-      expect(seed.contentTypeKey, isNotNull, reason: seed.seedId);
-      expect(seed.contentTypeKey, isNot('music'), reason: seed.seedId);
-      expect(seed.fileName, '${seed.seedId}.json', reason: seed.seedId);
-      if (seed.verifyNote != null) {
-        expect(seed.verifyNote, isNotEmpty, reason: seed.seedId);
-      }
-    }
-    final noted = legadoSeeds.where((s) => s.verifyNote != null).length;
-    expect(noted, kExpectedUnverifiedCount);
-  });
-
-  test('legado 书源种子：资产可加载且引擎可解析', () async {
-    for (final seed in legadoSeeds) {
-      final text = await rootBundle.loadString(seed.asset);
-      final decoded = jsonDecode(text);
-      final map = decoded is List ? decoded.first : decoded;
-      final source = LegadoSource(map as Map<String, dynamic>);
-      expect(source.name, isNotEmpty, reason: seed.seedId);
-      expect(source.url, isNotEmpty, reason: seed.seedId);
-      expect(source.name, seed.name, reason: seed.seedId);
+  test('legado 书源（站点库名单）：类型与标记规矩', () {
+    for (final row in legadoRows) {
+      final s = row as Map<String, dynamic>;
+      expect(s['zone'], isNotNull, reason: '${s['id']}');
+      expect(s['zone'], isNot('music'), reason: '${s['id']}');
+      expect((s['name'] as String), isNotEmpty, reason: '${s['id']}');
+      expect(s['siteId'], startsWith('seed_'), reason: '${s['id']}');
     }
   });
 }

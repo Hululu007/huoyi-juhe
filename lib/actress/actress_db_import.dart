@@ -6,6 +6,7 @@ import 'package:sqflite/sqflite.dart';
 import 'actress_database.dart' show applyActressDbReadPragmas;
 import 'actress_db_source.dart';
 import 'actress_generic_db.dart';
+import 'actress_library_version.dart';
 import 'actress_sql_import.dart';
 
 /// 双库导入服务（2026-11-27 双库批）：统一入口收 .db / .sql /
@@ -14,17 +15,28 @@ import 'actress_sql_import.dart';
 /// 当库用。
 ///
 /// - .sql / .sql.gz：复用 [ActressSqlImporter]（流式执行→归一化
-///   →校验→备份 .bak→换库，失败原 imported 不动）。iOS 现有 tile
-///   本来就是往同一落点导（iosDbPath 与 imported 槽同路径），
-///   语义一致、iOS 流程未改。
+///   →校验→版本门→备份 .bak→换库，失败原 imported 不动）。iOS
+///   现有 tile 本来就是往同一落点导（iosDbPath 与 imported 槽
+///   同路径），语义一致、iOS 流程未改。
 /// - .db：先验后换——选中文件先以只读方式打开做结构探测
 ///   （[validateActressDbFile]：严格结构认 videos 表、通用结构认
-///   探测到的作品表，两者都要作品数 > 0），校验过才拷进
-///   imported 槽：先拷到同目录中转文件，旧 imported 留 .bak，
-///   中转改名就位；校验不过给中文报错、imported 槽原样不动。
+///   探测到的作品表，两者都要作品数 > 0），再过版本门
+///   （[checkActressDbFileVersion]：schema_meta 版本字段必须与
+///   当前软件对得上，见 actress_library_version.dart），都过
+///   才拷进 imported 槽：先拷到同目录中转文件，旧 imported 留
+///   .bak，中转改名就位；校验不过给中文报错、imported 槽原样
+///   不动。
+/// - 外置文件导入激活（[importExternalFile]）：外置槽的
+///   MYTV/db/女优库.db 只是导入来源，点它才走上面 .db 同一条
+///   链（校验＋版本门＋拷入 imported 槽），不点不生效；外置
+///   文件本身一个字不写。
+///
+/// 导入成功 = 激活：两路换库成功后都调
+/// [ActressDbSource.markActivated] 落激活记录（origin=import），
+/// 演员库才开始出数据；失败一律不落记录、已激活的旧库不动。
 ///
 /// 报错全中文且分开说：文件读不到 / 格式不对 / 作品数为 0 /
-/// 复制失败（空间不足等）各是各的文案。
+/// 版本字段缺失或对不上 / 复制失败（空间不足等）各是各的文案。
 
 /// .db 校验结果：认得出作品表且作品数 > 0 才 [ok]。
 class ActressDbValidation {
@@ -155,6 +167,12 @@ class ActressDbImportOutcome {
   final bool needsReload;
 }
 
+/// .db 版本门检查（可注入：测试用假件）。回版本信息与中文
+/// 拒收原因（null = 通过）。
+typedef ActressDbVersionChecker = Future<
+  ({ActressLibraryVersionInfo info, String? error})
+> Function(String dbPath);
+
 /// 双库导入服务：文件已落到本地路径后调 [importLocalFile]。
 /// 选文件（file_selector）与收件拷贝在管理页做，与 iOS tile 同款。
 class ActressDbImportService {
@@ -162,13 +180,18 @@ class ActressDbImportService {
     ActressDbSource? source,
     ActressDbValidator? dbValidator,
     ActressSqlImporter? sqlImporter,
+    ActressDbVersionChecker? dbVersionChecker,
   }) : _source = source ?? ActressDbSource.instance,
        _dbValidator = dbValidator ?? validateActressDbFile,
-       _sqlImporter = sqlImporter ?? ActressSqlImporter();
+       _sqlImporter = sqlImporter ?? ActressSqlImporter(),
+       _dbVersionChecker =
+           dbVersionChecker ??
+           ((path) => checkActressDbFileVersion(path));
 
   final ActressDbSource _source;
   final ActressDbValidator _dbValidator;
   final ActressSqlImporter _sqlImporter;
+  final ActressDbVersionChecker _dbVersionChecker;
 
   /// 导入一个本地文件（按后缀分路）到 imported 槽。
   ///
@@ -232,7 +255,18 @@ class ActressDbImportService {
       isCancelled: isCancelled,
     );
     if (result.ok) {
-      _source.notifyChanged();
+      // 激活：版本门已在导入器内过，这里回读新库版本字段落
+      // 激活记录（回读失败不挡激活，版本信息留空）。
+      var info = const ActressLibraryVersionInfo();
+      try {
+        info = (await _dbVersionChecker(importedPath)).info;
+      } catch (_) {}
+      await _source.markActivated(
+        origin: 'import',
+        libraryVersion: info.libraryVersion,
+        formatVersion: info.formatVersion,
+        coreVersion: info.coreVersion,
+      );
     }
     return ActressDbImportOutcome(
       ok: result.ok,
@@ -245,9 +279,45 @@ class ActressDbImportService {
     );
   }
 
-  /// .db 先验后换：校验（只读开选中文件）→ 拷中转 → 旧 imported
-  /// 留 .bak → 中转改名就位。任一步失败 imported 原样不动
-  /// （改名失败且原文件已挪走时从 .bak 恢复）。
+  /// 外置文件导入激活：把外置槽当前文件（MYTV/db/女优库.db 或
+  /// 其 SAF 镜像落点）当选中文件走 .db 同一条链（结构校验＋
+  /// 版本门＋拷入 imported 槽＋激活）。外置文件只读不写；
+  /// 外置没绑定/文件不在回中文原因。
+  Future<ActressDbImportOutcome> importExternalFile({
+    required Future<void> Function() closeDatabase,
+  }) async {
+    final externalPath = await _source.externalDbPath();
+    if (externalPath.isEmpty) {
+      return const ActressDbImportOutcome(
+        ok: false,
+        error: '外置库还没绑定：先授权 MYTV 文件夹或单个数据库文件，再点导入激活',
+      );
+    }
+    final file = File(externalPath);
+    if (!file.existsSync() || file.lengthSync() == 0) {
+      return const ActressDbImportOutcome(
+        ok: false,
+        error: '外置库文件不存在或为空（MYTV/db/女优库.db），没法导入',
+      );
+    }
+    final importedPath = await _source.importedDbPath();
+    if (importedPath.isEmpty) {
+      return const ActressDbImportOutcome(
+        ok: false,
+        error: '导入落点不可用，请稍后再试',
+      );
+    }
+    return _importDb(
+      pickedPath: externalPath,
+      importedPath: importedPath,
+      closeDatabase: closeDatabase,
+    );
+  }
+
+  /// .db 先验后换：结构校验（只读开选中文件）→ 版本门 → 拷
+  /// 中转 → 旧 imported 留 .bak → 中转改名就位 → 落激活记录。
+  /// 任一步失败 imported 原样不动（改名失败且原文件已挪走时
+  /// 从 .bak 恢复）；版本门不过连复制都不发生。
   Future<ActressDbImportOutcome> _importDb({
     required String pickedPath,
     required String importedPath,
@@ -259,6 +329,11 @@ class ActressDbImportService {
         ok: false,
         error: validation.error ?? '这个数据库不能用，已取消导入',
       );
+    }
+    // 版本门：结构认得出还不够，版本字段必须与当前软件对得上。
+    final version = await _dbVersionChecker(pickedPath);
+    if (version.error != null) {
+      return ActressDbImportOutcome(ok: false, error: version.error);
     }
     final stagingPath = '$importedPath.importing-db';
     final staging = File(stagingPath);
@@ -310,7 +385,12 @@ class ActressDbImportService {
         needsReload: true,
       );
     }
-    _source.notifyChanged();
+    await _source.markActivated(
+      origin: 'import',
+      libraryVersion: version.info.libraryVersion,
+      formatVersion: version.info.formatVersion,
+      coreVersion: version.info.coreVersion,
+    );
     return ActressDbImportOutcome(
       ok: true,
       videos: validation.works,

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fqapp/pages/source_management_page.dart';
+import 'package:fqapp/services/site_library.dart';
 import 'package:fqapp/pages/video_page.dart';
 import 'package:fqapp/services/file_text_picker.dart';
 import 'package:fqapp/services/source_registry.dart';
@@ -70,7 +71,12 @@ void main() {
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(channel, (call) async {
-      if (call.method == 'getApplicationSupportDirectory') {
+      // 站点库批（2026-11-27）：管理页初始化会经站点库服务问目录，
+      // 三种目录都给临时目录（与 local_file_import 测试同款），
+      // 只答 support 时服务加载卡住、页面建不出列表。
+      if (call.method == 'getApplicationSupportDirectory' ||
+          call.method == 'getApplicationDocumentsDirectory' ||
+          call.method == 'getTemporaryDirectory') {
         return temp.path;
       }
       return null;
@@ -287,13 +293,19 @@ void main() {
 
   testWidgets('站源管理弹窗 A：空源码点“添加”有报错提示', (tester) async {
     SharedPreferences.setMockInitialValues({});
+    // 站点库批（2026-11-27）：先在真时钟区预热站点库名单缓存，
+    // 管理页才建得出列表（与 local_file_import 测试同款）。
+    await tester.runAsync(() => SiteLibraryService.instance.roster());
     await tester.pumpWidget(
       const MaterialApp(home: SourceManagementPage()),
     );
     await tester.pump(const Duration(milliseconds: 200));
+    // 站点库批（2026-11-27）：未导入态页面多了 639 行未激活名单组，
+    // 导入入口被推到名单组之后，滚动次数放大。
     await tester.scrollUntilVisible(
       find.text('导入 Python / Jar / JS / XBPQ'),
       500,
+      maxScrolls: 250,
     );
     await tester.pumpAndSettle();
     // scrollUntilVisible 只保证“可见”，按钮可能贴在视口底边、中心点
@@ -316,13 +328,19 @@ void main() {
 
   testWidgets('站源管理弹窗 B：有源码导入成功，有成功提示（含分区）', (tester) async {
     SharedPreferences.setMockInitialValues({});
+    // 站点库批（2026-11-27）：先在真时钟区预热站点库名单缓存，
+    // 管理页才建得出列表（与 local_file_import 测试同款）。
+    await tester.runAsync(() => SiteLibraryService.instance.roster());
     await tester.pumpWidget(
       const MaterialApp(home: SourceManagementPage()),
     );
     await tester.pump(const Duration(milliseconds: 200));
+    // 站点库批（2026-11-27）：未导入态页面多了 639 行未激活名单组，
+    // 导入入口被推到名单组之后，滚动次数放大。
     await tester.scrollUntilVisible(
       find.text('导入 Python / Jar / JS / XBPQ'),
       500,
+      maxScrolls: 250,
     );
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('导入 Python / Jar / JS / XBPQ'));
@@ -368,6 +386,15 @@ void main() {
     // SnackBar 写清站名与分区（视频 py → 影视区）。
     expect(find.byType(SnackBar), findsOneWidget);
     expect(find.textContaining('已导入'), findsOneWidget);
-    expect(find.textContaining('影视区'), findsOneWidget);
+    // 站点库批（2026-11-27）：页面滚得更远后批量导入区的说明文案
+    // （含「影视区」）也进了 widget 树，裸 textContaining 会撞两个；
+    // 分区断言收窄到 SnackBar 内部。
+    expect(
+      find.descendant(
+        of: find.byType(SnackBar),
+        matching: find.textContaining('影视区'),
+      ),
+      findsOneWidget,
+    );
   });
 }

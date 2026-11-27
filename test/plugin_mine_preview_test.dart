@@ -9,14 +9,19 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'preview_test_support.dart';
-import 'package:fqapp/pages/plugin_manage_page.dart';
+import 'package:fqapp/models/reading_stats.dart';
 import 'package:fqapp/services/idj_plugin_store.dart';
 import 'package:fqapp/widgets/mine/mine_entries.dart';
+import 'package:fqapp/widgets/mine/mine_plugin_section.dart';
+import 'package:fqapp/widgets/mine/mine_summary.dart';
 import 'package:fqapp/widgets/site_grid_dialog.dart';
 
-/// 新布局预览图（2026-11-27：插件搬进「我的」、选站弹窗插件区只
-/// 留显示）：①「我的」入口列表能看到「插件管理」行；②插件管理页
-/// （市场 + 已装列表）；③选站弹窗插件区（只有站卡、无市场）。
+/// 内嵌折叠布局预览图（2026-11-27 20:16 令：插件管理搬到「我的」
+/// 页今日阅读原位置、市场与已装原地折叠展开不跳页）：
+/// ①区段折叠态（市场与已装各只露三排）；②区段展开态（两段全
+/// 展开）；③今日阅读挪位后的样子（挪到入口列表正上方、入口列
+/// 表里不再有插件管理行）；④选站弹窗插件区（只有站卡、无市场，
+/// 既有口径不变）。
 /// 数据全是假实现（临时目录仓库 + 假订阅下载），不碰真网络；
 /// 单独跑，不与普通测试混链。
 void main() {
@@ -29,8 +34,8 @@ void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     final prefs = await SharedPreferences.getInstance();
-    rootDir = Directory.systemTemp.createTempSync('idj_mine_prev_root');
-    supportDir = Directory.systemTemp.createTempSync('idj_mine_prev_support');
+    rootDir = Directory.systemTemp.createTempSync('idj_in_prev_root');
+    supportDir = Directory.systemTemp.createTempSync('idj_in_prev_support');
     store = IdjPluginStore(
       preferences: prefs,
       rootDir: rootDir,
@@ -48,7 +53,7 @@ void main() {
 
   Future<void> capture(WidgetTester tester, String name) async {
     final boundary = tester.renderObject<RenderRepaintBoundary>(
-      find.byKey(const ValueKey<String>('plugin-mine-preview')),
+      find.byKey(const ValueKey<String>('plugin-inline-preview')),
     );
     await tester.runAsync(() async {
       final image = await boundary.toImage(pixelRatio: 2);
@@ -64,86 +69,157 @@ void main() {
   }
 
   Future<void> pumpUntilFound(WidgetTester tester, Finder finder) async {
-    for (var i = 0; i < 40; i++) {
+    // 12 个插件的已装列表链在假时钟区要接力几十次真 IO，轮询
+    // 次数给足（预览④只装 3 个时自然提前命中返回）。
+    for (var i = 0; i < 150; i++) {
       if (finder.evaluate().isNotEmpty) return;
       await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 100)),
+        () => Future<void>.delayed(const Duration(milliseconds: 150)),
       );
       await tester.pump(const Duration(milliseconds: 50));
     }
   }
 
-  testWidgets('预览①：我的页入口列表有插件管理行', (tester) async {
+  Future<void> installTwelve(WidgetTester tester) async {
+    await tester.runAsync(() async {
+      for (var i = 0; i < _names.length; i++) {
+        await store.installBundleText(
+          _bundleText(id: 'com.idj.ext.m$i', name: _names[i]),
+        );
+      }
+    });
+  }
+
+  Widget sectionPreviewHost() => MaterialApp(
+    theme: ThemeData(fontFamily: 'NotoSansCJK', brightness: Brightness.dark),
+    home: Scaffold(
+      backgroundColor: const Color(0xFF0F0F14),
+      body: SingleChildScrollView(
+        child: RepaintBoundary(
+          key: const ValueKey<String>('plugin-inline-preview'),
+          child: MinePluginSection(store: store),
+        ),
+      ),
+    ),
+  );
+
+  testWidgets('预览①：插件管理区段折叠态（市场与已装各三排）', (tester) async {
+    await loadPreviewFonts(tester, lucide: true);
+    tester.view.devicePixelRatio = 1.0;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(tester.view.reset);
+    await installTwelve(tester);
+    await tester.pumpWidget(sectionPreviewHost());
+    await tester.pumpAndSettle();
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey('plugin-market-row-com.idj.ext.m8')),
+    );
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey('plugin-installed-row-com.idj.ext.m0')),
+    );
+    // 折叠态：市场第 10 张起不建；已装按名字排序后只建前 9 张
+    // （数总数，不依赖具体哪几张）。
+    expect(
+      find.byKey(const ValueKey('plugin-market-row-com.idj.ext.m9')),
+      findsNothing,
+    );
+    var installedBuilt = 0;
+    for (var i = 0; i < 12; i++) {
+      installedBuilt += find
+          .byKey(ValueKey('plugin-installed-row-com.idj.ext.m$i'))
+          .evaluate()
+          .length;
+    }
+    expect(installedBuilt, 9);
+    expect(find.text('插件管理'), findsOneWidget);
+    await capture(tester, 'plugin_inline_collapsed');
+  });
+
+  testWidgets('预览②：插件管理区段展开态（两段全展开）', (tester) async {
+    await loadPreviewFonts(tester, lucide: true);
+    tester.view.devicePixelRatio = 1.0;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(tester.view.reset);
+    await installTwelve(tester);
+    await tester.pumpWidget(sectionPreviewHost());
+    await tester.pumpAndSettle();
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey('plugin-market-row-com.idj.ext.m8')),
+    );
+    final marketToggle = find.byKey(const ValueKey('plugin-market-expand'));
+    await tester.ensureVisible(marketToggle);
+    await tester.pumpAndSettle();
+    await tester.tap(marketToggle);
+    await tester.pumpAndSettle();
+    final installedToggle = find.byKey(
+      const ValueKey('plugin-installed-expand'),
+    );
+    await tester.ensureVisible(installedToggle);
+    await tester.pumpAndSettle();
+    await tester.tap(installedToggle);
+    await tester.pumpAndSettle();
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey('plugin-installed-row-com.idj.ext.m11')),
+    );
+    expect(
+      find.byKey(const ValueKey('plugin-market-row-com.idj.ext.m11')),
+      findsOneWidget,
+    );
+    await capture(tester, 'plugin_inline_expanded');
+  });
+
+  testWidgets('预览③：今日阅读挪到入口列表正上方、无插件管理行', (tester) async {
     await loadPreviewFonts(tester, lucide: true);
     tester.view.devicePixelRatio = 1.0;
     tester.view.physicalSize = const Size(390, 844);
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
       RepaintBoundary(
-        key: const ValueKey<String>('plugin-mine-preview'),
+        key: const ValueKey<String>('plugin-inline-preview'),
         child: MaterialApp(
           theme: ThemeData(
             fontFamily: 'NotoSansCJK',
             brightness: Brightness.dark,
           ),
-          home: const Scaffold(
-            backgroundColor: Color(0xFF0F0F14),
-            body: SafeArea(child: MineEntries()),
+          home: Scaffold(
+            backgroundColor: const Color(0xFF0F0F14),
+            body: SafeArea(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  MineSummary(
+                    stats: ReadingStats.empty,
+                    today: DateUtils.dateOnly(DateTime.now()),
+                  ),
+                  const MineEntries(),
+                ],
+              ),
+            ),
           ),
         ),
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('插件管理'), findsOneWidget);
+    expect(find.text('今日阅读'), findsOneWidget);
     expect(find.text('数据库导入'), findsOneWidget);
-    await capture(tester, 'plugin_mine_entries');
+    // 入口列表里不再有插件管理行（不能再点行跳页）。
+    expect(find.text('插件管理'), findsNothing);
+    await capture(tester, 'plugin_inline_today_moved');
   });
 
-  testWidgets('预览②：插件管理页（市场 + 已装列表）', (tester) async {
+  testWidgets('预览④：选站弹窗插件区只有站卡、无市场', (tester) async {
     await loadPreviewFonts(tester);
     tester.view.devicePixelRatio = 1.0;
     tester.view.physicalSize = const Size(390, 844);
     addTearDown(tester.view.reset);
     await tester.runAsync(() async {
-      await store.installBundleText(_bundleText(id: 'com.idj.ext.demo', name: '橙果短剧'));
       await store.installBundleText(
-        _bundleText(id: 'com.idj.ext.aiguo', name: '爱果短剧'),
+        _bundleText(id: 'com.idj.ext.demo', name: '橙果短剧'),
       );
-    });
-    await tester.pumpWidget(
-      RepaintBoundary(
-        key: const ValueKey<String>('plugin-mine-preview'),
-        child: MaterialApp(
-          theme: ThemeData(
-            fontFamily: 'NotoSansCJK',
-            brightness: Brightness.dark,
-          ),
-          home: PluginManagePage(store: store),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    // 等市场卡与已装行都落定再截，画面不留「正在加载」。
-    await pumpUntilFound(
-      tester,
-      find.byKey(const ValueKey('plugin-market-row-com.idj.ext.huangguo')),
-    );
-    await pumpUntilFound(
-      tester,
-      find.byKey(const ValueKey('plugin-installed-row-com.idj.ext.aiguo')),
-    );
-    expect(find.text('插件市场'), findsOneWidget);
-    expect(find.text('已安装插件'), findsOneWidget);
-    await capture(tester, 'plugin_manage_page');
-  });
-
-  testWidgets('预览③：选站弹窗插件区只有站卡、无市场', (tester) async {
-    await loadPreviewFonts(tester);
-    tester.view.devicePixelRatio = 1.0;
-    tester.view.physicalSize = const Size(390, 844);
-    addTearDown(tester.view.reset);
-    await tester.runAsync(() async {
-      await store.installBundleText(_bundleText(id: 'com.idj.ext.demo', name: '橙果短剧'));
       await store.installBundleText(
         _bundleText(id: 'com.idj.ext.aiguo', name: '爱果短剧'),
       );
@@ -153,7 +229,7 @@ void main() {
     });
     await tester.pumpWidget(
       RepaintBoundary(
-        key: const ValueKey<String>('plugin-mine-preview'),
+        key: const ValueKey<String>('plugin-inline-preview'),
         child: MaterialApp(
           theme: ThemeData(
             fontFamily: 'NotoSansCJK',
@@ -203,6 +279,21 @@ void main() {
   });
 }
 
+const _names = [
+  '橙果短剧',
+  '爱果短剧',
+  '黄果短剧',
+  '青果视频',
+  '红果影视',
+  '蓝果短剧',
+  '紫果漫剧',
+  '金果视频',
+  '银果短剧',
+  '星果影视',
+  '月果漫剧',
+  '云果视频',
+];
+
 String _bundleText({required String id, required String name}) =>
     jsonEncode({
       'manifest': {
@@ -225,14 +316,14 @@ String _bundleText({required String id, required String name}) =>
       'files': {'main.js': 'export default {};'},
     });
 
-/// 预览专用假下载：任何地址都回同一份小订阅（3 条插件）。
+/// 预览专用假下载：任何地址都回同一份 12 条插件的订阅。
 class _PreviewHttpClient implements HttpClient {
   @override
   Duration? connectionTimeout;
 
   @override
   Future<HttpClientRequest> getUrl(Uri url) async =>
-      _PreviewRequest(_PreviewResponse(200, utf8.encode(_subscriptionJson)));
+      _PreviewRequest(_PreviewResponse(200, utf8.encode(_subscriptionJson())));
 
   @override
   void close({bool force = false}) {}
@@ -242,13 +333,22 @@ class _PreviewHttpClient implements HttpClient {
       super.noSuchMethod(invocation);
 }
 
-const _subscriptionJson = '''
-{"name":"预览源","plugins":[
- {"id":"com.idj.ext.demo","name":"橙果短剧","version":"1.0.0","type":"video","adult":false,"description":"橙果原创短剧","manifest":"demo/demo.idjplugin"},
- {"id":"com.idj.ext.aiguo","name":"爱果短剧","version":"1.0.1","type":"video","adult":false,"description":"爱果短剧全集","manifest":"aiguo/aiguo.idjplugin"},
- {"id":"com.idj.ext.huangguo","name":"黄果短剧","version":"1.0.0","type":"shortdrama","adult":false,"description":"黄果短剧与漫剧","manifest":"huangguo/huangguo.idjplugin"}
-],"cms":[]}
-''';
+String _subscriptionJson() => jsonEncode({
+  'name': '官方插件源',
+  'plugins': [
+    for (var i = 0; i < _names.length; i++)
+      {
+        'id': 'com.idj.ext.m$i',
+        'name': _names[i],
+        'version': '1.0.0',
+        'type': 'video',
+        'adult': false,
+        'description': '预览条目 $i',
+        'manifest': 'm$i/m$i.idjplugin',
+      },
+  ],
+  'cms': [],
+});
 
 class _PreviewHeaders implements HttpHeaders {
   @override

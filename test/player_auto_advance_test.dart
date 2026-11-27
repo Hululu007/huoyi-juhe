@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fqapp/models/media_item.dart';
 import 'package:fqapp/pages/player_page.dart';
+import 'package:fqapp/services/player_menu_preferences.dart';
 import 'package:fqapp/services/player_style_config.dart';
 import 'package:fqapp/widgets/video_player_chrome.dart';
 
@@ -14,12 +15,15 @@ import 'support/controlled_player.dart';
 import 'support/fakes.dart';
 
 /// 官方短剧恒连播（`aq3/a.java:338-356`：一集播完自动下一集，**最后一集
-/// 播完=暂停**），没有任何「自动连播」开关——⋮ 更多面板里也没有
-/// （`ShortSeriesMorePanelDialogV2`：倍速/清晰度/小窗/默认静音/满屏/发评）。
-/// 旧的本地开关与「播完底条」已按对照文档 §27 删除。
+/// 播完=暂停**）。2026-11-27 播放器内嵌批按录屏口径新增「播放顺序」
+/// （自动连播/单集循环/播完暂停，⋮ 统一菜单里改）：默认仍是自动
+/// 连播；旧「自动连播」开关的存值迁移成初始播放顺序（关=播完暂停）。
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+    // 播放顺序偏好有进程内一次性闩：每条用例复位，让 loadAll 按
+    // 本例的存值重新迁移。
+    PlayerMenuPreferences.resetForTest();
     // 面板交互用例钉住深色分支（play_control_panel_style_v681.style=1）：
     // 药丸拖选/取消行是深色面板独有的交互，浅色分支另有用例覆盖。
     PlayerStyleConfig.instance = const PlayerStyleConfig(
@@ -60,19 +64,26 @@ void main() {
     await _unmount(tester);
   });
 
-  testWidgets('a stale saved stop-at-end preference is ignored', (
+  testWidgets('a stale saved stop-at-end becomes the initial play order', (
     tester,
   ) async {
-    // 开关删掉后，老版本存下的「不连播」必须失效——否则那些用户会被卡在
-    // 「永远不连播」且没有任何入口改回来。
+    // 2026-11-27 内嵌批口径变更：旧「自动连播」开关的存值不再作废，
+    // 而是迁移成新「播放顺序」的初始值（关 = 播完暂停）——现在有
+    // 正式入口可改（⋮ 菜单的播放顺序行），不存在「卡死没入口」。
     SharedPreferences.setMockInitialValues({'player_auto_advance': false});
+    PlayerMenuPreferences.resetForTest();
     final session = _Session();
     await _mount(tester, session);
+    expect(
+      PlayerMenuPreferences.playOrder.value,
+      PlayOrderMode.stopAtEnd,
+    );
     final first = session.players.single;
     first.emitCompleted();
     await _flush(tester);
-    expect(_chrome(tester).currentIndex, 1);
-    expect(session.players, hasLength(2));
+    // 播完暂停：不进下一集、不建新播放器。
+    expect(_chrome(tester).currentIndex, 0);
+    expect(session.players, hasLength(1));
     await _unmount(tester);
   });
 
@@ -96,20 +107,39 @@ void main() {
   });
 
   testWidgets(
-    'the more panel offers exactly one rate entry, no auto-advance row',
+    'the more menu offers the rate row and the play-order row',
     (tester) async {
+      // 2026-11-27 内嵌批：⋮ 开统一菜单——倍速行与「播放顺序」行
+      // （旧自动连播开关的继任者）都在；旧面板的行 key 不再出现。
       final session = _Session();
       await _mount(tester, session);
       await tester.tap(find.byTooltip('更多'));
       await tester.pumpAndSettle();
-      // 倍速入口全页只有一处：底栏显示当前档时点它直接开档位弹层，面板里就
-      // 不再放倍速行；底栏没有当前档（catalog 形态）时反过来。
-      final entries =
-          find.byKey(const ValueKey('player-rate-text')).evaluate().length +
-          find.byKey(const ValueKey('player-more-rate-row')).evaluate().length;
-      expect(entries, 1, reason: '倍速入口要么在底栏、要么在面板，只能有一个');
+      expect(
+        find.byKey(const ValueKey('embed-menu-play-order')),
+        findsOneWidget,
+      );
+      expect(find.text('播放顺序'), findsOneWidget);
+      final list = find.descendant(
+        of: find.byKey(const ValueKey('player-embed-menu')),
+        matching: find.byType(Scrollable),
+      );
+      for (var i = 0;
+          i < 10 &&
+              find
+                  .byKey(const ValueKey('embed-menu-rate'))
+                  .evaluate()
+                  .isEmpty;
+          i++) {
+        await tester.drag(list, const Offset(0, -200));
+        await tester.pumpAndSettle();
+      }
+      expect(find.byKey(const ValueKey('embed-menu-rate')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('player-more-rate-row')),
+        findsNothing,
+      );
       expect(find.byKey(const ValueKey('player-auto-advance')), findsNothing);
-      expect(find.text('自动连播'), findsNothing);
       await _unmount(tester);
     },
   );

@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fqapp/models/media_item.dart';
 import 'package:fqapp/models/playlet_comment.dart';
+import 'package:fqapp/services/player_menu_preferences.dart';
 import 'package:fqapp/services/player_style_config.dart';
 import 'package:fqapp/widgets/player/playlet_danmaku_layer.dart';
 import 'package:fqapp/widgets/video_player_chrome.dart';
@@ -199,6 +200,10 @@ void main() {
   testWidgets(
     'long press doubles scrolling speed and release restores it without jumping',
     (tester) async {
+      // 2026-11-27 内嵌批起长按倍速读偏好（默认 3）：本例把偏好
+      // 钉在 2 倍，验的仍是「长按按偏好加速、松手恢复不跳」。
+      await PlayerMenuPreferences.setBoostRate(2);
+      addTearDown(() => PlayerMenuPreferences.setBoostRate(3));
       await portrait(tester);
       final player = FakeNativePlayer()..isPlaying = true;
       addTearDown(player.dispose);

@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as path;
 
 import 'actress_database.dart';
+import 'actress_db_source.dart';
+import 'actress_library_version.dart';
 import 'actress_mytv_bind.dart';
 import 'actress_sql_import.dart';
 import 'actress_sql_import_section.dart';
@@ -79,6 +81,20 @@ class _ActressIosImportTileState extends State<ActressIosImportTile> {
         },
         isCancelled: () => _cancelled,
       );
+      if (result.ok) {
+        // 激活（2026-11-27 演员库激活批）：版本门已在导入器内
+        // 过，回读新库版本字段落激活记录，演员库才出数据。
+        var info = const ActressLibraryVersionInfo();
+        try {
+          info = (await checkActressDbFileVersion(dbPath)).info;
+        } catch (_) {}
+        await ActressDbSource.instance.markActivated(
+          origin: 'import',
+          libraryVersion: info.libraryVersion,
+          formatVersion: info.formatVersion,
+          coreVersion: info.coreVersion,
+        );
+      }
       if (!mounted) return;
       setState(() {
         _running = false;

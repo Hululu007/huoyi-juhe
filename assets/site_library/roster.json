@@ -1,0 +1,5757 @@
+{
+ "library_version": "20261127",
+ "core_version": "2026.11.27",
+ "stations": [
+  {
+   "id": "91sanji",
+   "siteId": "seed_91sanji",
+   "name": "🔞91三级",
+   "zone": "video",
+   "adult": true,
+   "sort": 0,
+   "kind": "pyImport"
+  },
+  {
+   "id": "xandaskday",
+   "siteId": "seed_xandaskday",
+   "name": "🔞AI不用钱",
+   "zone": "video",
+   "adult": true,
+   "sort": 1,
+   "kind": "pyImport"
+  },
+  {
+   "id": "aiwu",
+   "siteId": "seed_aiwu",
+   "name": "🔞AI污短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 2,
+   "kind": "pyImport"
+  },
+  {
+   "id": "91crdjai",
+   "siteId": "seed_91crdjai",
+   "name": "🔞91成人短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 3,
+   "kind": "pyImport"
+  },
+  {
+   "id": "dabaitu_video",
+   "siteId": "seed_dabaitu_video",
+   "name": "🔞大白兔漫社·短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 4,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "huangguomanju",
+   "siteId": "seed_huangguomanju",
+   "name": "🔞黄果漫剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 5,
+   "kind": "pyImport"
+  },
+  {
+   "id": "abjav",
+   "siteId": "seed_abjav",
+   "name": "🔞ABJAV",
+   "zone": "video",
+   "adult": true,
+   "sort": 6,
+   "kind": "pyImport"
+  },
+  {
+   "id": "ai2026",
+   "siteId": "seed_ai2026",
+   "name": "🔞2026短剧AI",
+   "zone": "video",
+   "adult": true,
+   "sort": 7,
+   "kind": "pyImport"
+  },
+  {
+   "id": "ai4k",
+   "siteId": "seed_ai4k",
+   "name": "🔞4K.AI短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 8,
+   "kind": "pyImport"
+  },
+  {
+   "id": "aidj",
+   "siteId": "seed_aidj",
+   "name": "🔞AI短剧AV",
+   "zone": "video",
+   "adult": true,
+   "sort": 9,
+   "kind": "pyImport"
+  },
+  {
+   "id": "aiduanju",
+   "siteId": "seed_aiduanju",
+   "name": "🔞AI短剧网",
+   "zone": "video",
+   "adult": true,
+   "sort": 10,
+   "kind": "pyImport"
+  },
+  {
+   "id": "aihi",
+   "siteId": "seed_aihi",
+   "name": "🔞AIHI短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 11,
+   "kind": "pyImport"
+  },
+  {
+   "id": "aiyinhang",
+   "siteId": "seed_aiyinhang",
+   "name": "🔞AI淫航",
+   "zone": "video",
+   "adult": true,
+   "sort": 12,
+   "kind": "pyImport"
+  },
+  {
+   "id": "aimove",
+   "siteId": "seed_aimove",
+   "name": "🔞新黄果短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 13,
+   "kind": "pyImport"
+  },
+  {
+   "id": "aipornx",
+   "siteId": "seed_aipornx",
+   "name": "🔞AiPorn短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 14,
+   "kind": "pyImport"
+  },
+  {
+   "id": "aisxpc",
+   "siteId": "seed_aisxpc",
+   "name": "🔞Ai小视频┃短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 15,
+   "kind": "pyImport"
+  },
+  {
+   "id": "asextv",
+   "siteId": "seed_asextv",
+   "name": "🔞A色TV",
+   "zone": "video",
+   "adult": true,
+   "sort": 16,
+   "kind": "pyImport"
+  },
+  {
+   "id": "avhwa",
+   "siteId": "seed_avhwa",
+   "name": "🔞AVHWA",
+   "zone": "video",
+   "adult": true,
+   "sort": 17,
+   "kind": "pyImport"
+  },
+  {
+   "id": "avtoday",
+   "siteId": "seed_avtoday",
+   "name": "🔞AV Today",
+   "zone": "video",
+   "adult": true,
+   "sort": 18,
+   "kind": "pyImport"
+  },
+  {
+   "id": "avyanjiuyuan",
+   "siteId": "seed_avyanjiuyuan",
+   "name": "🔞AV研究院",
+   "zone": "video",
+   "adult": true,
+   "sort": 19,
+   "kind": "pyImport"
+  },
+  {
+   "id": "badyi",
+   "siteId": "seed_badyi",
+   "name": "🔞八度影院",
+   "zone": "video",
+   "adult": true,
+   "sort": 20,
+   "kind": "pyImport"
+  },
+  {
+   "id": "caoliu",
+   "siteId": "seed_caoliu",
+   "name": "🔞草榴视频",
+   "zone": "video",
+   "adult": true,
+   "sort": 21,
+   "kind": "pyImport"
+  },
+  {
+   "id": "chinax",
+   "siteId": "seed_chinax",
+   "name": "🔞中国X站",
+   "zone": "video",
+   "adult": true,
+   "sort": 22,
+   "kind": "pyImport"
+  },
+  {
+   "id": "chinaxjx",
+   "siteId": "seed_chinaxjx",
+   "name": "🔞中国X站精选",
+   "zone": "video",
+   "adult": true,
+   "sort": 23,
+   "kind": "pyImport"
+  },
+  {
+   "id": "danai",
+   "siteId": "seed_danai",
+   "name": "🔞大奶Ai短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 24,
+   "kind": "pyImport"
+  },
+  {
+   "id": "ddys",
+   "siteId": "seed_ddys",
+   "name": "低端影视",
+   "zone": "video",
+   "adult": true,
+   "sort": 25,
+   "kind": "pyImport"
+  },
+  {
+   "id": "dingjiaseku",
+   "siteId": "seed_dingjiaseku",
+   "name": "🔞顶级AI色库",
+   "zone": "video",
+   "adult": true,
+   "sort": 26,
+   "kind": "pyImport"
+  },
+  {
+   "id": "dj69",
+   "siteId": "seed_dj69",
+   "name": "🔞69短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 27,
+   "kind": "pyImport"
+  },
+  {
+   "id": "dj91",
+   "siteId": "seed_dj91",
+   "name": "🔞91短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 28,
+   "kind": "pyImport"
+  },
+  {
+   "id": "djwo",
+   "siteId": "seed_djwo",
+   "name": "🔞短剧窝",
+   "zone": "video",
+   "adult": true,
+   "sort": 29,
+   "kind": "pyImport"
+  },
+  {
+   "id": "duanjuone",
+   "siteId": "seed_duanjuone",
+   "name": "🔞短剧one",
+   "zone": "video",
+   "adult": true,
+   "sort": 30,
+   "kind": "pyImport"
+  },
+  {
+   "id": "fuchou",
+   "siteId": "seed_fuchou",
+   "name": "🔞妇愁者联盟",
+   "zone": "video",
+   "adult": true,
+   "sort": 31,
+   "kind": "pyImport"
+  },
+  {
+   "id": "guzhuang",
+   "siteId": "seed_guzhuang",
+   "name": "🔞古装AI",
+   "zone": "video",
+   "adult": true,
+   "sort": 32,
+   "kind": "pyImport"
+  },
+  {
+   "id": "hbook",
+   "siteId": "seed_hbook",
+   "name": "🔞HBook",
+   "zone": "video",
+   "adult": true,
+   "sort": 33,
+   "kind": "pyImport"
+  },
+  {
+   "id": "hduanju",
+   "siteId": "seed_hduanju",
+   "name": "🔞H-短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 34,
+   "kind": "pyImport"
+  },
+  {
+   "id": "heitaoduanju",
+   "siteId": "seed_heitaoduanju",
+   "name": "🔞黑桃短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 35,
+   "kind": "pyImport"
+  },
+  {
+   "id": "henhenlu",
+   "siteId": "seed_henhenlu",
+   "name": "🔞狠狠撸",
+   "zone": "video",
+   "adult": true,
+   "sort": 36,
+   "kind": "pyImport"
+  },
+  {
+   "id": "herexxx",
+   "siteId": "seed_herexxx",
+   "name": "🔞HereXXX",
+   "zone": "video",
+   "adult": true,
+   "sort": 37,
+   "kind": "pyImport"
+  },
+  {
+   "id": "hgai",
+   "siteId": "seed_hgai",
+   "name": "🔞黄瓜AI短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 38,
+   "kind": "pyImport"
+  },
+  {
+   "id": "hgaidj",
+   "siteId": "seed_hgaidj",
+   "name": "🔞黄果AI短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 39,
+   "kind": "pyImport"
+  },
+  {
+   "id": "hgtvim",
+   "siteId": "seed_hgtvim",
+   "name": "🔞黄果短剧HGTV",
+   "zone": "video",
+   "adult": true,
+   "sort": 40,
+   "kind": "pyImport"
+  },
+  {
+   "id": "hohoj",
+   "siteId": "seed_hohoj",
+   "name": "🔞好好J",
+   "zone": "video",
+   "adult": true,
+   "sort": 41,
+   "kind": "pyImport"
+  },
+  {
+   "id": "hongluo",
+   "siteId": "seed_hongluo",
+   "name": "🔞红裸短剧（成人）",
+   "zone": "video",
+   "adult": true,
+   "sort": 42,
+   "kind": "pyImport"
+  },
+  {
+   "id": "hongxing",
+   "siteId": "seed_hongxing",
+   "name": "🔞红杏",
+   "zone": "video",
+   "adult": true,
+   "sort": 43,
+   "kind": "pyImport"
+  },
+  {
+   "id": "hongyan",
+   "siteId": "seed_hongyan",
+   "name": "🔞红颜AI短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 44,
+   "kind": "pyImport"
+  },
+  {
+   "id": "huai",
+   "siteId": "seed_huai",
+   "name": "🔞欢爱",
+   "zone": "video",
+   "adult": true,
+   "sort": 45,
+   "kind": "pyImport"
+  },
+  {
+   "id": "huangduanju",
+   "siteId": "seed_huangduanju",
+   "name": "🔞黄.短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 46,
+   "kind": "pyImport"
+  },
+  {
+   "id": "huangguazy",
+   "siteId": "seed_huangguazy",
+   "name": "🔞黄瓜资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 47,
+   "kind": "pyImport"
+  },
+  {
+   "id": "huangguotv",
+   "siteId": "seed_huangguotv",
+   "name": "🔞黄果TV短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 48,
+   "kind": "pyImport"
+  },
+  {
+   "id": "japanwhores",
+   "siteId": "seed_japanwhores",
+   "name": "🔞Japan Whores",
+   "zone": "video",
+   "adult": true,
+   "sort": 49,
+   "kind": "pyImport"
+  },
+  {
+   "id": "jav188",
+   "siteId": "seed_jav188",
+   "name": "🔞AV18.Live",
+   "zone": "video",
+   "adult": true,
+   "sort": 50,
+   "kind": "pyImport"
+  },
+  {
+   "id": "javdino",
+   "siteId": "seed_javdino",
+   "name": "🔞JavDino",
+   "zone": "video",
+   "adult": true,
+   "sort": 51,
+   "kind": "pyImport"
+  },
+  {
+   "id": "javfun",
+   "siteId": "seed_javfun",
+   "name": "🔞JJavFun",
+   "zone": "video",
+   "adult": true,
+   "sort": 52,
+   "kind": "pyImport"
+  },
+  {
+   "id": "javgg",
+   "siteId": "seed_javgg",
+   "name": "🔞JavGG",
+   "zone": "video",
+   "adult": true,
+   "sort": 53,
+   "kind": "pyImport"
+  },
+  {
+   "id": "javhdtube",
+   "siteId": "seed_javhdtube",
+   "name": "🔞JAVHDTube",
+   "zone": "video",
+   "adult": true,
+   "sort": 54,
+   "kind": "pyImport"
+  },
+  {
+   "id": "javmit",
+   "siteId": "seed_javmit",
+   "name": "🔞JAVMIT",
+   "zone": "video",
+   "adult": true,
+   "sort": 55,
+   "kind": "pyImport"
+  },
+  {
+   "id": "javsiri",
+   "siteId": "seed_javsiri",
+   "name": "🔞JAVSiri",
+   "zone": "video",
+   "adult": true,
+   "sort": 56,
+   "kind": "pyImport"
+  },
+  {
+   "id": "javtiful",
+   "siteId": "seed_javtiful",
+   "name": "🔞Javtiful",
+   "zone": "video",
+   "adult": true,
+   "sort": 57,
+   "kind": "pyImport"
+  },
+  {
+   "id": "javtsunami",
+   "siteId": "seed_javtsunami",
+   "name": "🔞JAV Tsunami",
+   "zone": "video",
+   "adult": true,
+   "sort": 58,
+   "kind": "pyImport"
+  },
+  {
+   "id": "javzw",
+   "siteId": "seed_javzw",
+   "name": "🔞Jav中文",
+   "zone": "video",
+   "adult": true,
+   "sort": 59,
+   "kind": "pyImport"
+  },
+  {
+   "id": "jin18",
+   "siteId": "seed_jin18",
+   "name": "🔞18禁乐园",
+   "zone": "video",
+   "adult": true,
+   "sort": 60,
+   "kind": "pyImport"
+  },
+  {
+   "id": "jiuse",
+   "siteId": "seed_jiuse",
+   "name": "🔞九色",
+   "zone": "video",
+   "adult": true,
+   "sort": 61,
+   "kind": "pyImport"
+  },
+  {
+   "id": "jiuseduanju",
+   "siteId": "seed_jiuseduanju",
+   "name": "🔞九色短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 62,
+   "kind": "pyImport"
+  },
+  {
+   "id": "jptt",
+   "siteId": "seed_jptt",
+   "name": "🔞JPTT禁片天堂",
+   "zone": "video",
+   "adult": true,
+   "sort": 63,
+   "kind": "pyImport"
+  },
+  {
+   "id": "kissjav",
+   "siteId": "seed_kissjav",
+   "name": "🔞KissJAV",
+   "zone": "video",
+   "adult": true,
+   "sort": 64,
+   "kind": "pyImport"
+  },
+  {
+   "id": "klxq",
+   "siteId": "seed_klxq",
+   "name": "🔞快乐星球",
+   "zone": "video",
+   "adult": true,
+   "sort": 65,
+   "kind": "pyImport"
+  },
+  {
+   "id": "koreanporn",
+   "siteId": "seed_koreanporn",
+   "name": "🔞Korean Porn Movie",
+   "zone": "video",
+   "adult": true,
+   "sort": 66,
+   "kind": "pyImport"
+  },
+  {
+   "id": "luoliai",
+   "siteId": "seed_luoliai",
+   "name": "🔞萝莉AI短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 67,
+   "kind": "pyImport"
+  },
+  {
+   "id": "madao",
+   "siteId": "seed_madao",
+   "name": "🔞麻豆傳媒",
+   "zone": "video",
+   "adult": true,
+   "sort": 68,
+   "kind": "pyImport"
+  },
+  {
+   "id": "madou",
+   "siteId": "seed_madou",
+   "name": "🔞2048成人短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 69,
+   "kind": "pyImport"
+  },
+  {
+   "id": "mianfeiai",
+   "siteId": "seed_mianfeiai",
+   "name": "🔞免费AI短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 70,
+   "kind": "pyImport"
+  },
+  {
+   "id": "mose365",
+   "siteId": "seed_mose365",
+   "name": "🔞魔色365",
+   "zone": "video",
+   "adult": true,
+   "sort": 71,
+   "kind": "pyImport"
+  },
+  {
+   "id": "muzi",
+   "siteId": "seed_muzi",
+   "name": "🔞母子视频",
+   "zone": "video",
+   "adult": true,
+   "sort": 72,
+   "kind": "pyImport"
+  },
+  {
+   "id": "mythav",
+   "siteId": "seed_mythav",
+   "name": "🔞MythAV",
+   "zone": "video",
+   "adult": true,
+   "sort": 73,
+   "kind": "pyImport"
+  },
+  {
+   "id": "naihenda",
+   "siteId": "seed_naihenda",
+   "name": "🔞奶很大",
+   "zone": "video",
+   "adult": true,
+   "sort": 74,
+   "kind": "pyImport"
+  },
+  {
+   "id": "nvdi",
+   "siteId": "seed_nvdi",
+   "name": "🔞女帝",
+   "zone": "video",
+   "adult": true,
+   "sort": 75,
+   "kind": "pyImport"
+  },
+  {
+   "id": "pachub",
+   "siteId": "seed_pachub",
+   "name": "🔞PacHub",
+   "zone": "video",
+   "adult": true,
+   "sort": 76,
+   "kind": "pyImport"
+  },
+  {
+   "id": "pandatv",
+   "siteId": "seed_pandatv",
+   "name": "🔞PANDATV",
+   "zone": "video",
+   "adult": true,
+   "sort": 77,
+   "kind": "pyImport"
+  },
+  {
+   "id": "porna91",
+   "siteId": "seed_porna91",
+   "name": "🔞91porna",
+   "zone": "video",
+   "adult": true,
+   "sort": 78,
+   "kind": "pyImport"
+  },
+  {
+   "id": "porncgw",
+   "siteId": "seed_porncgw",
+   "name": "🔞Porn吃瓜网",
+   "zone": "video",
+   "adult": true,
+   "sort": 79,
+   "kind": "pyImport"
+  },
+  {
+   "id": "px8x",
+   "siteId": "seed_px8x",
+   "name": "🔞Px8x",
+   "zone": "video",
+   "adult": true,
+   "sort": 80,
+   "kind": "pyImport"
+  },
+  {
+   "id": "roshy",
+   "siteId": "seed_roshy",
+   "name": "🔞Roshy",
+   "zone": "video",
+   "adult": true,
+   "sort": 81,
+   "kind": "pyImport"
+  },
+  {
+   "id": "rscg91",
+   "siteId": "seed_rscg91",
+   "name": "🔞91人兽吃瓜",
+   "zone": "video",
+   "adult": true,
+   "sort": 82,
+   "kind": "pyImport"
+  },
+  {
+   "id": "senzuri",
+   "siteId": "seed_senzuri",
+   "name": "🔞Senzuri Tube",
+   "zone": "video",
+   "adult": true,
+   "sort": 83,
+   "kind": "pyImport"
+  },
+  {
+   "id": "sexkbj",
+   "siteId": "seed_sexkbj",
+   "name": "🔞SexKbj",
+   "zone": "video",
+   "adult": true,
+   "sort": 84,
+   "kind": "pyImport"
+  },
+  {
+   "id": "shaofu",
+   "siteId": "seed_shaofu",
+   "name": "🔞少妇·短剧AV",
+   "zone": "video",
+   "adult": true,
+   "sort": 85,
+   "kind": "pyImport"
+  },
+  {
+   "id": "shunvqu",
+   "siteId": "seed_shunvqu",
+   "name": "🔞熟女群",
+   "zone": "video",
+   "adult": true,
+   "sort": 86,
+   "kind": "pyImport"
+  },
+  {
+   "id": "shunvwang",
+   "siteId": "seed_shunvwang",
+   "name": "🔞熟女网",
+   "zone": "video",
+   "adult": true,
+   "sort": 87,
+   "kind": "pyImport"
+  },
+  {
+   "id": "ssis",
+   "siteId": "seed_ssis",
+   "name": "🔞ssisJAV",
+   "zone": "video",
+   "adult": true,
+   "sort": 88,
+   "kind": "pyImport"
+  },
+  {
+   "id": "swagr",
+   "siteId": "seed_swagr",
+   "name": "🔞SWAG资源合集",
+   "zone": "video",
+   "adult": true,
+   "sort": 89,
+   "kind": "pyImport"
+  },
+  {
+   "id": "taiav",
+   "siteId": "seed_taiav",
+   "name": "🔞TaiAV",
+   "zone": "video",
+   "adult": true,
+   "sort": 90,
+   "kind": "pyImport"
+  },
+  {
+   "id": "tanhua91",
+   "siteId": "seed_tanhua91",
+   "name": "🔞九色",
+   "zone": "video",
+   "adult": true,
+   "sort": 91,
+   "kind": "pyImport"
+  },
+  {
+   "id": "taose",
+   "siteId": "seed_taose",
+   "name": "🔞AI成人短剧1",
+   "zone": "video",
+   "adult": true,
+   "sort": 92,
+   "kind": "pyImport"
+  },
+  {
+   "id": "theporny",
+   "siteId": "seed_theporny",
+   "name": "🔞thePorny",
+   "zone": "video",
+   "adult": true,
+   "sort": 93,
+   "kind": "pyImport"
+  },
+  {
+   "id": "tiktvod",
+   "siteId": "seed_tiktvod",
+   "name": "🔞TikTok成人版",
+   "zone": "video",
+   "adult": true,
+   "sort": 94,
+   "kind": "pyImport"
+  },
+  {
+   "id": "tinyav",
+   "siteId": "seed_tinyav",
+   "name": "🔞TinyAV",
+   "zone": "video",
+   "adult": true,
+   "sort": 95,
+   "kind": "pyImport"
+  },
+  {
+   "id": "tokyomotion",
+   "siteId": "seed_tokyomotion",
+   "name": "🔞TokyoMotion",
+   "zone": "video",
+   "adult": true,
+   "sort": 96,
+   "kind": "pyImport"
+  },
+  {
+   "id": "topjav",
+   "siteId": "seed_topjav",
+   "name": "🔞TopJAV",
+   "zone": "video",
+   "adult": true,
+   "sort": 97,
+   "kind": "pyImport"
+  },
+  {
+   "id": "toptv",
+   "siteId": "seed_toptv",
+   "name": "🔞TOPTV",
+   "zone": "video",
+   "adult": true,
+   "sort": 98,
+   "kind": "pyImport"
+  },
+  {
+   "id": "uudj",
+   "siteId": "seed_uudj",
+   "name": "🔞UU短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 99,
+   "kind": "pyImport"
+  },
+  {
+   "id": "vjav",
+   "siteId": "seed_vjav",
+   "name": "🔞VJAV",
+   "zone": "video",
+   "adult": true,
+   "sort": 100,
+   "kind": "pyImport"
+  },
+  {
+   "id": "x51",
+   "siteId": "seed_x51",
+   "name": "🔞51X",
+   "zone": "video",
+   "adult": true,
+   "sort": 101,
+   "kind": "pyImport"
+  },
+  {
+   "id": "xianxia",
+   "siteId": "seed_xianxia",
+   "name": "🔞仙侠AI短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 102,
+   "kind": "pyImport"
+  },
+  {
+   "id": "xingkongfuli",
+   "siteId": "seed_xingkongfuli",
+   "name": "🔞星空福利视频",
+   "zone": "video",
+   "adult": true,
+   "sort": 103,
+   "kind": "pyImport"
+  },
+  {
+   "id": "xlook",
+   "siteId": "seed_xlook",
+   "name": "🔞XLook中文大全",
+   "zone": "video",
+   "adult": true,
+   "sort": 104,
+   "kind": "pyImport"
+  },
+  {
+   "id": "xojav",
+   "siteId": "seed_xojav",
+   "name": "🔞XOJAV",
+   "zone": "video",
+   "adult": true,
+   "sort": 105,
+   "kind": "pyImport"
+  },
+  {
+   "id": "yaguo",
+   "siteId": "seed_yaguo",
+   "name": "芽果",
+   "zone": "video",
+   "adult": false,
+   "sort": 106,
+   "kind": "pyImport"
+  },
+  {
+   "id": "yiren",
+   "siteId": "seed_yiren",
+   "name": "🔞伊人AV",
+   "zone": "video",
+   "adult": true,
+   "sort": 107,
+   "kind": "pyImport"
+  },
+  {
+   "id": "yunmeng",
+   "siteId": "seed_yunmeng",
+   "name": "🔞云梦在线",
+   "zone": "video",
+   "adult": true,
+   "sort": 108,
+   "kind": "pyImport"
+  },
+  {
+   "id": "ywly",
+   "siteId": "seed_ywly",
+   "name": "🔞欲望乐园",
+   "zone": "video",
+   "adult": true,
+   "sort": 109,
+   "kind": "pyImport"
+  },
+  {
+   "id": "ywmm",
+   "siteId": "seed_ywmm",
+   "name": "🔞高清开苞处女",
+   "zone": "video",
+   "adult": true,
+   "sort": 110,
+   "kind": "pyImport"
+  },
+  {
+   "id": "kankux",
+   "siteId": "seed_kankux",
+   "name": "🔞看裤X",
+   "zone": "video",
+   "adult": true,
+   "sort": 111,
+   "kind": "pyImport"
+  },
+  {
+   "id": "sexaix",
+   "siteId": "seed_sexaix",
+   "name": "🔞幻影AI",
+   "zone": "video",
+   "adult": true,
+   "sort": 112,
+   "kind": "pyImport"
+  },
+  {
+   "id": "6789ysw",
+   "siteId": "seed_6789ysw",
+   "name": "6789影视",
+   "zone": "video",
+   "adult": false,
+   "sort": 113,
+   "kind": "pyImport"
+  },
+  {
+   "id": "6789zz",
+   "siteId": "seed_6789zz",
+   "name": "6789影视",
+   "zone": "video",
+   "adult": false,
+   "sort": 114,
+   "kind": "pyImport"
+  },
+  {
+   "id": "aijav",
+   "siteId": "seed_aijav",
+   "name": "🔞AiJav",
+   "zone": "video",
+   "adult": true,
+   "sort": 115,
+   "kind": "pyImport"
+  },
+  {
+   "id": "anet88",
+   "siteId": "seed_anet88",
+   "name": "咕咚影院",
+   "zone": "video",
+   "adult": false,
+   "sort": 116,
+   "kind": "pyImport"
+  },
+  {
+   "id": "aosikazy",
+   "siteId": "seed_aosikazy",
+   "name": "🔞奥斯卡资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 117,
+   "kind": "pyImport"
+  },
+  {
+   "id": "avdb",
+   "siteId": "seed_avdb",
+   "name": "🔞AVDB",
+   "zone": "video",
+   "adult": true,
+   "sort": 118,
+   "kind": "pyImport"
+  },
+  {
+   "id": "baofengzy",
+   "siteId": "seed_baofengzy",
+   "name": "🔞暴风资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 119,
+   "kind": "pyImport"
+  },
+  {
+   "id": "bufole",
+   "siteId": "seed_bufole",
+   "name": "奇奇影院",
+   "zone": "video",
+   "adult": false,
+   "sort": 120,
+   "kind": "pyImport"
+  },
+  {
+   "id": "changzhangzy",
+   "siteId": "seed_changzhangzy",
+   "name": "🔞厂长资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 121,
+   "kind": "pyImport"
+  },
+  {
+   "id": "chaoliu",
+   "siteId": "seed_chaoliu",
+   "name": "🔞潮流AV",
+   "zone": "video",
+   "adult": true,
+   "sort": 122,
+   "kind": "pyImport"
+  },
+  {
+   "id": "ckzy",
+   "siteId": "seed_ckzy",
+   "name": "🔞CK伦理资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 123,
+   "kind": "pyImport"
+  },
+  {
+   "id": "dadizy",
+   "siteId": "seed_dadizy",
+   "name": "🔞大地资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 124,
+   "kind": "pyImport"
+  },
+  {
+   "id": "danaizizy",
+   "siteId": "seed_danaizizy",
+   "name": "🔞大奶子资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 125,
+   "kind": "pyImport"
+  },
+  {
+   "id": "dengtayouqi",
+   "siteId": "seed_dengtayouqi",
+   "name": "1234影视",
+   "zone": "video",
+   "adult": false,
+   "sort": 126,
+   "kind": "pyImport"
+  },
+  {
+   "id": "doudouzy",
+   "siteId": "seed_doudouzy",
+   "name": "🔞豆豆资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 127,
+   "kind": "pyImport"
+  },
+  {
+   "id": "duoduo",
+   "siteId": "seed_duoduo",
+   "name": "多多影视",
+   "zone": "video",
+   "adult": false,
+   "sort": 128,
+   "kind": "pyImport"
+  },
+  {
+   "id": "dyttzy",
+   "siteId": "seed_dyttzy",
+   "name": "🔞电影天堂资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 129,
+   "kind": "pyImport"
+  },
+  {
+   "id": "fanhaozy",
+   "siteId": "seed_fanhaozy",
+   "name": "🔞番号资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 130,
+   "kind": "pyImport"
+  },
+  {
+   "id": "feifanzy",
+   "siteId": "seed_feifanzy",
+   "name": "🔞非凡资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 131,
+   "kind": "pyImport"
+  },
+  {
+   "id": "feikuai",
+   "siteId": "seed_feikuai",
+   "name": "飞快TV",
+   "zone": "video",
+   "adult": false,
+   "sort": 132,
+   "kind": "pyImport"
+  },
+  {
+   "id": "ffv1",
+   "siteId": "seed_ffv1",
+   "name": "星空影院",
+   "zone": "video",
+   "adult": false,
+   "sort": 133,
+   "kind": "pyImport"
+  },
+  {
+   "id": "ficeforand",
+   "siteId": "seed_ficeforand",
+   "name": "🔞AI小视频·ficeforand",
+   "zone": "video",
+   "adult": true,
+   "sort": 134,
+   "kind": "pyImport"
+  },
+  {
+   "id": "guangsuzy",
+   "siteId": "seed_guangsuzy",
+   "name": "🔞光速资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 135,
+   "kind": "pyImport"
+  },
+  {
+   "id": "hanjuds",
+   "siteId": "seed_hanjuds",
+   "name": "🔞80s成全影视网",
+   "zone": "video",
+   "adult": true,
+   "sort": 136,
+   "kind": "pyImport"
+  },
+  {
+   "id": "haohuazy",
+   "siteId": "seed_haohuazy",
+   "name": "🔞豪华资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 137,
+   "kind": "pyImport"
+  },
+  {
+   "id": "heiheizy",
+   "siteId": "seed_heiheizy",
+   "name": "🔞嘿嘿资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 138,
+   "kind": "pyImport"
+  },
+  {
+   "id": "heiliaozy",
+   "siteId": "seed_heiliaozy",
+   "name": "🔞黑料资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 139,
+   "kind": "pyImport"
+  },
+  {
+   "id": "heitao",
+   "siteId": "seed_heitao",
+   "name": "🔞黑桃短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 140,
+   "kind": "pyImport"
+  },
+  {
+   "id": "hghub",
+   "siteId": "seed_hghub",
+   "name": "🔞红果短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 141,
+   "kind": "pyImport"
+  },
+  {
+   "id": "hmav",
+   "siteId": "seed_hmav",
+   "name": "🔞河马AV",
+   "zone": "video",
+   "adult": true,
+   "sort": 142,
+   "kind": "pyImport"
+  },
+  {
+   "id": "honglouzy",
+   "siteId": "seed_honglouzy",
+   "name": "🔞红楼资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 143,
+   "kind": "pyImport"
+  },
+  {
+   "id": "hongniuzy",
+   "siteId": "seed_hongniuzy",
+   "name": "🔞红牛资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 144,
+   "kind": "pyImport"
+  },
+  {
+   "id": "hsckzy",
+   "siteId": "seed_hsckzy",
+   "name": "🔞黄色仓库",
+   "zone": "video",
+   "adult": true,
+   "sort": 145,
+   "kind": "pyImport"
+  },
+  {
+   "id": "huosuzy",
+   "siteId": "seed_huosuzy",
+   "name": "🔞火速资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 146,
+   "kind": "pyImport"
+  },
+  {
+   "id": "huyazy",
+   "siteId": "seed_huyazy",
+   "name": "🔞虎牙资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 147,
+   "kind": "pyImport"
+  },
+  {
+   "id": "ikunzy",
+   "siteId": "seed_ikunzy",
+   "name": "🔞iKun资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 148,
+   "kind": "pyImport"
+  },
+  {
+   "id": "insav",
+   "siteId": "seed_insav",
+   "name": "🔞INSAV",
+   "zone": "video",
+   "adult": true,
+   "sort": 149,
+   "kind": "pyImport"
+  },
+  {
+   "id": "iqiyizy",
+   "siteId": "seed_iqiyizy",
+   "name": "🔞爱奇艺影视",
+   "zone": "video",
+   "adult": true,
+   "sort": 150,
+   "kind": "pyImport"
+  },
+  {
+   "id": "javmenu",
+   "siteId": "seed_javmenu",
+   "name": "🔞JAV目錄大全",
+   "zone": "video",
+   "adult": true,
+   "sort": 151,
+   "kind": "pyImport"
+  },
+  {
+   "id": "jinguo",
+   "siteId": "seed_jinguo",
+   "name": "🔞金果短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 152,
+   "kind": "pyImport"
+  },
+  {
+   "id": "jinguo_jg",
+   "siteId": "seed_jinguo_jg",
+   "name": "🔞禁果短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 153,
+   "kind": "pyImport"
+  },
+  {
+   "id": "jipinzy",
+   "siteId": "seed_jipinzy",
+   "name": "🔞极品资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 154,
+   "kind": "pyImport"
+  },
+  {
+   "id": "jisuzy",
+   "siteId": "seed_jisuzy",
+   "name": "🔞极速资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 155,
+   "kind": "pyImport"
+  },
+  {
+   "id": "jjzy",
+   "siteId": "seed_jjzy",
+   "name": "🔞吉吉资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 156,
+   "kind": "pyImport"
+  },
+  {
+   "id": "jkunzy",
+   "siteId": "seed_jkunzy",
+   "name": "🔞jkun资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 157,
+   "kind": "pyImport"
+  },
+  {
+   "id": "jp98zy",
+   "siteId": "seed_jp98zy",
+   "name": "🔞精品98",
+   "zone": "video",
+   "adult": true,
+   "sort": 158,
+   "kind": "pyImport"
+  },
+  {
+   "id": "juliangzy",
+   "siteId": "seed_juliangzy",
+   "name": "🔞巨量资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 159,
+   "kind": "pyImport"
+  },
+  {
+   "id": "kuaichezy",
+   "siteId": "seed_kuaichezy",
+   "name": "🔞快车资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 160,
+   "kind": "pyImport"
+  },
+  {
+   "id": "laosepzy",
+   "siteId": "seed_laosepzy",
+   "name": "🔞老色P资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 161,
+   "kind": "pyImport"
+  },
+  {
+   "id": "lebozy",
+   "siteId": "seed_lebozy",
+   "name": "🔞乐播资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 162,
+   "kind": "pyImport"
+  },
+  {
+   "id": "mangguozy",
+   "siteId": "seed_mangguozy",
+   "name": "🔞芒果资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 163,
+   "kind": "pyImport"
+  },
+  {
+   "id": "maoyanzy",
+   "siteId": "seed_maoyanzy",
+   "name": "🔞猫眼资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 164,
+   "kind": "pyImport"
+  },
+  {
+   "id": "memojav",
+   "siteId": "seed_memojav",
+   "name": "🔞MemoJav",
+   "zone": "video",
+   "adult": true,
+   "sort": 165,
+   "kind": "pyImport"
+  },
+  {
+   "id": "mmsq",
+   "siteId": "seed_mmsq",
+   "name": "🔞猫咪社区",
+   "zone": "video",
+   "adult": true,
+   "sort": 166,
+   "kind": "pyImport"
+  },
+  {
+   "id": "moduzy",
+   "siteId": "seed_moduzy",
+   "name": "🔞魔都资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 167,
+   "kind": "pyImport"
+  },
+  {
+   "id": "mtav",
+   "siteId": "seed_mtav",
+   "name": "🔞蜜桃视频",
+   "zone": "video",
+   "adult": true,
+   "sort": 168,
+   "kind": "pyImport"
+  },
+  {
+   "id": "naixxzy",
+   "siteId": "seed_naixxzy",
+   "name": "🔞奶香香资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 169,
+   "kind": "pyImport"
+  },
+  {
+   "id": "nbsjyy",
+   "siteId": "seed_nbsjyy",
+   "name": "奶茶影院",
+   "zone": "video",
+   "adult": false,
+   "sort": 170,
+   "kind": "pyImport"
+  },
+  {
+   "id": "niuniuzy",
+   "siteId": "seed_niuniuzy",
+   "name": "🔞牛牛资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 171,
+   "kind": "pyImport"
+  },
+  {
+   "id": "nvku",
+   "siteId": "seed_nvku",
+   "name": "🔞女优库在线",
+   "zone": "video",
+   "adult": true,
+   "sort": 172,
+   "kind": "pyImport"
+  },
+  {
+   "id": "odselift",
+   "siteId": "seed_odselift",
+   "name": "VS影院",
+   "zone": "video",
+   "adult": false,
+   "sort": 173,
+   "kind": "pyImport"
+  },
+  {
+   "id": "okzy",
+   "siteId": "seed_okzy",
+   "name": "🔞ok资源站",
+   "zone": "video",
+   "adult": true,
+   "sort": 174,
+   "kind": "pyImport"
+  },
+  {
+   "id": "qikantoukan",
+   "siteId": "seed_qikantoukan",
+   "name": "90影视",
+   "zone": "video",
+   "adult": false,
+   "sort": 175,
+   "kind": "pyImport"
+  },
+  {
+   "id": "qilinyingshi",
+   "siteId": "seed_qilinyingshi",
+   "name": "麒麟影视",
+   "zone": "video",
+   "adult": false,
+   "sort": 176,
+   "kind": "pyImport"
+  },
+  {
+   "id": "qinav",
+   "siteId": "seed_qinav",
+   "name": "🔞Qinav",
+   "zone": "video",
+   "adult": true,
+   "sort": 177,
+   "kind": "pyImport"
+  },
+  {
+   "id": "qipaosp",
+   "siteId": "seed_qipaosp",
+   "name": "🔞气泡视频",
+   "zone": "video",
+   "adult": true,
+   "sort": 178,
+   "kind": "pyImport"
+  },
+  {
+   "id": "qqys01",
+   "siteId": "seed_qqys01",
+   "name": "千千影视",
+   "zone": "video",
+   "adult": false,
+   "sort": 179,
+   "kind": "pyImport"
+  },
+  {
+   "id": "rr520",
+   "siteId": "seed_rr520",
+   "name": "人人影视",
+   "zone": "video",
+   "adult": false,
+   "sort": 180,
+   "kind": "pyImport"
+  },
+  {
+   "id": "sc123jf",
+   "siteId": "seed_sc123jf",
+   "name": "老牛影视",
+   "zone": "video",
+   "adult": false,
+   "sort": 181,
+   "kind": "pyImport"
+  },
+  {
+   "id": "souavzy",
+   "siteId": "seed_souavzy",
+   "name": "🔞搜av资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 182,
+   "kind": "pyImport"
+  },
+  {
+   "id": "sp91",
+   "siteId": "seed_sp91",
+   "name": "🔞91视频",
+   "zone": "video",
+   "adult": true,
+   "sort": 183,
+   "kind": "pyImport"
+  },
+  {
+   "id": "subozy",
+   "siteId": "seed_subozy",
+   "name": "🔞速播资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 184,
+   "kind": "pyImport"
+  },
+  {
+   "id": "suonizy",
+   "siteId": "seed_suonizy",
+   "name": "🔞索尼资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 185,
+   "kind": "pyImport"
+  },
+  {
+   "id": "t8090kaifucom",
+   "siteId": "seed_t8090kaifucom",
+   "name": "8090影院",
+   "zone": "video",
+   "adult": false,
+   "sort": 186,
+   "kind": "pyImport"
+  },
+  {
+   "id": "tanhuavip14",
+   "siteId": "seed_tanhuavip14",
+   "name": "🔞探花AV",
+   "zone": "video",
+   "adult": true,
+   "sort": 187,
+   "kind": "pyImport"
+  },
+  {
+   "id": "taohuazy",
+   "siteId": "seed_taohuazy",
+   "name": "🔞桃花资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 188,
+   "kind": "pyImport"
+  },
+  {
+   "id": "tasexy",
+   "siteId": "seed_tasexy",
+   "name": "🔞Tasexy",
+   "zone": "video",
+   "adult": true,
+   "sort": 189,
+   "kind": "pyImport"
+  },
+  {
+   "id": "tianyazy",
+   "siteId": "seed_tianyazy",
+   "name": "🔞天涯资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 190,
+   "kind": "pyImport"
+  },
+  {
+   "id": "wsyzy",
+   "siteId": "seed_wsyzy",
+   "name": "🔞无水印资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 191,
+   "kind": "pyImport"
+  },
+  {
+   "id": "wujinzy",
+   "siteId": "seed_wujinzy",
+   "name": "🔞无尽资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 192,
+   "kind": "pyImport"
+  },
+  {
+   "id": "xhongyan",
+   "siteId": "seed_xhongyan",
+   "name": "🔞X红颜",
+   "zone": "video",
+   "adult": true,
+   "sort": 193,
+   "kind": "pyImport"
+  },
+  {
+   "id": "xiguazy",
+   "siteId": "seed_xiguazy",
+   "name": "🔞西瓜资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 194,
+   "kind": "pyImport"
+  },
+  {
+   "id": "xingbazy",
+   "siteId": "seed_xingbazy",
+   "name": "🔞杏吧资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 195,
+   "kind": "pyImport"
+  },
+  {
+   "id": "xingyezy",
+   "siteId": "seed_xingyezy",
+   "name": "🔞星夜资源站",
+   "zone": "video",
+   "adult": true,
+   "sort": 196,
+   "kind": "pyImport"
+  },
+  {
+   "id": "yayazy",
+   "siteId": "seed_yayazy",
+   "name": "🔞鸭鸭资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 197,
+   "kind": "pyImport"
+  },
+  {
+   "id": "yinghuazy",
+   "siteId": "seed_yinghuazy",
+   "name": "🔞樱花资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 198,
+   "kind": "pyImport"
+  },
+  {
+   "id": "yuanlibzy",
+   "siteId": "seed_yuanlibzy",
+   "name": "🔞免费资源站",
+   "zone": "video",
+   "adult": true,
+   "sort": 199,
+   "kind": "pyImport"
+  },
+  {
+   "id": "yutuzy",
+   "siteId": "seed_yutuzy",
+   "name": "🔞玉兔资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 200,
+   "kind": "pyImport"
+  },
+  {
+   "id": "zjld",
+   "siteId": "seed_zjld",
+   "name": "六六影视",
+   "zone": "video",
+   "adult": false,
+   "sort": 201,
+   "kind": "pyImport"
+  },
+  {
+   "id": "zmw",
+   "siteId": "seed_zmw",
+   "name": "新新影视",
+   "zone": "video",
+   "adult": false,
+   "sort": 202,
+   "kind": "pyImport"
+  },
+  {
+   "id": "zuidazy",
+   "siteId": "seed_zuidazy",
+   "name": "🔞最大资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 203,
+   "kind": "pyImport"
+  },
+  {
+   "id": "missav",
+   "siteId": "seed_missav",
+   "name": "🔞MissAV",
+   "zone": "video",
+   "adult": true,
+   "sort": 204,
+   "kind": "pyImport"
+  },
+  {
+   "id": "whos",
+   "siteId": "seed_whos",
+   "name": "🔞🔍whos识图",
+   "zone": "video",
+   "adult": true,
+   "sort": 205,
+   "kind": "pyImport"
+  },
+  {
+   "id": "youzidj",
+   "siteId": "seed_youzidj",
+   "name": "🔞柚子短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 206,
+   "kind": "pyImport"
+  },
+  {
+   "id": "youguo",
+   "siteId": "seed_youguo",
+   "name": "🔞柚果",
+   "zone": "video",
+   "adult": true,
+   "sort": 207,
+   "kind": "pyImport"
+  },
+  {
+   "id": "manman",
+   "siteId": "seed_manman",
+   "name": "🔞漫果",
+   "zone": "video",
+   "adult": true,
+   "sort": 208,
+   "kind": "pyImport"
+  },
+  {
+   "id": "luguo",
+   "siteId": "seed_luguo",
+   "name": "🔞露果",
+   "zone": "video",
+   "adult": true,
+   "sort": 209,
+   "kind": "pyImport"
+  },
+  {
+   "id": "liuguo",
+   "siteId": "seed_liuguo",
+   "name": "🔞榴果",
+   "zone": "video",
+   "adult": true,
+   "sort": 210,
+   "kind": "pyImport"
+  },
+  {
+   "id": "liguo",
+   "siteId": "seed_liguo",
+   "name": "🔞荔果",
+   "zone": "video",
+   "adult": true,
+   "sort": 211,
+   "kind": "pyImport"
+  },
+  {
+   "id": "ningguo",
+   "siteId": "seed_ningguo",
+   "name": "🔞柠果",
+   "zone": "video",
+   "adult": true,
+   "sort": 212,
+   "kind": "pyImport"
+  },
+  {
+   "id": "legado_8059_0",
+   "siteId": "seed_legado_8059_0",
+   "name": "978小说",
+   "zone": "novel",
+   "adult": false,
+   "sort": 213,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8078_0",
+   "siteId": "seed_legado_8078_0",
+   "name": "ESJ Zone",
+   "zone": "novel",
+   "adult": false,
+   "sort": 214,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8079_0",
+   "siteId": "seed_legado_8079_0",
+   "name": "KL-Manga",
+   "zone": "comic",
+   "adult": false,
+   "sort": 215,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8042_0",
+   "siteId": "seed_legado_8042_0",
+   "name": "MissKon",
+   "zone": "comic",
+   "adult": false,
+   "sort": 216,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_7713_0",
+   "siteId": "seed_legado_7713_0",
+   "name": "UAA小说·言璃版",
+   "zone": "novel",
+   "adult": false,
+   "sort": 217,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8081_0",
+   "siteId": "seed_legado_8081_0",
+   "name": "UU看书(www.uukan.org)",
+   "zone": "novel",
+   "adult": false,
+   "sort": 218,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8044_0",
+   "siteId": "seed_legado_8044_0",
+   "name": "VirtualTaboo直播优化",
+   "zone": "video",
+   "adult": false,
+   "sort": 219,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8057_0",
+   "siteId": "seed_legado_8057_0",
+   "name": "▶ OmoFun 动漫（发布页多线路）",
+   "zone": "video",
+   "adult": false,
+   "sort": 220,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8066_0",
+   "siteId": "seed_legado_8066_0",
+   "name": "▶ OmoFun 动漫（发布页多线路）",
+   "zone": "video",
+   "adult": false,
+   "sort": 221,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8100_0",
+   "siteId": "seed_legado_8100_0",
+   "name": "▶ OmoFun 动漫（弹幕版）",
+   "zone": "video",
+   "adult": false,
+   "sort": 222,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8052_0",
+   "siteId": "seed_legado_8052_0",
+   "name": "🌙 书旗小说(APP接口)",
+   "zone": "novel",
+   "adult": false,
+   "sort": 223,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8077_0",
+   "siteId": "seed_legado_8077_0",
+   "name": "🌙 书旗小说(APP接口)",
+   "zone": "novel",
+   "adult": false,
+   "sort": 224,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_7968_0",
+   "siteId": "seed_legado_7968_0",
+   "name": "▶ 花都动漫",
+   "zone": "video",
+   "adult": false,
+   "sort": 225,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8088_0",
+   "siteId": "seed_legado_8088_0",
+   "name": "txt520小说网",
+   "zone": "novel",
+   "adult": false,
+   "sort": 226,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8056_0",
+   "siteId": "seed_legado_8056_0",
+   "name": "🎬xanimu成人动漫",
+   "zone": "video",
+   "adult": false,
+   "sort": 227,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8097_0",
+   "siteId": "seed_legado_8097_0",
+   "name": "九霄中文网",
+   "zone": "novel",
+   "adult": false,
+   "sort": 228,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8027_0",
+   "siteId": "seed_legado_8027_0",
+   "name": "书本书 V2",
+   "zone": "novel",
+   "adult": false,
+   "sort": 229,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8055_0",
+   "siteId": "seed_legado_8055_0",
+   "name": "📚书海阁",
+   "zone": "novel",
+   "adult": false,
+   "sort": 230,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8058_0",
+   "siteId": "seed_legado_8058_0",
+   "name": "书海阁",
+   "zone": "novel",
+   "adult": false,
+   "sort": 231,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8101_0",
+   "siteId": "seed_legado_8101_0",
+   "name": "可乐小说（可以使用网址添加）",
+   "zone": "novel",
+   "adult": false,
+   "sort": 232,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8089_0",
+   "siteId": "seed_legado_8089_0",
+   "name": "哔哩哔哩听书",
+   "zone": "audio",
+   "adult": false,
+   "sort": 233,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8108_0",
+   "siteId": "seed_legado_8108_0",
+   "name": "🦋 土豆小说网",
+   "zone": "novel",
+   "adult": false,
+   "sort": 234,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_7939_0",
+   "siteId": "seed_legado_7939_0",
+   "name": "📖墨阅·极速",
+   "zone": "novel",
+   "adult": false,
+   "sort": 235,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_7982_0",
+   "siteId": "seed_legado_7982_0",
+   "name": "天空书屋(m.tkshuw.com)",
+   "zone": "novel",
+   "adult": false,
+   "sort": 236,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_7985_0",
+   "siteId": "seed_legado_7985_0",
+   "name": "奇书网",
+   "zone": "novel",
+   "adult": false,
+   "sort": 237,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8099_0",
+   "siteId": "seed_legado_8099_0",
+   "name": "🎬奈飞工厂",
+   "zone": "video",
+   "adult": false,
+   "sort": 238,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_7987_0",
+   "siteId": "seed_legado_7987_0",
+   "name": "媚色MM",
+   "zone": "comic",
+   "adult": false,
+   "sort": 239,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_7978_0",
+   "siteId": "seed_legado_7978_0",
+   "name": "🍊巴卡漫画",
+   "zone": "comic",
+   "adult": false,
+   "sort": 240,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8117_0",
+   "siteId": "seed_legado_8117_0",
+   "name": "得奇小说",
+   "zone": "novel",
+   "adult": false,
+   "sort": 241,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8030_0",
+   "siteId": "seed_legado_8030_0",
+   "name": "得奇小说网",
+   "zone": "novel",
+   "adult": false,
+   "sort": 242,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8048_0",
+   "siteId": "seed_legado_8048_0",
+   "name": "思兔小说-台湾小说网(twkan.cc)",
+   "zone": "novel",
+   "adult": false,
+   "sort": 243,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8035_0",
+   "siteId": "seed_legado_8035_0",
+   "name": "手机小说",
+   "zone": "novel",
+   "adult": false,
+   "sort": 244,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8023_0",
+   "siteId": "seed_legado_8023_0",
+   "name": "搬山人小说网",
+   "zone": "novel",
+   "adult": false,
+   "sort": 245,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8050_0",
+   "siteId": "seed_legado_8050_0",
+   "name": "搬山人小说网",
+   "zone": "novel",
+   "adult": false,
+   "sort": 246,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_7979_0",
+   "siteId": "seed_legado_7979_0",
+   "name": "最大资源网",
+   "zone": "novel",
+   "adult": false,
+   "sort": 247,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_7988_0",
+   "siteId": "seed_legado_7988_0",
+   "name": "📖桔纸书屋",
+   "zone": "novel",
+   "adult": false,
+   "sort": 248,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_7621_0",
+   "siteId": "seed_legado_7621_0",
+   "name": "🐸漫蛙",
+   "zone": "comic",
+   "adult": false,
+   "sort": 249,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_7975_0",
+   "siteId": "seed_legado_7975_0",
+   "name": "🐣爱丽丝书屋(极速版）,排版优化",
+   "zone": "novel",
+   "adult": false,
+   "sort": 250,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_7986_0",
+   "siteId": "seed_legado_7986_0",
+   "name": "番茄ai-deepseek",
+   "zone": "novel",
+   "adult": false,
+   "sort": 251,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_7992_0",
+   "siteId": "seed_legado_7992_0",
+   "name": "番茄小说",
+   "zone": "novel",
+   "adult": false,
+   "sort": 252,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8039_0",
+   "siteId": "seed_legado_8039_0",
+   "name": "禁漫天堂（漫画小说视频）",
+   "zone": "novel",
+   "adult": false,
+   "sort": 253,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8054_0",
+   "siteId": "seed_legado_8054_0",
+   "name": "笔趣阁",
+   "zone": "novel",
+   "adult": false,
+   "sort": 254,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8032_0",
+   "siteId": "seed_legado_8032_0",
+   "name": "笔趣阁(byqg.cc)",
+   "zone": "novel",
+   "adult": false,
+   "sort": 255,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8116_0",
+   "siteId": "seed_legado_8116_0",
+   "name": "篱笆好文学",
+   "zone": "novel",
+   "adult": false,
+   "sort": 256,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_7974_0",
+   "siteId": "seed_legado_7974_0",
+   "name": "素书卷",
+   "zone": "novel",
+   "adult": false,
+   "sort": 257,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_7981_0",
+   "siteId": "seed_legado_7981_0",
+   "name": "🍅蕃茄小说",
+   "zone": "novel",
+   "adult": false,
+   "sort": 258,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_7976_0",
+   "siteId": "seed_legado_7976_0",
+   "name": "速读谷",
+   "zone": "novel",
+   "adult": false,
+   "sort": 259,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8045_0",
+   "siteId": "seed_legado_8045_0",
+   "name": "霹雳书屋-目录修复",
+   "zone": "novel",
+   "adult": false,
+   "sort": 260,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_7813_0",
+   "siteId": "seed_legado_7813_0",
+   "name": "魔丸小说",
+   "zone": "novel",
+   "adult": false,
+   "sort": 261,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8008_0",
+   "siteId": "seed_legado_8008_0",
+   "name": "黄果短剧🔞",
+   "zone": "video",
+   "adult": true,
+   "sort": 262,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8010_0",
+   "siteId": "seed_legado_8010_0",
+   "name": "黄果短剧🔞",
+   "zone": "video",
+   "adult": true,
+   "sort": 263,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8049_0",
+   "siteId": "seed_legado_8049_0",
+   "name": "龙腾小说网",
+   "zone": "novel",
+   "adult": false,
+   "sort": 264,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_1751_0",
+   "siteId": "seed_legado_1751_0",
+   "name": "🏷晋江文学【请使用3.26及以上版本】",
+   "zone": "novel",
+   "adult": false,
+   "sort": 265,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_6873_0",
+   "siteId": "seed_legado_6873_0",
+   "name": "📖Lofter",
+   "zone": "novel",
+   "adult": false,
+   "sort": 266,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_7632_0",
+   "siteId": "seed_legado_7632_0",
+   "name": "🍅大灰狼聚合5.9.30(vip完全版)",
+   "zone": "novel",
+   "adult": false,
+   "sort": 267,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_7740_0",
+   "siteId": "seed_legado_7740_0",
+   "name": "爱下电子书",
+   "zone": "novel",
+   "adult": false,
+   "sort": 268,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_7756_0",
+   "siteId": "seed_legado_7756_0",
+   "name": "添加-目录网址",
+   "zone": "novel",
+   "adult": false,
+   "sort": 269,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_7814_0",
+   "siteId": "seed_legado_7814_0",
+   "name": "📚书山聚合",
+   "zone": "novel",
+   "adult": false,
+   "sort": 270,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_7895_0",
+   "siteId": "seed_legado_7895_0",
+   "name": "🌙 七猫小说 · API",
+   "zone": "novel",
+   "adult": false,
+   "sort": 271,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8006_0",
+   "siteId": "seed_legado_8006_0",
+   "name": "✿次元姬（知秋）✿",
+   "zone": "novel",
+   "adult": false,
+   "sort": 272,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8007_0",
+   "siteId": "seed_legado_8007_0",
+   "name": "黄区",
+   "zone": "novel",
+   "adult": false,
+   "sort": 273,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8009_0",
+   "siteId": "seed_legado_8009_0",
+   "name": "笔趣阁⛅",
+   "zone": "novel",
+   "adult": false,
+   "sort": 274,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8011_0",
+   "siteId": "seed_legado_8011_0",
+   "name": "书旗小说（知秋）",
+   "zone": "novel",
+   "adult": false,
+   "sort": 275,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8018_0",
+   "siteId": "seed_legado_8018_0",
+   "name": "🔰长佩文学",
+   "zone": "novel",
+   "adult": false,
+   "sort": 276,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8019_0",
+   "siteId": "seed_legado_8019_0",
+   "name": "®️爱丽丝书屋（路人二次修复搜索）",
+   "zone": "novel",
+   "adult": false,
+   "sort": 277,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8020_0",
+   "siteId": "seed_legado_8020_0",
+   "name": "得奇小说网(deqitxt.com)20261028",
+   "zone": "novel",
+   "adult": false,
+   "sort": 278,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8024_0",
+   "siteId": "seed_legado_8024_0",
+   "name": "精华书阁手机版 V2",
+   "zone": "novel",
+   "adult": false,
+   "sort": 279,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8025_0",
+   "siteId": "seed_legado_8025_0",
+   "name": "七步阁 V2",
+   "zone": "novel",
+   "adult": false,
+   "sort": 280,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8029_0",
+   "siteId": "seed_legado_8029_0",
+   "name": "全本小说网",
+   "zone": "novel",
+   "adult": false,
+   "sort": 281,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8033_0",
+   "siteId": "seed_legado_8033_0",
+   "name": "🍑西瓜书屋[可换备用站]",
+   "zone": "novel",
+   "adult": false,
+   "sort": 282,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8043_0",
+   "siteId": "seed_legado_8043_0",
+   "name": "🐾顶点小说xsbook",
+   "zone": "novel",
+   "adult": false,
+   "sort": 283,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8046_0",
+   "siteId": "seed_legado_8046_0",
+   "name": "名熹小说",
+   "zone": "novel",
+   "adult": false,
+   "sort": 284,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8047_0",
+   "siteId": "seed_legado_8047_0",
+   "name": "📖限免书源",
+   "zone": "novel",
+   "adult": false,
+   "sort": 285,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8073_0",
+   "siteId": "seed_legado_8073_0",
+   "name": "猫扑中文文学",
+   "zone": "novel",
+   "adult": false,
+   "sort": 286,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8075_0",
+   "siteId": "seed_legado_8075_0",
+   "name": "📂霹雳书屋",
+   "zone": "novel",
+   "adult": false,
+   "sort": 287,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8080_0",
+   "siteId": "seed_legado_8080_0",
+   "name": "久久小说(修复版)",
+   "zone": "novel",
+   "adult": false,
+   "sort": 288,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8102_0",
+   "siteId": "seed_legado_8102_0",
+   "name": "📖 星辰小说",
+   "zone": "novel",
+   "adult": false,
+   "sort": 289,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8103_0",
+   "siteId": "seed_legado_8103_0",
+   "name": "📖 淘小说API",
+   "zone": "novel",
+   "adult": false,
+   "sort": 290,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8104_0",
+   "siteId": "seed_legado_8104_0",
+   "name": "🍊青橙小说API",
+   "zone": "novel",
+   "adult": false,
+   "sort": 291,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8109_0",
+   "siteId": "seed_legado_8109_0",
+   "name": "第一版主·言璃版",
+   "zone": "novel",
+   "adult": false,
+   "sort": 292,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8113_0",
+   "siteId": "seed_legado_8113_0",
+   "name": "同人小说网(trxs)",
+   "zone": "novel",
+   "adult": false,
+   "sort": 293,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8114_0",
+   "siteId": "seed_legado_8114_0",
+   "name": "🔞爱丽丝书屋",
+   "zone": "novel",
+   "adult": true,
+   "sort": 294,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8118_0",
+   "siteId": "seed_legado_8118_0",
+   "name": "爱丽丝书屋 (alicesw3.homes)",
+   "zone": "novel",
+   "adult": false,
+   "sort": 295,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8119_0",
+   "siteId": "seed_legado_8119_0",
+   "name": "38看书",
+   "zone": "novel",
+   "adult": false,
+   "sort": 296,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8121_0",
+   "siteId": "seed_legado_8121_0",
+   "name": "哔哩轻小说🌟",
+   "zone": "novel",
+   "adult": false,
+   "sort": 297,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8124_0",
+   "siteId": "seed_legado_8124_0",
+   "name": "Conflux",
+   "zone": "novel",
+   "adult": false,
+   "sort": 298,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8127_0",
+   "siteId": "seed_legado_8127_0",
+   "name": "📖笔趣阁(三人文学)",
+   "zone": "novel",
+   "adult": false,
+   "sort": 299,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8130_0",
+   "siteId": "seed_legado_8130_0",
+   "name": "哔哩小说",
+   "zone": "novel",
+   "adult": false,
+   "sort": 300,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8133_0",
+   "siteId": "seed_legado_8133_0",
+   "name": "夜社聚合",
+   "zone": "novel",
+   "adult": false,
+   "sort": 301,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8137_0",
+   "siteId": "seed_legado_8137_0",
+   "name": "🦋 燃文小说移动版",
+   "zone": "novel",
+   "adult": false,
+   "sort": 302,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8138_0",
+   "siteId": "seed_legado_8138_0",
+   "name": "🦋 茂林小说",
+   "zone": "novel",
+   "adult": false,
+   "sort": 303,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8139_0",
+   "siteId": "seed_legado_8139_0",
+   "name": "🦋 去读书",
+   "zone": "novel",
+   "adult": false,
+   "sort": 304,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8140_0",
+   "siteId": "seed_legado_8140_0",
+   "name": "🦋 爱看吧🔞",
+   "zone": "novel",
+   "adult": true,
+   "sort": 305,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8141_0",
+   "siteId": "seed_legado_8141_0",
+   "name": "🦋 格格党",
+   "zone": "novel",
+   "adult": false,
+   "sort": 306,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8142_0",
+   "siteId": "seed_legado_8142_0",
+   "name": "爱看书免费小说API",
+   "zone": "novel",
+   "adult": false,
+   "sort": 307,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8145_0",
+   "siteId": "seed_legado_8145_0",
+   "name": "群小说网-v1",
+   "zone": "novel",
+   "adult": false,
+   "sort": 308,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8146_0",
+   "siteId": "seed_legado_8146_0",
+   "name": "📖墨阅·起点",
+   "zone": "novel",
+   "adult": false,
+   "sort": 309,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8158_0",
+   "siteId": "seed_legado_8158_0",
+   "name": "就爱文学网-v1",
+   "zone": "novel",
+   "adult": false,
+   "sort": 310,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8160_0",
+   "siteId": "seed_legado_8160_0",
+   "name": "⚡无限小说网",
+   "zone": "novel",
+   "adult": false,
+   "sort": 311,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8162_0",
+   "siteId": "seed_legado_8162_0",
+   "name": "偶然中文-v1",
+   "zone": "novel",
+   "adult": false,
+   "sort": 312,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "legado_8164_0",
+   "siteId": "seed_legado_8164_0",
+   "name": "❄️听雪聚合",
+   "zone": "novel",
+   "adult": false,
+   "sort": 313,
+   "kind": "legadoImport"
+  },
+  {
+   "id": "mjv011",
+   "siteId": "jar:zakatv:ZakaMjv011",
+   "name": "🔞mjv011",
+   "zone": "video",
+   "adult": true,
+   "sort": 314,
+   "kind": "jarImport"
+  },
+  {
+   "id": "huangguo",
+   "siteId": "jar:zakatv:ZakaHuangguo",
+   "name": "🔞黄果",
+   "zone": "video",
+   "adult": true,
+   "sort": 315,
+   "kind": "jarImport"
+  },
+  {
+   "id": "hl365",
+   "siteId": "jar:zakatv:ZakaHl365",
+   "name": "🔞黑料不打烊",
+   "zone": "video",
+   "adult": true,
+   "sort": 316,
+   "kind": "jarImport"
+  },
+  {
+   "id": "lnkl",
+   "siteId": "jar:zakatv:ZakaLnkl",
+   "name": "🔞lnkl",
+   "zone": "video",
+   "adult": true,
+   "sort": 317,
+   "kind": "jarImport"
+  },
+  {
+   "id": "huangdou",
+   "siteId": "jar:zakatv:ZakaHuangdou",
+   "name": "🔞黄豆短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 318,
+   "kind": "jarImport"
+  },
+  {
+   "id": "sex8",
+   "siteId": "jar:zakatv:ZakaSex8",
+   "name": "🔞sex8┃视频",
+   "zone": "video",
+   "adult": true,
+   "sort": 319,
+   "kind": "jarImport"
+  },
+  {
+   "id": "hgdjv",
+   "siteId": "jar:zakatv:ZakaHgdjV",
+   "name": "🔞黄果短剧┃视频",
+   "zone": "video",
+   "adult": true,
+   "sort": 320,
+   "kind": "jarImport"
+  },
+  {
+   "id": "km2",
+   "siteId": "jar:zakatv:ZakaKm2",
+   "name": "🔞新快猫",
+   "zone": "video",
+   "adult": true,
+   "sort": 321,
+   "kind": "jarImport"
+  },
+  {
+   "id": "cucumber",
+   "siteId": "jar:zakatv:ZakaCucumber",
+   "name": "🔞黄瓜视频",
+   "zone": "video",
+   "adult": true,
+   "sort": 322,
+   "kind": "jarImport"
+  },
+  {
+   "id": "haijiao",
+   "siteId": "jar:zakatv:ZakaHaijiao",
+   "name": "🔞海角社区",
+   "zone": "video",
+   "adult": true,
+   "sort": 323,
+   "kind": "jarImport"
+  },
+  {
+   "id": "md",
+   "siteId": "jar:zakatv:ZakaMd",
+   "name": "🔞麻豆",
+   "zone": "video",
+   "adult": true,
+   "sort": 324,
+   "kind": "jarImport"
+  },
+  {
+   "id": "utube",
+   "siteId": "jar:zakatv:ZakaUtube",
+   "name": "🔞Utube",
+   "zone": "video",
+   "adult": true,
+   "sort": 325,
+   "kind": "jarImport"
+  },
+  {
+   "id": "xj",
+   "siteId": "jar:zakatv:ZakaXj",
+   "name": "🔞香蕉视频",
+   "zone": "video",
+   "adult": true,
+   "sort": 326,
+   "kind": "jarImport"
+  },
+  {
+   "id": "av91",
+   "siteId": "jar:zakatv:ZakaAv91",
+   "name": "🔞av91",
+   "zone": "video",
+   "adult": true,
+   "sort": 327,
+   "kind": "jarImport"
+  },
+  {
+   "id": "lxs",
+   "siteId": "jar:zakatv:ZakaLxs",
+   "name": "🔞撸先生",
+   "zone": "video",
+   "adult": true,
+   "sort": 328,
+   "kind": "jarImport"
+  },
+  {
+   "id": "javrate",
+   "siteId": "jar:zakatv:ZakaJavrate",
+   "name": "🛡️鉴黄师┃原生",
+   "zone": "video",
+   "adult": true,
+   "sort": 329,
+   "kind": "jarImport"
+  },
+  {
+   "id": "javverse",
+   "siteId": "jar:zakatv:zakajavverse",
+   "name": "🆕🔞JAV Verse┃资料库+双线路",
+   "zone": "video",
+   "adult": true,
+   "sort": 330,
+   "kind": "jarImport"
+  },
+  {
+   "id": "xszav",
+   "siteId": "jar:zakatv:zakaxszav",
+   "name": "🆕🔞XSZAV┃无码·中文字幕",
+   "zone": "video",
+   "adult": true,
+   "sort": 331,
+   "kind": "jarImport"
+  },
+  {
+   "id": "v01",
+   "siteId": "jar:zakatv:zakav01",
+   "name": "🆕🔞AV01┃无码破解·多码率",
+   "zone": "video",
+   "adult": true,
+   "sort": 332,
+   "kind": "jarImport"
+  },
+  {
+   "id": "aiye",
+   "siteId": "jar:zakatv:zakaaiye",
+   "name": "🆕🔞爱液视频┃官方App接口",
+   "zone": "video",
+   "adult": true,
+   "sort": 333,
+   "kind": "jarImport"
+  },
+  {
+   "id": "hysxs",
+   "siteId": "jar:zakatv:zakahysxs",
+   "name": "🆕🔞H有声小说┃AES解密直取",
+   "zone": "video",
+   "adult": true,
+   "sort": 334,
+   "kind": "jarImport"
+  },
+  {
+   "id": "puapua",
+   "siteId": "jar:zakatv:zakapuapua",
+   "name": "🔞PUA独家爆料┃多域直取",
+   "zone": "video",
+   "adult": true,
+   "sort": 335,
+   "kind": "jarImport"
+  },
+  {
+   "id": "txfans",
+   "siteId": "jar:zakatv:zaketxfans",
+   "name": "🆕🔞糖心Fans┃设备登录+AES协议",
+   "zone": "video",
+   "adult": true,
+   "sort": 336,
+   "kind": "jarImport"
+  },
+  {
+   "id": "juyin",
+   "siteId": "jar:zakatv:zakajuyin",
+   "name": "🆕🔞巨婴云播┃静态站整页包壳",
+   "zone": "video",
+   "adult": true,
+   "sort": 337,
+   "kind": "jarImport"
+  },
+  {
+   "id": "99jj",
+   "siteId": "jar:zakatv:zaka99jj",
+   "name": "🆕🔞久久热┃KVS直取384P",
+   "zone": "video",
+   "adult": true,
+   "sort": 338,
+   "kind": "jarImport"
+  },
+  {
+   "id": "dayday",
+   "siteId": "jar:zakatv:zakadayday",
+   "name": "🆕🔞天天A片┃CF盾绕行上游",
+   "zone": "video",
+   "adult": true,
+   "sort": 339,
+   "kind": "jarImport"
+  },
+  {
+   "id": "dsav",
+   "siteId": "jar:zakatv:dsav",
+   "name": "🆕🔞DSAV影视┃加密网关直取",
+   "zone": "video",
+   "adult": true,
+   "sort": 340,
+   "kind": "jarImport"
+  },
+  {
+   "id": "kuaihuo",
+   "siteId": "jar:zakatv:kuaihuo",
+   "name": "🆕🔞快活影院┃静态站直取",
+   "zone": "video",
+   "adult": true,
+   "sort": 341,
+   "kind": "jarImport"
+  },
+  {
+   "id": "ns",
+   "siteId": "jar:zakatv:zakans",
+   "name": "🆕🔞ns视频┃签到破VIP看正片",
+   "zone": "video",
+   "adult": true,
+   "sort": 342,
+   "kind": "jarImport"
+  },
+  {
+   "id": "jack20",
+   "siteId": "jar:zakatv:jack20",
+   "name": "🆕🔞後宮電影院┃xvideos聚合",
+   "zone": "video",
+   "adult": true,
+   "sort": 343,
+   "kind": "jarImport"
+  },
+  {
+   "id": "coolinet",
+   "siteId": "jar:zakatv:coolinet",
+   "name": "🆕🔞酷愛成人網┃WP全站直取",
+   "zone": "video",
+   "adult": true,
+   "sort": 344,
+   "kind": "jarImport"
+  },
+  {
+   "id": "gqck",
+   "siteId": "jar:zakatv:gqck",
+   "name": "🆕🔞高清仓库┃免登直取",
+   "zone": "video",
+   "adult": true,
+   "sort": 345,
+   "kind": "jarImport"
+  },
+  {
+   "id": "115",
+   "siteId": "jar:zakatv:zaka115",
+   "name": "☁️115网盘┃扫码离线",
+   "zone": "video",
+   "adult": false,
+   "sort": 346,
+   "kind": "jarImport"
+  },
+  {
+   "id": "javpk",
+   "siteId": "jar:zakatv:zakajavpk",
+   "name": "🔞JAVPK┃磁力自动离线",
+   "zone": "video",
+   "adult": true,
+   "sort": 347,
+   "kind": "jarImport"
+  },
+  {
+   "id": "pektino",
+   "siteId": "jar:zakatv:ZakaPektino",
+   "name": "🐦 推特涩涩┃PeKtino",
+   "zone": "video",
+   "adult": false,
+   "sort": 348,
+   "kind": "jarImport"
+  },
+  {
+   "id": "wuyetv",
+   "siteId": "jar:zakatv:wuyetv",
+   "name": "🕛 午夜TV┃百万精选",
+   "zone": "video",
+   "adult": true,
+   "sort": 349,
+   "kind": "jarImport"
+  },
+  {
+   "id": "bhbox",
+   "siteId": "jar:zakatv:bhbox",
+   "name": "📦 笔盒┃海量精选",
+   "zone": "video",
+   "adult": false,
+   "sort": 350,
+   "kind": "jarImport"
+  },
+  {
+   "id": "qmdj",
+   "siteId": "jar:zakatv:zakaqmdj",
+   "name": "🔞七猫短剧┃VIP破解",
+   "zone": "video",
+   "adult": true,
+   "sort": 351,
+   "kind": "jarImport"
+  },
+  {
+   "id": "hxc",
+   "siteId": "jar:zakatv:ZakaHxc",
+   "name": "🔞含羞草┃VIP破解",
+   "zone": "video",
+   "adult": true,
+   "sort": 352,
+   "kind": "jarImport"
+  },
+  {
+   "id": "uu",
+   "siteId": "jar:zakatv:ZakaUu",
+   "name": "🔞Uu视频┃多线路",
+   "zone": "video",
+   "adult": true,
+   "sort": 353,
+   "kind": "jarImport"
+  },
+  {
+   "id": "hjw",
+   "siteId": "jar:zakatv:ZakaHjw",
+   "name": "🔞海角网┃hj2",
+   "zone": "video",
+   "adult": true,
+   "sort": 354,
+   "kind": "jarImport"
+  },
+  {
+   "id": "hj1",
+   "siteId": "jar:zakatv:ZakaHj1",
+   "name": "🔞海角社区┃hj1",
+   "zone": "video",
+   "adult": true,
+   "sort": 355,
+   "kind": "jarImport"
+  },
+  {
+   "id": "jav380",
+   "siteId": "jar:zakatv:ZakaJav380",
+   "name": "🆕🔞JAV380┃無碼",
+   "zone": "video",
+   "adult": true,
+   "sort": 356,
+   "kind": "jarImport"
+  },
+  {
+   "id": "javher",
+   "siteId": "jar:zakatv:ZakaJavher",
+   "name": "🆕🔞JavHer┃JAV庫",
+   "zone": "video",
+   "adult": true,
+   "sort": 357,
+   "kind": "jarImport"
+  },
+  {
+   "id": "javmap",
+   "siteId": "jar:zakatv:zakajavmap",
+   "name": "🔞JAVMAP┃日本AV大全",
+   "zone": "video",
+   "adult": true,
+   "sort": 358,
+   "kind": "jarImport"
+  },
+  {
+   "id": "pigav",
+   "siteId": "jar:zakatv:zakapigav",
+   "name": "🔞PIGAV┃朱古力",
+   "zone": "video",
+   "adult": true,
+   "sort": 359,
+   "kind": "jarImport"
+  },
+  {
+   "id": "sihucdn",
+   "siteId": "jar:zakatv:zakasihucdn",
+   "name": "🔞四虎┃免盾CDN",
+   "zone": "video",
+   "adult": true,
+   "sort": 360,
+   "kind": "jarImport"
+  },
+  {
+   "id": "sihu",
+   "siteId": "jar:zakatv:zakasihu",
+   "name": "🔞四虎┃4hu",
+   "zone": "video",
+   "adult": true,
+   "sort": 361,
+   "kind": "jarImport"
+  },
+  {
+   "id": "av18avmcg",
+   "siteId": "jar:zakatv:av18avmcg",
+   "name": "🆕🔞18AV主站┃本地代理",
+   "zone": "video",
+   "adult": true,
+   "sort": 362,
+   "kind": "jarImport"
+  },
+  {
+   "id": "xx9",
+   "siteId": "jar:zakatv:zakaxx9",
+   "name": "🆕🔞XX9┃金币站",
+   "zone": "video",
+   "adult": true,
+   "sort": 363,
+   "kind": "jarImport"
+  },
+  {
+   "id": "69vj",
+   "siteId": "jar:zakatv:Zaka69vj",
+   "name": "🆕🔞69VJ┃xvideos片库",
+   "zone": "video",
+   "adult": true,
+   "sort": 364,
+   "kind": "jarImport"
+  },
+  {
+   "id": "avbebe",
+   "siteId": "jar:zakatv:ZakaAvbebe",
+   "name": "🆕🔞Avbebe┃H動畫里番",
+   "zone": "video",
+   "adult": true,
+   "sort": 365,
+   "kind": "jarImport"
+  },
+  {
+   "id": "avcnn",
+   "siteId": "jar:zakatv:ZakaAvcnn",
+   "name": "🆕🔞AVCNN┃番号女优",
+   "zone": "video",
+   "adult": true,
+   "sort": 366,
+   "kind": "jarImport"
+  },
+  {
+   "id": "avple",
+   "siteId": "jar:zakatv:ZakaAvple",
+   "name": "🆕🔞AVPle┃免盾直取",
+   "zone": "video",
+   "adult": true,
+   "sort": 367,
+   "kind": "jarImport"
+  },
+  {
+   "id": "javwine",
+   "siteId": "jar:zakatv:ZakaJavwine",
+   "name": "🆕🔞JAV.WINE┃日系高清",
+   "zone": "video",
+   "adult": true,
+   "sort": 368,
+   "kind": "jarImport"
+  },
+  {
+   "id": "njav",
+   "siteId": "jar:zakatv:ZakaNjav",
+   "name": "🆕🔞nJAV┃中字无码",
+   "zone": "video",
+   "adult": true,
+   "sort": 369,
+   "kind": "jarImport"
+  },
+  {
+   "id": "javhd",
+   "siteId": "jar:zakatv:ZakaJavhd",
+   "name": "🆕🔞JavHD中文字幕┃日本管",
+   "zone": "video",
+   "adult": true,
+   "sort": 370,
+   "kind": "jarImport"
+  },
+  {
+   "id": "baoyu",
+   "siteId": "jar:zakatv:ZakaBaoyu",
+   "name": "🆕🔞鲍鱼盒子┃App直连",
+   "zone": "video",
+   "adult": true,
+   "sort": 371,
+   "kind": "jarImport"
+  },
+  {
+   "id": "qysq",
+   "siteId": "jar:zakatv:ZakaQysq",
+   "name": "🆕🔞妻友社区┃阅妹阁模块",
+   "zone": "video",
+   "adult": true,
+   "sort": 372,
+   "kind": "jarImport"
+  },
+  {
+   "id": "hgdj",
+   "siteId": "jar:zakatv:ZakaHgdj",
+   "name": "🔞黄果短剧┃AI成人短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 373,
+   "kind": "jarImport"
+  },
+  {
+   "id": "hgdjapp",
+   "siteId": "jar:zakatv:ZakaHgdjApp",
+   "name": "🆕🔞黄果短剧App┃App网关",
+   "zone": "video",
+   "adult": true,
+   "sort": 374,
+   "kind": "jarImport"
+  },
+  {
+   "id": "seku",
+   "siteId": "jar:zakatv:zakaseku",
+   "name": "🔞阅妹阁┃App原版62站",
+   "zone": "video",
+   "adult": true,
+   "sort": 375,
+   "kind": "jarImport"
+  },
+  {
+   "id": "kp14",
+   "siteId": "jar:zakatv:zakakp14",
+   "name": "🔞看片站群┃App挖出14站",
+   "zone": "video",
+   "adult": true,
+   "sort": 376,
+   "kind": "jarImport"
+  },
+  {
+   "id": "-yue2",
+   "siteId": "jar:zakatv:zaka-yue2",
+   "name": "🔞阅妹阁模块2┃JavDB+51吃瓜",
+   "zone": "video",
+   "adult": true,
+   "sort": 377,
+   "kind": "jarImport"
+  },
+  {
+   "id": "fq",
+   "siteId": "jar:zakatv:zakafq",
+   "name": "🔞番茄视频┃免登入直取",
+   "zone": "video",
+   "adult": true,
+   "sort": 378,
+   "kind": "jarImport"
+  },
+  {
+   "id": "wnzs",
+   "siteId": "jar:zakatv:zakawnzs",
+   "name": "🔞WNZS┃网络杀手",
+   "zone": "video",
+   "adult": true,
+   "sort": 379,
+   "kind": "jarImport"
+  },
+  {
+   "id": "tudou",
+   "siteId": "jar:zakatv:zakatudou",
+   "name": "🔞土豆视频┃原生",
+   "zone": "video",
+   "adult": true,
+   "sort": 380,
+   "kind": "jarImport"
+  },
+  {
+   "id": "xjh5",
+   "siteId": "jar:zakatv:zakaxjh5",
+   "name": "🍌香蕉视频H5┃免登入",
+   "zone": "video",
+   "adult": true,
+   "sort": 381,
+   "kind": "jarImport"
+  },
+  {
+   "id": "ykf",
+   "siteId": "jar:zakatv:zakaykf",
+   "name": "🔞快播至臻版┃下载页直取",
+   "zone": "video",
+   "adult": true,
+   "sort": 382,
+   "kind": "jarImport"
+  },
+  {
+   "id": "xj",
+   "siteId": "jar:zakatv:zakaxj",
+   "name": "🍌香蕉视频┃免登入直取",
+   "zone": "video",
+   "adult": true,
+   "sort": 383,
+   "kind": "jarImport"
+  },
+  {
+   "id": "kfz",
+   "siteId": "jar:zakatv:zakakfz",
+   "name": "🔞K站┃密钥直取",
+   "zone": "video",
+   "adult": true,
+   "sort": 384,
+   "kind": "jarImport"
+  },
+  {
+   "id": "javrank",
+   "siteId": "jar:zakatv:ZakaJavRank",
+   "name": "🏆JAV排行榜┃1769部战力榜",
+   "zone": "video",
+   "adult": false,
+   "sort": 385,
+   "kind": "jarImport"
+  },
+  {
+   "id": "hddj",
+   "siteId": "jar:zakatv:ZakaHddj",
+   "name": "🔞黄豆短剧┃AI短剧+漫剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 386,
+   "kind": "jarImport"
+  },
+  {
+   "id": "crdj",
+   "siteId": "jar:zakatv:ZakaCrdj",
+   "name": "🔞91成人短剧┃全站",
+   "zone": "video",
+   "adult": true,
+   "sort": 387,
+   "kind": "jarImport"
+  },
+  {
+   "id": "jm",
+   "siteId": "jar:zakatv:ZakaJm",
+   "name": "🔞JAV目錄┃免登录直取",
+   "zone": "video",
+   "adult": true,
+   "sort": 388,
+   "kind": "jarImport"
+  },
+  {
+   "id": "cn",
+   "siteId": "jar:zakatv:ZakaCn",
+   "name": "🔞中文秘密资源┃国产+有码",
+   "zone": "video",
+   "adult": true,
+   "sort": 389,
+   "kind": "jarImport"
+  },
+  {
+   "id": "bnzb",
+   "siteId": "jar:zakatv:ZakaBnzb",
+   "name": "🔞百年直播┃129平台",
+   "zone": "video",
+   "adult": true,
+   "sort": 390,
+   "kind": "jarImport"
+  },
+  {
+   "id": "getav",
+   "siteId": "jar:zakatv:ZakaGetav",
+   "name": "👑帝皇影视┃4.5万部",
+   "zone": "video",
+   "adult": true,
+   "sort": 391,
+   "kind": "jarImport"
+  },
+  {
+   "id": "69ck",
+   "siteId": "jar:zakatv:Zaka69ck",
+   "name": "👑帝皇影视┃黄色仓库",
+   "zone": "video",
+   "adult": false,
+   "sort": 392,
+   "kind": "jarImport"
+  },
+  {
+   "id": "hsck",
+   "siteId": "jar:zakatv:ZakaHsck",
+   "name": "👑帝皇影视┃黄色仓库②",
+   "zone": "video",
+   "adult": true,
+   "sort": 393,
+   "kind": "jarImport"
+  },
+  {
+   "id": "se8",
+   "siteId": "jar:zakatv:ZakaSe8",
+   "name": "🖼八色套图┃1.4万套",
+   "zone": "video",
+   "adult": false,
+   "sort": 394,
+   "kind": "jarImport"
+  },
+  {
+   "id": "adult",
+   "siteId": "jar:zakatv:ZakaAdult",
+   "name": "📁成人资源中心",
+   "zone": "video",
+   "adult": false,
+   "sort": 395,
+   "kind": "jarImport"
+  },
+  {
+   "id": "123av",
+   "siteId": "jar:zakatv:Zaka123av",
+   "name": "🎬123AV┃原生",
+   "zone": "video",
+   "adult": true,
+   "sort": 396,
+   "kind": "jarImport"
+  },
+  {
+   "id": "dsd",
+   "siteId": "jar:zakatv:ZakaDsd",
+   "name": "🎬懂色帝┃原生",
+   "zone": "video",
+   "adult": true,
+   "sort": 397,
+   "kind": "jarImport"
+  },
+  {
+   "id": "wohs",
+   "siteId": "jar:zakatv:ZakaWhos",
+   "name": "🔍whos识图┃原生",
+   "zone": "video",
+   "adult": true,
+   "sort": 398,
+   "kind": "jarImport"
+  },
+  {
+   "id": "lissav",
+   "siteId": "jar:zakatv:ZakaLissav",
+   "name": "🔞麻豆视频┃LissAV",
+   "zone": "video",
+   "adult": true,
+   "sort": 399,
+   "kind": "jarImport"
+  },
+  {
+   "id": "lissavcn",
+   "siteId": "jar:zakatv:ZakaLissavCn",
+   "name": "🔞麻豆视频┃国产区",
+   "zone": "video",
+   "adult": true,
+   "sort": 400,
+   "kind": "jarImport"
+  },
+  {
+   "id": "jable",
+   "siteId": "jar:zakatv:ZakaJable",
+   "name": "🔞Jable┃JAD免代理",
+   "zone": "video",
+   "adult": true,
+   "sort": 401,
+   "kind": "jarImport"
+  },
+  {
+   "id": "xhamster",
+   "siteId": "jar:zakatv:ZakaXhamster",
+   "name": "🔞xHamster┃XH免代理",
+   "zone": "video",
+   "adult": true,
+   "sort": 402,
+   "kind": "jarImport"
+  },
+  {
+   "id": "rou",
+   "siteId": "jar:zakatv:ZakaRou",
+   "name": "🔞肉视频┃ROU免代理",
+   "zone": "video",
+   "adult": true,
+   "sort": 403,
+   "kind": "jarImport"
+  },
+  {
+   "id": "321av",
+   "siteId": "jar:zakatv:Zaka321av",
+   "name": "🔞321AV┃中文字幕",
+   "zone": "video",
+   "adult": true,
+   "sort": 404,
+   "kind": "jarImport"
+  },
+  {
+   "id": "pb",
+   "siteId": "jar:zakatv:ZakaPb",
+   "name": "🔞好色TV┃PB免代理",
+   "zone": "video",
+   "adult": true,
+   "sort": 405,
+   "kind": "jarImport"
+  },
+  {
+   "id": "rouav",
+   "siteId": "jar:zakatv:rouav",
+   "name": "🔞rouAV┃PB免代理",
+   "zone": "video",
+   "adult": true,
+   "sort": 406,
+   "kind": "jarImport"
+  },
+  {
+   "id": "av18av",
+   "siteId": "jar:zakatv:av18av",
+   "name": "🔞18AV┃本地代理",
+   "zone": "video",
+   "adult": true,
+   "sort": 407,
+   "kind": "jarImport"
+  },
+  {
+   "id": "dage",
+   "siteId": "jar:zakatv:dage",
+   "name": "🔞大哥视频┃清单转写",
+   "zone": "video",
+   "adult": true,
+   "sort": 408,
+   "kind": "jarImport"
+  },
+  {
+   "id": "supjav",
+   "siteId": "jar:zakatv:ZakaSupjav",
+   "name": "🔞SupJav┃中继免盾",
+   "zone": "video",
+   "adult": true,
+   "sort": 409,
+   "kind": "jarImport"
+  },
+  {
+   "id": "pornhub",
+   "siteId": "jar:zakatv:ZakaPornhub",
+   "name": "🔞Pornhub┃免代理",
+   "zone": "video",
+   "adult": true,
+   "sort": 410,
+   "kind": "jarImport"
+  },
+  {
+   "id": "rohu",
+   "siteId": "jar:zakatv:ZakaRohu",
+   "name": "🔞YouTube成人版┃wyll",
+   "zone": "video",
+   "adult": true,
+   "sort": 411,
+   "kind": "jarImport"
+  },
+  {
+   "id": "sporn",
+   "siteId": "jar:zakatv:sporn",
+   "name": "🔞SuperPorn┃欧美免代理",
+   "zone": "video",
+   "adult": true,
+   "sort": 412,
+   "kind": "jarImport"
+  },
+  {
+   "id": "yporn",
+   "siteId": "jar:zakatv:yporn",
+   "name": "🔞YESPORN┃欧美免代理",
+   "zone": "video",
+   "adult": true,
+   "sort": 413,
+   "kind": "jarImport"
+  },
+  {
+   "id": "okxxx",
+   "siteId": "jar:zakatv:okxxx",
+   "name": "🔞OKXXX┃欧美免代理",
+   "zone": "video",
+   "adult": true,
+   "sort": 414,
+   "kind": "jarImport"
+  },
+  {
+   "id": "591av",
+   "siteId": "jar:zakatv:591av",
+   "name": "🔞591AV┃亚洲素人",
+   "zone": "video",
+   "adult": true,
+   "sort": 415,
+   "kind": "jarImport"
+  },
+  {
+   "id": "avjoy",
+   "siteId": "jar:zakatv:avjoy",
+   "name": "🔞AVJOY┃欧美免代理",
+   "zone": "video",
+   "adult": true,
+   "sort": 416,
+   "kind": "jarImport"
+  },
+  {
+   "id": "hanime",
+   "siteId": "jar:zakatv:hanime",
+   "name": "🔞Hanime1┃里番H动漫",
+   "zone": "video",
+   "adult": true,
+   "sort": 417,
+   "kind": "jarImport"
+  },
+  {
+   "id": "xvideo",
+   "siteId": "jar:zakatv:xvideo",
+   "name": "🔞XVIDEOS┃欧美免代理",
+   "zone": "video",
+   "adult": true,
+   "sort": 418,
+   "kind": "jarImport"
+  },
+  {
+   "id": "ptt01",
+   "siteId": "jar:zakatv:ptt01",
+   "name": "🔞PTT01┃三级稀缺",
+   "zone": "video",
+   "adult": true,
+   "sort": 419,
+   "kind": "jarImport"
+  },
+  {
+   "id": "cporn",
+   "siteId": "jar:zakatv:cporn",
+   "name": "🔞CartoonPorno┃欧美卡通",
+   "zone": "video",
+   "adult": true,
+   "sort": 420,
+   "kind": "jarImport"
+  },
+  {
+   "id": "xanimu",
+   "siteId": "jar:zakatv:xanimu",
+   "name": "🔞Xanimu┃里番动漫",
+   "zone": "video",
+   "adult": true,
+   "sort": 421,
+   "kind": "jarImport"
+  },
+  {
+   "id": "xx01",
+   "siteId": "jar:zakatv:xx01",
+   "name": "🔞XX01┃无码流出",
+   "zone": "video",
+   "adult": true,
+   "sort": 422,
+   "kind": "jarImport"
+  },
+  {
+   "id": "netflav",
+   "siteId": "jar:zakatv:netflav",
+   "name": "🔞Netflav┃帝皇影视",
+   "zone": "video",
+   "adult": true,
+   "sort": 423,
+   "kind": "jarImport"
+  },
+  {
+   "id": "goodav",
+   "siteId": "jar:zakatv:goodav",
+   "name": "🔞正妹AV┃原生",
+   "zone": "video",
+   "adult": true,
+   "sort": 424,
+   "kind": "jarImport"
+  },
+  {
+   "id": "av6k",
+   "siteId": "jar:zakatv:av6k",
+   "name": "🔞AV6K┃原生",
+   "zone": "video",
+   "adult": true,
+   "sort": 425,
+   "kind": "jarImport"
+  },
+  {
+   "id": "jav",
+   "siteId": "jar:zakatv:jav",
+   "name": "🔞J-AV┃原生",
+   "zone": "video",
+   "adult": true,
+   "sort": 426,
+   "kind": "jarImport"
+  },
+  {
+   "id": "jav777",
+   "siteId": "jar:zakatv:jav777",
+   "name": "🔞JAV777┃原生",
+   "zone": "video",
+   "adult": true,
+   "sort": 427,
+   "kind": "jarImport"
+  },
+  {
+   "id": "airav",
+   "siteId": "jar:zakatv:airav",
+   "name": "🔞AirAV┃原生",
+   "zone": "video",
+   "adult": true,
+   "sort": 428,
+   "kind": "jarImport"
+  },
+  {
+   "id": "93",
+   "siteId": "jar:zakatv:zaka93",
+   "name": "👑93站合一",
+   "zone": "video",
+   "adult": false,
+   "sort": 429,
+   "kind": "jarImport"
+  },
+  {
+   "id": "go2av",
+   "siteId": "jar:zakatv:go2av",
+   "name": "🔞GO2AV┃帝皇影视",
+   "zone": "video",
+   "adult": true,
+   "sort": 430,
+   "kind": "jarImport"
+  },
+  {
+   "id": "mmtv7",
+   "siteId": "jar:zakatv:mmtv7",
+   "name": "🔞7MMTV┃帝皇影视",
+   "zone": "video",
+   "adult": true,
+   "sort": 431,
+   "kind": "jarImport"
+  },
+  {
+   "id": "zggjav",
+   "siteId": "jar:zakatv:zggjav",
+   "name": "🔞GGJAV┃帝皇影视",
+   "zone": "video",
+   "adult": true,
+   "sort": 432,
+   "kind": "jarImport"
+  },
+  {
+   "id": "avbigplat",
+   "siteId": "jar:zakatv:avbigplat",
+   "name": "🔞AV大平台┃蝴蝶",
+   "zone": "video",
+   "adult": true,
+   "sort": 433,
+   "kind": "jarImport"
+  },
+  {
+   "id": "xhy11",
+   "siteId": "jar:zakatv:xhy11",
+   "name": "🔞小黄鸭┃xhy11",
+   "zone": "video",
+   "adult": true,
+   "sort": 434,
+   "kind": "jarImport"
+  },
+  {
+   "id": "pj5ti",
+   "siteId": "jar:zakatv:pj5ti",
+   "name": "🔞蜜桃社┃pj5ti",
+   "zone": "video",
+   "adult": true,
+   "sort": 435,
+   "kind": "jarImport"
+  },
+  {
+   "id": "tg",
+   "siteId": "jar:zakatv:ZakaTg",
+   "name": "tg频道",
+   "zone": "video",
+   "adult": false,
+   "sort": 436,
+   "kind": "jarImport"
+  },
+  {
+   "id": "javdb",
+   "siteId": "jar:zakatv:zakajavdb",
+   "name": "🔞JAVDB┃磁力自动离线",
+   "zone": "video",
+   "adult": true,
+   "sort": 437,
+   "kind": "jarImport"
+  },
+  {
+   "id": "hongguo",
+   "siteId": "jar:zakatv:hongguo",
+   "name": "🍎红果短剧·听书┃官方直采+自建朗读",
+   "zone": "video",
+   "adult": false,
+   "sort": 438,
+   "kind": "jarImport"
+  },
+  {
+   "id": "livetv",
+   "siteId": "jar:zakatv:ZakaLiveTv",
+   "name": "🔞📡电视直播┃110台",
+   "zone": "video",
+   "adult": true,
+   "sort": 439,
+   "kind": "jarImport"
+  },
+  {
+   "id": "thdh",
+   "siteId": "jar:zakatv:thdh",
+   "name": "🔞探花短视频┃thdh",
+   "zone": "video",
+   "adult": true,
+   "sort": 440,
+   "kind": "jarImport"
+  },
+  {
+   "id": "qishe",
+   "siteId": "jar:zakatv:qishe",
+   "name": "🔞妻社┃qishe",
+   "zone": "video",
+   "adult": true,
+   "sort": 441,
+   "kind": "jarImport"
+  },
+  {
+   "id": "hjapp",
+   "siteId": "jar:zakatv:ZakaHjApp",
+   "name": "🔞海角社区┃App版",
+   "zone": "video",
+   "adult": true,
+   "sort": 442,
+   "kind": "jarImport"
+  },
+  {
+   "id": "17rip",
+   "siteId": "jar:zakatv:Zaka17rip",
+   "name": "🔞17rip┃底部导航分类",
+   "zone": "video",
+   "adult": true,
+   "sort": 443,
+   "kind": "jarImport"
+  },
+  {
+   "id": "javplay",
+   "siteId": "jar:zakatv:ZakaJavPlay",
+   "name": "🔞JavPlay┃免登录720",
+   "zone": "video",
+   "adult": true,
+   "sort": 444,
+   "kind": "jarImport"
+  },
+  {
+   "id": "javguru",
+   "siteId": "jar:zakatv:ZakaJavguru",
+   "name": "🔞JavGuru┃六线自动切",
+   "zone": "video",
+   "adult": true,
+   "sort": 445,
+   "kind": "jarImport"
+  },
+  {
+   "id": "52av",
+   "siteId": "jar:zakatv:Zaka52av",
+   "name": "🔞52AV┃華語論壇",
+   "zone": "video",
+   "adult": true,
+   "sort": 446,
+   "kind": "jarImport"
+  },
+  {
+   "id": "hgkpz",
+   "siteId": "jar:zakatv:hgkpz",
+   "name": "🔞黄瓜┃黄瓜看片",
+   "zone": "video",
+   "adult": true,
+   "sort": 447,
+   "kind": "jarImport"
+  },
+  {
+   "id": "wukong",
+   "siteId": "jar:zakatv:Wukong",
+   "name": "🔞悟空传媒",
+   "zone": "video",
+   "adult": true,
+   "sort": 448,
+   "kind": "jarImport"
+  },
+  {
+   "id": "chengren91",
+   "siteId": "jar:zakatv:Chengren91",
+   "name": "🔞91成人",
+   "zone": "video",
+   "adult": true,
+   "sort": 449,
+   "kind": "jarImport"
+  },
+  {
+   "id": "go_tingshu",
+   "siteId": "jar:zakatv:go_tingshu",
+   "name": "飞卢听书",
+   "zone": "audio",
+   "adult": false,
+   "sort": 450,
+   "kind": "jarImport"
+  },
+  {
+   "id": "123av",
+   "siteId": "jar:zakatv:av123",
+   "name": "🎬123AV┃原生",
+   "zone": "video",
+   "adult": true,
+   "sort": 451,
+   "kind": "jarImport"
+  },
+  {
+   "id": "321av",
+   "siteId": "jar:zakatv:av321",
+   "name": "🔞321AV┃中文字幕",
+   "zone": "video",
+   "adult": true,
+   "sort": 452,
+   "kind": "jarImport"
+  },
+  {
+   "id": "591av",
+   "siteId": "jar:zakatv:av591",
+   "name": "🔞591AV┃亚洲素人",
+   "zone": "video",
+   "adult": true,
+   "sort": 453,
+   "kind": "jarImport"
+  },
+  {
+   "id": "haijiao4k",
+   "siteId": "jar:zakatv:haijiao4k",
+   "name": "🔞海角社区4K",
+   "zone": "video",
+   "adult": true,
+   "sort": 454,
+   "kind": "jarImport"
+  },
+  {
+   "id": "hgdj58",
+   "siteId": "jar:zakatv:hgdj58",
+   "name": "🔞黄果短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 455,
+   "kind": "jarImport"
+  },
+  {
+   "id": "99jj",
+   "siteId": "jar:zakatv:jj99",
+   "name": "🆕🔞久久热┃KVS直取384P",
+   "zone": "video",
+   "adult": true,
+   "sort": 456,
+   "kind": "jarImport"
+  },
+  {
+   "id": "17rip",
+   "siteId": "jar:zakatv:rip17",
+   "name": "🔞17rip┃底部导航分类",
+   "zone": "video",
+   "adult": true,
+   "sort": 457,
+   "kind": "jarImport"
+  },
+  {
+   "id": "rouvideo",
+   "siteId": "jar:zakatv:rouvideo",
+   "name": "🔞肉视频",
+   "zone": "video",
+   "adult": true,
+   "sort": 458,
+   "kind": "jarImport"
+  },
+  {
+   "id": "69vj",
+   "siteId": "jar:zakatv:vj69",
+   "name": "🆕🔞69VJ┃xvideos片库",
+   "zone": "video",
+   "adult": true,
+   "sort": 459,
+   "kind": "jarImport"
+  },
+  {
+   "id": "wohs",
+   "siteId": "jar:zakatv:wohs",
+   "name": "🔍whos识图┃原生",
+   "zone": "video",
+   "adult": true,
+   "sort": 460,
+   "kind": "jarImport"
+  },
+  {
+   "id": "xj2",
+   "siteId": "jar:zakatv:xj2",
+   "name": "🔞香蕉视频免登入",
+   "zone": "video",
+   "adult": true,
+   "sort": 461,
+   "kind": "jarImport"
+  },
+  {
+   "id": "ddys",
+   "siteId": "jar:zakatv:ZakaDdys",
+   "name": "低端影视",
+   "zone": "video",
+   "adult": true,
+   "sort": 462,
+   "kind": "jarImport"
+  },
+  {
+   "id": "dingjiaseku",
+   "siteId": "jar:zakatv:ZakaDingjiaseku",
+   "name": "🔞顶级AI色库",
+   "zone": "video",
+   "adult": true,
+   "sort": 463,
+   "kind": "jarImport"
+  },
+  {
+   "id": "dj69",
+   "siteId": "jar:zakatv:ZakaDj69",
+   "name": "🔞69短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 464,
+   "kind": "jarImport"
+  },
+  {
+   "id": "dj91",
+   "siteId": "jar:zakatv:ZakaDj91",
+   "name": "🔞91短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 465,
+   "kind": "jarImport"
+  },
+  {
+   "id": "djwo",
+   "siteId": "jar:zakatv:ZakaDjwo",
+   "name": "🔞短剧窝",
+   "zone": "video",
+   "adult": true,
+   "sort": 466,
+   "kind": "jarImport"
+  },
+  {
+   "id": "duanjuone",
+   "siteId": "jar:zakatv:ZakaDuanjuone",
+   "name": "🔞短剧one",
+   "zone": "video",
+   "adult": true,
+   "sort": 467,
+   "kind": "jarImport"
+  },
+  {
+   "id": "fuchou",
+   "siteId": "jar:zakatv:ZakaFuchou",
+   "name": "🔞妇愁者联盟",
+   "zone": "video",
+   "adult": true,
+   "sort": 468,
+   "kind": "jarImport"
+  },
+  {
+   "id": "guzhuang",
+   "siteId": "jar:zakatv:ZakaGuzhuang",
+   "name": "🔞古装AI",
+   "zone": "video",
+   "adult": true,
+   "sort": 469,
+   "kind": "jarImport"
+  },
+  {
+   "id": "hbook",
+   "siteId": "jar:zakatv:ZakaHbook",
+   "name": "🔞HBook",
+   "zone": "video",
+   "adult": true,
+   "sort": 470,
+   "kind": "jarImport"
+  },
+  {
+   "id": "hduanju",
+   "siteId": "jar:zakatv:ZakaHduanju",
+   "name": "🔞H-短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 471,
+   "kind": "jarImport"
+  },
+  {
+   "id": "heitaoduanju",
+   "siteId": "jar:zakatv:ZakaHeitaoduanju",
+   "name": "🔞黑桃短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 472,
+   "kind": "jarImport"
+  },
+  {
+   "id": "henhenlu",
+   "siteId": "jar:zakatv:ZakaHenhenlu",
+   "name": "🔞狠狠撸",
+   "zone": "video",
+   "adult": true,
+   "sort": 473,
+   "kind": "jarImport"
+  },
+  {
+   "id": "herexxx",
+   "siteId": "jar:zakatv:ZakaHerexxx",
+   "name": "🔞HereXXX",
+   "zone": "video",
+   "adult": true,
+   "sort": 474,
+   "kind": "jarImport"
+  },
+  {
+   "id": "hgai",
+   "siteId": "jar:zakatv:ZakaHgai",
+   "name": "🔞黄瓜AI短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 475,
+   "kind": "jarImport"
+  },
+  {
+   "id": "hgaidj",
+   "siteId": "jar:zakatv:ZakaHgaidj",
+   "name": "🔞黄果AI短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 476,
+   "kind": "jarImport"
+  },
+  {
+   "id": "hgtvim",
+   "siteId": "jar:zakatv:ZakaHgtvim",
+   "name": "🔞黄果短剧HGTV",
+   "zone": "video",
+   "adult": true,
+   "sort": 477,
+   "kind": "jarImport"
+  },
+  {
+   "id": "hohoj",
+   "siteId": "jar:zakatv:ZakaHohoj",
+   "name": "🔞好好J",
+   "zone": "video",
+   "adult": true,
+   "sort": 478,
+   "kind": "jarImport"
+  },
+  {
+   "id": "hongluo",
+   "siteId": "jar:zakatv:ZakaHongluo",
+   "name": "🔞红裸短剧（成人）",
+   "zone": "video",
+   "adult": true,
+   "sort": 479,
+   "kind": "jarImport"
+  },
+  {
+   "id": "hongxing",
+   "siteId": "jar:zakatv:ZakaHongxing",
+   "name": "🔞红杏",
+   "zone": "video",
+   "adult": true,
+   "sort": 480,
+   "kind": "jarImport"
+  },
+  {
+   "id": "hongyan",
+   "siteId": "jar:zakatv:ZakaHongyan",
+   "name": "🔞红颜AI短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 481,
+   "kind": "jarImport"
+  },
+  {
+   "id": "huai",
+   "siteId": "jar:zakatv:ZakaHuai",
+   "name": "🔞欢爱",
+   "zone": "video",
+   "adult": true,
+   "sort": 482,
+   "kind": "jarImport"
+  },
+  {
+   "id": "huangduanju",
+   "siteId": "jar:zakatv:ZakaHuangduanju",
+   "name": "🔞黄.短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 483,
+   "kind": "jarImport"
+  },
+  {
+   "id": "huangguazy",
+   "siteId": "jar:zakatv:ZakaHuangguazy",
+   "name": "🔞黄瓜资源",
+   "zone": "video",
+   "adult": true,
+   "sort": 484,
+   "kind": "jarImport"
+  },
+  {
+   "id": "huangguotv",
+   "siteId": "jar:zakatv:ZakaHuangguotv",
+   "name": "🔞黄果TV短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 485,
+   "kind": "jarImport"
+  },
+  {
+   "id": "japanwhores",
+   "siteId": "jar:zakatv:ZakaJapanwhores",
+   "name": "🔞Japan Whores",
+   "zone": "video",
+   "adult": true,
+   "sort": 486,
+   "kind": "jarImport"
+  },
+  {
+   "id": "jav188",
+   "siteId": "jar:zakatv:ZakaJav188",
+   "name": "🔞AV18.Live",
+   "zone": "video",
+   "adult": true,
+   "sort": 487,
+   "kind": "jarImport"
+  },
+  {
+   "id": "javdino",
+   "siteId": "jar:zakatv:ZakaJavdino",
+   "name": "🔞JavDino",
+   "zone": "video",
+   "adult": true,
+   "sort": 488,
+   "kind": "jarImport"
+  },
+  {
+   "id": "javfun",
+   "siteId": "jar:zakatv:ZakaJavfun",
+   "name": "🔞JJavFun",
+   "zone": "video",
+   "adult": true,
+   "sort": 489,
+   "kind": "jarImport"
+  },
+  {
+   "id": "javgg",
+   "siteId": "jar:zakatv:ZakaJavgg",
+   "name": "🔞JavGG",
+   "zone": "video",
+   "adult": true,
+   "sort": 490,
+   "kind": "jarImport"
+  },
+  {
+   "id": "javhdtube",
+   "siteId": "jar:zakatv:ZakaJavhdtube",
+   "name": "🔞JAVHDTube",
+   "zone": "video",
+   "adult": true,
+   "sort": 491,
+   "kind": "jarImport"
+  },
+  {
+   "id": "javmit",
+   "siteId": "jar:zakatv:ZakaJavmit",
+   "name": "🔞JAVMIT",
+   "zone": "video",
+   "adult": true,
+   "sort": 492,
+   "kind": "jarImport"
+  },
+  {
+   "id": "javsiri",
+   "siteId": "jar:zakatv:ZakaJavsiri",
+   "name": "🔞JAVSiri",
+   "zone": "video",
+   "adult": true,
+   "sort": 493,
+   "kind": "jarImport"
+  },
+  {
+   "id": "javtiful",
+   "siteId": "jar:zakatv:ZakaJavtiful",
+   "name": "🔞Javtiful",
+   "zone": "video",
+   "adult": true,
+   "sort": 494,
+   "kind": "jarImport"
+  },
+  {
+   "id": "javtsunami",
+   "siteId": "jar:zakatv:ZakaJavtsunami",
+   "name": "🔞JAV Tsunami",
+   "zone": "video",
+   "adult": true,
+   "sort": 495,
+   "kind": "jarImport"
+  },
+  {
+   "id": "javzw",
+   "siteId": "jar:zakatv:ZakaJavzw",
+   "name": "🔞Jav中文",
+   "zone": "video",
+   "adult": true,
+   "sort": 496,
+   "kind": "jarImport"
+  },
+  {
+   "id": "jin18",
+   "siteId": "jar:zakatv:ZakaJin18",
+   "name": "🔞18禁乐园",
+   "zone": "video",
+   "adult": true,
+   "sort": 497,
+   "kind": "jarImport"
+  },
+  {
+   "id": "jiuse",
+   "siteId": "jar:zakatv:ZakaJiuse",
+   "name": "🔞九色",
+   "zone": "video",
+   "adult": true,
+   "sort": 498,
+   "kind": "jarImport"
+  },
+  {
+   "id": "jiuseduanju",
+   "siteId": "jar:zakatv:ZakaJiuseduanju",
+   "name": "🔞九色短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 499,
+   "kind": "jarImport"
+  },
+  {
+   "id": "jptt",
+   "siteId": "jar:zakatv:ZakaJptt",
+   "name": "🔞JPTT禁片天堂",
+   "zone": "video",
+   "adult": true,
+   "sort": 500,
+   "kind": "jarImport"
+  },
+  {
+   "id": "kankux",
+   "siteId": "jar:zakatv:ZakaKankux",
+   "name": "🔞看裤X",
+   "zone": "video",
+   "adult": true,
+   "sort": 501,
+   "kind": "jarImport"
+  },
+  {
+   "id": "kissjav",
+   "siteId": "jar:zakatv:ZakaKissjav",
+   "name": "🔞KissJAV",
+   "zone": "video",
+   "adult": true,
+   "sort": 502,
+   "kind": "jarImport"
+  },
+  {
+   "id": "klxq",
+   "siteId": "jar:zakatv:ZakaKlxq",
+   "name": "🔞快乐星球",
+   "zone": "video",
+   "adult": true,
+   "sort": 503,
+   "kind": "jarImport"
+  },
+  {
+   "id": "koreanporn",
+   "siteId": "jar:zakatv:ZakaKoreanporn",
+   "name": "🔞Korean Porn Movie",
+   "zone": "video",
+   "adult": true,
+   "sort": 504,
+   "kind": "jarImport"
+  },
+  {
+   "id": "luoliai",
+   "siteId": "jar:zakatv:ZakaLuoliai",
+   "name": "🔞萝莉AI短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 505,
+   "kind": "jarImport"
+  },
+  {
+   "id": "madao",
+   "siteId": "jar:zakatv:ZakaMadao",
+   "name": "🔞麻豆傳媒",
+   "zone": "video",
+   "adult": true,
+   "sort": 506,
+   "kind": "jarImport"
+  },
+  {
+   "id": "madou",
+   "siteId": "jar:zakatv:ZakaMadou",
+   "name": "🔞2048成人短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 507,
+   "kind": "jarImport"
+  },
+  {
+   "id": "mianfeiai",
+   "siteId": "jar:zakatv:ZakaMianfeiai",
+   "name": "🔞免费AI短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 508,
+   "kind": "jarImport"
+  },
+  {
+   "id": "mose365",
+   "siteId": "jar:zakatv:ZakaMose365",
+   "name": "🔞魔色365",
+   "zone": "video",
+   "adult": true,
+   "sort": 509,
+   "kind": "jarImport"
+  },
+  {
+   "id": "muzi",
+   "siteId": "jar:zakatv:ZakaMuzi",
+   "name": "🔞母子视频",
+   "zone": "video",
+   "adult": true,
+   "sort": 510,
+   "kind": "jarImport"
+  },
+  {
+   "id": "mythav",
+   "siteId": "jar:zakatv:ZakaMythav",
+   "name": "🔞MythAV",
+   "zone": "video",
+   "adult": true,
+   "sort": 511,
+   "kind": "jarImport"
+  },
+  {
+   "id": "naihenda",
+   "siteId": "jar:zakatv:ZakaNaihenda",
+   "name": "🔞奶很大",
+   "zone": "video",
+   "adult": true,
+   "sort": 512,
+   "kind": "jarImport"
+  },
+  {
+   "id": "nvdi",
+   "siteId": "jar:zakatv:ZakaNvdi",
+   "name": "🔞女帝",
+   "zone": "video",
+   "adult": true,
+   "sort": 513,
+   "kind": "jarImport"
+  },
+  {
+   "id": "pachub",
+   "siteId": "jar:zakatv:ZakaPachub",
+   "name": "🔞PacHub",
+   "zone": "video",
+   "adult": true,
+   "sort": 514,
+   "kind": "jarImport"
+  },
+  {
+   "id": "pandatv",
+   "siteId": "jar:zakatv:ZakaPandatv",
+   "name": "🔞PANDATV",
+   "zone": "video",
+   "adult": true,
+   "sort": 515,
+   "kind": "jarImport"
+  },
+  {
+   "id": "porna91",
+   "siteId": "jar:zakatv:ZakaPorna91",
+   "name": "🔞91porna",
+   "zone": "video",
+   "adult": true,
+   "sort": 516,
+   "kind": "jarImport"
+  },
+  {
+   "id": "porncgw",
+   "siteId": "jar:zakatv:ZakaPorncgw",
+   "name": "🔞Porn吃瓜网",
+   "zone": "video",
+   "adult": true,
+   "sort": 517,
+   "kind": "jarImport"
+  },
+  {
+   "id": "px8x",
+   "siteId": "jar:zakatv:ZakaPx8x",
+   "name": "🔞Px8x",
+   "zone": "video",
+   "adult": true,
+   "sort": 518,
+   "kind": "jarImport"
+  },
+  {
+   "id": "roshy",
+   "siteId": "jar:zakatv:ZakaRoshy",
+   "name": "🔞Roshy",
+   "zone": "video",
+   "adult": true,
+   "sort": 519,
+   "kind": "jarImport"
+  },
+  {
+   "id": "rscg91",
+   "siteId": "jar:zakatv:ZakaRscg91",
+   "name": "🔞91人兽吃瓜",
+   "zone": "video",
+   "adult": true,
+   "sort": 520,
+   "kind": "jarImport"
+  },
+  {
+   "id": "senzuri",
+   "siteId": "jar:zakatv:ZakaSenzuri",
+   "name": "🔞Senzuri Tube",
+   "zone": "video",
+   "adult": true,
+   "sort": 521,
+   "kind": "jarImport"
+  },
+  {
+   "id": "sexaix",
+   "siteId": "jar:zakatv:ZakaSexaix",
+   "name": "🔞幻影AI",
+   "zone": "video",
+   "adult": true,
+   "sort": 522,
+   "kind": "jarImport"
+  },
+  {
+   "id": "sexkbj",
+   "siteId": "jar:zakatv:ZakaSexkbj",
+   "name": "🔞SexKbj",
+   "zone": "video",
+   "adult": true,
+   "sort": 523,
+   "kind": "jarImport"
+  },
+  {
+   "id": "shaofu",
+   "siteId": "jar:zakatv:ZakaShaofu",
+   "name": "🔞少妇·短剧AV",
+   "zone": "video",
+   "adult": true,
+   "sort": 524,
+   "kind": "jarImport"
+  },
+  {
+   "id": "shunvqu",
+   "siteId": "jar:zakatv:ZakaShunvqu",
+   "name": "🔞熟女群",
+   "zone": "video",
+   "adult": true,
+   "sort": 525,
+   "kind": "jarImport"
+  },
+  {
+   "id": "shunvwang",
+   "siteId": "jar:zakatv:ZakaShunvwang",
+   "name": "🔞熟女网",
+   "zone": "video",
+   "adult": true,
+   "sort": 526,
+   "kind": "jarImport"
+  },
+  {
+   "id": "ssis",
+   "siteId": "jar:zakatv:ZakaSsis",
+   "name": "🔞ssisJAV",
+   "zone": "video",
+   "adult": true,
+   "sort": 527,
+   "kind": "jarImport"
+  },
+  {
+   "id": "swagr",
+   "siteId": "jar:zakatv:ZakaSwagr",
+   "name": "🔞SWAG资源合集",
+   "zone": "video",
+   "adult": true,
+   "sort": 528,
+   "kind": "jarImport"
+  },
+  {
+   "id": "taiav",
+   "siteId": "jar:zakatv:ZakaTaiav",
+   "name": "🔞TaiAV",
+   "zone": "video",
+   "adult": true,
+   "sort": 529,
+   "kind": "jarImport"
+  },
+  {
+   "id": "tanhua91",
+   "siteId": "jar:zakatv:ZakaTanhua91",
+   "name": "🔞九色",
+   "zone": "video",
+   "adult": true,
+   "sort": 530,
+   "kind": "jarImport"
+  },
+  {
+   "id": "taose",
+   "siteId": "jar:zakatv:ZakaTaose",
+   "name": "🔞AI成人短剧1",
+   "zone": "video",
+   "adult": true,
+   "sort": 531,
+   "kind": "jarImport"
+  },
+  {
+   "id": "theporny",
+   "siteId": "jar:zakatv:ZakaTheporny",
+   "name": "🔞thePorny",
+   "zone": "video",
+   "adult": true,
+   "sort": 532,
+   "kind": "jarImport"
+  },
+  {
+   "id": "tiktvod",
+   "siteId": "jar:zakatv:ZakaTiktvod",
+   "name": "🔞TikTok成人版",
+   "zone": "video",
+   "adult": true,
+   "sort": 533,
+   "kind": "jarImport"
+  },
+  {
+   "id": "tinyav",
+   "siteId": "jar:zakatv:ZakaTinyav",
+   "name": "🔞TinyAV",
+   "zone": "video",
+   "adult": true,
+   "sort": 534,
+   "kind": "jarImport"
+  },
+  {
+   "id": "tokyomotion",
+   "siteId": "jar:zakatv:ZakaTokyomotion",
+   "name": "🔞TokyoMotion",
+   "zone": "video",
+   "adult": true,
+   "sort": 535,
+   "kind": "jarImport"
+  },
+  {
+   "id": "topjav",
+   "siteId": "jar:zakatv:ZakaTopjav",
+   "name": "🔞TopJAV",
+   "zone": "video",
+   "adult": true,
+   "sort": 536,
+   "kind": "jarImport"
+  },
+  {
+   "id": "toptv",
+   "siteId": "jar:zakatv:ZakaToptv",
+   "name": "🔞TOPTV",
+   "zone": "video",
+   "adult": true,
+   "sort": 537,
+   "kind": "jarImport"
+  },
+  {
+   "id": "uudj",
+   "siteId": "jar:zakatv:ZakaUudj",
+   "name": "🔞UU短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 538,
+   "kind": "jarImport"
+  },
+  {
+   "id": "vjav",
+   "siteId": "jar:zakatv:ZakaVjav",
+   "name": "🔞VJAV",
+   "zone": "video",
+   "adult": true,
+   "sort": 539,
+   "kind": "jarImport"
+  },
+  {
+   "id": "x51",
+   "siteId": "jar:zakatv:ZakaX51",
+   "name": "🔞51X",
+   "zone": "video",
+   "adult": true,
+   "sort": 540,
+   "kind": "jarImport"
+  },
+  {
+   "id": "xianxia",
+   "siteId": "jar:zakatv:ZakaXianxia",
+   "name": "🔞仙侠AI短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 541,
+   "kind": "jarImport"
+  },
+  {
+   "id": "xingkongfuli",
+   "siteId": "jar:zakatv:ZakaXingkongfuli",
+   "name": "🔞星空福利视频",
+   "zone": "video",
+   "adult": true,
+   "sort": 542,
+   "kind": "jarImport"
+  },
+  {
+   "id": "xlook",
+   "siteId": "jar:zakatv:ZakaXlook",
+   "name": "🔞XLook中文大全",
+   "zone": "video",
+   "adult": true,
+   "sort": 543,
+   "kind": "jarImport"
+  },
+  {
+   "id": "xojav",
+   "siteId": "jar:zakatv:ZakaXojav",
+   "name": "🔞XOJAV",
+   "zone": "video",
+   "adult": true,
+   "sort": 544,
+   "kind": "jarImport"
+  },
+  {
+   "id": "yaguo",
+   "siteId": "jar:zakatv:ZakaYaguo",
+   "name": "芽果",
+   "zone": "video",
+   "adult": false,
+   "sort": 545,
+   "kind": "jarImport"
+  },
+  {
+   "id": "yiren",
+   "siteId": "jar:zakatv:ZakaYiren",
+   "name": "🔞伊人AV",
+   "zone": "video",
+   "adult": true,
+   "sort": 546,
+   "kind": "jarImport"
+  },
+  {
+   "id": "yunmeng",
+   "siteId": "jar:zakatv:ZakaYunmeng",
+   "name": "🔞云梦在线",
+   "zone": "video",
+   "adult": true,
+   "sort": 547,
+   "kind": "jarImport"
+  },
+  {
+   "id": "ywly",
+   "siteId": "jar:zakatv:ZakaYwly",
+   "name": "🔞欲望乐园",
+   "zone": "video",
+   "adult": true,
+   "sort": 548,
+   "kind": "jarImport"
+  },
+  {
+   "id": "ywmm",
+   "siteId": "jar:zakatv:ZakaYwmm",
+   "name": "🔞高清开苞处女",
+   "zone": "video",
+   "adult": true,
+   "sort": 549,
+   "kind": "jarImport"
+  },
+  {
+   "id": "zwdj",
+   "siteId": "jar:zakatv:ZakaZwdj",
+   "name": "🔞中文短剧网",
+   "zone": "video",
+   "adult": true,
+   "sort": 550,
+   "kind": "jarImport"
+  },
+  {
+   "id": "zwwm",
+   "siteId": "jar:zakatv:ZakaZwwm",
+   "name": "🔞中文无码",
+   "zone": "video",
+   "adult": true,
+   "sort": 551,
+   "kind": "jarImport"
+  },
+  {
+   "id": "chinaxjx",
+   "siteId": "jar:zakatv:ZakaChinaxjx",
+   "name": "🔞中国X站精选",
+   "zone": "video",
+   "adult": true,
+   "sort": 552,
+   "kind": "jarImport"
+  },
+  {
+   "id": "aiyinhang",
+   "siteId": "jar:zakatv:ZakaAiyinhang",
+   "name": "🔞AI淫航",
+   "zone": "video",
+   "adult": true,
+   "sort": 553,
+   "kind": "jarImport"
+  },
+  {
+   "id": "hstv",
+   "siteId": "jar:zakatv:hstv",
+   "name": "🔞HSTV",
+   "zone": "video",
+   "adult": true,
+   "sort": 554,
+   "kind": "jarImport"
+  },
+  {
+   "id": "xhs",
+   "siteId": "jar:zakatv:Xhs",
+   "name": "Xhs",
+   "zone": "video",
+   "adult": false,
+   "sort": 555,
+   "kind": "jarImport"
+  },
+  {
+   "id": "chaoliu",
+   "siteId": "jar:zakatv:ZakaChaoliu",
+   "name": "🔞潮流AV(JAR)",
+   "zone": "video",
+   "adult": true,
+   "sort": 556,
+   "kind": "jarImport"
+  },
+  {
+   "id": "eroshort",
+   "siteId": "jar:zakatv:EroShort",
+   "name": "🔞EroShort",
+   "zone": "video",
+   "adult": true,
+   "sort": 557,
+   "kind": "jarImport"
+  },
+  {
+   "id": "yzaikan",
+   "siteId": "jar:zakatv:YzAikan",
+   "name": "柚子爱看",
+   "zone": "video",
+   "adult": true,
+   "sort": 558,
+   "kind": "jarImport"
+  },
+  {
+   "id": "tgpianku",
+   "siteId": "jar:zakatv:ZakaTgPianku",
+   "name": "tg片库",
+   "zone": "video",
+   "adult": true,
+   "sort": 559,
+   "kind": "jarImport"
+  },
+  {
+   "id": "one",
+   "siteId": "jar:one:One",
+   "name": "🔞一点播",
+   "zone": "video",
+   "adult": true,
+   "sort": 560,
+   "kind": "jarImport"
+  },
+  {
+   "id": "youtube",
+   "siteId": "jar:youtube:youtube",
+   "name": "YouTube",
+   "zone": "video",
+   "adult": false,
+   "sort": 561,
+   "kind": "jarImport"
+  },
+  {
+   "id": "xiuguo",
+   "siteId": "xiuguo",
+   "name": "秀果",
+   "zone": "live",
+   "adult": true,
+   "sort": 562,
+   "kind": "livePlatform"
+  },
+  {
+   "id": "maiyoux",
+   "siteId": "maiyoux",
+   "name": "欲火聚合",
+   "zone": "live",
+   "adult": true,
+   "sort": 563,
+   "kind": "livePlatform"
+  },
+  {
+   "id": "bnzb",
+   "siteId": "bnzb",
+   "name": "百年直播",
+   "zone": "live",
+   "adult": true,
+   "sort": 564,
+   "kind": "livePlatform"
+  },
+  {
+   "id": "user_m3u",
+   "siteId": "user_m3u",
+   "name": "成人点播",
+   "zone": "live",
+   "adult": true,
+   "sort": 565,
+   "kind": "liveM3u"
+  },
+  {
+   "id": "m3u_zhubo",
+   "siteId": "m3u_zhubo",
+   "name": "主播网红",
+   "zone": "live",
+   "adult": true,
+   "sort": 566,
+   "kind": "liveM3u"
+  },
+  {
+   "id": "m3u_luanlun",
+   "siteId": "m3u_luanlun",
+   "name": "乱伦精品",
+   "zone": "live",
+   "adult": true,
+   "sort": 567,
+   "kind": "liveM3u"
+  },
+  {
+   "id": "m3u_huayu",
+   "siteId": "m3u_huayu",
+   "name": "华语精品",
+   "zone": "live",
+   "adult": true,
+   "sort": 568,
+   "kind": "liveM3u"
+  },
+  {
+   "id": "m3u_guochan",
+   "siteId": "m3u_guochan",
+   "name": "国产精品",
+   "zone": "live",
+   "adult": true,
+   "sort": 569,
+   "kind": "liveM3u"
+  },
+  {
+   "id": "m3u_xuesheng",
+   "siteId": "m3u_xuesheng",
+   "name": "学生合集",
+   "zone": "live",
+   "adult": true,
+   "sort": 570,
+   "kind": "liveM3u"
+  },
+  {
+   "id": "m3u_tanhua",
+   "siteId": "m3u_tanhua",
+   "name": "探花约炮",
+   "zone": "live",
+   "adult": true,
+   "sort": 571,
+   "kind": "liveM3u"
+  },
+  {
+   "id": "m3u_riben",
+   "siteId": "m3u_riben",
+   "name": "日本有码",
+   "zone": "live",
+   "adult": true,
+   "sort": 572,
+   "kind": "liveM3u"
+  },
+  {
+   "id": "m3u_oumei",
+   "siteId": "m3u_oumei",
+   "name": "欧美大屌",
+   "zone": "live",
+   "adult": true,
+   "sort": 573,
+   "kind": "liveM3u"
+  },
+  {
+   "id": "m3u_heilian",
+   "siteId": "m3u_heilian",
+   "name": "黑料吃瓜",
+   "zone": "live",
+   "adult": true,
+   "sort": 574,
+   "kind": "liveM3u"
+  },
+  {
+   "id": "m3u_community10",
+   "siteId": "m3u_community10",
+   "name": "社区合集 10",
+   "zone": "live",
+   "adult": true,
+   "sort": 575,
+   "kind": "liveM3u"
+  },
+  {
+   "id": "m3u_community11",
+   "siteId": "m3u_community11",
+   "name": "社区合集 11",
+   "zone": "live",
+   "adult": true,
+   "sort": 576,
+   "kind": "liveM3u"
+  },
+  {
+   "id": "m3u_wuma",
+   "siteId": "m3u_wuma",
+   "name": "無碼專區",
+   "zone": "live",
+   "adult": true,
+   "sort": 577,
+   "kind": "liveM3u"
+  },
+  {
+   "id": "m3u_wanghong",
+   "siteId": "m3u_wanghong",
+   "name": "網紅頭條",
+   "zone": "live",
+   "adult": true,
+   "sort": 578,
+   "kind": "liveM3u"
+  },
+  {
+   "id": "m3u_xingba",
+   "siteId": "m3u_xingba",
+   "name": "杏吧原創",
+   "zone": "live",
+   "adult": true,
+   "sort": 579,
+   "kind": "liveM3u"
+  },
+  {
+   "id": "m3u_chengtou",
+   "siteId": "m3u_chengtou",
+   "name": "成人頭條",
+   "zone": "live",
+   "adult": true,
+   "sort": 580,
+   "kind": "liveM3u"
+  },
+  {
+   "id": "m3u_zhifu",
+   "siteId": "m3u_zhifu",
+   "name": "制服絲襪",
+   "zone": "live",
+   "adult": true,
+   "sort": 581,
+   "kind": "liveM3u"
+  },
+  {
+   "id": "m3u_qunjiao",
+   "siteId": "m3u_qunjiao",
+   "name": "群交淫亂",
+   "zone": "live",
+   "adult": true,
+   "sort": 582,
+   "kind": "liveM3u"
+  },
+  {
+   "id": "m3u_mingxing",
+   "siteId": "m3u_mingxing",
+   "name": "明星換臉",
+   "zone": "live",
+   "adult": true,
+   "sort": 583,
+   "kind": "liveM3u"
+  },
+  {
+   "id": "m3u_zipai",
+   "siteId": "m3u_zipai",
+   "name": "自拍偷拍",
+   "zone": "live",
+   "adult": true,
+   "sort": 584,
+   "kind": "liveM3u"
+  },
+  {
+   "id": "m3u_avxiongdi",
+   "siteId": "m3u_avxiongdi",
+   "name": "AV兄弟无码",
+   "zone": "live",
+   "adult": true,
+   "sort": 585,
+   "kind": "liveM3u"
+  },
+  {
+   "id": "m3u_guochanse",
+   "siteId": "m3u_guochanse",
+   "name": "国产色情",
+   "zone": "live",
+   "adult": true,
+   "sort": 586,
+   "kind": "liveM3u"
+  },
+  {
+   "id": "m3u_riben2",
+   "siteId": "m3u_riben2",
+   "name": "日本有码 2",
+   "zone": "live",
+   "adult": true,
+   "sort": 587,
+   "kind": "liveM3u"
+  },
+  {
+   "id": "huangju",
+   "siteId": "huangju",
+   "name": "剧果",
+   "zone": "drama",
+   "adult": false,
+   "sort": 588,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "yeguo",
+   "siteId": "yeguo",
+   "name": "野果",
+   "zone": "drama",
+   "adult": false,
+   "sort": 589,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "hgtvmirror",
+   "siteId": "hgtvmirror",
+   "name": "红果镜像",
+   "zone": "drama",
+   "adult": false,
+   "sort": 590,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "hongguo",
+   "siteId": "hongguo",
+   "name": "红果",
+   "zone": "audio",
+   "adult": false,
+   "sort": 591,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "hgtv",
+   "siteId": "hgtv",
+   "name": "HGTV",
+   "zone": "drama",
+   "adult": false,
+   "sort": 592,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "fanguo",
+   "siteId": "fanguo",
+   "name": "饭果",
+   "zone": "drama",
+   "adult": false,
+   "sort": 593,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "guanguo",
+   "siteId": "guanguo",
+   "name": "观果",
+   "zone": "drama",
+   "adult": false,
+   "sort": 594,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "heguo",
+   "siteId": "heguo",
+   "name": "河果",
+   "zone": "drama",
+   "adult": false,
+   "sort": 595,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "xingguo",
+   "siteId": "xingguo",
+   "name": "星果",
+   "zone": "drama",
+   "adult": false,
+   "sort": 596,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "maoguo",
+   "siteId": "maoguo",
+   "name": "猫果",
+   "zone": "drama",
+   "adult": false,
+   "sort": 597,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "yaguo",
+   "siteId": "yaguo",
+   "name": "芽果",
+   "zone": "drama",
+   "adult": false,
+   "sort": 598,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "niuguo",
+   "siteId": "niuguo",
+   "name": "牛果",
+   "zone": "drama",
+   "adult": false,
+   "sort": 599,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "huangdou",
+   "siteId": "huangdou",
+   "name": "黄豆",
+   "zone": "drama",
+   "adult": false,
+   "sort": 600,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "huangdou_yh",
+   "siteId": "huangdou_yh",
+   "name": "黄豆短剧",
+   "zone": "drama",
+   "adult": false,
+   "sort": 601,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "huaguo",
+   "siteId": "huaguo",
+   "name": "花果",
+   "zone": "drama",
+   "adult": false,
+   "sort": 602,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "faguo",
+   "siteId": "faguo",
+   "name": "发果",
+   "zone": "drama",
+   "adult": false,
+   "sort": 603,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "wuguo",
+   "siteId": "wuguo",
+   "name": "伍果",
+   "zone": "drama",
+   "adult": false,
+   "sort": 604,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "wangguo",
+   "siteId": "wangguo",
+   "name": "网果",
+   "zone": "drama",
+   "adult": false,
+   "sort": 605,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "hgdjv",
+   "siteId": "hgdjv",
+   "name": "🔞黄果短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 606,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "hgdj",
+   "siteId": "hgdj",
+   "name": "🔞黄果短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 607,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "hgdj58",
+   "siteId": "hgdj58",
+   "name": "🔞黄果短剧",
+   "zone": "video",
+   "adult": true,
+   "sort": 608,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "1000novel",
+   "siteId": "1000novel",
+   "name": "🔞1000novel",
+   "zone": "novel",
+   "adult": true,
+   "sort": 609,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "69story",
+   "siteId": "69story",
+   "name": "🔞69story",
+   "zone": "novel",
+   "adult": true,
+   "sort": 610,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "aabook",
+   "siteId": "aabook",
+   "name": "aabook",
+   "zone": "novel",
+   "adult": false,
+   "sort": 611,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "buliang",
+   "siteId": "buliang",
+   "name": "🔞不良小说",
+   "zone": "novel",
+   "adult": true,
+   "sort": 612,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "canovel",
+   "siteId": "canovel",
+   "name": "🔞canovel",
+   "zone": "novel",
+   "adult": true,
+   "sort": 613,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "cheniyo",
+   "siteId": "cheniyo",
+   "name": "🔞cheniyo",
+   "zone": "novel",
+   "adult": true,
+   "sort": 614,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "cjg",
+   "siteId": "cjg",
+   "name": "🔞cjg",
+   "zone": "novel",
+   "adult": true,
+   "sort": 615,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "h528",
+   "siteId": "h528",
+   "name": "🔞h528",
+   "zone": "novel",
+   "adult": true,
+   "sort": 616,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "hwg4",
+   "siteId": "hwg4",
+   "name": "🔞hwg4",
+   "zone": "novel",
+   "adult": true,
+   "sort": 617,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "jywx2",
+   "siteId": "jywx2",
+   "name": "🔞jywx2",
+   "zone": "novel",
+   "adult": true,
+   "sort": 618,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "lbwen",
+   "siteId": "lbwen",
+   "name": "🔞lbwen",
+   "zone": "novel",
+   "adult": true,
+   "sort": 619,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "ssxxs",
+   "siteId": "ssxxs",
+   "name": "🔞ssxxs",
+   "zone": "novel",
+   "adult": true,
+   "sort": 620,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "ylxs",
+   "siteId": "ylxs",
+   "name": "ylxs",
+   "zone": "novel",
+   "adult": false,
+   "sort": 621,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "yinse",
+   "siteId": "yinse",
+   "name": "🔞yinse",
+   "zone": "novel",
+   "adult": true,
+   "sort": 622,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "55comics",
+   "siteId": "55comics",
+   "name": "🔞55comics",
+   "zone": "comic",
+   "adult": true,
+   "sort": 623,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "csmanhua",
+   "siteId": "csmanhua",
+   "name": "🔞csmanhua",
+   "zone": "comic",
+   "adult": true,
+   "sort": 624,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "dongmanla",
+   "siteId": "dongmanla",
+   "name": "动漫啦",
+   "zone": "comic",
+   "adult": false,
+   "sort": 625,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "ho5ho",
+   "siteId": "ho5ho",
+   "name": "🔞ho5ho",
+   "zone": "comic",
+   "adult": true,
+   "sort": 626,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "kmh001",
+   "siteId": "kmh001",
+   "name": "kmh001",
+   "zone": "comic",
+   "adult": false,
+   "sort": 627,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "kuaikan",
+   "siteId": "kuaikan",
+   "name": "快看漫画",
+   "zone": "comic",
+   "adult": false,
+   "sort": 628,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "kxmanhua",
+   "siteId": "kxmanhua",
+   "name": "kxmanhua",
+   "zone": "comic",
+   "adult": false,
+   "sort": 629,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "mhbl",
+   "siteId": "mhbl",
+   "name": "mhbl",
+   "zone": "comic",
+   "adult": false,
+   "sort": 630,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "modu18",
+   "siteId": "modu18",
+   "name": "🔞modu18",
+   "zone": "comic",
+   "adult": true,
+   "sort": 631,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "nnhanman",
+   "siteId": "nnhanman",
+   "name": "nnhanman",
+   "zone": "comic",
+   "adult": false,
+   "sort": 632,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "tencent",
+   "siteId": "tencent",
+   "name": "腾讯动漫",
+   "zone": "comic",
+   "adult": false,
+   "sort": 633,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "tingyou",
+   "siteId": "tingyou",
+   "name": "听友听书",
+   "zone": "audio",
+   "adult": false,
+   "sort": 634,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "hsvoice31",
+   "siteId": "hsvoice31",
+   "name": "🔞黄色有声小说",
+   "zone": "audio",
+   "adult": true,
+   "sort": 635,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "hysxs",
+   "siteId": "hysxs",
+   "name": "🔞H有声小说",
+   "zone": "audio",
+   "adult": true,
+   "sort": 636,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "ximalaya",
+   "siteId": "ximalaya",
+   "name": "喜马拉雅",
+   "zone": "audio",
+   "adult": false,
+   "sort": 637,
+   "kind": "nativeGate"
+  },
+  {
+   "id": "shuyinfm",
+   "siteId": "shuyinfm",
+   "name": "书音FM",
+   "zone": "audio",
+   "adult": false,
+   "sort": 638,
+   "kind": "nativeGate"
+  }
+ ]
+}

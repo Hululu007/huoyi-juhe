@@ -29,6 +29,7 @@ Future<CodeMeta?> loadCodeMetaForDrama({
   required String dramaId,
   required String title,
   required String sourceId,
+  String remark = '',
 }) async {
   try {
     final results = await Future.wait([
@@ -37,12 +38,25 @@ Future<CodeMeta?> loadCodeMetaForDrama({
     ]);
     final map = results[0] as JavCodeMeta;
     final whos = results[1] as WhosJsonIndex;
-    return map.match(
+    final matched = map.match(
       id: dramaId,
       title: title,
       sourceId: sourceId,
       whosIndex: whos,
     );
+    if (matched != null) return matched;
+    // 主匹配落空且备注（remark 通道常带番号）与标题不同时，用备注
+    // 当标题再兜底一次（标题兜底会从备注里抠番号 / 按名查）。
+    final trimmedRemark = remark.trim();
+    if (trimmedRemark.isNotEmpty && trimmedRemark != title.trim()) {
+      return map.match(
+        id: dramaId,
+        title: trimmedRemark,
+        sourceId: sourceId,
+        whosIndex: whos,
+      );
+    }
+    return null;
   } catch (_) {
     // 资源缺失/损坏时不挡详情页：调用方直接不显示演员区。
     return null;
@@ -183,11 +197,7 @@ class _CodeMetaSectionState extends State<CodeMetaSection> {
 /// 演员行：小头像（真照片，没有时回落名字首字圆圈）+ 只显示名字
 ///（2026-11-24 用户令：主演/配角去掉）。
 class _ActorRow extends StatelessWidget {
-  const _ActorRow({
-    super.key,
-    required this.name,
-    required this.avatarUrl,
-  });
+  const _ActorRow({super.key, required this.name, required this.avatarUrl});
 
   final String name;
   final String avatarUrl;

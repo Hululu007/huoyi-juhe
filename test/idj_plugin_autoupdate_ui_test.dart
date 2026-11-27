@@ -6,12 +6,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:fqapp/pages/plugin_manage_page.dart';
 import 'package:fqapp/services/idj_plugin_store.dart';
+import 'package:fqapp/widgets/mine/mine_plugin_section.dart';
 
 /// 插件自动更新 + 市场四态的界面测试（用户 2026-11-27 令）：
-/// 承载面是「我的 → 插件管理」页（2026-11-27 新布局令：市场与
-/// 管理搬进管理页，选站弹窗插件区只留显示，自动更新行为不变）。
+/// 承载面是「我的」页内嵌插件管理区段（2026-11-27 20:16 令：
+/// 市场与管理内嵌原地折叠展开、不跳页；本套件把区段挂进一页
+/// 列表里驱动，选站弹窗插件区只留显示，自动更新行为不变）。
 /// - 已装 v1、远程出 v2：打开管理页后后台静默装上 v2，市场卡
 ///   只显示版本号 + 已安装，全程无「更新」字样；
 /// - 市场卡长按卸载：确认后卡片与已装列表行一起消失、留已卸载
@@ -82,7 +83,11 @@ void main() {
               onPressed: () => Navigator.push(
                 buttonContext,
                 MaterialPageRoute<void>(
-                  builder: (_) => PluginManagePage(store: store),
+                  builder: (_) => Scaffold(
+                    body: ListView(
+                      children: [MinePluginSection(store: store)],
+                    ),
+                  ),
                 ),
               ),
               child: const Text('打开插件管理'),
@@ -100,7 +105,7 @@ void main() {
     await tester.pumpWidget(host());
     await tester.tap(find.text('打开插件管理'));
     await tester.pumpAndSettle();
-    // 市场区段在管理页顶部，进页即构建并触发加载与自动更新。
+    // 市场区段在区段顶部，进页即构建并触发加载与自动更新。
     expect(find.byKey(const ValueKey('plugin-market-section')), findsOneWidget);
   }
 
@@ -157,7 +162,7 @@ void main() {
     await pumpUntilVersion(tester, '2.0.0');
     final installed = await tester.runAsync(() => store.listInstalled());
     expect(installed!.single.entry.version, '2.0.0');
-    // 卡片状态只剩版本号 + 已安装；整个管理页找不到「更新」二字，
+    // 卡片状态只剩版本号 + 已安装；整个区段找不到「更新」二字，
     // 也没有旧版 → 新版的箭头状态行。
     expect(find.text('已安装'), findsOneWidget);
     // 可见卡的文案靠其自身那轮自动更新收尾刷新，轮询等它落定

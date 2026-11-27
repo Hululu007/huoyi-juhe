@@ -11,6 +11,7 @@ import '../services/live_sleep_timer.dart';
 import '../services/live_sources.dart';
 import '../services/live_speed_tracker.dart';
 import '../services/native_player.dart';
+import '../services/player_preferences.dart';
 import '../services/player_system_ui.dart';
 import '../widgets/series_detail/moyi_detail_theme.dart';
 import 'live_status_panel.dart';
@@ -61,6 +62,9 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
   int _route = 0;
   bool _initVideo = true;
   String? _error;
+
+  /// 当前倍速（照录屏改造批：原「1x」是只弹提示的假钮，改真变速）。
+  double _rate = 1;
 
   /// 当前报错是不是 DRM 明示：是的话报错卡不给「重新连接」。
   bool _errorIsDrm = false;
@@ -189,6 +193,8 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
       if (player.lastError case final Object error) throw error;
       if (!_isCurrentLoad(generation, player)) return;
       await player.play();
+      // 切频道/切线路新建的播放器带上当前倍速（1x 时不调）。
+      if (_rate != 1) await player.setRate(_rate);
       if (!_isCurrentLoad(generation, player)) return;
       if (mounted) setState(() {});
     } catch (error) {
@@ -367,11 +373,53 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
     }
   }
 
-  void _showSpeedToast() {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('直播不支持变速'), duration: Duration(seconds: 2)),
+  /// 倍速选择（真变速）：档位与点播同一份倍率表，选中即调宿主
+  /// setRate。直播流没有可回看的缓冲时变速会逐渐漂移回直播点，
+  /// 这是直播的固有边界，按钮本身不再是假的。
+  Future<void> _showSpeedPicker() async {
+    _panel = true;
+    final picked = await showModalBottomSheet<double>(
+      context: context,
+      backgroundColor: const Color(0xFF1B1B1F),
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  '倍速',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+            for (final rate in PlayerPreferences.playbackRates)
+              ListTile(
+                key: ValueKey('live-rate-$rate'),
+                title: Text(
+                  '${rate == rate.roundToDouble() ? rate.toInt() : rate}x',
+                  style: const TextStyle(color: Colors.white),
+                ),
+                trailing: rate == _rate
+                    ? const Icon(Icons.check, color: Colors.white)
+                    : null,
+                onTap: () => Navigator.of(sheetContext).pop(rate),
+              ),
+          ],
+        ),
+      ),
     );
+    _panel = false;
+    if (picked == null || !mounted) return;
+    setState(() => _rate = picked);
+    await _player?.setRate(picked);
+    _showControls();
   }
 
   /// 火蚁TV _selectRoute：多线路弹线路选择表，单线路 toast。
@@ -699,8 +747,12 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
                     : '睡眠定时',
               ),
               TextButton(
-                onPressed: _showSpeedToast,
-                child: const Text('1x', style: TextStyle(color: Colors.white)),
+                key: const ValueKey('live-rate-button'),
+                onPressed: () => unawaited(_showSpeedPicker()),
+                child: Text(
+                  '${_rate == _rate.roundToDouble() ? _rate.toInt() : _rate}x',
+                  style: const TextStyle(color: Colors.white),
+                ),
               ),
               TextButton(
                 onPressed: _selectRoute,

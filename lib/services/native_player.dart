@@ -62,6 +62,77 @@ class NativePlaybackException implements Exception {
   String toString() => 'NativePlaybackException: $message';
 }
 
+/// 宿主播放信息（getPlaybackInfo）：当前音/视频格式、带宽估算、
+/// 解码器名与倍速/音高。宿主取不到的字段不下发，这里一律给缺省值，
+/// 调用方按 0 / '' 判断「未知」，不要当真实值显示。
+class PlayerPlaybackInfo {
+  const PlayerPlaybackInfo({
+    this.videoWidth = 0,
+    this.videoHeight = 0,
+    this.videoMimeType = '',
+    this.videoCodecs = '',
+    this.videoBitrate = 0,
+    this.audioBitrate = 0,
+    this.bandwidthEstimate = 0,
+    this.frameRate = 0,
+    this.audioMimeType = '',
+    this.audioCodecs = '',
+    this.audioSampleRate = 0,
+    this.audioChannelCount = 0,
+    this.decoderName = '',
+    this.rate = 1,
+    this.pitch = 1,
+  });
+
+  final int videoWidth;
+  final int videoHeight;
+  final String videoMimeType;
+  final String videoCodecs;
+
+  /// 码率单位均为 bps。
+  final int videoBitrate;
+  final int audioBitrate;
+  final int bandwidthEstimate;
+  final double frameRate;
+  final String audioMimeType;
+  final String audioCodecs;
+  final int audioSampleRate;
+  final int audioChannelCount;
+  final String decoderName;
+  final double rate;
+  final double pitch;
+
+  factory PlayerPlaybackInfo.fromMap(Map<dynamic, dynamic> map) {
+    int asInt(Object? value) => value is num ? value.toInt() : 0;
+    double asDouble(Object? value, double fallback) =>
+        value is num ? value.toDouble() : fallback;
+    String asText(Object? value) => value is String ? value : '';
+    final video = map['videoFormat'];
+    final audio = map['audioFormat'];
+    final params = map['playbackParameters'];
+    final videoMap = video is Map ? video : const <dynamic, dynamic>{};
+    final audioMap = audio is Map ? audio : const <dynamic, dynamic>{};
+    final paramsMap = params is Map ? params : const <dynamic, dynamic>{};
+    return PlayerPlaybackInfo(
+      videoWidth: asInt(videoMap['width']),
+      videoHeight: asInt(videoMap['height']),
+      videoMimeType: asText(videoMap['sampleMimeType']),
+      videoCodecs: asText(videoMap['codecs']),
+      videoBitrate: asInt(videoMap['bitrate']),
+      audioBitrate: asInt(audioMap['bitrate']),
+      bandwidthEstimate: asInt(map['bandwidthEstimate']),
+      frameRate: asDouble(videoMap['frameRate'], 0),
+      audioMimeType: asText(audioMap['sampleMimeType']),
+      audioCodecs: asText(audioMap['codecs']),
+      audioSampleRate: asInt(audioMap['sampleRate']),
+      audioChannelCount: asInt(audioMap['channelCount']),
+      decoderName: asText(map['decoderName']),
+      rate: asDouble(paramsMap['speed'] ?? map['speed'], 1),
+      pitch: asDouble(paramsMap['pitch'] ?? map['pitch'], 1),
+    );
+  }
+}
+
 /// Flutter-side wrapper of the native ExoPlayer host.
 class NativePlayer {
   NativePlayer({this.audioOnly = false});
@@ -324,6 +395,7 @@ class NativePlayer {
   final _videoSizeCtrl = StreamController<Size>.broadcast();
   final _textureIdCtrl = StreamController<int>.broadcast();
   final _errorCtrl = StreamController<Object>.broadcast();
+  final _cuesCtrl = StreamController<List<String>>.broadcast();
 
   Stream<Duration> get positionStream => _positionCtrl.stream;
   Stream<Duration> get durationStream => _durationCtrl.stream;
@@ -334,6 +406,10 @@ class NativePlayer {
   Stream<bool> get firstFrameStream => _firstFrameCtrl.stream;
   Stream<Size> get videoSizeStream => _videoSizeCtrl.stream;
   Stream<Object> get errorStream => _errorCtrl.stream;
+
+  /// 字幕文本通道：Texture 输出下宿主不画字幕，当前 cues 的文本经
+  /// 事件通道下发，界面层自己渲染。每条事件是当前时刻的全部 cue 文本。
+  Stream<List<String>> get cuesStream => _cuesCtrl.stream;
 
   /// Fires when native swaps the output surface (software-decoder fallback
   /// moves from SurfaceProducer to SurfaceTexture in #2) and the Texture
@@ -485,11 +561,21 @@ class NativePlayer {
 
   Future<void> setRate(double rate) => _invoke('setRate', {'rate': rate});
 
-  /// 枚举当前音轨/字幕轨（同步批 A8）：宿主未就绪或没有任何轨道
-  /// 时回空表，不抛错——菜单据此决定显不显示轨道区。
-  Future<({List<PlayerTrackInfo> audio, List<PlayerTrackInfo> subtitles})>
+  /// 枚举当前视频轨/音轨/字幕轨（同步批 A8，视轨后加）：宿主未就绪或
+  /// 没有任何轨道时回空表，不抛错——菜单据此决定显不显示轨道区。
+  Future<
+    ({
+      List<PlayerTrackInfo> audio,
+      List<PlayerTrackInfo> video,
+      List<PlayerTrackInfo> subtitles,
+    })
+  >
   getTracks() async {
-    const empty = (audio: <PlayerTrackInfo>[], subtitles: <PlayerTrackInfo>[]);
+    const empty = (
+      audio: <PlayerTrackInfo>[],
+      video: <PlayerTrackInfo>[],
+      subtitles: <PlayerTrackInfo>[],
+    );
     if (_disposed) return empty;
     final playerId = _playerId;
     if (playerId == null) return empty;
@@ -503,11 +589,38 @@ class NativePlayer {
           for (final entry in raw)
             if (entry is Map) PlayerTrackInfo.fromMap(entry),
       ];
-      return (audio: parse(reply['audio']), subtitles: parse(reply['text']));
+      return (
+        audio: parse(reply['audio']),
+        video: parse(reply['video']),
+        subtitles: parse(reply['text']),
+      );
     } catch (_) {
       return empty;
     }
   }
+
+  /// 取播放信息（格式/码率/带宽估算/解码器/倍速）：未创建或宿主
+  /// 失败回 null，不抛错——信息面板据此决定显不显示。
+  Future<PlayerPlaybackInfo?> getPlaybackInfo() async {
+    if (_disposed) return null;
+    final playerId = _playerId;
+    if (playerId == null) return null;
+    try {
+      final reply = await _channel
+          .invokeMapMethod<String, dynamic>('getPlaybackInfo', {
+            'id': playerId,
+          })
+          .timeout(_methodTimeout);
+      if (reply == null) return null;
+      return PlayerPlaybackInfo.fromMap(reply);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 选视频轨：[trackId] 为 getTracks 回的宿主轨道 id。
+  Future<void> selectVideoTrack(String trackId) =>
+      _invoke('selectVideoTrack', {'trackId': trackId});
 
   /// 选音轨：[trackId] 为 getTracks 回的宿主轨道 id。
   Future<void> selectAudioTrack(String trackId) =>
@@ -823,6 +936,7 @@ class NativePlayer {
       _videoSizeCtrl.close(),
       _textureIdCtrl.close(),
       _errorCtrl.close(),
+      _cuesCtrl.close(),
     ]);
   }
 
@@ -910,6 +1024,11 @@ class NativePlayer {
           _createdCompleter.completeError(error);
         }
         if (!_errorCtrl.isClosed) _errorCtrl.add(error);
+      case 'cues':
+        final value = event['value'];
+        if (value is List && !_cuesCtrl.isClosed) {
+          _cuesCtrl.add(<String>[for (final cue in value) cue.toString()]);
+        }
       case 'decoderInitialized':
         AppLog.d(
           'player-decoder',

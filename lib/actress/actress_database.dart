@@ -22,10 +22,15 @@ class ActressNoExternalDbException implements Exception {
   String toString() => message;
 }
 
-/// 重读失败文案：没找到外置库时直说，没有“仍用旧库”（没有旧库可留）；
-/// 其它失败（新库打不开）才说留旧库继续用。
+/// 没找到已激活女优库时的统一文案（2026-11-27 激活批）：生效
+/// 路径为空只剩一种原因——演员库未激活（外置文件不再直通）。
+const actressNoActivatedDbMessage =
+    '未找到已激活的女优库：请先到数据库管理页导入女优库完成激活';
+
+/// 重读失败文案：没找到已激活库时直说，没有“仍用旧库”（没有
+/// 旧库可留）；其它失败（新库打不开）才说留旧库继续用。
 String actressReloadErrorText(String error) =>
-    error.startsWith('未找到外置数据库')
+    error.startsWith('未找到已激活的女优库')
         ? error
         : '数据库重读失败：$error（仍用旧库）';
 
@@ -501,18 +506,19 @@ class SqfliteActressDatabase implements ActressDatabase {
       _genericReaderKey = null;
       return db;
     }
-    // 2026-11-22 用户令最终口径：女优库只读外置数据库
-    // MYTV/db/女优库.db；绑定不到它（dbPath 为空）就抛
-    // ActressNoExternalDbException，界面显示空态提示；外置库
-    // 损坏/打不开也直接抛错，不回落任何内置库、不建新库。
+    // 2026-11-22 用户令口径（2026-11-27 激活批修订）：女优库
+    // 只认经导入激活的库；生效路径为空（未激活）就抛
+    // ActressNoExternalDbException，界面显示未激活空态＋导入
+    // 引导；库损坏/打不开也直接抛错，不回落任何内置库、
+    // 不建新库。
     await ActressMytvBind.instance.ensureBound();
-    // 双库批：开库路径走来源层生效路径（外置/导入二选一，
-    // imported 缺失自动回落 external），不再直读绑定路径。
+    // 激活批：开库路径走来源层生效路径（只有 imported 槽里
+    // 已激活的库有路径，外置文件不再直通），不再直读绑定路径。
     final filePath = await ActressDbSource.instance.effectiveDbPath();
     _openFallbackNote = null;
     if (filePath.isEmpty) {
       throw const ActressNoExternalDbException(
-        '未找到外置数据库：MYTV/db/女优库.db',
+        actressNoActivatedDbMessage,
       );
     }
     final db = await _openDbAt(filePath);
@@ -960,7 +966,7 @@ class SqfliteActressDatabase implements ActressDatabase {
     // force 或文件戳，见 actress_db_source.dart 类注释）。
     final currentPath = await ActressDbSource.instance.effectiveDbPath();
     if (currentPath.isEmpty) {
-      return (reloaded: false, error: '未找到外置数据库：MYTV/db/女优库.db');
+      return (reloaded: false, error: actressNoActivatedDbMessage);
     }
     final file = File(currentPath);
     FileStat? stat;

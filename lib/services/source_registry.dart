@@ -9,7 +9,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../cloud_drive/cloud_drive_client.dart';
 import '../cloud_drive/cloud_drive_stations.dart';
-import 'builtin_imported_sites.dart';
 import 'cultivation.dart';
 import 'drama_site_content.dart';
 import 'drama_sites.dart';
@@ -19,6 +18,7 @@ import 'local_db_site_content.dart';
 import 'm3u_export_db.dart';
 import 'site_health_tracking_client.dart';
 import 'site_identity.dart';
+import 'site_library.dart';
 import 'zakatv_builtin.dart';
 import 'idj_plugin_store.dart';
 import 'idj_runtime.dart';
@@ -268,6 +268,112 @@ bool isMidnightJarBuiltin(SourceEntry entry) {
   return type == ContentType.video || type == ContentType.mixed;
 }
 
+/// 站点库 jar 资产对位：jarAssetId（'jar:zakatv' 或 'zakatv'）→
+/// (configId, asset 路径, md5)。md5 与 asset 取 zakatv_builtin.dart
+/// 的三 jar 常量表（瘦身阶段总管把常量迁到 site_library 侧后，
+/// 这里改从那边取；引用点就是本函数这一处）。
+({String configId, String asset, String md5}) sqlJarSpecForAssetId(
+  String jarAssetId,
+) {
+  final id = jarAssetId.startsWith('jar:')
+      ? jarAssetId.substring('jar:'.length)
+      : jarAssetId;
+  return switch (id) {
+    'zakatv' => (
+      configId: zakatvJarId,
+      asset: zakatvJarAsset,
+      md5: zakatvJarMd5,
+    ),
+    'youtube' => (
+      configId: youtubeJarId,
+      asset: youtubeJarAsset,
+      md5: youtubeJarMd5,
+    ),
+    'one' => (configId: oneJarId, asset: oneJarAsset, md5: oneJarMd5),
+    _ => (configId: id, asset: 'assets/jars/$id.jar', md5: ''),
+  };
+}
+
+/// 站点库行 → 登记条目的纯函数构建（syncSqlSites 的对账 wanted
+/// 来源，单测直接测这里）：条目 id 就用 station.siteId（seed_/
+/// jar: 形态，与旧 ensure* 产出一致，老墓碑/禁用键无缝衔接）；
+/// 只动 extra['sqlManaged'] == true 的行由 syncSqlSites 负责。
+/// 代码本体不进 extra（只存路径指针，见评估报告第 2 节铁律）。
+List<SourceEntry> buildSqlSiteEntries(List<SiteLibraryStation> stations) {
+  final entries = <SourceEntry>[];
+  for (final station in stations) {
+    final rawType = station.contentType;
+    final contentType = (rawType == null || rawType.isEmpty)
+        ? 'video'
+        : rawType;
+    final verifyNote = station.verifyNote;
+    switch (station.kind) {
+      case 'pyImport':
+      case 'legadoImport':
+        final kind = station.kind == 'pyImport'
+            ? SourceKind.pyImport
+            : SourceKind.legadoImport;
+        entries.add(
+          SourceEntry(
+            id: station.siteId,
+            name: station.name,
+            kind: kind,
+            address: station.fileName ?? '',
+            detail: verifyNote != null && verifyNote.isNotEmpty
+                ? '站点库 · 未验通：$verifyNote'
+                : '站点库导入站',
+            extra: {
+              'path': station.codeFilePath ?? '',
+              'ext': '',
+              'contentType': contentType,
+              'builtin': false,
+              'sqlManaged': true,
+              'sqlCanon': station.canonId,
+              if (kind == SourceKind.legadoImport) 'hasExplore': true,
+              if (verifyNote != null && verifyNote.isNotEmpty)
+                'verifyNote': verifyNote,
+            },
+          ),
+        );
+      case 'jarImport':
+        final jar = sqlJarSpecForAssetId(station.jarAssetId ?? '');
+        final extPath = station.extFilePath;
+        entries.add(
+          SourceEntry(
+            id: station.siteId,
+            name: station.name,
+            kind: SourceKind.jarImport,
+            address: jar.asset,
+            detail: '站点库 jar · ${station.className ?? ''}',
+            extra: {
+              'configId': jar.configId,
+              'className': station.className ?? '',
+              'jarUrl': 'asset:${jar.asset}',
+              'md5': jar.md5,
+              // 小 ext 直带；大 ext（如 YouTube 配置）只存文件路径，
+              // clientFor 取数时现读（extra['extPath'] 分支）。
+              'ext': extPath != null && extPath.isNotEmpty
+                  ? ''
+                  : (station.ext ?? ''),
+              if (extPath != null && extPath.isNotEmpty) 'extPath': extPath,
+              'contentType': contentType,
+              'builtin': false,
+              'sqlManaged': true,
+              'sqlCanon': station.canonId,
+              if (verifyNote != null && verifyNote.isNotEmpty)
+                'verifyNote': verifyNote,
+            },
+          ),
+        );
+      default:
+        // 原生站（kind 非导入型）不建登记行：它们只有名单与门禁
+        // （gatedNativeIds），取数仍走工厂回落 + 门禁闸。
+        break;
+    }
+  }
+  return entries;
+}
+
 class SourceRegistry {
   SourceRegistry._();
 
@@ -276,10 +382,52 @@ class SourceRegistry {
   /// 插件仓库（登记对账与插件站客户端共用一个实例）。
   final IdjPluginStore idjStore = IdjPluginStore();
 
+  /// 站点库对账/门禁的测试接缝：非 null 时 syncSqlSites 与门禁闸
+  /// 用注入值代替 SiteLibraryService 单例（生产恒为 null）。
+  List<SiteLibraryStation>? debugSqlStationsOverride;
+  bool? debugSqlImportedOverride;
+  bool Function(String siteId)? debugGatedNativeOverride;
+
+  /// 测试专用重置：清掉已加载状态与全部登记行，让单测能模拟
+  /// 全新安装态重新 load。生产代码不调。
+  void debugResetForTest() {
+    _loaded = false;
+    _custom = const [];
+    _disabledBuiltin = {};
+    _deletedBuiltin = {};
+    _deletedSeeds = {};
+    _sqlMigrationRemoved = false;
+    debugSqlStationsOverride = null;
+    debugSqlImportedOverride = null;
+    debugGatedNativeOverride = null;
+  }
+
+  /// 原生站门禁闸：站 id 在站点库 gatedNative 集里且站点库未导入
+  /// → true（工厂回落不可用）。'original'（番茄主后端）绝不在
+  /// gated 集里，这里再加一条直接放行的保险。服务未就绪/读失败
+  /// 时不拦（fail-soft，与未导入名单态之外的链路保持原行为）。
+  bool sqlGateBlocks(String siteId) {
+    if (siteId == 'original') return false;
+    try {
+      final gated =
+          debugGatedNativeOverride?.call(siteId) ??
+          SiteLibraryService.instance.isGatedNative(siteId);
+      if (!gated) return false;
+      final imported =
+          debugSqlImportedOverride ?? SiteLibraryService.instance.imported;
+      return !imported;
+    } catch (_) {
+      return false;
+    }
+  }
+
   static const _customKey = 'juhe_custom_sources';
   static const _disabledKey = 'juhe_disabled_builtin_sites';
   static const _deletedBuiltinKey = 'juhe_deleted_builtin_jar';
   static const _deletedSeedKey = 'juhe_deleted_builtin_seeds';
+  static const _sqlMigrationKey = 'juhe_sql_builtin_migration_v1';
+
+  bool _sqlMigrationRemoved = false;
 
   List<SourceEntry> _custom = const [];
 
@@ -345,11 +493,39 @@ class SourceRegistry {
           };
         }
       }
+      // 一次性迁移清理（站点库新口径）：旧内置行（builtin==true 且
+      // 带 seedId 的种子行、全部 jarImport 内置行）从登记表摘除——
+      // 新口径下它们只能由站点库导入激活（syncSqlSites 建行）。
+      // 用户自导站 builtin 不为 true、不受影响；墓碑集
+      // （_deletedSeeds/_deletedBuiltin）与禁用集保留不动，用户按
+      // id 记的关/删状态继续生效。标记存 prefs 防重复执行。
+      if (preferences.getBool(_sqlMigrationKey) != true) {
+        final before = _custom.length;
+        _custom = [
+          for (final entry in _custom)
+            if (!(entry.extra['builtin'] == true &&
+                (entry.extra['seedId'] != null ||
+                    entry.kind == SourceKind.jarImport)))
+              entry,
+        ];
+        _sqlMigrationRemoved = _custom.length != before;
+        await preferences.setBool(_sqlMigrationKey, true);
+      }
     } catch (_) {}
     _loaded = true;
+    if (_sqlMigrationRemoved) {
+      _sqlMigrationRemoved = false;
+      await _persist();
+    }
+    // 站点库服务先行加载（读名单资产＋库状态，fail-soft）：后面的
+    // syncSqlSites 对账与原生门禁闸都读它的内存状态。
+    try {
+      await SiteLibraryService.instance.load();
+    } catch (_) {}
     _registerCustomSites();
     await _autoClassifyMixedPy();
     await syncIdjPluginSites();
+    await syncSqlSites();
     // 网盘当站：启动加载后按登录状态刷新内存站表（登录/退出后
     // 由登录界面另行调用 refresh）。fail-soft 在 refresh 内部。
     unawaited(CloudDriveStations.refresh());
@@ -407,147 +583,6 @@ class SourceRegistry {
       if (typeChanged) _registerCustomSites();
       await _persist();
     } catch (_) {}
-  }
-
-  /// 把 ZakaTV jar 内置站补进登记表，幂等：已有的不动（开关状态保留），
-  /// 用户删过的（墓碑）不再复活。jar 文件本身不进登记表，播放时由
-  /// clientFor 按 asset 标记现取现拷。
-  Future<void> ensureBuiltinJarSites() async {
-    await load();
-    final existing = {for (final entry in _custom) entry.id};
-    var added = false;
-    void addBuiltin(
-      ZakatvBuiltinSite site,
-      String jarId,
-      String jarAsset,
-      String jarMd5, {
-      bool youtubeConfig = false,
-    }) {
-      final id = JarSiteSpec.siteIdFor(jarId, site.key);
-      if (existing.contains(id) || _deletedBuiltin.contains(id)) return;
-      existing.add(id);
-      _custom = [
-        ..._custom,
-        SourceEntry(
-          id: id,
-          name: site.name,
-          kind: SourceKind.jarImport,
-          address: jarAsset,
-          detail: 'ZakaTV jar 内置 · ${site.className}',
-          extra: {
-            'configId': jarId,
-            'className': site.className,
-            'jarUrl': 'asset:$jarAsset',
-            'md5': jarMd5,
-            'ext': site.ext,
-            'contentType': site.contentTypeKey,
-            'builtin': true,
-            if (youtubeConfig) 'youtubeConfig': true,
-          },
-        ),
-      ];
-      added = true;
-    }
-
-    for (final site in zakatvBuiltinSites) {
-      addBuiltin(site, zakatvJarId, zakatvJarAsset, zakatvJarMd5);
-    }
-    for (final site in oneBuiltinSites) {
-      addBuiltin(site, oneJarId, oneJarAsset, oneJarMd5);
-    }
-    addBuiltin(
-      youtubeBuiltinSite,
-      youtubeJarId,
-      youtubeJarAsset,
-      youtubeJarMd5,
-      youtubeConfig: true,
-    );
-    if (!added) return;
-    _registerCustomSites();
-    await _persist();
-  }
-
-  /// 内置导入站首次启动补进登记表（与 jar 内置站同款规矩）：幂等、
-  /// 已有的不动、用户删过的（墓碑）不再复活。asset 读不到时跳过该站，
-  /// 不阻塞启动；新补的站随后触发一次分类提取。
-  Future<void> ensureBuiltinImportedSites() async {
-    await load();
-    final addedIds = <String>[];
-    for (final seed in builtinImportedSeeds) {
-      if (_deletedSeeds.contains(seed.seedId)) continue;
-      final existingIndex = _custom.indexWhere(
-        (e) => e.extra['seedId'] == seed.seedId,
-      );
-      if (existingIndex >= 0) {
-        // 已登记的种子也要跟进包内更新：以前这里直接跳过，覆盖安装后
-        // 手机上一直跑旧版蜘蛛（18 轮 ywly 新接口、aiyinhang 分类修复
-        // 都因此到不了手机，站还是旧写法在跑）。文件内容与包内不
-        // 一致就重写一份；宿主按文件 mtime 重新加载蜘蛛，正在跑的站
-        // 下次调用即用新版。登记表本身不动，不触发分类提取
-        // （分类现取时走新蜘蛛，注册表里的旧分类只是展示 fallback）。
-        try {
-          final text = await rootBundle.loadString(seed.asset);
-          final path =
-              _custom[existingIndex].extra['path'] as String? ?? '';
-          if (path.isNotEmpty) {
-            final file = File(path);
-            final current = await file.exists()
-                ? await file.readAsString()
-                : null;
-            if (current != text) {
-              await file.parent.create(recursive: true);
-              await file.writeAsString(text);
-            }
-          }
-        } catch (_) {}
-        continue;
-      }
-      String text;
-      try {
-        text = await rootBundle.loadString(seed.asset);
-      } catch (_) {
-        continue;
-      }
-      try {
-        final directory = await getApplicationSupportDirectory();
-        final sub = seed.kind == SourceKind.pyImport
-            ? 'imported_py'
-            : 'imported_legado';
-        final dir = Directory('${directory.path}/$sub');
-        if (!await dir.exists()) await dir.create(recursive: true);
-        final file = File('${dir.path}/seed_${seed.seedId}_${seed.fileName}');
-        await file.writeAsString(text);
-        final id = 'seed_${seed.seedId}';
-        _custom = [
-          ..._custom,
-          SourceEntry(
-            id: id,
-            name: seed.name,
-            kind: seed.kind,
-            address: seed.fileName,
-            detail: seed.verifyNote == null
-                ? '内置导入站'
-                : '内置导入站 · 未验通：${seed.verifyNote}',
-            extra: {
-              'path': file.path,
-              'ext': '',
-              'contentType': seed.contentTypeKey ?? 'video',
-              'builtin': true,
-              'seedId': seed.seedId,
-              if (seed.kind == SourceKind.legadoImport) 'hasExplore': true,
-              if (seed.verifyNote != null) 'verifyNote': seed.verifyNote,
-            },
-          ),
-        ];
-        addedIds.add(id);
-      } catch (_) {}
-    }
-    if (addedIds.isEmpty) return;
-    _registerCustomSites();
-    await _persist();
-    for (final id in addedIds) {
-      _triggerCategoryExtraction(id);
-    }
   }
 
   /// 定制站的注册分类：优先读导入/注册时提取后持久化在
@@ -708,7 +743,11 @@ class SourceRegistry {
   /// “有客户端画网格、没客户端走原站流”的分流用）：Dart/核心客户端、
   /// 直连条目、种子条目、jar 内置条目任一能取到即为真。
   bool hasDramaContentClient(String siteId) {
-    if (dramaSiteContentClient(siteId) != null) return true;
+    // 原生门禁：gated 原生站且站点库未导入时不认工厂客户端；
+    // backing 条目路（种子/jar 登记行）不受门禁影响。
+    if (!sqlGateBlocks(siteId) && dramaSiteContentClient(siteId) != null) {
+      return true;
+    }
     return backingEntryForDramaSite(siteId) != null;
   }
 
@@ -1534,6 +1573,112 @@ class SourceRegistry {
     }
   }
 
+  /// 站点库对账：仿 syncIdjPluginSites 的 wanted-map 模式，只动
+  /// extra['sqlManaged'] == true 的行，用户自导站/插件站不碰。
+  /// 已导入 → 按站点库 stations 建行（buildSqlSiteEntries）；
+  /// 未导入 → wanted 为空、SQL 行全撤（删库回名单态靠这条）。
+  /// 整体 fail-soft：站点库服务读失败不动现有行。load 末尾调
+  /// 一次；导入/删除站点库后由数据库管理页再调。
+  /// 已存在行的 enabled（用户开关）按 id 保留，不因对账复活。
+  Future<void> syncSqlSites() async {
+    try {
+      await load();
+      final List<SiteLibraryStation> stations;
+      final bool imported;
+      if (debugSqlStationsOverride != null ||
+          debugSqlImportedOverride != null) {
+        stations = debugSqlStationsOverride ?? const [];
+        imported = debugSqlImportedOverride ?? false;
+      } else {
+        await SiteLibraryService.instance.load();
+        imported = SiteLibraryService.instance.imported;
+        stations = SiteLibraryService.instance.stations;
+      }
+      final wanted = <String, SourceEntry>{};
+      if (imported) {
+        final oldById = {for (final entry in _custom) entry.id: entry};
+        for (final entry in buildSqlSiteEntries(stations)) {
+          final old = oldById[entry.id];
+          var merged = entry;
+          // 分类提取后来补进 extra 的真实分类不因对账丢失。
+          final extracted = old?.extra['extractedCategories'];
+          if (extracted != null) {
+            merged = SourceEntry(
+              id: entry.id,
+              name: entry.name,
+              kind: entry.kind,
+              address: entry.address,
+              detail: entry.detail,
+              enabled: entry.enabled,
+              extra: {...entry.extra, 'extractedCategories': extracted},
+            );
+          }
+          wanted[entry.id] =
+              old != null && !old.enabled
+                  ? merged.copyWith(enabled: false)
+                  : merged;
+        }
+      }
+      final oldSql = <String, SourceEntry>{
+        for (final entry in _custom)
+          if (entry.extra['sqlManaged'] == true) entry.id: entry,
+      };
+      var changed = oldSql.length != wanted.length;
+      if (!changed) {
+        for (final item in wanted.entries) {
+          final old = oldSql[item.key];
+          if (old == null ||
+              old.name != item.value.name ||
+              old.kind != item.value.kind ||
+              old.address != item.value.address ||
+              old.enabled != item.value.enabled ||
+              !_sqlExtraEquals(old.extra, item.value.extra)) {
+            changed = true;
+            break;
+          }
+        }
+      }
+      if (!changed) return;
+      _custom = [
+        for (final entry in _custom)
+          if (entry.extra['sqlManaged'] != true) entry,
+        ...wanted.values,
+      ];
+      _registerCustomSites();
+      await _persist();
+    } catch (_) {
+      // 对账失败不打断启动与选站；下次导入/删库/启动会再触发。
+    }
+  }
+
+  /// SQL 行对账的 extra 比较：只比 syncSqlSites 自己写的那批键，
+  /// 分类提取后来补的 extractedCategories 不算变化（否则每次对账
+  /// 都会把提取出的分类冲掉再重写）。
+  static bool _sqlExtraEquals(
+    Map<String, dynamic> a,
+    Map<String, dynamic> b,
+  ) {
+    const keys = [
+      'path',
+      'ext',
+      'extPath',
+      'contentType',
+      'builtin',
+      'sqlManaged',
+      'sqlCanon',
+      'hasExplore',
+      'verifyNote',
+      'configId',
+      'className',
+      'jarUrl',
+      'md5',
+    ];
+    for (final key in keys) {
+      if (a[key] != b[key]) return false;
+    }
+    return true;
+  }
+
   Future<void> removeCustom(String id) async {
     await load();
     final removed = customById(id);
@@ -1736,6 +1881,14 @@ class SourceRegistry {
           );
         }
         var ext = custom.extra['ext'] as String? ?? '';
+        final extPath = custom.extra['extPath'] as String? ?? '';
+        if (ext.isEmpty && extPath.isNotEmpty) {
+          // 站点库 jar 行的大 ext 只存文件路径，取数时现读该文件
+          // 作 ext（替代原 youtubeConfig 现读 asset 的路）。
+          try {
+            ext = await File(extPath).readAsString();
+          } catch (_) {}
+        }
         if (custom.extra['youtubeConfig'] == true) {
           // YouTube 站的 ext 是 84KB 的 youtube3.json，使用时现取，不进登记表。
           try {
@@ -1757,7 +1910,12 @@ class SourceRegistry {
       return null;
     }
     if (!isBuiltinEnabled(siteId)) return null;
-    final dartClient = dramaSiteContentClient(siteId);
+    // 原生门禁：gated 原生站且站点库未导入 → 工厂回落不可用
+    // （return null 语义在下方 backing 兜底之后统一落空，这里只
+    // 跳过工厂客户端，backing 条目路不受影响）。
+    final dartClient = sqlGateBlocks(siteId)
+        ? null
+        : dramaSiteContentClient(siteId);
     if (dartClient != null) return dartClient;
     // 短剧区裸站 id 的通用兜底：Dart/核心里没有的站，按种子 py /
     // jar 内置条目取客户端（backingEntryForDramaSite）。只补原来

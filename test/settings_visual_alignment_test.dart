@@ -48,9 +48,10 @@ void main() {
   testWidgets('设置首页分类行统一使用 moyi 图标砖，尾部值用 moyi 次要字', (tester) async {
     await pumpSettings(tester);
 
-    // 设置首页现 12 个分类行（直播批加「直播设置」时已变 11 但此处
-    // 没跟改、B8 再加「关于」变 12）。
-    expect(find.byType(SettingsRow), findsNWidgets(12));
+    // 设置首页现 11 个分类行（直播批加「直播设置」时已变 11 但此处
+    // 没跟改、B8 再加「关于」变 12；播放器内嵌改造批按用户令摘除
+    // 「直播设置」整类、播放设置收进播放器内嵌菜单，变 11）。
+    expect(find.byType(SettingsRow), findsNWidgets(11));
     final tile = tester.widget<Container>(
       find.descendant(of: rowOf('外观'), matching: find.byType(Container)).first,
     );

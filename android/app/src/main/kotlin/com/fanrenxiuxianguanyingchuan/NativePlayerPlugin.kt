@@ -23,6 +23,7 @@ import android.view.WindowManager
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.media3.common.C
+import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
@@ -31,6 +32,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
+import androidx.media3.common.text.CueGroup
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.BaseDataSource
 import androidx.media3.datasource.DataSource
@@ -240,7 +242,11 @@ class NativePlayerPlugin internal constructor(
         val player: ExoPlayer,
         val videoOutput: NativeVideoOutput,
         val diagnosticUrl: String? = null,
-        var positionUpdater: Runnable? = null
+        var positionUpdater: Runnable? = null,
+        // 播放信息接口的攒数：带宽估算与视频解码器名没有同步 getter，
+        // 只能靠监听器回调记下最近一次的值，getPlaybackInfo 时带回。
+        var lastBandwidthEstimate: Long = 0L,
+        var videoDecoderName: String? = null
     )
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
@@ -474,6 +480,12 @@ class NativePlayerPlugin internal constructor(
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
+            "getDiagnosticEnvironment" -> result.success(
+                mapOf(
+                    "model" to "${Build.MANUFACTURER} ${Build.MODEL}",
+                    "system" to "Android ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})"
+                )
+            )
             "create" -> {
                 val cdnUrl = call.requiredArgument<String>("cdnUrl", result) ?: return
                 val keyHex = call.requiredArgument<String>("keyHex", result) ?: return
@@ -562,6 +574,19 @@ class NativePlayerPlugin internal constructor(
             "getTracks" -> {
                 val id = call.requiredArgument<Int>("id", result) ?: return
                 result.success(collectTracks(players[id]?.player))
+            }
+
+            "selectVideoTrack" -> {
+                val id = call.requiredArgument<Int>("id", result) ?: return
+                players[id]?.player?.let { player ->
+                    selectTrack(player, call.argument<String>("trackId"), reenableText = false)
+                }
+                result.success(null)
+            }
+
+            "getPlaybackInfo" -> {
+                val id = call.requiredArgument<Int>("id", result) ?: return
+                result.success(collectPlaybackInfo(players[id]))
             }
 
             "selectAudioTrack" -> {
@@ -910,14 +935,22 @@ class NativePlayerPlugin internal constructor(
     /// 为挂载时写死的 `ext:<url>`，Dart 侧据此认外挂轨。
     private fun collectTracks(player: ExoPlayer?): Map<String, Any> {
         if (player == null) {
-            return mapOf("audio" to emptyList<Any>(), "text" to emptyList<Any>())
+            return mapOf(
+                "audio" to emptyList<Any>(),
+                "video" to emptyList<Any>(),
+                "text" to emptyList<Any>()
+            )
         }
         val audio = mutableListOf<Map<String, Any>>()
+        val video = mutableListOf<Map<String, Any>>()
         val text = mutableListOf<Map<String, Any>>()
         val groups = player.currentTracks.groups
         for (g in groups.indices) {
             val group = groups[g]
-            if (group.type != C.TRACK_TYPE_AUDIO && group.type != C.TRACK_TYPE_TEXT) {
+            if (group.type != C.TRACK_TYPE_AUDIO &&
+                group.type != C.TRACK_TYPE_VIDEO &&
+                group.type != C.TRACK_TYPE_TEXT
+            ) {
                 continue
             }
             for (t in 0 until group.length) {
@@ -930,10 +963,63 @@ class NativePlayerPlugin internal constructor(
                     "formatId" to (format.id ?: ""),
                     "selected" to group.isTrackSelected(t)
                 )
-                if (group.type == C.TRACK_TYPE_AUDIO) audio.add(entry) else text.add(entry)
+                when (group.type) {
+                    C.TRACK_TYPE_AUDIO -> audio.add(entry)
+                    C.TRACK_TYPE_VIDEO -> video.add(entry)
+                    else -> text.add(entry)
+                }
             }
         }
-        return mapOf("audio" to audio, "text" to text)
+        return mapOf("audio" to audio, "video" to video, "text" to text)
+    }
+
+    // 播放信息：从当前 videoFormat/audioFormat 与 playbackParameters
+    // 同步取；带宽估算与解码器名取监听器攒下的最近值。取不到的字段
+    // 直接不放进 map，Dart 侧按缺省值处理，不编造。
+    private fun collectPlaybackInfo(instance: PlayerInstance?): Map<String, Any> {
+        val player = instance?.player ?: return emptyMap()
+        val info = mutableMapOf<String, Any>()
+        player.videoFormat?.let { format ->
+            val video = mutableMapOf<String, Any>()
+            format.sampleMimeType?.let { video["sampleMimeType"] = it }
+            format.codecs?.let { video["codecs"] = it }
+            if (format.bitrate != Format.NO_VALUE) {
+                video["bitrate"] = format.bitrate
+            }
+            if (format.frameRate != Format.NO_VALUE.toFloat()) {
+                video["frameRate"] = format.frameRate.toDouble()
+            }
+            if (format.width != Format.NO_VALUE) {
+                video["width"] = format.width
+            }
+            if (format.height != Format.NO_VALUE) {
+                video["height"] = format.height
+            }
+            if (video.isNotEmpty()) info["videoFormat"] = video
+        }
+        player.audioFormat?.let { format ->
+            val audio = mutableMapOf<String, Any>()
+            format.sampleMimeType?.let { audio["sampleMimeType"] = it }
+            format.codecs?.let { audio["codecs"] = it }
+            if (format.bitrate != Format.NO_VALUE) {
+                audio["bitrate"] = format.bitrate
+            }
+            if (format.sampleRate != Format.NO_VALUE) {
+                audio["sampleRate"] = format.sampleRate
+            }
+            if (format.channelCount != Format.NO_VALUE) {
+                audio["channelCount"] = format.channelCount
+            }
+            if (audio.isNotEmpty()) info["audioFormat"] = audio
+        }
+        val params = player.playbackParameters
+        info["speed"] = params.speed.toDouble()
+        info["pitch"] = params.pitch.toDouble()
+        if (instance.lastBandwidthEstimate > 0L) {
+            info["bandwidthEstimate"] = instance.lastBandwidthEstimate
+        }
+        instance.videoDecoderName?.let { info["decoderName"] = it }
+        return info
     }
 
     // 轨道切换（A8）：按「组序:轨序」定位 TrackGroup 后下
@@ -1036,14 +1122,33 @@ class NativePlayerPlugin internal constructor(
                 initializedTimestampMs: Long,
                 initializationDurationMs: Long
             ) {
+                players[playerId]?.videoDecoderName = decoderName
                 sendEvent(playerId, "decoderInitialized", mapOf("name" to decoderName))
                 if (isSoftwareDecoder(decoderName)) {
                     maybeSwapToSurfaceTexture(playerId)
                 }
             }
+
+            override fun onBandwidthEstimate(
+                eventTime: AnalyticsListener.EventTime,
+                totalLoadTimeMs: Int,
+                totalBytesLoaded: Long,
+                bitrateEstimate: Long
+            ) {
+                players[playerId]?.lastBandwidthEstimate = bitrateEstimate
+            }
         })
 
         player.addListener(object : Player.Listener {
+            // 字幕文本通道：Texture 输出下 ExoPlayer 不画字幕，把当前
+            // cues 的文本下发给 Dart 侧自己渲染。空文本过滤掉。
+            override fun onCues(cueGroup: CueGroup) {
+                val texts = cueGroup.cues.mapNotNull { cue ->
+                    cue.text?.toString()?.takeIf { it.isNotEmpty() }
+                }
+                sendEvent(playerId, "cues", texts)
+            }
+
             override fun onPlaybackStateChanged(playbackState: Int) {
                 when (playbackState) {
                     Player.STATE_BUFFERING -> sendEvent(playerId, "buffering", true)

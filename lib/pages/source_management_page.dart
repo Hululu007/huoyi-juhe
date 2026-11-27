@@ -2,9 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../actress/actress_db_manage_page.dart';
+import '../services/cultivation.dart';
 import '../services/file_text_picker.dart';
 import '../services/live_sources.dart';
 import '../services/local_file_import.dart';
+import '../services/site_library.dart';
 import '../services/source_registry.dart';
 import '../widgets/series_detail/moyi_detail_theme.dart';
 import 'local_html_viewer_page.dart';
@@ -64,6 +67,47 @@ managementTechGroups(List<SourceEntry> custom) {
   ];
 }
 
+/// 站点库名单分区中文名（名单态行副标题用）。
+String siteLibraryZoneLabel(String zone) => switch (zone) {
+  'video' => '影视',
+  'drama' => '短剧',
+  'novel' => '小说',
+  'comic' => '漫画',
+  'audio' => '听书',
+  'live' => '直播',
+  _ => '综合',
+};
+
+/// 站点库未导入时的「未激活」名单行筛选（纯函数，口径见评估报告
+/// 第 3 节）：排除已在管理页列表里的站（按 id 与归一 canon 对位）、
+/// 排除 gatedNative 里已由 dramaSites 裸行代表的站（它们在内置
+/// 短剧组里有行，未导入时点行走同一导入提示，不在这里重复列）；
+/// 成人行按现行门禁（adultTierForSiteId＋当前 xp，与影视区
+/// visibleSiteIds 同口径）：未解锁整行不出现。结果按名单序排。
+List<SiteLibraryRosterEntry> inactiveRosterEntries({
+  required List<SiteLibraryRosterEntry> roster,
+  required Set<String> listedIds,
+  required Set<String> gatedNativeIds,
+  required Set<String> bareRepresentedIds,
+  required int xp,
+}) {
+  final out = <SiteLibraryRosterEntry>[];
+  for (final entry in roster) {
+    if (listedIds.contains(entry.id)) continue;
+    if (gatedNativeIds.contains(entry.id) &&
+        bareRepresentedIds.contains(entry.id)) {
+      continue;
+    }
+    if (entry.adult) {
+      final tier = adultTierForSiteId(entry.id, adultVideoSiteOrder);
+      if (tier != null && !adultTierUnlocked(tier, xp)) continue;
+    }
+    out.add(entry);
+  }
+  out.sort((a, b) => a.sort.compareTo(b.sort));
+  return out;
+}
+
 /// 导入/添加弹窗里的输入框：深紫半透明底 + 白字 + 提示字白 55% + 可见描边。
 InputDecoration _moyiDialogField({
   required String labelText,
@@ -99,10 +143,17 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
   final Set<String> _checking = {};
   int? _liveChannelCount;
 
+  /// 站点库随包名单（未导入时的未激活行来源；roster() 是异步读
+  /// 资产，进页时先拉一份存状态，拉不到就是空名单）。
+  List<SiteLibraryRosterEntry> _roster = const [];
+
   @override
   void initState() {
     super.initState();
-    SourceRegistry.instance.load().then((_) {
+    SourceRegistry.instance.load().then((_) async {
+      try {
+        _roster = await SiteLibraryService.instance.roster();
+      } catch (_) {}
       if (mounted) setState(() => _loading = false);
     });
     unawaited(_loadLiveChannelCount());
@@ -123,10 +174,55 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
 
   Future<void> _refresh() async {
     await SourceRegistry.instance.load();
+    try {
+      _roster = await SiteLibraryService.instance.roster();
+    } catch (_) {}
     if (mounted) setState(() {});
   }
 
+  /// 站点库未导入提示（名单态统一文案，见评估报告第 3 节）：
+  /// 未激活名单行与 gated 原生裸行共用；「去导入」直达数据库导入页。
+  Future<void> _showSiteLibraryNeeded() async {
+    final goImport = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: moyiSheetFill,
+        title: const Text(
+          '站点库还没导入',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: const Text(
+          '站点库还没导入，这个站暂时看不了。去『我的 → 数据库导入』导入『站点库.sql』后就能用。',
+          style: TextStyle(color: Colors.white),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            style: TextButton.styleFrom(foregroundColor: moyiGold),
+            child: const Text('知道了'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: TextButton.styleFrom(foregroundColor: moyiGold),
+            child: const Text('去导入'),
+          ),
+        ],
+      ),
+    );
+    if (goImport != true || !mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const ActressDbManagePage()),
+    );
+    await _refresh();
+  }
+
   Future<void> _check(String siteId) async {
+    // gated 原生站未导入时先弹导入提示，不走 clientFor 检测流程。
+    if (SourceRegistry.instance.sqlGateBlocks(siteId)) {
+      await _showSiteLibraryNeeded();
+      return;
+    }
     if (_checking.contains(siteId)) return;
     setState(() {
       _checking.add(siteId);
@@ -677,6 +773,27 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
     // 再拆组，每行副标题里已有类型标（影视/小说/漫画/听书/综合）区分；
     // 阅读区与换源仍按类型过滤，那是行为，不随分组显示变。
     final techGroups = managementTechGroups(custom);
+    // 站点库名单态：未导入时把名单行（roster）里还没被现有列表
+    // 代表的站渲染成「未激活」行；已导入时不显示。
+    final siteLibrary = SiteLibraryService.instance;
+    final inactiveRoster = siteLibrary.imported
+        ? const <SiteLibraryRosterEntry>[]
+        : inactiveRosterEntries(
+            roster: _roster,
+            listedIds: {
+              for (final entry in builtin) entry.id,
+              for (final entry in registry.custom) entry.id,
+              for (final entry in registry.custom)
+                if (entry.extra['sqlCanon'] is String)
+                  entry.extra['sqlCanon'] as String,
+              for (final entry in registry.custom)
+                if (entry.extra['seedId'] is String)
+                  entry.extra['seedId'] as String,
+            },
+            gatedNativeIds: siteLibrary.gatedNativeIds,
+            bareRepresentedIds: {for (final entry in builtin) entry.id},
+            xp: CultivationService.instance.snapshot.totalXp,
+          );
     final liveNames = LiveSources.builtin.map((s) => s.name).join('、');
     return MoyiPageBackground(
       child: Scaffold(
@@ -695,6 +812,11 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
                   _groupTitle('内置短剧'),
                   for (final entry in builtin)
                     _builtinTile(entry),
+                  if (inactiveRoster.isNotEmpty) ...[
+                    _groupTitle('未激活（站点库未导入）'),
+                    for (final entry in inactiveRoster)
+                      _inactiveRosterTile(entry),
+                  ],
                   for (final group in techGroups) ...[
                     _groupTitle(group.title),
                     if (group.entries.isEmpty)
@@ -845,12 +967,8 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
     ),
   );
 
-  Widget _builtinTile(SourceEntry entry) {
-    final checking = _checking.contains(entry.id);
-    final checkError = _checkResults[entry.id];
-    final clientExists =
-        SourceRegistry.instance.hasDramaContentClient(entry.id) ||
-        entry.id == 'original';
+  /// 站点库名单态的未激活行：只有站名与分区，点行弹导入提示。
+  Widget _inactiveRosterTile(SiteLibraryRosterEntry entry) {
     return _rowCard(
       ListTile(
         title: Text(
@@ -858,8 +976,41 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
           style: const TextStyle(color: moyiBodyOnDark),
         ),
         subtitle: Text(
+          '${siteLibraryZoneLabel(entry.zone)} · 未激活',
+          style: const TextStyle(color: moyiMutedOnDark),
+        ),
+        trailing: const Icon(
+          Icons.lock_outline,
+          size: 18,
+          color: moyiMutedOnDark,
+        ),
+        onTap: _showSiteLibraryNeeded,
+      ),
+    );
+  }
+
+  Widget _builtinTile(SourceEntry entry) {
+    final checking = _checking.contains(entry.id);
+    final checkError = _checkResults[entry.id];
+    final clientExists =
+        SourceRegistry.instance.hasDramaContentClient(entry.id) ||
+        entry.id == 'original';
+    // gated 原生裸行：未导入时点行先弹导入提示，不走打开/检测流程。
+    final gatedOff = SourceRegistry.instance.sqlGateBlocks(entry.id);
+    return _rowCard(
+      ListTile(
+        onTap: gatedOff ? _showSiteLibraryNeeded : null,
+        title: Text(
+          entry.name,
+          style: const TextStyle(color: moyiBodyOnDark),
+        ),
+        subtitle: Text(
           checkError == null
-              ? (entry.enabled ? '已启用' : '已关闭，不出现在站点列表与全局搜索')
+              ? (gatedOff
+                    ? '站点库未导入，暂时看不了'
+                    : (entry.enabled
+                          ? '已启用'
+                          : '已关闭，不出现在站点列表与全局搜索'))
               : '检测失败：$checkError',
           style: const TextStyle(color: moyiMutedOnDark),
         ),

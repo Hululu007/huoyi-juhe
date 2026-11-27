@@ -4,11 +4,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../actress/actress_adapter_repository.dart';
+import '../actress/actress_adapter_store.dart';
+import '../actress/actress_global_search.dart';
+import '../actress/actress_library_db.dart';
+import '../actress/actress_library_native_page.dart';
+import '../actress/actress_work_detail_page.dart';
 import '../models/media_item.dart';
 import '../models/media_id.dart';
 import '../models/search_discovery.dart';
 import '../models/shuqi_book.dart';
 import '../services/api_client.dart';
+import '../services/cultivation.dart';
 import '../services/backend_transport.dart';
 import '../services/drama_site_play.dart';
 import '../services/drama_site_search.dart';
@@ -21,6 +28,7 @@ import '../widgets/series_detail/moyi_detail_theme.dart';
 import '../widgets/home/home_media_card.dart';
 import '../widgets/home/home_shelf.dart';
 import '../widgets/media_card.dart';
+import '../widgets/search/actress_search_sections.dart';
 import '../widgets/search/search_content_toolbar.dart';
 import '../widgets/search/search_discovery.dart';
 import '../widgets/search/search_scope_bar.dart';
@@ -68,6 +76,27 @@ class SearchPage extends StatefulWidget {
   /// 书旗搜索。留空走后端；注入后视为离线，与 [searchLoader] 同一约定。
   final ShuqiSearchLoader? shuqiSearchLoader;
 
+  /// 全局搜索的演员库段取数（综合页签）。留空走生产取数
+  /// （当前生效的那本女优库）；注入其它 loader 时按离线约定
+  /// 不走生产（见 _actressLoader）。
+  final ActressGlobalSearchLoader? actressSearchLoader;
+
+  /// 演员库段门禁覆盖：留空按修仙门禁（修为到元婴
+  /// xp≥3000 才出段，与演员库页签同一道锁）；测试注入。
+  final bool? actressSearchEnabled;
+
+  /// 演员库段的跳转页构造（测试注入）：点演员卡进演员页、
+  /// 点作品卡进作品详情页、两段「更多」进演员库。留空走
+  /// 生产页（演员库原生页下钻 / 作品详情页）。
+  final Widget Function(BuildContext context, String name)?
+  actressPageBuilder;
+  final Widget Function(BuildContext context, String vodId)?
+  actressWorkPageBuilder;
+  final Widget Function(BuildContext context, String query)?
+  actressMoreActressesBuilder;
+  final Widget Function(BuildContext context, String query)?
+  actressMoreWorksBuilder;
+
   /// 打开即把焦点落在输入框并弹键盘（电视遥控搜索进页即落在输入框的
   /// 手机等价做法）。缺省 false：只在红果发现页的搜索入口传 true，
   /// 其他入口不改行为、不无故弹键盘。
@@ -82,6 +111,12 @@ class SearchPage extends StatefulWidget {
     this.suggestLoader,
     this.hotSearchLoader,
     this.shuqiSearchLoader,
+    this.actressSearchLoader,
+    this.actressSearchEnabled,
+    this.actressPageBuilder,
+    this.actressWorkPageBuilder,
+    this.actressMoreActressesBuilder,
+    this.actressMoreWorksBuilder,
     this.initialCategory = SearchCategory.general,
     this.initialSiteIds,
     this.autofocus = false,
@@ -115,6 +150,12 @@ class _SearchPageState extends State<SearchPage> {
   Map<int, List<DramaSiteSearchResult>> _globalResultsByTab = {};
   Set<int> _globalLoadingTabs = {};
   String _globalQuery = '';
+
+  /// 全局搜索的演员库段（只在综合页签）：与站源段一样按词
+  /// 缓存，换词清掉；取数回 null（没库/未解锁）时段不出。
+  ActressGlobalSearchResult? _actressResult;
+  bool _actressLoading = false;
+  String _actressQuery = '';
   String _query = '';
   String? _idQuery;
   int _tabIndex = 0;
@@ -388,6 +429,9 @@ class _SearchPageState extends State<SearchPage> {
       _globalResultsByTab = {};
       _globalLoadingTabs = {};
       _globalQuery = '';
+      _actressResult = null;
+      _actressLoading = false;
+      _actressQuery = '';
       _suggestions = const [];
       // 书旗 id 是另一套命名空间，按 id 直查不适用。
       _idQuery = (_shuqiSource || asKeyword) ? null : mediaIdFromSearch(query);
@@ -527,6 +571,9 @@ class _SearchPageState extends State<SearchPage> {
       _globalResultsByTab = {};
       _globalLoadingTabs = {};
       _globalQuery = '';
+      _actressResult = null;
+      _actressLoading = false;
+      _actressQuery = '';
       _feeds = [for (final _ in _categories) _SearchFeed()];
     });
   }
@@ -716,6 +763,74 @@ class _SearchPageState extends State<SearchPage> {
     });
   }
 
+  /// 演员库段门禁：与演员库页签同一道锁（元婴 xp≥3000）。
+  /// 没到境界整段不存在——不查库、不出段，不许借搜索绕门禁。
+  bool get _actressSearchEnabled =>
+      widget.actressSearchEnabled ??
+      CultivationService.instance.snapshot.unlockedVideo;
+
+  /// 演员库段取数：注入优先；没注入但页面带了别的 loader
+  /// （离线/测试形态）时不走生产，与联想词/热搜同一约定。
+  ActressGlobalSearchLoader? get _actressLoader {
+    if (widget.actressSearchLoader != null) return widget.actressSearchLoader;
+    if (widget.searchLoader != null ||
+        widget.idSearchLoader != null ||
+        widget.shuqiSearchLoader != null) {
+      return null;
+    }
+    return loadActressGlobalSearch;
+  }
+
+  bool get _onGeneralTab =>
+      _categories[_tabIndex] == SearchCategory.general;
+
+  /// 演员库段对当前结果态是否可见（加载中也算：不出段的话
+  /// 番茄空态会抢先收尾）。只在综合页签、非书旗、非 ID 直查
+  /// 时存在；_actressResult 只在这些条件下被写入，这里再按
+  /// 页签收一遍，切走页签不串段。
+  bool get _showActress =>
+      _onGeneralTab &&
+      (_actressLoading ||
+          (_actressResult != null && !_actressResult!.isEmpty));
+
+  /// 综合页签下的演员库段搜索：与全局站源搜索并行跑，按词
+  /// 缓存（换页签不重搜、换词重搜）；没库/取数失败回 null，
+  /// 段静默不出，不影响番茄与站源结果。超时与全局段同口径
+  /// （60 秒可取消计时器，见 _withCancellableSearchTimeout）。
+  Future<void> _ensureActressSearch() async {
+    if (_shuqiSource || _query.isEmpty || _idQuery != null) return;
+    if (!_onGeneralTab) return;
+    if (!_actressSearchEnabled) return;
+    final loader = _actressLoader;
+    if (loader == null) return;
+    if (_actressQuery == _query &&
+        (_actressResult != null || _actressLoading)) {
+      return;
+    }
+    final generation = _requestGeneration;
+    final query = _query;
+    setState(() {
+      _actressLoading = true;
+      _actressQuery = query;
+      _actressResult = null;
+    });
+    ActressGlobalSearchResult? result;
+    try {
+      result = await _withCancellableSearchTimeout<ActressGlobalSearchResult?>(
+        loader(query),
+        null,
+      );
+    } catch (_) {
+      result = null;
+    }
+    if (!mounted) return;
+    setState(() {
+      _actressLoading = false;
+      // 过期词的结果不写，但加载标记要清（与全局段同口径）。
+      if (generation == _requestGeneration) _actressResult = result;
+    });
+  }
+
   Future<void> _loadSiteSearch() async {
     if (_query.isEmpty || _siteLoading || _siteQuery == _query) return;
     final generation = _requestGeneration;
@@ -758,6 +873,8 @@ class _SearchPageState extends State<SearchPage> {
     // _selectSource / _loadMore 全部入口；分页重复调 _loadTab 时缓存
     // 命中不再重跑（见 _ensureGlobalSearch 的守卫）。
     unawaited(_ensureGlobalSearch());
+    // 演员库段同路并行（只在综合页签、门禁内细判）。
+    unawaited(_ensureActressSearch());
     final feed = _feeds[index];
     if (_query.isEmpty || feed.loading || (feed.initialized && !feed.hasMore)) {
       return;
@@ -977,15 +1094,16 @@ class _SearchPageState extends State<SearchPage> {
     }
     // 全局站源结果与番茄结果并列：站源有结果 / 加载中时，不再只按番茄
     // 的空态 / 失败态收尾，站源区照常展示（失败壳的重试脚仍在 _resultItems 里）。
+    // 演员库段同理（综合页签）：段在就不让番茄空态抢先收尾。
     final showGlobal =
         _globalResultsForTab.isNotEmpty || _globalLoadingForTab;
-    if (!feed.initialized && feed.loading && !showGlobal) {
+    if (!feed.initialized && feed.loading && !showGlobal && !_showActress) {
       return _resultsShell(
         context,
         const Center(child: CircularProgressIndicator()),
       );
     }
-    if (!feed.initialized && feed.error != null && !showGlobal) {
+    if (!feed.initialized && feed.error != null && !showGlobal && !_showActress) {
       return _resultsShell(
         context,
         Center(
@@ -1006,7 +1124,7 @@ class _SearchPageState extends State<SearchPage> {
       );
     }
     final items = feed.items.where(_matchesScore).toList(growable: false);
-    if (items.isEmpty && !showGlobal) {
+    if (items.isEmpty && !showGlobal && !_showActress) {
       return _resultsShell(
         context,
         Center(
@@ -1203,12 +1321,114 @@ class _SearchPageState extends State<SearchPage> {
                       }, childCount: items.length),
                     ),
             ),
+            ..._actressSectionSlivers(context, width),
             ..._globalSectionSlivers(context, width),
             if (_idQuery == null)
               SliverToBoxAdapter(child: _paginationFooter(context, feed)),
           ],
         );
       },
+    );
+  }
+
+  /// 综合页签下的演员库两段：番茄网格之下、全部站点区之上。
+  /// 组件与版式在 actress_search_sections.dart；这里只管页签
+  /// 守卫与跳转落点。
+  List<Widget> _actressSectionSlivers(BuildContext context, double width) {
+    if (!_onGeneralTab) return const [];
+    return actressSearchSectionSlivers(
+      context: context,
+      width: width,
+      loading: _actressLoading,
+      result: _actressResult,
+      onActress: _openActressFromSearch,
+      onWork: _openActressWorkFromSearch,
+      onMoreActresses: _openActressMoreFromSearch,
+      onMoreWorks: _openActressWorksMoreFromSearch,
+    );
+  }
+
+  void _pushActressRoute(Widget page) {
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
+  }
+
+  /// 演员卡落点：演员库原生页直接停在她的作品下钻（与演员
+  /// 库页内点演员行同一条路）。
+  void _openActressFromSearch(String name) {
+    final builder = widget.actressPageBuilder;
+    _pushActressRoute(
+      builder != null
+          ? builder(context, name)
+          : ActressLibraryNativePage(
+              repository: XiuxianAppRepository.shared,
+              store: LocalStore.instance,
+              initialActress: name,
+            ),
+    );
+  }
+
+  /// 作品卡落点：作品详情页（页内起播那条现行链）。详情页里
+  /// 再点演员/标签/番号时，先退详情再落到演员库对应下钻，
+  /// 与演员库页内回调同口径。
+  void _openActressWorkFromSearch(Map<String, dynamic> row) {
+    final vodId = (row['vodId'] ?? '').toString();
+    if (vodId.isEmpty) return;
+    final builder = widget.actressWorkPageBuilder;
+    _pushActressRoute(
+      builder != null
+          ? builder(context, vodId)
+          : ActressWorkDetailPage.local(
+              vodId: vodId,
+              fallback: ActressLibraryDbFallback.shared,
+              repository: XiuxianAppRepository.shared,
+              onActress: (name) {
+                Navigator.of(context).pop();
+                _openActressFromSearch(name);
+              },
+              onTag: (tag) {
+                Navigator.of(context).pop();
+                _pushActressRoute(
+                  ActressLibraryNativePage(
+                    repository: XiuxianAppRepository.shared,
+                    store: LocalStore.instance,
+                    initialTag: tag,
+                  ),
+                );
+              },
+              onSearchCode: (code) {
+                Navigator.of(context).pop();
+                _pushActressRoute(SearchPage(initialQuery: code));
+              },
+            ),
+    );
+  }
+
+  /// 演员段「更多」落点：演员库演员页签按名筛选。
+  void _openActressMoreFromSearch() {
+    final builder = widget.actressMoreActressesBuilder;
+    _pushActressRoute(
+      builder != null
+          ? builder(context, _query)
+          : ActressLibraryNativePage(
+              repository: XiuxianAppRepository.shared,
+              store: LocalStore.instance,
+              initialActressQuery: _query,
+            ),
+    );
+  }
+
+  /// 作品段「更多」落点：演员库统一搜索（女优库段按番号/
+  /// 片名出作品，与页内手打搜索同一条路）。
+  void _openActressWorksMoreFromSearch() {
+    final builder = widget.actressMoreWorksBuilder;
+    _pushActressRoute(
+      builder != null
+          ? builder(context, _query)
+          : ActressLibraryNativePage(
+              repository: XiuxianAppRepository.shared,
+              store: LocalStore.instance,
+              initialSearchQuery: _query,
+            ),
     );
   }
 

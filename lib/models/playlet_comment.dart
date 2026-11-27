@@ -50,6 +50,7 @@ class PlayletComment {
     this.playletRoleType = 0,
     this.offsetMs = 0,
     this.userDigg = false,
+    this.danmakuMode = 0,
   });
 
   final String id;
@@ -80,6 +81,10 @@ class PlayletComment {
   /// 热评点击与点赞按钮的选中态都依赖它。
   final bool userDigg;
 
+  /// 弹幕类型（B 站 XML 口径）：0=滚动，4=底部静态，5=顶部静态。
+  /// 评论/热评恒为 0。
+  final int danmakuMode;
+
   /// 点赞的本地乐观更新（官方 `gx1/n0.java:489-509`：先改状态与计数，
   /// 接口失败再回滚）。计数不允许被减到负数。
   PlayletComment withDigg(bool liked) => PlayletComment(
@@ -98,6 +103,7 @@ class PlayletComment {
     playletRoleType: playletRoleType,
     offsetMs: offsetMs,
     userDigg: liked,
+    danmakuMode: danmakuMode,
   );
 
   bool get isEmpty => text.trim().isEmpty && imageUrls.isEmpty;
@@ -194,6 +200,7 @@ class PlayletComment {
       // model/VideoComment.java:107-113`）。`offset` 只是历史的兜底拼写。
       offsetMs: _int(expandMap['offset_time'] ?? expandMap['offset']),
       userDigg: base.userDigg,
+      danmakuMode: base.danmakuMode,
     );
   }
 }

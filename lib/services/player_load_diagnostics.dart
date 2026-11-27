@@ -23,6 +23,19 @@ const _allowedOutcomes = <String>{
   'disposed',
   'superseded',
 };
+const _allowedErrorCategories = <String>{
+  'offline',
+  'network',
+  'timeout',
+  'unavailable',
+  'service',
+  'decoding',
+  'unsupportedCodec',
+  'unknown',
+  'empty',
+  'format',
+  'state',
+};
 const _allowedSources = <String>{
   'network',
   'cacheHit',
@@ -59,6 +72,7 @@ class PlayerLoadSample {
   final String? failureStage;
   final int? errorCode;
   final int? httpStatusCode;
+  final String? errorCategory;
 
   PlayerLoadSample({
     required this.attempt,
@@ -74,6 +88,7 @@ class PlayerLoadSample {
     required String? failureStage,
     required int? errorCode,
     required int? httpStatusCode,
+    String? errorCategory,
   }) : trigger = _safeLabel(trigger, _allowedTriggers),
        outcome = _safeLabel(outcome, _allowedOutcomes),
        source = _safeLabel(source, _allowedSources),
@@ -86,7 +101,10 @@ class PlayerLoadSample {
            ? null
            : _safeLabel(failureStage, _allowedStages),
        errorCode = _safeErrorCode(errorCode),
-       httpStatusCode = _safeHttpStatus(httpStatusCode);
+       httpStatusCode = _safeHttpStatus(httpStatusCode),
+       errorCategory = errorCategory == null
+           ? null
+           : _safeLabel(errorCategory, _allowedErrorCategories);
 
   Map<String, Object?> toJson() => {
     'attempt': attempt,
@@ -102,12 +120,16 @@ class PlayerLoadSample {
     'failureStage': failureStage,
     'errorCode': errorCode,
     'httpStatusCode': httpStatusCode,
+    'errorCategory': errorCategory,
   };
 }
 
 class PlayerLoadDiagnostics {
   final Duration Function() _now;
   final ValueChanged<PlayerLoadSample> _report;
+  PlayerLoadSample? _latestSample;
+
+  PlayerLoadSample? get latestSample => _latestSample;
 
   PlayerLoadDiagnostics({
     Duration Function()? now,
@@ -148,6 +170,7 @@ class PlayerLoadTrace {
   String? _failureStage;
   int? _errorCode;
   int? _httpStatusCode;
+  String? _errorCategory;
   bool _finished = false;
 
   PlayerLoadTrace._(
@@ -194,10 +217,11 @@ class PlayerLoadTrace {
 
   /// Ends an unsuccessful attempt with a safe phase label and numeric codes.
   /// Error strings are intentionally not accepted by this API.
-  void fail({int? errorCode, int? httpStatusCode}) {
+  void fail({int? errorCode, int? httpStatusCode, String? errorCategory}) {
     if (_finished) return;
     _failureStage = _stage;
     _errorCode = errorCode;
+    _errorCategory = errorCategory;
     _httpStatusCode = httpStatusCode;
     finish('error');
   }
@@ -226,7 +250,9 @@ class PlayerLoadTrace {
       failureStage: _failureStage,
       errorCode: _errorCode,
       httpStatusCode: _httpStatusCode,
+      errorCategory: _errorCategory,
     );
+    _diagnostics._latestSample = sample;
     // Diagnostics must never turn a successful load into a playback error.
     try {
       _diagnostics._report(sample);

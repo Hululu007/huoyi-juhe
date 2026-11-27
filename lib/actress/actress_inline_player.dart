@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../services/native_player.dart' show NativePlayer;
+import '../services/player_menu_preferences.dart';
+import '../services/player_preferences.dart';
 
 /// 作品详情页内嵌播放器（2026-11-27 用户令：详情页点海报在
 /// 页内起播、不跳播放器页，与片库详情页的播放形态对齐）：
@@ -72,10 +74,39 @@ class _ActressInlinePlayerState extends State<ActressInlinePlayer> {
   var _stamp = 0;
   Timer? _loadTimer;
 
+  // 照录屏改造批：内嵌面与主播放页同一口径——倍速档（与主播放页
+  // 同一份倍率表/落盘值）、长按倍速（倍率走菜单偏好）、控制栏
+  // 播放中自动隐藏（隐藏时单击只亮栏、不切播放）。
+  double _rate = 1;
+  var _controlsVisible = true;
+  var _boosting = false;
+  Timer? _hideTimer;
+
   @override
   void initState() {
     super.initState();
+    unawaited(_loadRate());
     _start();
+  }
+
+  Future<void> _loadRate() async {
+    final rate = await PlayerPreferences.loadPlaybackRate();
+    if (!mounted) return;
+    setState(() => _rate = rate);
+  }
+
+  void _scheduleHide() {
+    _hideTimer?.cancel();
+    _hideTimer = Timer(const Duration(milliseconds: 3500), () {
+      if (mounted && _playing && _error == null) {
+        setState(() => _controlsVisible = false);
+      }
+    });
+  }
+
+  void _showControls() {
+    if (!_controlsVisible) setState(() => _controlsVisible = true);
+    _scheduleHide();
   }
 
   @override
@@ -88,6 +119,7 @@ class _ActressInlinePlayerState extends State<ActressInlinePlayer> {
   void dispose() {
     _stamp++;
     _loadTimer?.cancel();
+    _hideTimer?.cancel();
     _teardownPlayer();
     super.dispose();
   }
@@ -133,7 +165,15 @@ class _ActressInlinePlayerState extends State<ActressInlinePlayer> {
     );
     _subs.add(
       player.playingStream.listen((playing) {
-        if (mounted && stamp == _stamp) setState(() => _playing = playing);
+        if (mounted && stamp == _stamp) {
+          setState(() => _playing = playing);
+          if (playing) {
+            _scheduleHide();
+          } else {
+            _hideTimer?.cancel();
+            if (!_controlsVisible) setState(() => _controlsVisible = true);
+          }
+        }
       }),
     );
     _subs.add(
@@ -176,6 +216,8 @@ class _ActressInlinePlayerState extends State<ActressInlinePlayer> {
         _duration = player.duration;
       });
       await player.play();
+      if (_rate != 1) await player.setRate(_rate);
+      _showControls();
     } catch (error) {
       if (!mounted || stamp != _stamp) return;
       _fail('起播失败：${_shortError(error)}', stamp);
@@ -205,6 +247,38 @@ class _ActressInlinePlayerState extends State<ActressInlinePlayer> {
     } else {
       await player.play();
     }
+  }
+
+  /// 单击：控制栏隐藏时只亮栏（不切播放），在屏时才切播放/暂停。
+  void _onTap() {
+    if (!_controlsVisible) {
+      _showControls();
+      return;
+    }
+    unawaited(_togglePlay());
+    _scheduleHide();
+  }
+
+  /// 倍速档循环（与主播放页同一份倍率表），落盘口径同主播放页。
+  Future<void> _cycleRate() async {
+    final rates = PlayerPreferences.playbackRates;
+    final next = rates[(rates.indexOf(_rate) + 1) % rates.length];
+    setState(() => _rate = next);
+    await _player?.setRate(next);
+    unawaited(PlayerPreferences.savePlaybackRate(next));
+    _showControls();
+  }
+
+  void _startBoost() {
+    if (_boosting || !_playing || _error != null) return;
+    _boosting = true;
+    unawaited(_player?.setRate(PlayerMenuPreferences.boostRate.value));
+  }
+
+  void _endBoost() {
+    if (!_boosting) return;
+    _boosting = false;
+    unawaited(_player?.setRate(_rate));
   }
 
   /// 全屏（同 FilmInlinePlayer 的交接法）：先把自有播放器
@@ -258,7 +332,36 @@ class _ActressInlinePlayerState extends State<ActressInlinePlayer> {
             Positioned.fill(
               child: GestureDetector(
                 behavior: HitTestBehavior.translucent,
-                onTap: () => unawaited(_togglePlay()),
+                onTap: _onTap,
+                onLongPressStart: (_) => _startBoost(),
+                onLongPressEnd: (_) => _endBoost(),
+                onLongPressCancel: _endBoost,
+              ),
+            ),
+          if (_boosting)
+            const Positioned(
+              top: 10,
+              left: 0,
+              right: 0,
+              child: IgnorePointer(
+                child: Center(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Color(0x99000000),
+                      borderRadius: BorderRadius.all(Radius.circular(12)),
+                    ),
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      child: Text(
+                        '倍速播放中',
+                        style: TextStyle(color: Colors.white, fontSize: 12),
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ),
           if (!_firstFrame && _error == null)
@@ -298,7 +401,7 @@ class _ActressInlinePlayerState extends State<ActressInlinePlayer> {
                 ),
               ),
             ),
-          if (_error == null)
+          if (_error == null && _controlsVisible)
             Positioned(
               left: 0,
               right: 0,
@@ -329,7 +432,7 @@ class _ActressInlinePlayerState extends State<ActressInlinePlayer> {
                       _clock(_position),
                       style: const TextStyle(
                         color: Colors.white70,
-                        fontSize: 11,
+                        fontSize: 13,
                       ),
                     ),
                     Expanded(
@@ -350,6 +453,7 @@ class _ActressInlinePlayerState extends State<ActressInlinePlayer> {
                                 );
                                 setState(() => _position = target);
                                 unawaited(_player?.seek(target));
+                                _scheduleHide();
                               },
                         activeColor: Colors.white,
                         inactiveColor: Colors.white24,
@@ -359,7 +463,20 @@ class _ActressInlinePlayerState extends State<ActressInlinePlayer> {
                       _clock(_duration),
                       style: const TextStyle(
                         color: Colors.white70,
-                        fontSize: 11,
+                        fontSize: 13,
+                      ),
+                    ),
+                    TextButton(
+                      key: const ValueKey('inline-player-rate'),
+                      onPressed: () => unawaited(_cycleRate()),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        minimumSize: const Size(0, 36),
+                      ),
+                      child: Text(
+                        '${_rate == _rate.roundToDouble() ? _rate.toInt() : _rate}x',
+                        style: const TextStyle(fontSize: 13),
                       ),
                     ),
                     if (widget.onFullscreen != null)

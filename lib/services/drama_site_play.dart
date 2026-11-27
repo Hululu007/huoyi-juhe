@@ -188,6 +188,9 @@ Future<DramaPlaySource> _proxyIfNeeded(
       url: 'pics://${mapped.join('&&')}',
       keyHex: source.keyHex,
       headers: source.headers,
+      originalUrl: source.originalUrl.isNotEmpty
+          ? source.originalUrl
+          : source.url,
     );
   }
 
@@ -208,6 +211,9 @@ Future<DramaPlaySource> _proxyIfNeeded(
     keyHex: source.keyHex,
     headers: source.headers,
     variants: variants,
+    originalUrl: source.originalUrl.isNotEmpty
+        ? source.originalUrl
+        : source.url,
   );
 }
 
@@ -251,15 +257,11 @@ Future<void> showEngineSourceSwitch(
   await MidnightGate.ensureLoaded();
   if (!context.mounted) return;
   final gateOpen = MidnightGate.activated.value;
-  final candidates = engineSwitchCandidates(
-    SourceRegistry.instance.custom,
-    types: types,
-  )
-      .where((entry) => entry.id != currentSiteId)
-      .where(
-        (entry) => gateOpen || !MidnightGate.isAdultName(entry.name),
-      )
-      .toList();
+  final candidates =
+      engineSwitchCandidates(SourceRegistry.instance.custom, types: types)
+          .where((entry) => entry.id != currentSiteId)
+          .where((entry) => gateOpen || !MidnightGate.isAdultName(entry.name))
+          .toList();
   final hits = await showDialog<List<_SwitchHit>>(
     context: context,
     builder: (dialogContext) => AlertDialog(
@@ -291,55 +293,52 @@ Future<void> showEngineSourceSwitch(
                       child: Text('没有其他可换源的导入站'),
                     )
                   : FutureBuilder<List<_SwitchHit>>(
-          future: Future.wait(
-            candidates.map((entry) async {
-              try {
-                final client = await SourceRegistry.instance.clientFor(
-                  entry.id,
-                );
-                if (client == null) return null;
-                final results = await client
-                    .search(title)
-                    .timeout(const Duration(seconds: 15));
-                if (results.isEmpty) return null;
-                return _SwitchHit(
-                  siteId: entry.id,
-                  siteName: entry.name,
-                  item: results.first,
-                );
-              } catch (_) {
-                return null;
-              }
-            }),
-          ).then(
-            (rows) => rows.whereType<_SwitchHit>().toList(),
-          ),
-          builder: (context, snapshot) {
-            if (!snapshot.hasData) {
-              return const SizedBox(
-                height: 120,
-                child: Center(child: CircularProgressIndicator()),
-              );
-            }
-            final rows = snapshot.data!;
-            if (rows.isEmpty) {
-              return const Text('其他站没有搜到同名内容');
-            }
-            return ListView.builder(
-              shrinkWrap: true,
-              itemCount: rows.length,
-              itemBuilder: (_, i) {
-                final hit = rows[i];
-                return ListTile(
-                  title: Text(hit.item.title),
-                  subtitle: Text(hit.siteName),
-                  onTap: () => Navigator.pop(dialogContext, [hit]),
-                );
-              },
-            );
-          },
+                      future: Future.wait(
+                        candidates.map((entry) async {
+                          try {
+                            final client = await SourceRegistry.instance
+                                .clientFor(entry.id);
+                            if (client == null) return null;
+                            final results = await client
+                                .search(title)
+                                .timeout(const Duration(seconds: 15));
+                            if (results.isEmpty) return null;
+                            return _SwitchHit(
+                              siteId: entry.id,
+                              siteName: entry.name,
+                              item: results.first,
+                            );
+                          } catch (_) {
+                            return null;
+                          }
+                        }),
+                      ).then((rows) => rows.whereType<_SwitchHit>().toList()),
+                      builder: (context, snapshot) {
+                        if (!snapshot.hasData) {
+                          return const SizedBox(
+                            height: 120,
+                            child: Center(child: CircularProgressIndicator()),
+                          );
+                        }
+                        final rows = snapshot.data!;
+                        if (rows.isEmpty) {
+                          return const Text('其他站没有搜到同名内容');
+                        }
+                        return ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: rows.length,
+                          itemBuilder: (_, i) {
+                            final hit = rows[i];
+                            return ListTile(
+                              title: Text(hit.item.title),
+                              subtitle: Text(hit.siteName),
+                              onTap: () => Navigator.pop(dialogContext, [hit]),
+                            );
+                          },
+                        );
+                      },
+                    ),
             ),
-          ),
           ],
         ),
       ),
@@ -379,8 +378,10 @@ Future<void> openDramaSitePlayback(
       : (allDramaSites.any((site) => site.id == siteId)
             ? dramaSiteById(siteId).name
             : siteId);
-  final isFilmSite =
-      !isShortDramaSite(adultSiteIdForUnifiedId(siteId), playSiteName);
+  final isFilmSite = !isShortDramaSite(
+    adultSiteIdForUnifiedId(siteId),
+    playSiteName,
+  );
   if (isFilmSite) {
     final playOutcome = await GameService.instance.tryChargeAdultFilm(
       siteId,
@@ -463,9 +464,7 @@ Future<void> openDramaSitePlayback(
     // 又调了一次 loadSiteDetail()，详情页进来时目录明明已经传进
     // 来了（episodes 参数），等于每打开一本书就把目录（小说站是整
     // 本书的章节表）白抓一遍。loadSiteDetail 只在没传目录时才走。
-    final found = chapters.indexWhere(
-      (c) => c.itemId == episode.videoId,
-    );
+    final found = chapters.indexWhere((c) => c.itemId == episode.videoId);
     if (found >= 0) {
       for (var i = 1; i <= 2; i++) {
         final next = found + i;
@@ -521,9 +520,7 @@ Future<void> openDramaSitePlayback(
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            '取流失败：${error is StateError ? error.message : error}',
-          ),
+          content: Text('取流失败：${error is StateError ? error.message : error}'),
         ),
       );
     }
@@ -535,16 +532,16 @@ Future<void> openDramaSitePlayback(
       final engineBookId = 'engine:$siteId:$seriesId';
       var readerStart = safeIndex;
       try {
-        final saved =
-            await ReaderHistory(LibraryStore.instance).load(engineBookId);
+        final saved = await ReaderHistory(
+          LibraryStore.instance,
+        ).load(engineBookId);
         final chapterId = saved?['chapterId']?.toString();
         final episode = num.tryParse(saved?['episode']?.toString() ?? '');
         var historyIndex = chapterId == null
             ? -1
             : chapters.indexWhere((c) => c.itemId == chapterId);
         if (historyIndex < 0 && episode != null && episode.isFinite) {
-          historyIndex =
-              episode.toInt().clamp(0, chapters.length - 1).toInt();
+          historyIndex = episode.toInt().clamp(0, chapters.length - 1).toInt();
         }
         if (historyIndex > readerStart) readerStart = historyIndex;
       } catch (_) {}
@@ -583,16 +580,16 @@ Future<void> openDramaSitePlayback(
         ),
       );
       try {
-        final saved =
-            await ReaderHistory(LibraryStore.instance).load(engineBookId);
+        final saved = await ReaderHistory(
+          LibraryStore.instance,
+        ).load(engineBookId);
         final chapterId = saved?['chapterId']?.toString();
         final episode = num.tryParse(saved?['episode']?.toString() ?? '');
         var historyIndex = chapterId == null
             ? -1
             : chapters.indexWhere((c) => c.itemId == chapterId);
         if (historyIndex < 0 && episode != null && episode.isFinite) {
-          historyIndex =
-              episode.toInt().clamp(0, chapters.length - 1).toInt();
+          historyIndex = episode.toInt().clamp(0, chapters.length - 1).toInt();
         }
         if (historyIndex >= 0) saveIndex(historyIndex);
       } catch (_) {}
@@ -742,6 +739,7 @@ Future<void> openDramaSiteItem(
   BuildContext context,
   String siteId,
   DramaSiteItem item, {
+
   /// 核心阅读站的结果：客户端走阅读工厂，不走登记表解析——`hongguo`
   /// 这个 id 视频站与听书站撞名，登记表解析会抢先拿到视频客户端。
   bool readingCore = false,
@@ -782,11 +780,12 @@ Future<void> openDramaSiteItem(
   // 信号，兜底等于白抓两次上游；影视站保持老行为。
   final isReadingSite = entry == null
       ? coreReadingKinds[siteId] == 'novel' ||
-          coreReadingKinds[siteId] == 'comic' ||
-          coreReadingKinds[siteId] == 'audio'
+            coreReadingKinds[siteId] == 'comic' ||
+            coreReadingKinds[siteId] == 'audio'
       : entry.contentType != ContentType.video &&
-          entry.contentType != ContentType.mixed;
-  final isEngineSite = siteId.startsWith('localdb:') ||
+            entry.contentType != ContentType.mixed;
+  final isEngineSite =
+      siteId.startsWith('localdb:') ||
       coreReadingSiteIds.contains(siteId) ||
       (entry != null &&
           entry.kind != SourceKind.customMaccms &&
@@ -868,6 +867,9 @@ Future<void> openDramaSiteItem(
           );
         },
         commentLoader: (_) async => const PlayletCommentPage(),
+        // 影视区非 JAV 回填：同站同名搜索（详情页提不出番号时按
+        // 标题在本站搜同名条目补空缺资料）。
+        siteSearchLoader: (query) => client.search(query),
         // 影视区内联播放器的取流：与整页播放器同一套站客户端取流
         // （client.playSource + 本地代理转接），内联会话的取流缓存
         // 按集去重，不重复请求。
@@ -916,17 +918,16 @@ Future<void> openDramaSiteItem(
           client: client,
           tag: tag,
         ),
-        onPlaySelection: (index, episodes, detail) =>
-            openDramaSitePlayback(
-              context,
-              siteId: siteId,
-              seriesId: item.id,
-              title: item.title,
-              cover: item.cover,
-              episodes: episodes,
-              startIndex: index,
-              initialDetail: detail,
-            ),
+        onPlaySelection: (index, episodes, detail) => openDramaSitePlayback(
+          context,
+          siteId: siteId,
+          seriesId: item.id,
+          title: item.title,
+          cover: item.cover,
+          episodes: episodes,
+          startIndex: index,
+          initialDetail: detail,
+        ),
       ),
     ),
   );

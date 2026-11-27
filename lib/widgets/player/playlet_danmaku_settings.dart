@@ -28,6 +28,14 @@ class DanmakuSettings {
     this.lineSpaceTier = 2,
     this.sizeTier = 3,
     this.transparentBackground = false,
+    this.fontPercent = 100,
+    this.fullscreenFontPercent = 120,
+    this.scrollDurationSec = 0,
+    this.staticDurationSec = 4,
+    this.lineHeightFactor = 1.6,
+    this.fontWeightValue = 400,
+    this.strokeWidth = 0,
+    this.displayAreaPercent = 0,
   });
 
   /// 0..255；面板以 20..100% 呈现。
@@ -48,6 +56,32 @@ class DanmakuSettings {
   /// 弹幕气泡不画 40% 黑底，只留文字。
   final bool transparentBackground;
 
+  /// 字号百分比 50..200（100=档位原字号），实际字号 = 档位字号 × 本值/100。
+  final int fontPercent;
+
+  /// 全屏时的字号百分比 50..250，见 [fontSizeFor]。
+  final int fullscreenFontPercent;
+
+  /// 滚动弹幕飞行时长（秒）；0=沿用旧基准（竖屏 10s/横屏 12s），
+  /// 非 0 时钳 3..20 且不再分横竖屏。
+  final double scrollDurationSec;
+
+  /// 静态（顶部/底部）弹幕停留时长（秒），钳 2..10。
+  final double staticDurationSec;
+
+  /// 行高系数，钳 1.0..2.5；轨道间距 = 字号 × 本值 + 2.4。
+  final double lineHeightFactor;
+
+  /// 字体粗细，只允许 100..900 整百。
+  final int fontWeightValue;
+
+  /// 文字描边粗细，钳 0..3、0.5 步进；0=不描边。
+  final double strokeWidth;
+
+  /// 显示区域百分比；0=沿用旧口径（竖屏行数/横屏密度），
+  /// 非 0 时钳 10..100，轨道数按屏高 × 本值% / 行距算。
+  final int displayAreaPercent;
+
   /// 官方键之外的本地开关（官方气泡底色写死）。
   static const transparentKey = 'key_bg_transparent';
 
@@ -63,7 +97,53 @@ class DanmakuSettings {
   static const lineSpaceLabels = ['单行', '1/4屏', '1/2屏', '3/4屏'];
 
   double get speed => speedMultipliers[speedTier.clamp(1, 5) - 1];
-  double get fontSize => textSizes[sizeTier.clamp(1, 5) - 1];
+
+  /// 档位字号 × 字号百分比。
+  double get fontSize =>
+      textSizes[sizeTier.clamp(1, 5) - 1] * fontPercentClamped / 100;
+
+  /// 全屏用 [fullscreenFontPercent]，其余用 [fontPercent]。
+  double fontSizeFor({required bool fullscreen}) =>
+      textSizes[sizeTier.clamp(1, 5) - 1] *
+      (fullscreen ? fullscreenFontPercentClamped : fontPercentClamped) /
+      100;
+
+  int get fontPercentClamped => fontPercent.clamp(50, 200);
+  int get fullscreenFontPercentClamped =>
+      fullscreenFontPercent.clamp(50, 250);
+  double get scrollDurationSecClamped =>
+      normalizeScrollDurationSec(scrollDurationSec);
+  double get staticDurationSecClamped => staticDurationSec.clamp(2.0, 10.0);
+  double get lineHeightFactorClamped => lineHeightFactor.clamp(1.0, 2.5);
+  int get fontWeightValueClamped => normalizeFontWeightValue(fontWeightValue);
+  double get strokeWidthClamped => normalizeStrokeWidth(strokeWidth);
+  int get displayAreaPercentClamped =>
+      normalizeDisplayAreaPercent(displayAreaPercent);
+
+  /// 对应的 Flutter 字重（100..900 整百 → FontWeight.values 下标）。
+  FontWeight get fontWeight =>
+      FontWeight.values[(fontWeightValueClamped ~/ 100) - 1];
+
+  static double normalizeScrollDurationSec(double value) {
+    if (!value.isFinite || value <= 0) return 0;
+    return value.clamp(3.0, 20.0);
+  }
+
+  static int normalizeFontWeightValue(int value) {
+    final clamped = value.clamp(100, 900);
+    return (clamped / 100).round() * 100;
+  }
+
+  static double normalizeStrokeWidth(double value) {
+    if (!value.isFinite) return 0;
+    final clamped = value.clamp(0.0, 3.0);
+    return (clamped * 2).round() / 2;
+  }
+
+  static int normalizeDisplayAreaPercent(int value) {
+    if (value <= 0) return 0;
+    return value.clamp(10, 100);
+  }
 
   DanmakuSettings copyWith({
     int? alpha,
@@ -72,6 +152,14 @@ class DanmakuSettings {
     int? lineSpaceTier,
     int? sizeTier,
     bool? transparentBackground,
+    int? fontPercent,
+    int? fullscreenFontPercent,
+    double? scrollDurationSec,
+    double? staticDurationSec,
+    double? lineHeightFactor,
+    int? fontWeightValue,
+    double? strokeWidth,
+    int? displayAreaPercent,
   }) => DanmakuSettings(
     alpha: alpha ?? this.alpha,
     speedTier: speedTier ?? this.speedTier,
@@ -79,6 +167,27 @@ class DanmakuSettings {
     lineSpaceTier: lineSpaceTier ?? this.lineSpaceTier,
     sizeTier: sizeTier ?? this.sizeTier,
     transparentBackground: transparentBackground ?? this.transparentBackground,
+    fontPercent: (fontPercent ?? this.fontPercent).clamp(50, 200),
+    fullscreenFontPercent: (fullscreenFontPercent ?? this.fullscreenFontPercent)
+        .clamp(50, 250),
+    scrollDurationSec: normalizeScrollDurationSec(
+      scrollDurationSec ?? this.scrollDurationSec,
+    ),
+    staticDurationSec: (staticDurationSec ?? this.staticDurationSec).clamp(
+      2.0,
+      10.0,
+    ),
+    lineHeightFactor: (lineHeightFactor ?? this.lineHeightFactor).clamp(
+      1.0,
+      2.5,
+    ),
+    fontWeightValue: normalizeFontWeightValue(
+      fontWeightValue ?? this.fontWeightValue,
+    ),
+    strokeWidth: normalizeStrokeWidth(strokeWidth ?? this.strokeWidth),
+    displayAreaPercent: normalizeDisplayAreaPercent(
+      displayAreaPercent ?? this.displayAreaPercent,
+    ),
   );
 
   /// 官方 `a(alpha)=(alpha*100+127)/255`：不透明度百分比。
@@ -91,6 +200,12 @@ class DanmakuSettings {
     final store = await SharedPreferences.getInstance();
     int read(String key, int fallback) =>
         store.getInt('$spName/$key') ?? fallback;
+    double readDouble(String key, double fallback) {
+      final value = store.get('$spName/$key');
+      return value is num ? value.toDouble() : fallback;
+    }
+
+    // 旧存档没有新键时全部回默认值，行为与扩展前一致。
     return DanmakuSettings(
       alpha: read('key_alpha', 255).clamp(0, 255),
       speedTier: read('key_speed', 3).clamp(1, 5),
@@ -98,6 +213,29 @@ class DanmakuSettings {
       lineSpaceTier: read('key_line_space', 2).clamp(1, 4),
       sizeTier: read('key_text_size', 3).clamp(1, 5),
       transparentBackground: store.getBool('$spName/$transparentKey') ?? false,
+      fontPercent: read('key_font_percent', 100).clamp(50, 200),
+      fullscreenFontPercent: read('key_fullscreen_font_percent', 120).clamp(
+        50,
+        250,
+      ),
+      scrollDurationSec: normalizeScrollDurationSec(
+        readDouble('key_scroll_duration_sec', 0),
+      ),
+      staticDurationSec: readDouble('key_static_duration_sec', 4).clamp(
+        2.0,
+        10.0,
+      ),
+      lineHeightFactor: readDouble('key_line_height_factor', 1.6).clamp(
+        1.0,
+        2.5,
+      ),
+      fontWeightValue: normalizeFontWeightValue(read('key_font_weight', 400)),
+      strokeWidth: normalizeStrokeWidth(
+        readDouble('key_stroke_width', 0),
+      ),
+      displayAreaPercent: normalizeDisplayAreaPercent(
+        read('key_display_area_percent', 0),
+      ),
     );
   }
 
@@ -111,6 +249,29 @@ class DanmakuSettings {
     await store.setBool(
       '$spName/$transparentKey',
       settings.transparentBackground,
+    );
+    await store.setInt('$spName/key_font_percent', settings.fontPercentClamped);
+    await store.setInt(
+      '$spName/key_fullscreen_font_percent',
+      settings.fullscreenFontPercentClamped,
+    );
+    await store.setDouble(
+      '$spName/key_scroll_duration_sec',
+      settings.scrollDurationSecClamped,
+    );
+    await store.setDouble(
+      '$spName/key_static_duration_sec',
+      settings.staticDurationSecClamped,
+    );
+    await store.setDouble(
+      '$spName/key_line_height_factor',
+      settings.lineHeightFactorClamped,
+    );
+    await store.setInt('$spName/key_font_weight', settings.fontWeightValueClamped);
+    await store.setDouble('$spName/key_stroke_width', settings.strokeWidthClamped);
+    await store.setInt(
+      '$spName/key_display_area_percent',
+      settings.displayAreaPercentClamped,
     );
   }
 }
@@ -243,25 +404,115 @@ class _PlayletDanmakuSettingsPanelState
                         _update(_settings.copyWith(sizeTier: v.round() + 1)),
                   ),
                   _backgroundRow(),
-                  Semantics(
-                    key: const ValueKey('danmaku-settings-reset-row'),
-                    button: true,
-                    child: InkWell(
-                      key: const ValueKey('danmaku-settings-reset'),
-                      onTap: () {
-                        // 官方恢复默认回五键出厂值并 Toast「设置成功」。
-                        _update(const DanmakuSettings());
-                        widget.onReset?.call();
-                      },
-                      child: Container(
-                        alignment: Alignment.center,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        width: double.infinity,
-                        child: const Text('恢复默认', style: _labelStyle),
-                      ),
+                  _sliderRow(
+                    key: 'danmaku-settings-display-area',
+                    label: '显示区域%',
+                    value: _settings.displayAreaPercentClamped.toDouble(),
+                    max: 100,
+                    label2: _settings.displayAreaPercentClamped == 0
+                        ? '自动'
+                        : '${_settings.displayAreaPercentClamped}%',
+                    onChanged: (v) => _update(
+                      _settings.copyWith(displayAreaPercent: v.round()),
                     ),
                   ),
+                  _sliderRow(
+                    key: 'danmaku-settings-font-percent',
+                    label: '字体大小%',
+                    value: _settings.fontPercentClamped.toDouble(),
+                    min: 50,
+                    max: 200,
+                    label2: '${_settings.fontPercentClamped}%',
+                    onChanged: (v) =>
+                        _update(_settings.copyWith(fontPercent: v.round())),
+                  ),
+                  _sliderRow(
+                    key: 'danmaku-settings-fullscreen-font-percent',
+                    label: '全屏字体%',
+                    value: _settings.fullscreenFontPercentClamped.toDouble(),
+                    min: 50,
+                    max: 250,
+                    label2: '${_settings.fullscreenFontPercentClamped}%',
+                    onChanged: (v) => _update(
+                      _settings.copyWith(fullscreenFontPercent: v.round()),
+                    ),
+                  ),
+                  _sliderRow(
+                    key: 'danmaku-settings-scroll-duration',
+                    label: '滚动时长',
+                    value: _settings.scrollDurationSecClamped,
+                    max: 20,
+                    label2: _settings.scrollDurationSecClamped == 0
+                        ? '默认'
+                        : '${_settings.scrollDurationSecClamped.toStringAsFixed(1)}秒',
+                    onChanged: (v) =>
+                        _update(_settings.copyWith(scrollDurationSec: v)),
+                  ),
+                  _sliderRow(
+                    key: 'danmaku-settings-static-duration',
+                    label: '静态时长',
+                    value: _settings.staticDurationSecClamped,
+                    min: 2,
+                    max: 10,
+                    label2:
+                        '${_settings.staticDurationSecClamped.toStringAsFixed(1)}秒',
+                    onChanged: (v) =>
+                        _update(_settings.copyWith(staticDurationSec: v)),
+                  ),
+                  _sliderRow(
+                    key: 'danmaku-settings-line-height',
+                    label: '弹幕行高',
+                    value: _settings.lineHeightFactorClamped,
+                    min: 1,
+                    max: 2.5,
+                    label2: _settings.lineHeightFactorClamped.toStringAsFixed(
+                      1,
+                    ),
+                    onChanged: (v) =>
+                        _update(_settings.copyWith(lineHeightFactor: v)),
+                  ),
+                  _sliderRow(
+                    key: 'danmaku-settings-font-weight',
+                    label: '字体粗细',
+                    value: (_settings.fontWeightValueClamped ~/ 100).toDouble(),
+                    min: 1,
+                    max: 9,
+                    divisions: 8,
+                    label2: '${_settings.fontWeightValueClamped}',
+                    onChanged: (v) => _update(
+                      _settings.copyWith(fontWeightValue: v.round() * 100),
+                    ),
+                  ),
+                  _sliderRow(
+                    key: 'danmaku-settings-stroke-width',
+                    label: '描边粗细',
+                    value: _settings.strokeWidthClamped,
+                    max: 3,
+                    divisions: 6,
+                    label2: _settings.strokeWidthClamped.toStringAsFixed(1),
+                    onChanged: (v) =>
+                        _update(_settings.copyWith(strokeWidth: v)),
+                  ),
                 ],
+              ),
+            ),
+          ),
+          // 恢复默认固定在面板底部、不随设置行滚动，新行变多后也够得着。
+          Semantics(
+            key: const ValueKey('danmaku-settings-reset-row'),
+            button: true,
+            child: InkWell(
+              key: const ValueKey('danmaku-settings-reset'),
+              onTap: () {
+                // 官方恢复默认回五键出厂值并 Toast「设置成功」。
+                _update(const DanmakuSettings());
+                widget.onReset?.call();
+              },
+              child: Container(
+                alignment: Alignment.center,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                width: double.infinity,
+                child: const Text('恢复默认', style: _labelStyle),
               ),
             ),
           ),
@@ -312,6 +563,7 @@ class _PlayletDanmakuSettingsPanelState
     required String label,
     required double value,
     required double max,
+    double min = 0,
     int? divisions,
     required String label2,
     required ValueChanged<double> onChanged,
@@ -323,7 +575,8 @@ class _PlayletDanmakuSettingsPanelState
         SizedBox(width: 76, child: Text(label, style: _labelStyle)),
         Expanded(
           child: Slider(
-            value: value.clamp(0, max),
+            value: value.clamp(min, max),
+            min: min,
             max: max,
             divisions: divisions,
             label: label2,

@@ -288,10 +288,18 @@ class IdjPluginManifest {
       }
     }
     for (final domain in [...httpDomains, ...mediaDomains]) {
-      // IP 字面量不是域名形态：原正则的数字段会放行 127.0.0.1 这类
-      // 值，这里显式拒掉（与播放地址拒 IP 同口径）。
-      if (!_domainPattern.hasMatch(domain) || _ipv4Pattern.hasMatch(domain)) {
-        found.add('域名不合法：$domain（只支持 example.com 或 *.example.com 形态）');
+      // 合法形态：域名（example.com / *.example.com）或公网 IP 字面量
+      // （端口已在归一化时剥掉，IP:端口 形态同样接受）。真实插件有把
+      // 接口挂在公网 IP 上的（如 23.225.11.173，2026-11-27 手机实测
+      // 被这一条挡下装不上），一刀切拒 IP 是宿主校验过严。
+      // 回环地址（127.0.0.0/8、0.0.0.0）仍拒：本机跑着本地媒体
+      // 代理，不许插件借域名清单把请求打回本机回环。
+      final isIp = _ipv4Pattern.hasMatch(domain);
+      final isDomain = !isIp && _domainPattern.hasMatch(domain);
+      final isUsableIp =
+          isIp && !domain.startsWith('127.') && domain != '0.0.0.0';
+      if (!isDomain && !isUsableIp) {
+        found.add('域名不合法：$domain（只支持 example.com、*.example.com 或公网 IP 形态）');
       }
     }
     if (updateUrl.isNotEmpty) {
@@ -322,6 +330,7 @@ class IdjPluginIndexEntry {
     required this.siteKey,
     required this.installedAt,
     this.failures = 0,
+    this.lastCountedFailureAt = 0,
   });
 
   factory IdjPluginIndexEntry.fromJson(
@@ -341,6 +350,9 @@ class IdjPluginIndexEntry {
         ? (json['installedAt'] as num).toInt()
         : 0,
     failures: json['failures'] is num ? (json['failures'] as num).toInt() : 0,
+    lastCountedFailureAt: json['lastCountedFailureAt'] is num
+        ? (json['lastCountedFailureAt'] as num).toInt()
+        : 0,
   );
 
   final String pluginId;
@@ -355,6 +367,10 @@ class IdjPluginIndexEntry {
   final int installedAt;
   final int failures;
 
+  /// 看门狗最近一次「计入」的失败时刻（毫秒时间戳）：冷却窗内
+  /// 的连环失败不重复计数，见 [IdjPluginStore.recordFailure]。
+  final int lastCountedFailureAt;
+
   Map<String, dynamic> toJson() => {
     'name': name,
     'version': version,
@@ -366,22 +382,27 @@ class IdjPluginIndexEntry {
     'siteKey': siteKey,
     'installedAt': installedAt,
     'failures': failures,
+    'lastCountedFailureAt': lastCountedFailureAt,
   };
 
-  IdjPluginIndexEntry copyWith({bool? enabled, int? failures}) =>
-      IdjPluginIndexEntry(
-        pluginId: pluginId,
-        name: name,
-        version: version,
-        type: type,
-        adult: adult,
-        enabled: enabled ?? this.enabled,
-        origin: origin,
-        fileHash: fileHash,
-        siteKey: siteKey,
-        installedAt: installedAt,
-        failures: failures ?? this.failures,
-      );
+  IdjPluginIndexEntry copyWith({
+    bool? enabled,
+    int? failures,
+    int? lastCountedFailureAt,
+  }) => IdjPluginIndexEntry(
+    pluginId: pluginId,
+    name: name,
+    version: version,
+    type: type,
+    adult: adult,
+    enabled: enabled ?? this.enabled,
+    origin: origin,
+    fileHash: fileHash,
+    siteKey: siteKey,
+    installedAt: installedAt,
+    failures: failures ?? this.failures,
+    lastCountedFailureAt: lastCountedFailureAt ?? this.lastCountedFailureAt,
+  );
 }
 
 /// 解析好的一个 `.idjplugin` 包（内存形态，写盘用原文）。
@@ -1107,9 +1128,20 @@ class IdjPluginStore {
 
   // ---------- 看门狗 ----------
 
-  /// 看门狗：连续 3 次非瞬时失败自动停用。网络/环境类错误不计数
+  /// 看门狗：累计 3 次非瞬时失败自动停用。网络/环境类错误不计数
   /// （出口、站方、限流问题不是插件坏了，一次断网不许把插件悄悄
   /// 停用）；只有插件/站点本身的错误（解析、空数据、404 等）才计数。
+  /// 契约类错误（权限未声明被拒、请求未声明域名）也不计数：那是
+  /// 宿主与插件包对不上账，重试多少次都不会自愈，计进去只会把站
+  /// 误杀。另外设计数冷却：同一次使用里打开站点会连发分类+列表
+  /// 两次调用、报错页连点重试也会连发——冷却窗内的连环失败只计
+  /// 一次（2026-11-27 手机实测：开站两次调用加一次点重试正好凑满
+  /// 3 次，站被自动停用，用户感知为「点重试把插件站点关了」）。
+  /// 跨次使用仍会累积到 3 次自动停用，真坏的插件照样会被摘掉。
+  static const _failureCooldownMs = 10 * 60 * 1000;
+
+  static const _contractFailureCodes = {'E_PERMISSION', 'E_DOMAIN'};
+
   static const _transientFailureCodes = {
     'E_NET',
     'E_NETWORK',
@@ -1124,27 +1156,43 @@ class IdjPluginStore {
   static bool isTransientFailureCode(String code) =>
       _transientFailureCodes.contains(code);
 
-  Future<void> recordFailure(String pluginId, {String code = ''}) async {
-    if (_transientFailureCodes.contains(code)) return;
+  /// [now] 供测试注入时钟，生产调用不传。
+  Future<void> recordFailure(
+    String pluginId, {
+    String code = '',
+    DateTime? now,
+  }) async {
+    if (_transientFailureCodes.contains(code) ||
+        _contractFailureCodes.contains(code)) {
+      return;
+    }
     final index = await readIndex();
     final entry = index[pluginId];
     if (entry == null) return;
+    final nowMs = (now ?? DateTime.now()).millisecondsSinceEpoch;
+    if (nowMs - entry.lastCountedFailureAt < _failureCooldownMs) return;
     final failures = entry.failures + 1;
-    index[pluginId] = entry.copyWith(failures: failures);
+    index[pluginId] = entry.copyWith(
+      failures: failures,
+      lastCountedFailureAt: nowMs,
+    );
     await _writeIndex(index);
     if (failures >= 3 && entry.enabled) {
-      index[pluginId] = entry.copyWith(enabled: false, failures: failures);
+      index[pluginId] = index[pluginId]!.copyWith(enabled: false);
       await _writeIndex(index);
       onInstalledChanged?.call();
-      debugPrint('idj 看门狗：插件 $pluginId 连续失败 $failures 次，已自动停用');
+      debugPrint('idj 看门狗：插件 $pluginId 累计失败 $failures 次，已自动停用');
     }
   }
 
   Future<void> recordSuccess(String pluginId) async {
     final index = await readIndex();
     final entry = index[pluginId];
-    if (entry == null || entry.failures == 0) return;
-    index[pluginId] = entry.copyWith(failures: 0);
+    if (entry == null ||
+        (entry.failures == 0 && entry.lastCountedFailureAt == 0)) {
+      return;
+    }
+    index[pluginId] = entry.copyWith(failures: 0, lastCountedFailureAt: 0);
     await _writeIndex(index);
   }
 

@@ -476,6 +476,61 @@ void main() {
       );
     });
 
+    testWidgets('top and bottom static danmaku pin to their edges', (
+      tester,
+    ) async {
+      final position = ValueNotifier<Duration>(const Duration(seconds: 1));
+      addTearDown(position.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Center(
+            child: SizedBox(
+              key: const ValueKey('static-viewport'),
+              width: 400,
+              height: 300,
+              child: Stack(
+                children: [
+                  PlayletDanmakuLayer(
+                    entries: [
+                      const PlayletComment(
+                        id: 'top',
+                        text: '顶部静态',
+                        offsetMs: 500,
+                        danmakuMode: 5,
+                      ),
+                      const PlayletComment(
+                        id: 'bottom',
+                        text: '底部静态',
+                        offsetMs: 500,
+                        danmakuMode: 4,
+                      ),
+                      danmaku('gone', 500),
+                    ],
+                    position: position,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      final viewport = tester.getRect(
+        find.byKey(const ValueKey('static-viewport')),
+      );
+      final top = tester.getRect(find.byKey(const ValueKey('danmaku-top')));
+      final bottom = tester.getRect(
+        find.byKey(const ValueKey('danmaku-bottom')),
+      );
+      // 顶部静态贴顶（首轨偏移 8），底部静态贴底，互不进滚动轨道。
+      expect(top.top - viewport.top, closeTo(8, 1));
+      expect(viewport.bottom - bottom.bottom, closeTo(8, 1));
+      // 静态窗口 = offset + 默认 4 秒；5.5s 时两条都过期。
+      position.value = const Duration(milliseconds: 5500);
+      await tester.pump();
+      expect(find.byKey(const ValueKey('danmaku-top')), findsNothing);
+      expect(find.byKey(const ValueKey('danmaku-bottom')), findsNothing);
+    });
+
     testWidgets('the switch hides the whole layer', (tester) async {
       final position = ValueNotifier<Duration>(const Duration(seconds: 1));
       addTearDown(position.dispose);

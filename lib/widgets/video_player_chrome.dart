@@ -15,6 +15,7 @@ import '../services/native_player.dart';
 import '../services/playback_format.dart';
 import '../services/playback_gesture_levels.dart';
 import '../services/player_layout_preferences.dart';
+import '../services/player_menu_preferences.dart';
 import '../services/player_preferences.dart';
 import '../services/player_style_config.dart';
 import '../services/player_system_ui.dart';
@@ -34,6 +35,7 @@ import 'player/playlet_split_status_bar.dart';
 import 'player/playlet_more_panel_light.dart';
 import 'player/playlet_more_panel_side.dart';
 import 'player/playlet_option_sheet.dart';
+import 'player/player_embed_menu.dart';
 import 'player/quality_icon.dart';
 import 'player/player_cover.dart';
 import 'player/player_side_panel.dart';
@@ -236,6 +238,11 @@ class VideoPlayerChrome extends StatefulWidget {
   /// 见 `_FullscreenRoundButton` 的调用方）。默认 false。
   final bool openFullScreen;
 
+  /// 借来的全屏页（详情页内嵌交接，宿主页传入）：退出全屏不切回
+  /// 竖屏整页形态，而是直接退页回详情页的内嵌舞台（用户
+  /// 2026-11-27 实报）。默认 false = 既有页内切换语义。
+  final bool popOnFullscreenExit;
+
   /// 播放页布局偏好（设置页「外观 → 播放页布局」）。分屏只在宿主传入
   /// [splitPanel] 时生效；桌面走 [DesktopVideoChrome]，不消费该值。
   final PlayerLayoutMode layoutMode;
@@ -249,6 +256,15 @@ class VideoPlayerChrome extends StatefulWidget {
   /// 判据不是 `_visible` 一个值：竖屏浏览态下控制收起后信息区还留着
   /// seek 栏（`bandVisible`），只看 `_visible` 会漏掉这一路。
   final ValueChanged<bool>? onSeekBarVisibilityChanged;
+
+  /// 照录屏改造批：统一「更多」菜单的页面级数据/动作（播放页组装）。
+  /// 非空时顶栏「更多」打开统一菜单（全形态共用）；为空沿用旧面板
+  /// （其他宿主与旧测试的构造不破）。
+  final PlayerEmbedPageActions? embedActions;
+
+  /// 统一菜单「播放信息」的数据组装（控制层补宿主实时信息、页面
+  /// 补源/集信息）；与 [embedActions] 成对出现。
+  final Future<PlayerInfoData> Function()? embedLoadInfo;
 
   const VideoPlayerChrome({
     super.key,
@@ -312,9 +328,12 @@ class VideoPlayerChrome extends StatefulWidget {
     this.onPlaybackRateChanged,
     this.onPlaybackVolumeChanged,
     this.openFullScreen = false,
+    this.popOnFullscreenExit = false,
     this.layoutMode = PlayerLayoutMode.immersive,
     this.splitPanel,
     this.onSeekBarVisibilityChanged,
+    this.embedActions,
+    this.embedLoadInfo,
   });
 
   @override
@@ -352,6 +371,19 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
 
   /// 「清晰度」同款级联标记（底栏没有当前档可点时，面板里留入口行）。
   bool _pendingQualityPicker = false;
+
+  // ---- 照录屏改造批：镜像 / 播放信息 / 字幕文本 ----
+  bool _mirrorH = false;
+  bool _mirrorV = false;
+
+  /// 宿主播放信息（分辨率/码率/带宽/解码器）：2 秒轮询一次，顶栏
+  /// 信息行与「播放信息」弹窗共用；取不到保持 null，界面不编造。
+  final _playbackInfo = ValueNotifier<PlayerPlaybackInfo?>(null);
+  Timer? _infoTimer;
+
+  /// 宿主推来的当前字幕文本（内嵌字幕渲染层的数据源）。
+  final _cues = ValueNotifier<List<String>>(const []);
+  StreamSubscription<List<String>>? _cuesSubscription;
 
   /// 底栏「倍速」文字此刻是否在场，与 `_buildStage` 的 `showTextActions`
   /// **同一组判据**，但直接由布局状态推出，不读「上一帧 build 的缓存值」：
@@ -639,6 +671,12 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
           }
         });
     unawaited(_loadRate());
+    unawaited(PlayerMenuPreferences.loadAll());
+    _infoTimer = Timer.periodic(
+      const Duration(seconds: 2),
+      (_) => unawaited(_pollPlaybackInfo()),
+    );
+    unawaited(_pollPlaybackInfo());
     // 官方 o.W7()：holder 初始化时，若清屏未被反向禁用（O1()）且当前是
     // 旧底栏分支（SingleVideoHolder.F6()：k9()=新栏样式为假、场景默认 1），
     // 进页即清屏（T7(true)）。新栏分支 F6() 恒 false，不清屏；官方的听书
@@ -773,6 +811,10 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
     _coverAnimation = null;
     unawaited(_positionSubscription?.cancel());
     unawaited(_playWhenReadySubscription?.cancel());
+    _infoTimer?.cancel();
+    unawaited(_cuesSubscription?.cancel());
+    _playbackInfo.dispose();
+    _cues.dispose();
     _position.dispose();
     _seekValue.dispose();
     if (_boosting && widget.player != null) {
@@ -804,6 +846,26 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
     _playWhenReadySubscription = player?.playWhenReadyStream.listen((_) {
       if (mounted && identical(widget.player, player)) setState(() {});
     });
+    unawaited(_cuesSubscription?.cancel());
+    _cues.value = const [];
+    _cuesSubscription = player?.cuesStream.listen((cues) {
+      if (mounted && identical(widget.player, player)) {
+        _cues.value = cues;
+      }
+    });
+  }
+
+  /// 轮询宿主播放信息：只在控件在屏时取（顶栏信息行才消费它），
+  /// 失败静默保持旧值。
+  Future<void> _pollPlaybackInfo() async {
+    final player = widget.player;
+    if (player == null || !_visible) return;
+    try {
+      final info = await player.getPlaybackInfo();
+      if (mounted && info != null) _playbackInfo.value = info;
+    } catch (_) {
+      // 取不到就不更新，顶栏信息行保持上一份或不显。
+    }
   }
 
   Future<void> _loadRate() async {
@@ -812,7 +874,11 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
       final rate = await PlayerPreferences.loadPlaybackRate();
       if (!mounted || generation != _rateGeneration) return;
       setState(() => _rate = rate);
-      await _control((player) => player.setRate(_boosting ? 2 : rate));
+      await _control(
+        (player) => player.setRate(
+          _boosting ? PlayerMenuPreferences.boostRate.value : rate,
+        ),
+      );
     } catch (_) {}
   }
 
@@ -1242,7 +1308,12 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
     _hideTimer?.cancel();
     HapticFeedback.lightImpact();
     setState(() => _boosting = true);
-    unawaited(_control((player) => player.setRate(2)));
+    // 长按倍速倍率走菜单偏好（SPEC M9，默认 3.0x）。
+    unawaited(
+      _control(
+        (player) => player.setRate(PlayerMenuPreferences.boostRate.value),
+      ),
+    );
   }
 
   /// 官方 K6() 的横向中心带：竖屏取屏宽 50%、横屏取 33%（J6()），
@@ -1267,7 +1338,11 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
   /// （`canPage == false`；番茄官方横屏没有这两个手势，按 B站 横屏补齐）。
   /// 竖屏整屏不注册识别器，竖直翻页照旧。
   void _startGesture(DragStartDetails details, Size stage) {
-    if ((!_splitActive && !_windowLandscape) ||
+    // 照录屏改造批：单集竖屏（如演员库全屏）没有翻页可让，竖滑同样
+    // 交给亮度/音量——允许面加上「集数 ≤1 的竖屏」。
+    final allowedSurface =
+        _splitActive || _windowLandscape || widget.episodes.length <= 1;
+    if (!allowedSurface ||
         _locked ||
         _seeking ||
         _boosting ||
@@ -1689,12 +1764,99 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
   /// （`Q0()` 染 `#FF1C1C1C`）。
   /// Note: 深/浅两支并存的配置门与死行取舍 — 见
   /// .agents/notes/implemented/feature/2026-09-29-more-panel-light-branch.md
+  /// 照录屏改造批：统一「更多」菜单。页面传了 [VideoPlayerChrome.embedActions]
+  /// 时 ⋮ 一律走这里（竖屏底部弹层、横屏右侧栏，内容同一份），
+  /// 原短剧面板/通用面板只在 embedActions 缺席时兜底。
+  Future<void> _showEmbedMenu() async {
+    final actions = widget.embedActions;
+    if (actions == null) return;
+    setState(() => _modalOpen = true);
+    try {
+      await showPlayerEmbedMenu(
+        context: context,
+        landscape: _windowLandscape,
+        player: widget.player,
+        rate: _rate,
+        onOpenRatePanel: () => unawaited(_showRatePicker()),
+        pageActions: actions,
+        loadInfo: _loadEmbedInfo,
+        fillLabel: widget.fillScreen ? '撑满' : '适屏',
+        onCycleFill: widget.onFillScreenChanged == null
+            ? null
+            : () {
+                final next = !widget.fillScreen;
+                widget.onFillScreenChanged!(next);
+                return next ? '撑满' : '适屏';
+              },
+        danmakuEnabled: widget.onToggleDanmaku == null
+            ? null
+            : widget.danmakuEnabled,
+        onDanmakuEnabledChanged: widget.onToggleDanmaku == null
+            ? null
+            : (value) {
+                if (value != widget.danmakuEnabled) {
+                  widget.onToggleDanmaku!.call();
+                }
+              },
+        danmakuSettings: widget.onDanmakuSettingsChanged == null
+            ? null
+            : widget.danmakuSettings,
+        onDanmakuSettingsChanged: widget.onDanmakuSettingsChanged == null
+            ? null
+            : (settings) {
+                widget.onDanmakuSettingsChanged!.call(settings);
+                unawaited(DanmakuSettings.save(settings));
+              },
+        onOpenFontScale: widget.shortSeries
+            ? () => unawaited(_showFontScaleSheet())
+            : null,
+        mirrorH: _mirrorH,
+        mirrorV: _mirrorV,
+        onMirrorHChanged: (value) => setState(() => _mirrorH = value),
+        onMirrorVChanged: (value) => setState(() => _mirrorV = value),
+      );
+    } finally {
+      if (mounted) setState(() => _modalOpen = false);
+      if (mounted) _scheduleHide();
+    }
+  }
+
+  /// 「播放信息」数据组装：页面给的源/集信息 + 宿主实时播放信息。
+  Future<PlayerInfoData> _loadEmbedInfo() async {
+    final base = await widget.embedLoadInfo!();
+    var native = _playbackInfo.value;
+    try {
+      native = await widget.player?.getPlaybackInfo() ?? native;
+    } catch (_) {
+      // 取不到就用最近一次轮询值。
+    }
+    return PlayerInfoData(
+      seriesTitle: base.seriesTitle,
+      episodeLabel: base.episodeLabel,
+      sourceLabel: base.sourceLabel,
+      sourceUrl: base.sourceUrl,
+      decoderPrefLabel: base.decoderPrefLabel,
+      position: _position.value,
+      duration: widget.duration,
+      rate: _rate,
+      episodeIndex: base.episodeIndex,
+      episodeCount: base.episodeCount,
+      native: native,
+      fallbackWidth: _videoSize.width.round(),
+      fallbackHeight: _videoSize.height.round(),
+    );
+  }
+
   Future<void> _showSettingsPanel() async {
     if (_overlayOpen || _panelOpen || _locked) return;
     _endBoost();
     _cancelSeek();
     _doubleTapGuard?.cancel();
     _hideTimer?.cancel();
+    if (widget.embedActions != null) {
+      await _showEmbedMenu();
+      return;
+    }
     // 横屏走右侧面板里的一整串设置（宫格 → 弹幕设置/字号），与选集抽屉
     // 同宽同高、共用 64dp 标题行。
     if (_windowLandscape) {
@@ -2187,6 +2349,27 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
     // 官方在 Activity 退出横屏时无条件解锁（`EXIST_LAND_ACTIVITY`）。
     if (_fullScreen) _releaseLock();
     final leavingFullScreen = _fullScreen;
+    // 借来的全屏页（详情页内嵌交接）：退出全屏 = 退页回内嵌舞台。
+    // 三条退出路（底栏全屏键、顶栏返回、系统返回经 _back）全汇到
+    // 这里，一处改全通。两个坑：①系统 UI/方向的复原只「发出」
+    // 不等它落完——_applySystemUi 的通道链在宿主不回话时会一直
+    // 挂着，退页不能排在它后面；退页后 dispose 还会再挂一笔带
+    // releasePin 的复原兜底。②退页不能走 maybePop：本页的
+    // PopScope 在全屏时 canPop=false，setState 的重建还没落地
+    // 就会被它否决；这里本就是退出权的持有者，直接 pop。
+    // 退页后宿主按历史进度恢复内嵌续播。
+    if (leavingFullScreen && widget.popOnFullscreenExit) {
+      setState(() {
+        _fullScreen = false;
+        _visible = true;
+      });
+      unawaited(_applySystemUi(pinPortrait: true));
+      if (mounted) {
+        final navigator = Navigator.of(context);
+        if (navigator.canPop()) navigator.pop();
+      }
+      return;
+    }
     setState(() {
       _fullScreen = !_fullScreen;
       // 全屏里控件会 3 秒收起；退出后回到竖屏浏览态，`_scheduleHide` 的
@@ -2490,9 +2673,11 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
       });
     }
     // 旋出横屏时识别器被摘掉，拖拽可能收不到 onEnd：把手势态与 HUD 清掉，
-    // 免得下次进横屏看到上一轮的残留档位。
+    // 免得下次进横屏看到上一轮的残留档位。单集竖屏的手势是常驻能力
+    // （照录屏改造批），不在清理面内。
     if (!landscape &&
         !compact &&
+        widget.episodes.length > 1 &&
         (_gestureActive || _gestureHud.value != null)) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || _splitActive || _windowLandscape) return;
@@ -2635,13 +2820,23 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
           onHorizontalDragEnd: _endDragSeek,
           // 分屏视频盒与横屏整屏的竖直翻页都已关闭（canPage == false），
           // 上下滑改为左半区调亮度、右半区调音量；竖屏整屏不注册这两个
-          // 识别器，竖直翻页照旧。
-          onVerticalDragStart: compact || landscape
+          // 识别器，竖直翻页照旧。单集竖屏没有下一集可翻，同横屏处理
+          // （照录屏改造批：演员库全屏也要能滑亮度/音量）。
+          onVerticalDragStart: compact || landscape || widget.episodes.length <= 1
               ? (details) => _startGesture(details, window)
               : null,
-          onVerticalDragUpdate: compact || landscape ? _updateGesture : null,
-          onVerticalDragEnd: compact || landscape ? (_) => _endGesture() : null,
-          onVerticalDragCancel: compact || landscape ? _endGesture : null,
+          onVerticalDragUpdate:
+              compact || landscape || widget.episodes.length <= 1
+              ? _updateGesture
+              : null,
+          onVerticalDragEnd:
+              compact || landscape || widget.episodes.length <= 1
+              ? (_) => _endGesture()
+              : null,
+          onVerticalDragCancel:
+              compact || landscape || widget.episodes.length <= 1
+              ? _endGesture
+              : null,
           // 官方长按分两支（jq3/x.java:2250-2252）：横向中心带
           // （K6():2690-2711，竖屏 50%/横屏 33% 宽，Y 不限）命中且
           // y7() 处理成功 → 打开「show_more_panel_from_long_click」
@@ -2679,7 +2874,7 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
               key: const ValueKey('episode-pager'),
               controller: _pages,
               scrollDirection: Axis.vertical,
-              physics: canPage
+              physics: canPage && widget.episodes.length > 1
                   ? const ClampingScrollPhysics()
                   : const NeverScrollableScrollPhysics(),
               itemCount: math.max(1, widget.episodes.length),
@@ -2697,7 +2892,7 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
                       compact: compact,
                       child: SizedBox(
                         key: const ValueKey('video-frame'),
-                        child: widget.child,
+                        child: _mirrorWrap(widget.child),
                       ),
                     )
                   else
@@ -2718,8 +2913,9 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
         // 缓冲转圈由宿主（PlayerPage 的 `PlayerLoadingFeedback`）统一渲染，再加会叠两个。
         // 弹幕层：官方在竖屏画面内滚动，锁屏/清屏时隐藏
         // （container/l.java 的渲染参数未取证，这里只放已证时间轴语义）。
-        if (widget.shortSeries &&
-            widget.danmakuEnabled &&
+        // 照录屏改造批：拆 shortSeries 形态门——任何入口的播放页只要
+        // 页面给了弹幕数据就挂层（非官方集取数失败即空表，不挡播放）。
+        if (widget.danmakuEnabled &&
             !_locked &&
             !_clearScreen &&
             widget.danmaku.isNotEmpty)
@@ -2750,7 +2946,9 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
                     key: const ValueKey('player-danmaku-layer'),
                     entries: widget.danmaku,
                     position: _position,
-                    rate: _boosting ? 2 : _rate,
+                    rate: _boosting
+                        ? PlayerMenuPreferences.boostRate.value
+                        : _rate,
                     // 官方横屏飞行 12000ms、竖屏 10000ms。分屏视频盒即使宽
                     // 扁（竖屏片源按 4:3 切盒）也不是横屏播放：判据必须是
                     // 设备朝向，否则竖屏分屏会误用横屏飞行时长与轨道密度。
@@ -2768,6 +2966,33 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
                         !_dragSeekActive,
                   ),
                 ),
+              ),
+            ),
+          ),
+        // 内嵌字幕文本层（照录屏改造批）：Texture 输出下宿主不画字幕，
+        // 宿主把当前字幕文本推过来（cuesStream），这里按字幕样式偏好
+        // （字号/颜色/位置/描边）渲染。没有字幕轨或未选中时恒空。
+        if (!_locked)
+          Positioned(
+            left: 16,
+            right: 16,
+            top: landscape
+                ? insets.top + _landscapeTopBarHeight + 8
+                : insets.top + _portraitTopBarHeight + 8,
+            bottom: insets.bottom + (landscape ? 84 : 104),
+            child: IgnorePointer(
+              child: ValueListenableBuilder<List<String>>(
+                valueListenable: _cues,
+                builder: (context, cues, _) {
+                  if (cues.isEmpty) return const SizedBox.shrink();
+                  return ValueListenableBuilder<SubtitleStyleSettings>(
+                    valueListenable: PlayerMenuPreferences.subtitleStyle,
+                    builder: (context, style, _) => _SubtitleCuesOverlay(
+                      cues: cues,
+                      style: style,
+                    ),
+                  );
+                },
               ),
             ),
           ),
@@ -2899,23 +3124,63 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
             child: RepaintBoundary(
               child: ListenableBuilder(
                 listenable: _timeline,
-                builder: (context, child) => StorySeekBar(
-                  key: const ValueKey('video-seek'),
-                  value: _progressValue,
-                  enabled: durationMs > 0,
-                  seeking: _seeking,
-                  onStart: _startSeek,
-                  onChanged: (value) => _seekValue.value = value,
-                  onEnd: (value) => unawaited(_finishSeek(value)),
-                  onCancel: _cancelSeek,
-                  trackWidth: catalogStyle ? 4 : 2,
-                  progressColor: widget.shortSeries
-                      ? const Color(0xFFFA6725)
-                      : Colors.white,
-                  trackColor: widget.shortSeries
-                      ? const Color(0x4DFFFFFF)
-                      : Colors.white24,
-                ),
+                builder: (context, child) {
+                  final bar = StorySeekBar(
+                    key: const ValueKey('video-seek'),
+                    value: _progressValue,
+                    enabled: durationMs > 0,
+                    seeking: _seeking,
+                    onStart: _startSeek,
+                    onChanged: (value) => _seekValue.value = value,
+                    onEnd: (value) => unawaited(_finishSeek(value)),
+                    onCancel: _cancelSeek,
+                    trackWidth: catalogStyle ? 4 : 2,
+                    progressColor: widget.shortSeries
+                        ? const Color(0xFFFA6725)
+                        : Colors.white,
+                    trackColor: widget.shortSeries
+                        ? const Color(0x4DFFFFFF)
+                        : Colors.white24,
+                  );
+                  if (widget.shortSeries) return bar;
+                  // 通用形态竖屏常驻时间文字（照录屏改造批 B3）：左端
+                  // 上下两行 13sp（当前 / 总长），屏显「时间」关时不显。
+                  return ValueListenableBuilder<PlayerOsdSettings>(
+                    valueListenable: PlayerMenuPreferences.osd,
+                    builder: (context, osd, _) {
+                      if (!osd.showTime) return bar;
+                      final positionMs = (_progressValue * durationMs)
+                          .round();
+                      return Row(
+                        children: [
+                          Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _hms(Duration(milliseconds: positionMs)),
+                                key: const ValueKey('portrait-time-current'),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              Text(
+                                _hms(Duration(milliseconds: durationMs)),
+                                style: const TextStyle(
+                                  color: Colors.white54,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(child: bar),
+                        ],
+                      );
+                    },
+                  );
+                },
               ),
             ),
           ),
@@ -2962,8 +3227,17 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
             top: insets.top + _landscapeTopBarHeight + 8,
             left: 0,
             right: 0,
-            child: const Center(
-              child: IgnorePointer(child: Chip(label: Text('2× 加速中'))),
+            child: Center(
+              child: IgnorePointer(
+                child: ValueListenableBuilder<double>(
+                  valueListenable: PlayerMenuPreferences.boostRate,
+                  builder: (context, boost, _) => Chip(
+                    label: Text(
+                      '${boost == boost.roundToDouble() ? boost.toInt() : boost}× 加速中',
+                    ),
+                  ),
+                ),
+              ),
             ),
           ),
         // 分屏盒没有面板语义（见 `_buildStage` 开头）：不拦会随 stage 换父级重建、双 attach。
@@ -3807,6 +4081,77 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
     },
   );
 
+  /// 画面镜像（照录屏改造批 M4 胶囊「左右翻转/上下翻转」）：只翻
+  /// 视频帧本身，控件/弹幕/字幕不翻。都没开时原样返回不加层。
+  Widget _mirrorWrap(Widget child) {
+    if (!_mirrorH && !_mirrorV) return child;
+    return Transform(
+      alignment: Alignment.center,
+      transform: Matrix4.identity()
+        ..scaleByDouble(_mirrorH ? -1 : 1, _mirrorV ? -1 : 1, 1, 1),
+      child: child,
+    );
+  }
+
+  /// 顶栏信息行（照录屏改造批 T4）：「分辨率 网速」，如 `1280x720
+  /// 1.2MB/s`。数据来自宿主播放信息轮询；屏显开关关掉的段不显，
+  /// 两段都取不到时整行不出现（不编造）。
+  Widget _topInfoLine({required bool landscape}) {
+    return ValueListenableBuilder<PlayerOsdSettings>(
+      valueListenable: PlayerMenuPreferences.osd,
+      builder: (context, osd, _) {
+        if (!osd.showSpeed && !osd.showResolution) {
+          return const SizedBox.shrink();
+        }
+        return ValueListenableBuilder<PlayerPlaybackInfo?>(
+          valueListenable: _playbackInfo,
+          builder: (context, info, _) {
+            final parts = <String>[];
+            if (osd.showResolution) {
+              final width = (info?.videoWidth ?? 0) > 0
+                  ? info!.videoWidth
+                  : _videoSize.width.round();
+              final height = (info?.videoHeight ?? 0) > 0
+                  ? info!.videoHeight
+                  : _videoSize.height.round();
+              if (width > 0 && height > 0) parts.add('${width}x$height');
+            }
+            if (osd.showSpeed) {
+              final bps = info?.bandwidthEstimate ?? 0;
+              if (bps > 0) parts.add(_formatSpeed(bps));
+            }
+            if (parts.isEmpty) return const SizedBox.shrink();
+            return Text(
+              parts.join(' '),
+              key: const ValueKey('player-top-info-line'),
+              maxLines: 1,
+              softWrap: false,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: osd.fontSize.toDouble(),
+                shadows: const [
+                  Shadow(color: Colors.black54, blurRadius: 4),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  /// 网速文案：字节/秒口径（录屏 `1.2MB/s` 同款），入参是宿主给的
+  /// 比特/秒估算。
+  static String _formatSpeed(int bitsPerSecond) {
+    final bytes = bitsPerSecond / 8;
+    if (bytes >= 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)}MB/s';
+    }
+    if (bytes >= 1024) return '${(bytes / 1024).toStringAsFixed(0)}KB/s';
+    return '${bytes.toStringAsFixed(0)}B/s';
+  }
+
   /// 顶栏。竖屏只有「第N集」一行；横屏按 B站 排成两行——剧名｜集数 +
   /// 「全N集 · 状态」，右侧只留更多（⋮ 打开右侧面板）。横屏评论入口已按
   /// 用户要求移除（竖屏右栏的评论按钮保留）；选集入口在底条，弹幕开关与
@@ -3861,20 +4206,44 @@ class _VideoPlayerChromeState extends State<VideoPlayerChrome>
               ),
             ),
             Expanded(
-              child: landscape
-                  ? _landscapeTitle()
-                  : Text(
-                      // 官方播放页顶栏标题就是「第1集」这样的集数（截图），
-                      // 剧名在底部信息层。
-                      '第${widget.currentIndex + 1}集',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
+              child: ValueListenableBuilder<PlayerOsdSettings>(
+                valueListenable: PlayerMenuPreferences.osd,
+                builder: (context, osd, _) {
+                  // 屏显「标题」关：顶栏标题行不显（返回/更多照旧）。
+                  if (!osd.showTitle) return const SizedBox.shrink();
+                  return landscape
+                      ? _landscapeTitle()
+                      : Text(
+                          // 官方播放页顶栏标题就是「第1集」这样的集数（截图），
+                          // 剧名在底部信息层。单集内容（演员库等）没有
+                          // 「第1集」可言，显剧名（照录屏改造批 T3）。
+                          widget.episodes.length <= 1 &&
+                                  widget.title.isNotEmpty
+                              ? widget.title
+                              : '第${widget.currentIndex + 1}集',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        );
+                },
+              ),
+            ),
+            // 顶栏信息行：分辨率 + 网速（照录屏改造批 T4）。槽位可
+            // 收缩：窄屏大字体时让信息先省略，不能把整行撑溢出。
+            Flexible(
+              child: Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: _topInfoLine(landscape: landscape),
+              ),
+            ),
+            IconButton(
+              tooltip: '投屏',
+              onPressed: () => showPlayerCastSheet(context),
+              icon: const Icon(Icons.cast, color: Colors.white, size: 21),
             ),
             if (widget.onAddToShelf != null)
               IconButton(
@@ -5034,6 +5403,64 @@ class _PortraitControlsLayout extends MultiChildLayoutDelegate {
 /// 官方倍速文案（`SingleVideoHolder.java:1155-1171`）：1.0 显示「倍速」，
 /// 其余 `数值x`（如 `1.5x`）。
 String _rateText(double rate) => rate == 1 ? '倍速' : '${_rateLabel(rate)}x';
+
+/// 内嵌字幕文本层（照录屏改造批）：居中多行，位置（上/下）、字号
+/// 倍率、颜色、描边全走 [SubtitleStyleSettings]。描边用同文双层
+/// （下层描边画笔、上层填充）实现，关描边时单层。
+class _SubtitleCuesOverlay extends StatelessWidget {
+  const _SubtitleCuesOverlay({required this.cues, required this.style});
+
+  final List<String> cues;
+  final SubtitleStyleSettings style;
+
+  @override
+  Widget build(BuildContext context) {
+    final fillColor = switch (style.colorIndex) {
+      1 => const Color(0xFFFFEB3B),
+      2 => Colors.black,
+      _ => Colors.white,
+    };
+    final strokeColor = style.colorIndex == 2 ? Colors.white : Colors.black;
+    final fontSize = 16.0 * style.fontScale;
+    Widget line(String text) {
+      final base = TextStyle(fontSize: fontSize, height: 1.3);
+      if (!style.stroke) {
+        return Text(
+          text,
+          textAlign: TextAlign.center,
+          style: base.copyWith(color: fillColor),
+        );
+      }
+      return Stack(
+        alignment: Alignment.center,
+        children: [
+          Text(
+            text,
+            textAlign: TextAlign.center,
+            style: base.copyWith(
+              foreground: Paint()
+                ..style = PaintingStyle.stroke
+                ..strokeWidth = 3
+                ..color = strokeColor,
+            ),
+          ),
+          Text(
+            text,
+            textAlign: TextAlign.center,
+            style: base.copyWith(color: fillColor),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      mainAxisAlignment: style.positionTop
+          ? MainAxisAlignment.start
+          : MainAxisAlignment.end,
+      children: [for (final cue in cues) line(cue)],
+    );
+  }
+}
 
 /// 官方档位 chip 文案（`ShortSeriesMorePanelDialogV2.java:873-892`）：
 /// `0.75x / 1x / 1.25x / 1.5x / 1.75x / 2x`。

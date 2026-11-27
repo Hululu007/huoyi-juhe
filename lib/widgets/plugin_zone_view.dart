@@ -11,13 +11,14 @@ import 'site_grid_dialog.dart';
 /// 插件组件：已装插件的站网格由选站弹窗本体渲染（弹窗插件区只
 /// 留显示），本文件提供市场区段（订阅列表 + 安装）、添加面板
 /// （本地插件包 / 远程插件源）、卸载确认与已装条目构建——市场
-/// 与管理全套挂在「我的 → 插件管理」页（plugin_manage_page.dart，
-/// 用户 2026-11-27 新布局令），弹窗里不再出现。
+/// 与管理全套内嵌在「我的」页插件管理区段（mine_plugin_section
+/// .dart，用户 2026-11-27 20:16 令：原地折叠展开、不跳页），
+/// 弹窗里不再出现。
 ///
 /// 更新口径（用户 2026-11-27 令）：插件第一次由用户手动安装后，
 /// 之后的新版由仓库在市场加载时后台静默自动装上——市场与已装
 /// 列表不显示任何「更新 / 可更新 / 有新版本」字样或角标。
-/// 卸载入口只在插件管理页：已装列表长按/行尾按钮与市场卡长按
+/// 卸载入口只在「我的」页插件管理区段：已装卡长按/卡内按钮与市场卡长按
 /// （弹同一确认框）。卸载清已装账（包、索引、站点注册）并留一条
 /// 「已卸载」记录（仓库持久化）：市场条目自此隐藏，远程版本高于
 /// 卸载时版本才重新出现、可安装；装回后记录清除（四态见仓库
@@ -63,7 +64,7 @@ List<SiteGridEntry> pluginZoneEntriesFromInstalled(
   ];
 }
 
-/// 卸载确认框（插件管理页已装列表与市场卡共用）：说清后果——站
+/// 卸载确认框（「我的」页插件管理区段已装网格与市场卡共用）：说清后果——站
 /// 从列表移除、运行数据保留、重装可恢复。
 Future<bool> confirmUninstallPlugin(BuildContext context, String name) async {
   final confirmed = await showDialog<bool>(
@@ -107,8 +108,8 @@ void _showSnack(BuildContext context, String message) {
   );
 }
 
-/// 插件管理页右上角「+」的添加面板：添加本地插件包 / 添加远程
-/// 插件源。完成后经 [onChanged] 通知管理页刷新。
+/// 「我的」页插件管理区段右上角「+」的添加面板：添加本地插件
+/// 包 / 添加远程插件源。完成后经 [onChanged] 通知区段刷新。
 Future<void> showPluginAddSheet(
   BuildContext context, {
   required IdjPluginStore store,
@@ -262,7 +263,7 @@ class PluginMarketSection extends StatefulWidget {
 
   final IdjPluginStore store;
 
-  /// 装/卸/订阅变化后通知插件管理页刷新已装列表。
+  /// 装/卸/订阅变化后通知插件管理区段刷新已装列表。
   final VoidCallback onChanged;
 
   @override
@@ -276,6 +277,11 @@ class _PluginMarketSectionState extends State<PluginMarketSection> {
   String? _busyPluginId;
   bool _loading = true;
   bool _autoUpdating = false;
+
+  /// 市场网格展开态（用户 2026-11-27 20:16 令）：内嵌在「我的」
+  /// 页里默认收起、每源网格只露三排，点「展开全部」看全、再点
+  /// 收回。开关是区段级的：多个订阅源共用同一展开态。
+  bool _expanded = false;
 
   @override
   void initState() {
@@ -364,7 +370,7 @@ class _PluginMarketSectionState extends State<PluginMarketSection> {
     }
   }
 
-  /// 市场卡长按卸载（用户 2026-11-27 令，入口在插件管理页）：
+  /// 市场卡长按卸载（用户 2026-11-27 令，入口在插件管理区段）：
   /// 弹共用确认框，确认后走仓库卸载——包、索引、站点注册清干净，
   /// 并留「已卸载」记录；本卡随列表重拉消失（远程升版后才重新
   /// 出现，见仓库四态口径）。
@@ -551,6 +557,9 @@ class _PluginMarketSectionState extends State<PluginMarketSection> {
   /// 安装动作，动作收在卡边界内，不再有行外溢出的按钮。
   /// 门禁过滤在组表时已完成（visiblePlugins），网格按过滤后的
   /// 列表紧凑排布，不留空位。
+  /// 折叠口径（用户 2026-11-27 20:16 令）：收起时每源网格只露
+  /// 三排，超过三排时网格下方出「展开全部 / 收起」开关（区段级
+  /// 展开态，各源共用），原地展开收回、不跳页。
   Widget _pluginGrid(List<IdjSubscriptionPlugin> plugins) {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -561,17 +570,42 @@ class _PluginMarketSectionState extends State<PluginMarketSection> {
         // 卡高：16:9 图标块 + 站名（两行）+ 状态一行 + 动作区，
         // 与站卡网格的卡高口径接近，两个网格上下对齐不跳。
         final extent = tileWidth * 9 / 16 + 104;
-        return GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: columns,
-            mainAxisSpacing: 10,
-            crossAxisSpacing: spacing,
-            mainAxisExtent: extent,
-          ),
-          itemCount: plugins.length,
-          itemBuilder: (context, index) => _pluginCard(plugins[index]),
+        final cap = columns * 3;
+        final shown = _expanded
+            ? plugins.length
+            : (plugins.length < cap ? plugins.length : cap);
+        return Column(
+          children: [
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: columns,
+                mainAxisSpacing: 10,
+                crossAxisSpacing: spacing,
+                mainAxisExtent: extent,
+              ),
+              itemCount: shown,
+              itemBuilder: (context, index) => _pluginCard(plugins[index]),
+            ),
+            if (plugins.length > cap)
+              Center(
+                child: TextButton(
+                  key: const ValueKey('plugin-market-expand'),
+                  onPressed: () => setState(() => _expanded = !_expanded),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(_expanded ? '收起' : '展开全部'),
+                      Icon(
+                        _expanded ? Icons.expand_less : Icons.expand_more,
+                        size: 18,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
         );
       },
     );

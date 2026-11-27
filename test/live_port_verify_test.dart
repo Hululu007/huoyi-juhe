@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -19,11 +20,103 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// 的滚动触发走不到，续载断言取不到深行。
 /// 本文件用假播放器 + 真时间等待 + 手机尺寸滚动重新验同一批
 /// 行为，旧文件不动（只作对照，见 REPORT.md）。
+
+/// 站点库批（2026-11-27）适配：直播 26 源（3 平台＋23 清单）已改由站点库
+/// 供数（LiveSources.sqlSources），未导入时 builtin 只剩原生 2 源。
+/// 本文件验的是「导入后」的完整源表行为，故在 setUp 注入与生产站点库
+/// 等值的 26 源夹具（id/名/协议与生成器 ACCOUNT 对账一致），tearDown 清空。
+void injectSqlLiveFixture() {
+  LiveSources.sqlSources = <LiveSource>[
+    const LiveSource(
+      id: 'xiuguo',
+      name: '秀果',
+      description: '主播直播 · 实时开播',
+      protocol: LiveProtocol.pingtai,
+      endpoints: ['http://api.vipmisss.com:81/xcdsw', 'http://api.hclyz.com:81/mf'],
+      adult: true,
+    ),
+    const LiveSource(
+      id: 'maiyoux',
+      name: '欲火聚合',
+      description: '欲火移植 · 平台动态聚合 · 实时开播',
+      protocol: LiveProtocol.pingtai,
+      endpoints: ['http://api.maiyoux.com:81/mf', 'http://api.vipmisss.com:81/xcdsw'],
+      adult: true,
+    ),
+    const LiveSource(
+      id: 'bnzb',
+      name: '百年直播',
+      description: '百年直播 · 多平台聚合 · 实时开播',
+      protocol: LiveProtocol.pingtai,
+      endpoints: ['http://api.vipmisss.com:81/xcdsw'],
+      adult: true,
+    ),
+    for (final e in <String, String>{
+      'user_m3u': '成人点播',
+      'm3u_zhubo': '主播网红',
+      'm3u_luanlun': '乱伦精品',
+      'm3u_huayu': '华语精品',
+      'm3u_guochan': '国产精品',
+      'm3u_xuesheng': '学生合集',
+      'm3u_tanhua': '探花约炮',
+      'm3u_riben': '日本有码',
+      'm3u_oumei': '欧美大屌',
+      'm3u_heilian': '黑料吃瓜',
+      'm3u_community10': '社区合集10',
+      'm3u_community11': '社区合集11',
+      'm3u_wuma': '無碼專區',
+      'm3u_wanghong': '網紅頭條',
+      'm3u_xingba': '杏吧原創',
+      'm3u_chengtou': '成人頭條',
+      'm3u_zhifu': '制服絲襪',
+      'm3u_qunjiao': '群交淫亂',
+      'm3u_mingxing': '明星換臉',
+      'm3u_zipai': '自拍偷拍',
+      'm3u_avxiongdi': 'AV兄弟无码',
+      'm3u_guochanse': '国产色情',
+      'm3u_riben2': '日本有码2',
+    }.entries)
+      LiveSource(
+        id: e.key,
+        name: e.value,
+        description: '',
+        protocol: LiveProtocol.list,
+        endpoints: ['sql://${e.key}'],
+        adult: true,
+      ),
+  ];
+}
+
 void main() {
   late StreamController<dynamic> playerEvents;
   var nextPlayerId = 0;
 
   setUp(() async {
+    injectSqlLiveFixture();
+    // 「点日本有码」用例要真加载播放列表：生产端点是站点库落盘后的
+    // 本地文件路径，测试里现写一份 65 频道的同格式 m3u 顶替。
+    final m3uDir = await Directory.systemTemp.createTemp('live_fixture');
+    final m3uFile = File('${m3uDir.path}/riben.m3u');
+    final buf = StringBuffer('#EXTM3U\n');
+    for (var i = 1; i <= 65; i++) {
+      buf.writeln('#EXTINF:-1 group-title="日本有码",频道$i');
+      buf.writeln('http://example.test/riben/$i.m3u8');
+    }
+    await m3uFile.writeAsString(buf.toString());
+    LiveSources.sqlSources = [
+      for (final src in LiveSources.sqlSources)
+        if (src.id == 'm3u_riben')
+          LiveSource(
+            id: src.id,
+            name: src.name,
+            description: src.description,
+            protocol: src.protocol,
+            endpoints: [m3uFile.path],
+            adult: src.adult,
+          )
+        else
+          src,
+    ];
     SharedPreferences.setMockInitialValues({});
     await CultivationService.instance.resetForTest();
     await CultivationService.instance.ensureInitialized();
@@ -56,6 +149,7 @@ void main() {
   });
 
   tearDown(() async {
+    LiveSources.sqlSources = <LiveSource>[];
     await playerEvents.close();
     PlatformChannels.invoke = null;
     PlatformChannels.events = null;
@@ -296,9 +390,13 @@ void main() {
     await drainRetireTimer(tester);
   });
 
-  testWidgets('点日本有码：m3u 资产出频道，行里无源名列', (tester) async {
+  // 站点库批（2026-11-27）适配：日本有码的播放列表已不随包（资产
+  // 删除），生产端点是站点库导入后落盘的本地文件。widget 测试的
+  // FakeAsync 区里 dart:io 文件读永远不完成（AGENTS 既有教训），
+  // 页面级「出频道」断言在本环境无从验起，改为：切源动作与加载态
+  // 在此验，文件加载＋解析全链由下方普通 test 在真实时钟区验。
+  testWidgets('点日本有码：切源成功、进入加载态（文件链见普通用例）', (tester) async {
     whosLibTestLibrary = libraryOf(5);
-    // 高屏：首屏 60 行一次建出来，深行不用滚动才存在。
     await pumpUnlocked(tester, size: const Size(390, 3200));
     await pickWhosLib(tester);
     await openPicker(tester);
@@ -309,41 +407,53 @@ void main() {
     await tester.tap(
       find.byKey(const ValueKey('site-picker-row-m3u_riben')),
     );
-    // 4.4MB 资产加载 + 解析是普通 Future，假时钟推不动，
-    // 先给真时间再轮询。
-    await tester.runAsync(() async {
-      await Future<void>.delayed(const Duration(seconds: 8));
-    });
-    // 改口径（第 3 包三列网格）：格行高 54、列表区比旧频道列矮，
-    // 3200 高屏首屏也一次建不出 60 行——改成拖动网格直到第 60
-    // 行建出来，再拖回顶部验首行（断言本身不变）。
-    final grid = find.byKey(const ValueKey('live-channel-list'));
-    for (var i = 0; i < 16; i++) {
-      if (find
-          .byKey(const ValueKey('live-channel-59'))
-          .evaluate()
-          .isNotEmpty) {
-        break;
-      }
-      await tester.drag(grid, const Offset(0, -800));
-      await tester.pump(const Duration(milliseconds: 100));
-    }
-    expect(find.byKey(const ValueKey('live-channel-59')), findsOneWidget);
-    for (var i = 0; i < 16; i++) {
-      if (find
-          .byKey(const ValueKey('live-channel-0'))
-          .evaluate()
-          .isNotEmpty) {
-        break;
-      }
-      await tester.drag(grid, const Offset(0, 800));
-      await tester.pump(const Duration(milliseconds: 100));
-    }
-    expect(find.text('日本有码'), findsNothing);
-    expect(rowTexts(tester, 'live-channel-0').length, 1);
-    // 首行是 m3u 真数据（番号标题），不是旧源残留。
-    expect(rowTexts(tester, 'live-channel-0').first, contains('CAWD-969'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    // 弹窗已关、页面已切源：旧源（内置片库）的频道列表消失，
+    // 新源（本地文件 m3u）进入加载态（转圈）——文件读在 FakeAsync
+    // 区不完成，加载态就是本环境能验到的最远状态。
+    expect(find.byKey(const ValueKey('site-picker-row-m3u_riben')),
+        findsNothing);
+    expect(find.byKey(const ValueKey('live-channel-list')), findsNothing);
+    expect(find.byType(CircularProgressIndicator), findsWidgets);
     await drainRetireTimer(tester);
+  });
+
+  test('本地文件 m3u 加载＋解析全链（站点库落盘端点形态）', () async {
+    final dir = Directory.systemTemp.createTempSync('live_file_chain');
+    final file = File('${dir.path}/riben.m3u');
+    final buf = StringBuffer('#EXTM3U x-tvg-url=""\n');
+    buf.writeln(
+        '#EXTINF:-1 tvg-id="" tvg-name="CAWD-969 探针" group-title="日本有码",CAWD-969 探针');
+    buf.writeln('http://example.test/riben/1.m3u8');
+    for (var i = 2; i <= 65; i++) {
+      buf.writeln('#EXTINF:-1 group-title="日本有码",频道$i');
+      buf.writeln('http://example.test/riben/$i.m3u8');
+    }
+    file.writeAsStringSync(buf.toString());
+    const source = LiveSource(
+      id: 'm3u_riben',
+      name: '日本有码',
+      description: '',
+      protocol: LiveProtocol.list,
+      endpoints: [],
+      adult: true,
+    );
+    final local = LiveSource(
+      id: source.id,
+      name: source.name,
+      description: '',
+      protocol: LiveProtocol.list,
+      endpoints: [file.path],
+      adult: true,
+    );
+    final channels = await LiveSources.loadBuiltinListChannels(local);
+    expect(channels.length, 65);
+    expect(channels.first.title, contains('CAWD-969'));
+    expect(channels.first.group, '日本有码');
+    expect(channels.first.url, 'http://example.test/riben/1.m3u8');
+    expect(channels.every((c) => c.sourceId == 'm3u_riben'), isTrue);
+    dir.deleteSync(recursive: true);
   });
 
   testWidgets('内置片库手机尺寸滑到底续载：本地翻页 + 远端下一页', (tester) async {

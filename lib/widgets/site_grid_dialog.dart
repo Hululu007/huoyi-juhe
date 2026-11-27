@@ -17,10 +17,10 @@ import 'site_thumb_image.dart';
 /// 的旧令）：安卓与 iOS 同一界面结构，选站由两区变三区。
 /// 2026-11-27 新布局令：插件区在本弹窗里只保留显示——已装插件站
 /// 能看、能点、能播；插件市场与已装插件管理（安装、卸载、启停、
-/// 添加本地包/远程源）全套搬到「我的 → 插件管理」页
-/// （plugin_manage_page.dart），弹窗里不再有市场区段、添加按钮与
-/// 插件条目长按卸载。旧调用点不传 `enablePluginZone` 时仍是两区，
-/// 行为不变。
+/// 添加本地包/远程源）全套在「我的」页内嵌插件管理区段
+/// （mine_plugin_section.dart，2026-11-27 20:16 令改为内嵌折叠
+/// 展开），弹窗里不再有市场区段与添加按钮。旧调用点不传
+/// `enablePluginZone` 时仍是两区，行为不变。
 enum SiteGridZone { builtin, import, plugin }
 
 extension SiteGridZoneLabel on SiteGridZone {

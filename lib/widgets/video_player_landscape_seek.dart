@@ -14,7 +14,8 @@ extension _LandscapeSeekBar on _VideoPlayerChromeState {
       onEnd: (value) => unawaited(_finishSeek(value)),
       onCancel: _cancelSeek,
       trackWidth: 3,
-      thumbRadius: 6,
+      // 照录屏改造批 B1：拇指直径对齐参考 ≈15dp（半径 7.5）。
+      thumbRadius: 7.5,
       progressColor: const Color(0xFFFA6725),
       trackColor: const Color(0x47FFFFFF),
     ),

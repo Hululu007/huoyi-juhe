@@ -7,6 +7,10 @@ import 'package:fqapp/actress/actress_sql_import.dart';
 /// 跑不起来，见 test/actress_film_library_test.dart 头注释）。
 /// INSERT 按表计数，校验查询按记下来的行数回答；CREATE 建的表
 /// 名记下来，供“缺表”校验分支用。
+///
+/// 注（2026-11-27 激活批）：本文件测的是导入管线力学，构造
+/// ActressSqlImporter 时统一注入 versionGate 放行假件；版本门
+/// 本身（真门判定/拒收/原库不动）见 actress_activation_test.dart。
 class _RecordingExecutor implements SqlImportExecutor {
   final batches = <List<String>>[];
   final singles = <String>[];
@@ -180,7 +184,7 @@ void main() {
       await File(livePath).writeAsString('OLDDB');
       var closeCalls = 0;
       final progress = <ActressSqlImportProgress>[];
-      final importer = ActressSqlImporter(
+      final importer = ActressSqlImporter(versionGate: (_) async => null,
         batchSize: 100,
         executorFactory: factoryFor(executor),
       );
@@ -242,7 +246,7 @@ void main() {
       final executor = _RecordingExecutor();
       final livePath = '${tempDir.path}/女优库.db';
       await File(livePath).writeAsString('OLDDB');
-      final importer = ActressSqlImporter(
+      final importer = ActressSqlImporter(versionGate: (_) async => null,
         batchSize: 1000,
         executorFactory: factoryFor(executor),
       );
@@ -273,7 +277,7 @@ void main() {
       final livePath = '${tempDir.path}/女优库.db';
       await File(livePath).writeAsString('OLDDB');
       var closeCalls = 0;
-      final importer = ActressSqlImporter(
+      final importer = ActressSqlImporter(versionGate: (_) async => null,
         executorFactory: factoryFor(executor),
       );
       final result = await importer.importFile(
@@ -302,7 +306,7 @@ void main() {
       );
       final livePath = '${tempDir.path}/女优库.db';
       await File(livePath).writeAsString('OLDDB');
-      final importer = ActressSqlImporter(
+      final importer = ActressSqlImporter(versionGate: (_) async => null,
         executorFactory: factoryFor(executor),
       );
       final result = await importer.importFile(
@@ -321,7 +325,7 @@ void main() {
       final livePath = '${tempDir.path}/女优库.db';
       await File(livePath).writeAsString('OLDDB');
       var closeCalls = 0;
-      final importer = ActressSqlImporter(
+      final importer = ActressSqlImporter(versionGate: (_) async => null,
         executorFactory: factoryFor(executor),
       );
       final result = await importer.importFile(
@@ -344,7 +348,7 @@ void main() {
       final executor = _RecordingExecutor()..failOnTable = 'video_tag';
       final livePath = '${tempDir.path}/女优库.db';
       await File(livePath).writeAsString('OLDDB');
-      final importer = ActressSqlImporter(
+      final importer = ActressSqlImporter(versionGate: (_) async => null,
         executorFactory: factoryFor(executor),
       );
       final result = await importer.importFile(
@@ -366,7 +370,7 @@ void main() {
       // _startSqlImport），这里也用全新导入器 + 全新执行器重导。
       final livePath = '${tempDir.path}/女优库.db';
       await File(livePath).writeAsString('OLDDB');
-      final cancelled = ActressSqlImporter(
+      final cancelled = ActressSqlImporter(versionGate: (_) async => null,
         executorFactory: factoryFor(_RecordingExecutor()),
       );
       final first = await cancelled.importFile(
@@ -382,7 +386,7 @@ void main() {
       expect(await File('$livePath.importing').exists(), isFalse);
       expect(await File('$livePath.bak').exists(), isFalse);
 
-      final retry = ActressSqlImporter(
+      final retry = ActressSqlImporter(versionGate: (_) async => null,
         batchSize: 100,
         executorFactory: factoryFor(_RecordingExecutor()),
       );
@@ -400,7 +404,7 @@ void main() {
     test('执行中途出错后能立刻再导一次且导成功', () async {
       final livePath = '${tempDir.path}/女优库.db';
       await File(livePath).writeAsString('OLDDB');
-      final failing = ActressSqlImporter(
+      final failing = ActressSqlImporter(versionGate: (_) async => null,
         executorFactory: factoryFor(
           _RecordingExecutor()..failOnTable = 'video_tag',
         ),
@@ -416,7 +420,7 @@ void main() {
       expect(await File('$livePath.importing').exists(), isFalse);
       expect(await File('$livePath.bak').exists(), isFalse);
 
-      final retry = ActressSqlImporter(
+      final retry = ActressSqlImporter(versionGate: (_) async => null,
         batchSize: 100,
         executorFactory: factoryFor(_RecordingExecutor()),
       );
@@ -438,7 +442,7 @@ void main() {
       await File(livePath).writeAsString('OLDDB');
       final txt = File('${tempDir.path}/x.txt');
       await txt.writeAsString('hello');
-      final importer = ActressSqlImporter(
+      final importer = ActressSqlImporter(versionGate: (_) async => null,
         executorFactory: factoryFor(executor),
       );
       final result = await importer.importFile(

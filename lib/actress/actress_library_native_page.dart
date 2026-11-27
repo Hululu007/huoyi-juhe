@@ -39,6 +39,7 @@ import 'actress_error_text.dart';
 import 'actress_ios_import.dart';
 import 'actress_library_db.dart';
 import 'actress_list_page.dart';
+import 'actress_magnet_state.dart';
 import 'actress_models.dart' show actressNameKey;
 import 'actress_mytv_bind.dart';
 import 'actress_neon.dart';
@@ -52,6 +53,14 @@ import 'actress_work_detail_page.dart';
 
 /// 本地源一级页签（照 whos 官方五维的前四维，厂牌是二级条）。
 const _localTabs = ['最新', '排行榜', '演员', '标签'];
+
+/// 磁力三态徽标配色（照魔蚁口径）：网盘可播绿 / 离线中橙 /
+/// 未下载灰。
+Color _magnetStateColor(MagnetDriveState state) => switch (state) {
+  MagnetDriveState.drivePlayable => const Color(0xFF55B16C),
+  MagnetDriveState.offlineRunning => const Color(0xFFE8A33D),
+  MagnetDriveState.notDownloaded => const Color(0xFF9E9E9E),
+};
 
 /// 最新页签下的二级厂牌条：全部 + 20 厂牌（展示名，检索前缀）。
 /// 前缀口径照 whos 官方分类与库映射文档（SIRO 的前缀就是 sir、
@@ -97,10 +106,35 @@ class ActressLibraryNativePage extends StatefulWidget {
     this.fallback,
     this.bind,
     this.onlineFetch,
+    this.magnetStateResolver,
+    this.initialActress,
+    this.initialTag,
+    this.initialActressQuery,
+    this.initialSearchQuery,
   });
+
+  /// 入口下钻（首页全局搜索「演员段」点卡 / 作品段「更多」
+  /// 等外部入口用）：非空时进页直接停在该演员的作品下钻，
+  /// 与页内点演员行同一条路（_openWorks 的落点状态）。
+  final String? initialActress;
+
+  /// 入口下钻：非空时进页直接停在该标签的作品下钻。
+  final String? initialTag;
+
+  /// 入口筛选（全局搜索「演员段更多」用）：非空时进页停在
+  /// 演员页签并按名筛选（op actresses 的 q），筛选 chip 可清。
+  final String? initialActressQuery;
+
+  /// 入口搜索（全局搜索「作品段更多」用）：非空时进页把该
+  /// 词放进统一搜索并直接出结果，与页内手打搜索同一条路。
+  final String? initialSearchQuery;
 
   final AppRepository repository;
   final LocalStore store;
+
+  /// 磁力三态解析器（测试/预览注入假件；生产缺省现建默认
+  /// 解析器，接 115 任务/已提交表，见 actress_magnet_state）。
+  final MagnetDriveStateResolver? magnetStateResolver;
 
   /// 123AV / PH 的 Dart 直连取数（测试/预览注入假取数；
   /// 生产默认走 ActressOnlineClient）。
@@ -179,6 +213,24 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
   String? _worksActress;
   String? _worksTag;
 
+  // ---- 磁力分类（导入库登记，动态组） ----
+  /// 磁力分类组：生效库为导入槽且登记非空时才有（登记只写
+  /// 导入槽，查询层在别的库上查不到登记表、自然回空）。
+  var _magnetCategories = <({String name, int count})>[];
+
+  /// 当前选中的磁力分类：非空时内容区出该分类的并集作品
+  /// 网格（主分类 ∪ 登记，谓词在查询层），顶部带回退 chip。
+  String? _magnetCategory;
+
+  /// 作品卡三态徽标快照（按 vodId）：列表加载后用解析器快照
+  /// 合成，只对含磁力地址的作品有值；不逐卡查网盘。
+  final _magnetStates = <String, MagnetDriveState>{};
+  final _magnetBadgePending = <String>{};
+
+  /// 演员页签的名字筛选（外部入口带入，见 widget.initialActressQuery）：
+  /// 非空时演员页签只出名字含该词的演员，分类区出可清的筛选 chip。
+  var _actressNameQuery = '';
+
   // ---- 在线源浏览态 ----
   /// py 桥（MissAV / 潮流页签与取流共用，经仓储既有 py
   /// 机件调种子蜘蛛）。
@@ -222,6 +274,127 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
   @override
   void initState() {
     super.initState();
+    // 外部入口下钻/筛选（首页全局搜索）：在首帧加载前把落点
+    // 状态摆好，_loadLocal 直接按落点取数，不先闪一遍默认列表。
+    final initialActress = widget.initialActress?.trim() ?? '';
+    final initialTag = widget.initialTag?.trim() ?? '';
+    if (initialActress.isNotEmpty) {
+      _worksActress = initialActress;
+    } else if (initialTag.isNotEmpty) {
+      _worksTag = initialTag;
+    }
+    final actressQuery = widget.initialActressQuery?.trim() ?? '';
+    if (actressQuery.isNotEmpty) {
+      _localTab = 2;
+      _actressNameQuery = actressQuery;
+    }
+    unawaited(_loadLocal(reset: true));
+    unawaited(_loadMagnetCategories());
+    final searchQuery = widget.initialSearchQuery?.trim() ?? '';
+    if (searchQuery.isNotEmpty) {
+      _searchController.text = searchQuery;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_submitSearch());
+      });
+    }
+  }
+
+  bool get _inMagnet => _magnetCategory != null;
+
+  /// 磁力分类组加载：查询层回登记分类（名 + 并集计数）；没
+  /// 登记/读不到回空组，分类栏就不出这一组。
+  Future<void> _loadMagnetCategories() async {
+    try {
+      final result = await _fallback
+          .handle({'op': 'magnetCategories'})
+          .timeout(_loadTimeout);
+      if (!mounted || result['ok'] != true) return;
+      final categories = <({String name, int count})>[
+        for (final row in (result['categories'] as List? ?? const []))
+          if (row is Map && (row['name'] ?? '').toString().isNotEmpty)
+            (
+              name: (row['name'] ?? '').toString(),
+              count: (row['count'] as num?)?.toInt() ?? 0,
+            ),
+      ];
+      setState(() {
+        _magnetCategories = categories;
+        // 选中分类被删库带走了：退出磁力下钻回最新。
+        if (_magnetCategory != null &&
+            !categories.any((c) => c.name == _magnetCategory)) {
+          _magnetCategory = null;
+          unawaited(_loadLocal(reset: true));
+        }
+      });
+    } catch (_) {
+      // 磁力组读不到不拖垮本地分类栏：保持空组不出。
+    }
+  }
+
+  /// 卡片三态徽标合成：本页新作品先批量取磁力地址（查询层
+  /// 一次查），再用解析器快照一次合成（任务列表 + 已提交表
+  /// 各取一次），不逐卡查网盘。没有磁力地址的作品不算、不
+  /// 显示徽标；解析失败保持无徽标，不拖垮列表。
+  Future<void> _resolveMagnetBadges(
+    List<Map<String, dynamic>> rows,
+  ) async {
+    final targets = <String>[];
+    final codeByVodId = <String, String>{};
+    for (final row in rows) {
+      final vodId = (row['vodId'] ?? '').toString();
+      if (vodId.isEmpty) continue;
+      if (_magnetStates.containsKey(vodId)) continue;
+      if (!_magnetBadgePending.add(vodId)) continue;
+      targets.add(vodId);
+      final code = (row['code'] ?? '').toString();
+      codeByVodId[vodId] = code.isNotEmpty ? code : vodId;
+    }
+    if (targets.isEmpty) return;
+    try {
+      final result = await _fallback
+          .handle({'op': 'magnetUrls', 'vodIds': targets})
+          .timeout(_loadTimeout);
+      if (result['ok'] != true) return;
+      final raw = result['urls'];
+      if (raw is! Map || raw.isEmpty) return;
+      final refs = <MagnetWorkRef>[
+        for (final entry in raw.entries)
+          if (entry.value is List && (entry.value as List).isNotEmpty)
+            MagnetWorkRef(
+              vodId: entry.key.toString(),
+              code:
+                  codeByVodId[entry.key.toString()] ??
+                  entry.key.toString(),
+              magnetUrls: [
+                for (final url in entry.value as List) url.toString(),
+              ],
+            ),
+      ];
+      if (refs.isEmpty) return;
+      final resolver =
+          widget.magnetStateResolver ?? MagnetDriveStateResolver();
+      final states = await resolver.snapshotForWorks(refs);
+      if (!mounted || states.isEmpty) return;
+      setState(() => _magnetStates.addAll(states));
+    } catch (_) {
+      // 徽标合成失败不挡列表：这一页就没徽标，下次加载再试。
+    } finally {
+      _magnetBadgePending.removeAll(targets);
+    }
+  }
+
+  void _pickMagnetCategory(String name) {
+    if (_magnetCategory == name) return;
+    setState(() {
+      _magnetCategory = name;
+      _worksActress = null;
+      _worksTag = null;
+    });
+    unawaited(_loadLocal(reset: true));
+  }
+
+  void _closeMagnet() {
+    setState(() => _magnetCategory = null);
     unawaited(_loadLocal(reset: true));
   }
 
@@ -293,13 +466,25 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
               'page': page,
             })
             .timeout(_loadTimeout);
+      } else if (_inMagnet) {
+        result = await _fallback
+            .handle({
+              'op': 'magnetWorks',
+              'category': _magnetCategory,
+              'page': page,
+            })
+            .timeout(_loadTimeout);
       } else if (_localTab == 1) {
         result = await _fallback
             .handle({'op': 'list', 'kind': 'rank'})
             .timeout(_loadTimeout);
       } else if (_localTab == 2) {
         result = await _fallback
-            .handle({'op': 'actresses', 'page': page})
+            .handle({
+              'op': 'actresses',
+              'page': page,
+              if (_actressNameQuery.isNotEmpty) 'q': _actressNameQuery,
+            })
             .timeout(_loadTimeout);
       } else if (_localTab == 3) {
         result = await _fallback.handle({'op': 'tags'}).timeout(_loadTimeout);
@@ -325,17 +510,18 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
         });
         return;
       }
+      List<Map<String, dynamic>>? badgeRows;
       setState(() {
         _localLoading = false;
         _localLoaded = true;
         _localError = null;
-        if (_localTab == 3 && !_inWorks) {
+        if (_localTab == 3 && !_inWorks && !_inMagnet) {
           _localTags = [
             for (final row in (result['tags'] as List? ?? const []))
               Map<String, dynamic>.from(row as Map),
           ];
           _localHasMore = false;
-        } else if (_localTab == 2 && !_inWorks) {
+        } else if (_localTab == 2 && !_inWorks && !_inMagnet) {
           final rows = [
             for (final row in (result['actresses'] as List? ?? const []))
               Map<String, dynamic>.from(row as Map),
@@ -352,9 +538,15 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
           _localItems = more ? [..._localItems, ...rows] : rows;
           _localPage = page;
           // 排行榜固定 50 条单页，不分页。
-          _localHasMore = _localTab == 1 ? false : rows.length >= 24;
+          _localHasMore = _localTab == 1 && !_inMagnet
+              ? false
+              : rows.length >= 24;
+          badgeRows = rows;
         }
       });
+      if (badgeRows != null) {
+        unawaited(_resolveMagnetBadges(badgeRows!));
+      }
       if (_preheatQueued) {
         _preheatQueued = false;
         _startAvatarPreheat();
@@ -373,11 +565,12 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
   }
 
   void _pickLocalTab(int tab) {
-    if (_localTab == tab && !_inWorks) return;
+    if (_localTab == tab && !_inWorks && !_inMagnet) return;
     setState(() {
       _localTab = tab;
       _worksActress = null;
       _worksTag = null;
+      _magnetCategory = null;
     });
     unawaited(_loadLocal(reset: true));
   }
@@ -392,6 +585,7 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
     setState(() {
       _worksActress = actress;
       _worksTag = tag;
+      _magnetCategory = null;
     });
     unawaited(_loadLocal(reset: true));
   }
@@ -569,6 +763,7 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
               for (final row in (result['items'] as List? ?? const []))
                 Map<String, dynamic>.from(row as Map),
             ];
+            unawaited(_resolveMagnetBadges(section.localItems));
           } else {
             section.error = actressDbErrorText(
               result['error'],
@@ -696,6 +891,7 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
     if (!mounted) return;
     // 换新兜底实例：旧实例可能还握着旧库连接/旧文件戳。
     setState(() => _fallback = ActressLibraryDbFallback());
+    unawaited(_loadMagnetCategories());
     if (_sourceIndex == 0) {
       await _loadLocal(reset: true);
     }
@@ -860,11 +1056,11 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
                     color: Neon.cyan,
                   ),
                   title: const Text(
-                    '数据库管理页（导入/切换）',
+                    '数据库管理页（导入/激活）',
                     style: TextStyle(color: Neon.text),
                   ),
                   subtitle: const Text(
-                    '导入 .db / .sql、外置库与导入库切换',
+                    '导入 .db / .sql 激活演员库（需带版本字段）',
                     style: TextStyle(color: Neon.textDim, fontSize: 12),
                   ),
                   onTap: () async {
@@ -1072,7 +1268,7 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
                 child: ActressNeonPill(
                   key: ValueKey('native-local-tab-$index'),
                   label: _localTabs[index],
-                  selected: _localTab == index && !_inWorks,
+                  selected: _localTab == index && !_inWorks && !_inMagnet,
                   onTap: () => _pickLocalTab(index),
                 ),
               ),
@@ -1088,6 +1284,29 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
                     : '标签：$_worksTag ✕',
                 selected: true,
                 onTap: _closeWorks,
+              ),
+            )
+          else if (_inMagnet)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+              child: ActressNeonPill(
+                key: const ValueKey('native-magnet-back'),
+                label: '磁力：$_magnetCategory ✕',
+                selected: true,
+                onTap: _closeMagnet,
+            ),
+          )
+          else if (_localTab == 2 && _actressNameQuery.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+              child: ActressNeonPill(
+                key: const ValueKey('native-actress-query-clear'),
+                label: '演员名：$_actressNameQuery ✕',
+                selected: true,
+                onTap: () {
+                  setState(() => _actressNameQuery = '');
+                  unawaited(_loadLocal(reset: true));
+                },
               ),
             )
           else if (_localTab == 0)
@@ -1110,6 +1329,50 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
                     ),
                   );
                 },
+              ),
+            ),
+          // 磁力分类组（动态）：导入磁力分类库后才出现，点分类
+          // 按并集谓词出片；下钻/作品下钻时不出（已有回退 chip）。
+          if (!_inWorks && !_inMagnet && _magnetCategories.isNotEmpty)
+            SizedBox(
+              key: const ValueKey('native-magnet-group'),
+              height: 42,
+              child: Row(
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.only(left: 12, right: 2),
+                    child: Text(
+                      '磁力',
+                      style: TextStyle(
+                        color: Neon.textDim,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.fromLTRB(6, 4, 12, 4),
+                      itemCount: _magnetCategories.length,
+                      separatorBuilder: (_, _) => const SizedBox(width: 8),
+                      itemBuilder: (context, index) {
+                        final category = _magnetCategories[index];
+                        return Center(
+                          child: ActressNeonPill(
+                            key: ValueKey(
+                              'native-magnet-cat-${category.name}',
+                            ),
+                            label: '${category.name} · ${category.count}',
+                            selected: false,
+                            compact: true,
+                            onTap: () => _pickMagnetCategory(category.name),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
               ),
             ),
         ],
@@ -1232,7 +1495,7 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
         onManage: () => unawaited(_showManageSheet()),
       );
     }
-    if (_inWorks || _localTab == 0 || _localTab == 1) {
+    if (_inWorks || _inMagnet || _localTab == 0 || _localTab == 1) {
       if (_localLoaded && _localItems.isEmpty) {
         return _stateArea(
           message: '这里暂时没有作品',
@@ -1273,7 +1536,9 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
       final merged = _mergedActresses(_localActresses);
       if (_localLoaded && merged.isEmpty) {
         return _stateArea(
-          message: '本地库里暂时没有演员数据',
+          message: _actressNameQuery.isNotEmpty
+              ? '没有名字含「$_actressNameQuery」的演员'
+              : '本地库里暂时没有演员数据',
           retryLabel: '重试',
           onRetry: () => unawaited(_loadLocal(reset: true)),
         );
@@ -1500,12 +1765,17 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
       if (code.isNotEmpty) code,
       if (date.isNotEmpty) date else if (actress.isNotEmpty) actress,
     ].join(' · ');
+    final magnetState = _magnetStates[vodId];
     return _posterCard(
       key: ValueKey('native-work-$vodId'),
       title: (item['title'] ?? '').toString(),
       pic: (item['pic'] ?? '').toString(),
       subtitle: subtitle,
       badge: badge,
+      magnetText: magnetState == null ? null : '115 · ${magnetState.label}',
+      magnetColor: magnetState == null
+          ? null
+          : _magnetStateColor(magnetState),
       placeholder: code.isEmpty ? 'NV' : code,
       onTap: () => _openLocalDetail(item),
     );
@@ -1540,6 +1810,8 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
     required String? badge,
     required String placeholder,
     required VoidCallback onTap,
+    String? magnetText,
+    Color? magnetColor,
   }) {
     return InkWell(
       key: key,
@@ -1614,6 +1886,25 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(color: Neon.textDim, fontSize: 10.5),
+            ),
+          if (magnetText != null && magnetColor != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 3),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.cloud_outlined, size: 12, color: magnetColor),
+                  const SizedBox(width: 3),
+                  Flexible(
+                    child: Text(
+                      magnetText,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: magnetColor, fontSize: 10.5),
+                    ),
+                  ),
+                ],
+              ),
             ),
         ],
       ),

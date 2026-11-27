@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 2026.11.27+20261129
+version: 2026.11.27+20261130
 
 environment:
   sdk: ^3.12.2
@@ -132,10 +132,7 @@ flutter:
     # 合并演员库页（123AV 外壳 + whos 女优库板块，单文件网页，
     # 演员库 tab 的界面；宿主与桥见 lib/actress/actress_library_*）。
     - assets/actress_library.html
-    - assets/builtin_sites/
-    - assets/youtube3.json
-    - assets/live/
-    - assets/live/m3u/
+    - assets/site_library/
     - assets/config/filter.json
     - assets/config/device_pool.example.json
     - assets/filters/
