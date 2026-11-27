@@ -145,7 +145,9 @@ class _SiteBrowsePageState extends State<SiteBrowsePage> {
         _loading = false;
         _client = resolved;
         _categories = browseCategories(const []);
-        _error = '取分类失败：$e';
+        // StateError 只取自带 message：直接插值会带出「Bad state:」
+        // 异常外壳，插件站的失败文案已在客户端层归一化成中文。
+        _error = '取分类失败：${e is StateError ? e.message : e}';
       });
     }
   }

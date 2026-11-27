@@ -426,7 +426,11 @@ Future<void> openDramaSitePlayback(
     } catch (error) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('目录加载失败：$error')),
+          SnackBar(
+            content: Text(
+              '目录加载失败：${error is StateError ? error.message : error}',
+            ),
+          ),
         );
       }
       return;
@@ -514,7 +518,11 @@ Future<void> openDramaSitePlayback(
   } catch (error) {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('取流失败：$error')),
+        SnackBar(
+          content: Text(
+            '取流失败：${error is StateError ? error.message : error}',
+          ),
+        ),
       );
     }
     return;

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 class JsRuntimeStatus {
@@ -148,12 +149,12 @@ class JsBridge {
     } on MissingPluginException {
       return const JsRuntimeStatus(available: false, detail: '安装包未集成 JS 桥');
     } on PlatformException catch (error) {
-      return JsRuntimeStatus(
-        available: false,
-        detail: error.message ?? '桥启动失败',
-      );
+      // detail 会被拼进用户可见文案：只放固定中文，原文进日志。
+      debugPrint('QuickJS 桥状态读取失败：$error');
+      return const JsRuntimeStatus(available: false, detail: '桥启动失败');
     } catch (error) {
-      return JsRuntimeStatus(available: false, detail: error.toString());
+      debugPrint('QuickJS 桥状态读取异常：$error');
+      return const JsRuntimeStatus(available: false, detail: '桥状态读取失败');
     }
   }
 

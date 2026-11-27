@@ -10,6 +10,7 @@ import 'package:fqapp/actress/actress_adapter_http.dart';
 import 'package:fqapp/actress/actress_adapter_models.dart';
 import 'package:fqapp/actress/actress_adapter_repository.dart';
 import 'package:fqapp/actress/actress_adapter_store.dart';
+import 'package:fqapp/actress/actress_error_text.dart';
 import 'package:fqapp/actress/actress_javdb_api.dart';
 import 'package:fqapp/actress/actress_library_db.dart';
 import 'package:fqapp/actress/actress_online_parse.dart';
@@ -295,7 +296,7 @@ void main() {
     );
   }
 
-  testWidgets('本地详情：信息卡/简介/演员（含男演员）/分类/线路齐，无评分不出缎带', (
+  testWidgets('本地详情：信息卡/简介/演员（含男演员）/分类齐，线路列表隐藏，无评分不出缎带', (
     tester,
   ) async {
     tallView(tester);
@@ -320,10 +321,15 @@ void main() {
       findsNothing,
     );
     expect(find.textContaining('人评分'), findsNothing);
-    // 本地线路行在位。
+    // 播放线路列表隐藏（2026-11-27 令）：标题与任何线路行都不上屏。
+    expect(find.text('播放线路'), findsNothing);
     expect(
       find.byKey(const ValueKey('work-detail-line-local-0')),
-      findsOneWidget,
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('work-detail-line-dart-123av')),
+      findsNothing,
     );
     // 她们还演出过 / 你可能也喜欢都接上本地库结果。
     expect(find.text('她们还演出过'), findsOneWidget);
@@ -353,17 +359,26 @@ void main() {
     expect(find.byKey(const ValueKey('work-detail-still-0')), findsOneWidget);
   });
 
-  testWidgets('点海报播放键页内起播：海报区变播放器、线路行标播放中', (tester) async {
+  testWidgets('播放键在海报正中央，点海报页内起播：海报区变播放器', (tester) async {
     tallView(tester);
     final player = ControlledNativePlayer();
     await tester.pumpWidget(app(localPage(player: player)));
     await _until(
       tester,
       () => find
-          .byKey(const ValueKey('work-detail-line-local-0'))
+          .byKey(const ValueKey('work-detail-poster-play'))
           .evaluate()
           .isNotEmpty,
     );
+    // 播放键居中：键心与海报区中心横竖都对齐（容差 1 像素）。
+    final stageCenter = tester.getCenter(
+      find.byKey(const ValueKey('work-detail-stage')),
+    );
+    final buttonCenter = tester.getCenter(
+      find.byKey(const ValueKey('work-detail-play-button')),
+    );
+    expect((buttonCenter.dx - stageCenter.dx).abs() < 1, isTrue);
+    expect((buttonCenter.dy - stageCenter.dy).abs() < 1, isTrue);
     await tester.tap(find.byKey(const ValueKey('work-detail-poster-play')));
     await _until(
       tester,
@@ -381,10 +396,9 @@ void main() {
       find.byKey(const ValueKey('inline-player-toggle')),
       findsOneWidget,
     );
-    expect(find.text('播放中'), findsOneWidget);
   });
 
-  testWidgets('在线详情（123AV）：剧照出画 + 全部入口，点线路页内起播', (tester) async {
+  testWidgets('在线详情（123AV）：剧照出画 + 全部入口，点海报背后竞速页内起播', (tester) async {
     tallView(tester);
     final player = ControlledNativePlayer();
     await tester.pumpWidget(
@@ -408,9 +422,12 @@ void main() {
     // 剧照 4 张 → 「全部 4 >」入口出现。
     await _until(tester, () => find.text('全部 4 >').evaluate().isNotEmpty);
     expect(find.byKey(const ValueKey('work-detail-still-0')), findsOneWidget);
-    await tester.tap(
+    // 线路不上屏：点海报播放键，背后竞速（本地→123AV→PH）起播。
+    expect(
       find.byKey(const ValueKey('work-detail-line-dart-123av')),
+      findsNothing,
     );
+    await tester.tap(find.byKey(const ValueKey('work-detail-poster-play')));
     await _until(
       tester,
       () => player.calls.any((c) => c.startsWith('create:')),
@@ -452,7 +469,7 @@ void main() {
     await _until(
       tester,
       () => find
-          .byKey(const ValueKey('work-detail-line-dart-123av'))
+          .byKey(const ValueKey('work-detail-poster-play'))
           .evaluate()
           .isNotEmpty,
     );
@@ -466,5 +483,82 @@ void main() {
       find.byKey(const ValueKey('inline-player-toggle')),
       findsNothing,
     );
+  });
+
+  testWidgets('详情拉取遇英文异常：只出中文人话、不露原文', (tester) async {
+    tallView(tester);
+    final throwing = ActressLibraryDbFallback(
+      pathResolver: () async => '/fake/女优库.db',
+      opener: (path) async => (
+        String sql, [
+        List<Object?>? args,
+      ]) async => throw StateError('Bad state: 详情为空'),
+    );
+    await tester.pumpWidget(
+      app(
+        ActressWorkDetailPage.local(
+          vodId: 'sigl-020',
+          fallback: throwing,
+          repository: _FakeRepository(),
+          probeFetch: _probeOk,
+          playerFactory: () => ControlledNativePlayer(),
+          playUrlPrep: (url, headers) async => url,
+        ),
+      ),
+    );
+    await _until(
+      tester,
+      () => find.textContaining('本地女优库不可用').evaluate().isNotEmpty,
+    );
+    expect(find.textContaining('Bad state'), findsNothing);
+    expect(find.textContaining('详情为空'), findsNothing);
+    expect(find.textContaining('本地女优库不可用'), findsOneWidget);
+  });
+
+  group('错误文案映射（actressErrorText / actressDbErrorText）', () {
+    test('英文异常原文一律吞掉回中文兜底', () {
+      expect(
+        actressErrorText(
+          StateError('Bad state: 详情为空'),
+          fallback: '详情没拉到，点按重试',
+        ),
+        '详情没拉到，点按重试',
+      );
+      expect(
+        actressErrorText(
+          const FormatException('Unexpected character'),
+          fallback: '加载失败，点按重试',
+        ),
+        '加载失败，点按重试',
+      );
+    });
+
+    test('AppFailure 的中文文案原样放行', () {
+      expect(
+        actressErrorText(
+          AppFailure('这个视频暂时取不到播放地址'),
+          fallback: '取地址失败',
+        ),
+        '这个视频暂时取不到播放地址',
+      );
+    });
+
+    test('库错误字段：中文放行、含英文字母的原文换兜底', () {
+      expect(
+        actressDbErrorText('本地库无此番号', fallback: '详情没拉到，点按重试'),
+        '本地库无此番号',
+      );
+      expect(
+        actressDbErrorText(
+          'Bad state: 详情为空',
+          fallback: '详情没拉到，点按重试',
+        ),
+        '详情没拉到，点按重试',
+      );
+      expect(
+        actressDbErrorText(null, fallback: '详情没拉到，点按重试'),
+        '详情没拉到，点按重试',
+      );
+    });
   });
 }

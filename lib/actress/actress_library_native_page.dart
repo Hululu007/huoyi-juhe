@@ -1,17 +1,16 @@
 // 演员库原生页（2026-11-26 用户改令：演员库区域的 UI 照魔蚁合并页
 // 版式用原生控件重做，网页壳路线作废）。
 //
-// 版式（照合并页报告第三节）：顶部标题 + 搜索、一级页签、二级分类
-// 条、卡片网格、底部源切换条（「女优库」本地源置首段、默认选中）。
-// 四个源：
-// - 女优库（本地）：走 ActressLibraryDbFallback 的只读查询 ops
-//   （list / search / works / actresses / tags / detail），分类照
-//   whos 官方五维（最新 / 排行榜 / 演员 / 标签 + 20 厂牌二级条）；
-//   查询层已整体排除硬线类型，本页不另设口子、不直查数据库表。
-// - who's（在线，源 id 'whos'，内置 py 源）：走 AppRepository
-//   的 categories / catalog / detail，超时按其 py 取页设计放
-//   宽到 75 秒，加载前先等种子补登记；失败落错误态并给「切
-//   到本地女优库」兜底入口。
+// 版式：最顶导航栏一带平铺（页首「演员库」标题 + 六个站名
+// 平铺成排 + 数据库管理钮，同处一行，2026-11-27 11:17 用户
+// 令站名与页首平铺、不再单独占标题下方一行）+ 搜索、一级
+// 页签、二级分类条、卡片网格。
+// 三个源（2026-11-27 用户令：演员库模块删除 who's 在线源）：
+// - 女优库（本地，默认）：走 ActressLibraryDbFallback 的只读
+//   查询 ops（list / search / works / actresses / tags /
+//   detail），分类照 whos 官方五维（最新 / 排行榜 / 演员 /
+//   标签 + 20 厂牌二级条）；查询层已整体排除硬线类型，本页
+//   不另设口子、不直查数据库表。
 // - 123AV（'123av'）、PH（'pornhub'）：2026-11-27 起走 Dart
 //   直连新链（actress_online_sources.dart，照魔蚁侧修正版逐
 //   项对齐：123AV 内联 player JSON 取址 + /stream 换流、PH
@@ -31,19 +30,22 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
-import '../services/source_registry.dart' show SourceRegistry;
-import 'actress_adapter_models.dart';
 import 'actress_adapter_repository.dart';
 import 'actress_adapter_store.dart';
+import 'actress_avatar.dart';
+import 'actress_javdb_api.dart' show JavdbApiClient;
+import 'actress_error_text.dart';
 import 'actress_ios_import.dart';
 import 'actress_library_db.dart';
 import 'actress_list_page.dart';
+import 'actress_models.dart' show actressNameKey;
 import 'actress_mytv_bind.dart';
 import 'actress_neon.dart';
 import 'actress_nvku_page.dart';
 import 'actress_online_parse.dart'
     show OnlineTabOption, OnlineVideoCard, av123CodeOf;
 import 'actress_online_sources.dart';
+import 'actress_py_lines.dart';
 import 'actress_work_detail_page.dart';
 
 /// 本地源一级页签（照 whos 官方五维的前四维，厂牌是二级条）。
@@ -76,21 +78,14 @@ const _brands = <(String, String)>[
   ('JUQ', 'juq'),
 ];
 
-/// 在线三源（顺序与统一搜索分段顺序一致）。
-const _onlineSources = <(String, String)>[
-  ('whos', "who's"),
-  ('123av', '123AV'),
-  ('pornhub', 'PH'),
-];
+/// 在线源页签顺序（与统一搜索分段顺序一致）：123AV / PH
+/// 走 Dart 直连，MissAV / 潮流走 py 桥，18AV 走 Dart 直连
+/// 移植。2026-11-27 用户令：演员库模块删除 who's 在线源，
+/// who's 不许回来；MJV 与潮流共用同一种子、浏览面重复，
+/// 不单设页签（只进详情页竞速后补线）。
 
 /// 单次加载超时：挂住的查询也要落到错误态，不许无限转圈。
 const _loadTimeout = Duration(seconds: 20);
-
-/// who's 专用超时：其 py 蜘蛛取页是「45 秒单请求 × 多通道」
-/// 设计、py 桥上限 70 秒，页级 20 秒必然先掐断（2026-11-27
-/// 实报「who's 打不开」的直接原因之一）——who's 的分类/目
-/// 录/搜索单独放宽到 75 秒，失败照样落错误态 + 本地兜底。
-const _whosTimeout = Duration(seconds: 75);
 
 class ActressLibraryNativePage extends StatefulWidget {
   const ActressLibraryNativePage({
@@ -122,13 +117,8 @@ class ActressLibraryNativePage extends StatefulWidget {
 }
 
 /// 在线源的浏览态（每源一份，切源保留、切回不重载）。
-/// who's 走仓储（categories/items）；123AV / PH 走 Dart 直
-/// 连（cards + 页签 id），两套字段各用各的。
+/// 123AV / PH 都走 Dart 直连（cards + 页签 id）。
 class _OnlineState {
-  var categories = <CatalogCategory>[];
-  var categoriesLoaded = false;
-  var category = '';
-  var items = <Drama>[];
   var cards = <OnlineVideoCard>[];
   var primaryId = '';
   var secondaryId = '';
@@ -145,21 +135,15 @@ class _SearchSection {
 
   final String label;
 
-  /// null = 本地女优库段（items 是库行 Map）；非空 = 在线源段
-  /// （dramas 是 Drama）。
+  /// null = 本地女优库段（localItems 是库行 Map）；非空 =
+  /// 在线源段（cards 是 Dart 直连卡）。
   final String? sourceId;
   var localItems = <Map<String, dynamic>>[];
-  var dramas = <Drama>[];
   var cards = <OnlineVideoCard>[];
   var loading = true;
   String? error;
 
-  /// 123AV / PH 段走 Dart 直连（cards），who's 段走仓储
-  /// （dramas），本地段走库（localItems）。
-  bool get isDart => sourceId == '123av' || sourceId == 'pornhub';
-
-  int get count =>
-      sourceId == null ? localItems.length : (isDart ? cards.length : dramas.length);
+  int get count => sourceId == null ? localItems.length : cards.length;
 }
 
 class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
@@ -171,27 +155,9 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
   ActressOnlineFetch get _onlineFetch =>
       widget.onlineFetch ?? _onlineClient.get;
 
-  /// who's 的 py 种子靠启动时未等待的异步补登记，失败静默
-  /// ——本页首次加载 who's 前先等它落完（仅真仓储时；测试
-  /// 假仓储跳过），避免种子没登记好就判「站源不可用」。
-  var _seedEnsured = false;
-
-  Future<void> _ensureWhosSeed() async {
-    if (_seedEnsured) return;
-    _seedEnsured = true;
-    if (widget.repository is! XiuxianAppRepository) return;
-    try {
-      await SourceRegistry.instance
-          .ensureBuiltinImportedSites()
-          .timeout(const Duration(seconds: 20));
-    } catch (_) {
-      // 补登记失败不挡加载：仓储取不到客户端会落错误态。
-    }
-  }
-
   final _searchController = TextEditingController();
 
-  /// 当前源：0 本地女优库（默认）、1 who's、2 123AV、3 PH。
+  /// 当前源：0 本地女优库（默认）、1 123AV、2 PH。
   var _sourceIndex = 0;
 
   // ---- 本地源浏览态 ----
@@ -212,8 +178,32 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
   String? _worksTag;
 
   // ---- 在线源浏览态 ----
-  final _online = <String, _OnlineState>{
-    for (final (id, _) in _onlineSources) id: _OnlineState(),
+  /// py 桥（MissAV / 潮流页签与取流共用，经仓储既有 py
+  /// 机件调种子蜘蛛）。
+  late final ActressPyBridge _pyBridge = ActressPyBridge(widget.repository);
+
+  /// 可浏览在线源（源条顺序）：123AV → PH → MissAV →
+  /// 潮流 → 18AV。
+  late final List<ActressOnlineSource> _browsableSources = [
+    kActressOnlineSources[0],
+    kActressOnlineSources[1],
+    ...actressPyBrowsableSources(_pyBridge),
+    kActressOnlineSources[2],
+  ];
+
+  List<(String, String)> get _onlineTabs => [
+    for (final source in _browsableSources) (source.id, source.label),
+  ];
+
+  ActressOnlineSource? _sourceById(String id) {
+    for (final source in _browsableSources) {
+      if (source.id == id) return source;
+    }
+    return null;
+  }
+
+  late final _online = <String, _OnlineState>{
+    for (final source in _browsableSources) source.id: _OnlineState(),
   };
 
   // ---- 搜索态 ----
@@ -223,7 +213,7 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
 
   var _generation = 0;
 
-  String get _onlineSourceId => _onlineSources[_sourceIndex - 1].$1;
+  String get _onlineSourceId => _browsableSources[_sourceIndex - 1].id;
 
   @override
   void initState() {
@@ -233,8 +223,43 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
 
   @override
   void dispose() {
+    _preheatHandle.cancel();
     _searchController.dispose();
     super.dispose();
+  }
+
+  /// 头像预热句柄/取数（与详情页同一份缓存、同一套 key）：
+  /// 页面退出 cancel 即停，不阻塞切换。
+  final _preheatHandle = ActressAvatarPreheatHandle();
+  var _preheatQueued = false;
+  late final ActressAvatarBytesFetcher _avatarFetcher =
+      javdbAvatarBytesFetcher(JavdbApiClient());
+
+  /// 演员列表加载后后台预热：合并行里没头像地址的演员按作
+  /// 品数从高到低排队去 JavDB 补、落本地缓存（策略见
+  /// actress_avatar.dart 的 actressAvatarPreheat：每轮 20
+  /// 人、间隔 800 毫秒、只进缓存不回写库）。网格里的占位
+  /// 会经缓存更新通知自动换图。
+  void _startAvatarPreheat() {
+    final candidates = <({String name, int count})>[];
+    for (final row in _mergedActresses(_localActresses)) {
+      final avatar = (row['avatar'] ?? '').toString();
+      // 有效口径：占位地址（站根/通用未知图/相对路径）算
+      // 没头像、照样排队（actressAvatarUrlUsable）。
+      if (actressAvatarUrlUsable(avatar)) continue;
+      final name = (row['name'] ?? '').toString();
+      if (name.isEmpty) continue;
+      final count = row['count'];
+      candidates.add((name: name, count: count is num ? count.toInt() : 0));
+    }
+    if (candidates.isEmpty) return;
+    unawaited(
+      actressAvatarPreheat(
+        candidates: candidates,
+        fetcher: _avatarFetcher,
+        handle: _preheatHandle,
+      ),
+    );
   }
 
   // ================= 本地源 =================
@@ -289,7 +314,10 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
         setState(() {
           _localLoading = false;
           _localLoaded = true;
-          _localError = (result['error'] ?? '本地女优库不可用').toString();
+          _localError = actressDbErrorText(
+            result['error'],
+            fallback: '本地女优库不可用',
+          );
         });
         return;
       }
@@ -311,6 +339,7 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
           _localActresses = more ? [..._localActresses, ...rows] : rows;
           _localPage = page;
           _localHasMore = rows.length >= 24;
+          _preheatQueued = true;
         } else {
           final rows = [
             for (final row in (result['items'] as List? ?? const []))
@@ -322,12 +351,19 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
           _localHasMore = _localTab == 1 ? false : rows.length >= 24;
         }
       });
+      if (_preheatQueued) {
+        _preheatQueued = false;
+        _startAvatarPreheat();
+      }
     } catch (error) {
       if (!mounted || generation != _generation) return;
       setState(() {
         _localLoading = false;
         _localLoaded = true;
-        _localError = '本地女优库加载失败：${error.toString().split('\n').first}';
+        _localError = actressErrorText(
+          error,
+          fallback: '本地女优库加载失败，点按重试',
+        );
       });
     }
   }
@@ -364,6 +400,53 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
     unawaited(_loadLocal(reset: true));
   }
 
+  /// 演员显示层同名合并（2026-11-27 用户令，只改显示不动库）：
+  /// 归一化键 = 库层既有 actressNameKey（去全部空白含全角空格、
+  /// 小写）再叠一层全角 ASCII 转半角。同键多行合并成一张卡：
+  /// 显示名与头像取第一行非空值，作品数取最大值不相加（库里
+  /// 同名多行本是同一人的重复计数，相加会虚增）。
+  List<Map<String, dynamic>> _mergedActresses(
+    List<Map<String, dynamic>> rows,
+  ) {
+    final order = <String>[];
+    final byKey = <String, Map<String, dynamic>>{};
+    for (final row in rows) {
+      final name = (row['name'] ?? '').toString();
+      final key = actressNameKey(_halfWidth(name));
+      if (key.isEmpty) continue;
+      final count = (row['count'] as num?)?.toInt() ?? 0;
+      final existing = byKey[key];
+      if (existing == null) {
+        order.add(key);
+        byKey[key] = {...row, 'count': count};
+        continue;
+      }
+      if (count > ((existing['count'] as num?)?.toInt() ?? 0)) {
+        existing['count'] = count;
+      }
+      if ((existing['avatar'] ?? '').toString().isEmpty &&
+          (row['avatar'] ?? '').toString().isNotEmpty) {
+        existing['avatar'] = row['avatar'];
+      }
+    }
+    return [for (final key in order) byKey[key]!];
+  }
+
+  /// 全角 ASCII（！-～ 与全角空格）转半角，供名字归一化用。
+  String _halfWidth(String text) {
+    final buffer = StringBuffer();
+    for (final unit in text.codeUnits) {
+      if (unit == 0x3000) {
+        buffer.writeCharCode(0x20);
+      } else if (unit >= 0xFF01 && unit <= 0xFF5E) {
+        buffer.writeCharCode(unit - 0xFEE0);
+      } else {
+        buffer.writeCharCode(unit);
+      }
+    }
+    return buffer.toString();
+  }
+
   // ================= 在线源 =================
 
   Future<void> _loadOnline(String sourceId, {bool more = false}) async {
@@ -373,40 +456,16 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
     final page = more ? state.page + 1 : 1;
     setState(() => state.loading = true);
     try {
-      if (sourceId == '123av' || sourceId == 'pornhub') {
-        await _loadDartOnline(sourceId, state, page: page, more: more);
-        return;
-      }
-      // who's：先等 py 种子补登记落完，超时按其取页设计放宽。
-      await _ensureWhosSeed();
-      if (!state.categoriesLoaded) {
-        // 分类取不到是诚实错误态 + 重试，不拿空分类硬凑目录。
-        state.categories = await widget.repository
-            .categories(sourceId)
-            .timeout(_whosTimeout);
-        state.categoriesLoaded = true;
-        if (state.category.isEmpty && state.categories.isNotEmpty) {
-          state.category = state.categories.first.id;
-        }
-      }
-      final result = await widget.repository
-          .catalog(sourceId, page: page, category: state.category)
-          .timeout(_whosTimeout);
-      if (!mounted) return;
-      setState(() {
-        state.items = more ? [...state.items, ...result.items] : result.items;
-        state.page = page;
-        state.hasMore = result.hasMore;
-        state.loading = false;
-        state.loaded = true;
-        state.error = null;
-      });
+      await _loadDartOnline(sourceId, state, page: page, more: more);
     } catch (error) {
       if (!mounted) return;
       setState(() {
         state.loading = false;
         state.loaded = true;
-        state.error = '这个源暂时取不到内容：${error.toString().split('\n').first}';
+        state.error = actressErrorText(
+          error,
+          fallback: '这个源暂时取不到内容，点按重试',
+        );
       });
     }
   }
@@ -419,7 +478,7 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
     required int page,
     required bool more,
   }) async {
-    final source = actressOnlineSourceById(sourceId)!;
+    final source = _sourceById(sourceId)!;
     if (state.primaryId.isEmpty) {
       state.primaryId = source.defaultPrimaryId;
       state.secondaryId = source.defaultSecondaryId;
@@ -443,17 +502,6 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
       state.loaded = true;
       state.error = null;
     });
-  }
-
-  void _pickOnlineCategory(String sourceId, String category) {
-    final state = _online[sourceId]!;
-    if (state.category == category && state.loaded) return;
-    setState(() {
-      state.category = category;
-      state.loaded = false;
-      state.items = [];
-    });
-    unawaited(_loadOnline(sourceId));
   }
 
   /// Dart 直连源的页签切换（一级/二级通用）：换页签重拉第一页。
@@ -492,7 +540,7 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
       _searching = true;
       _searchSections = [
         _SearchSection(label: '女优库'),
-        for (final (id, label) in _onlineSources)
+        for (final (id, label) in _onlineTabs)
           _SearchSection(label: label, sourceId: id),
       ];
     });
@@ -512,56 +560,31 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
                 Map<String, dynamic>.from(row as Map),
             ];
           } else {
-            section.error = (result['error'] ?? '本地女优库不可用').toString();
+            section.error = actressDbErrorText(
+              result['error'],
+              fallback: '本地女优库不可用',
+            );
           }
         });
       } catch (error) {
         if (!mounted || generation != _searchGeneration) return;
         setState(() {
           section.loading = false;
-          section.error = '本地搜索失败：${error.toString().split('\n').first}';
+          section.error = actressErrorText(
+            error,
+            fallback: '本地搜索失败，点按重试',
+          );
         });
       }
     }());
-    // who's 段：仓储跨源搜索（py 链），超时按其取页设计放宽。
-    unawaited(() async {
-      final section = _searchSections
-          .where((row) => row.sourceId == 'whos')
-          .firstOrNull;
-      if (section == null) return;
-      try {
-        await _ensureWhosSeed();
-        await widget.repository
-            .searchAcrossProgressive(
-              const ['whos'],
-              query,
-              onSite: (source, items) {
-                if (!mounted || generation != _searchGeneration) return;
-                setState(() {
-                  section.loading = false;
-                  section.dramas = items;
-                });
-              },
-            )
-            .timeout(_whosTimeout);
-        if (!mounted || generation != _searchGeneration) return;
-        setState(() => section.loading = false);
-      } catch (error) {
-        if (!mounted || generation != _searchGeneration) return;
-        setState(() {
-          section.loading = false;
-          section.error = '搜索失败：${error.toString().split('\n').first}';
-        });
-      }
-    }());
-    // 123AV / PH 段：Dart 直连搜索，逐段填充、互不拖累。
-    for (final (id, _) in _onlineSources) {
-      if (id == 'whos') continue;
+    // 在线段：逐段填充、互不拖累（Dart 直连与 py 桥同走
+    // fetchCards 接口，py 源忽略 fetch 参数走仓储机件）。
+    for (final (id, _) in _onlineTabs) {
       unawaited(() async {
         final section = _searchSections
             .where((row) => row.sourceId == id)
             .firstOrNull;
-        final source = actressOnlineSourceById(id);
+        final source = _sourceById(id);
         if (section == null || source == null) return;
         try {
           final cards = await source
@@ -582,7 +605,10 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
           if (!mounted || generation != _searchGeneration) return;
           setState(() {
             section.loading = false;
-            section.error = '搜索失败：${error.toString().split('\n').first}';
+            section.error = actressErrorText(
+              error,
+              fallback: '搜索失败，点按重试',
+            );
           });
         }
       }());
@@ -604,38 +630,6 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
   /// 在线卡点开：进作品详情页（AvPlay 式版面 + 页内起播），
   /// 不再直进播放器（旧路 detail 无超时 + jar 取流无超时 =
   /// 无限「正在加载第 1 集」，2026-11-27 实报已废）。
-  void _openOnlineDetail(Drama drama) {
-    final source = actressOnlineSourceById(drama.source);
-    if (source != null) {
-      _openDartDetail(
-        source,
-        OnlineVideoCard(
-          pageUrl: drama.id,
-          title: drama.title,
-          cover: drama.cover,
-        ),
-      );
-      return;
-    }
-    // who's 卡：蜘蛛目录的 id 就是番号，详情页按番号开
-    // （who's 线路走 py 链，其余源与本地库按番号追加）。
-    Navigator.of(context).push<void>(
-      MaterialPageRoute(
-        builder: (_) => ActressWorkDetailPage.byCode(
-          code: drama.id,
-          title: drama.title,
-          poster: drama.cover,
-          fallback: _fallback,
-          repository: widget.repository,
-          onlineFetch: widget.onlineFetch,
-          onActress: _detailOnActress,
-          onTag: _detailOnTag,
-          onSearchCode: _detailOnSearchCode,
-        ),
-      ),
-    );
-  }
-
   void _openDartDetail(ActressOnlineSource source, OnlineVideoCard card) {
     Navigator.of(context).push<void>(
       MaterialPageRoute(
@@ -921,12 +915,18 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
           ],
         ),
       ),
-      bottomNavigationBar: _sourceBar(),
     );
   }
 
+  /// 最顶导航栏（2026-11-27 11:17 用户令：站名与页首平
+  /// 铺）：标题「演员库」+ 六个站名平铺成排 + 数据库管理
+  /// 钮，同处页面最顶一行。站名区占中间弹性宽，放不下在
+  /// 栏内横向滑动；标题与管理钮固定两端、不被挤走（管
+  /// 理/导入入口必须够得着）。原标题下方独立源条行已撤，
+  /// 内容区随之上移。
   Widget _topBar() {
     return Container(
+      key: const ValueKey('native-source-bar'),
       padding: const EdgeInsets.fromLTRB(12, 8, 4, 4),
       decoration: BoxDecoration(
         color: Neon.bg,
@@ -945,7 +945,8 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
               letterSpacing: .5,
             ),
           ),
-          const Spacer(),
+          const SizedBox(width: 10),
+          Expanded(child: _sourceStrip()),
           IconButton(
             key: const ValueKey('native-manage-button'),
             tooltip: '数据库管理',
@@ -1081,11 +1082,10 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
       );
     }
     final id = _onlineSourceId;
-    if (id == '123av' || id == 'pornhub') {
-      // Dart 直连源的页签行：123AV 一行栏目；PH 两行（排序 +
-      // 分类）。选中态以 state 里的页签 id 为准（未加载时用
-      // 源缺省页签）。
-      final source = actressOnlineSourceById(id)!;
+    // Dart 直连源的页签行：123AV 一行栏目；PH 两行（排序 +
+    // 分类）。选中态以 state 里的页签 id 为准（未加载时用
+    // 源缺省页签）。
+    final source = _sourceById(id)!;
       final state = _online[id]!;
       final primary = state.primaryId.isEmpty
           ? source.defaultPrimaryId
@@ -1139,39 +1139,13 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
             ),
         ],
       );
-    }
-    final state = _online[id]!;
-    if (!state.categoriesLoaded || state.categories.isEmpty) {
-      return const SizedBox.shrink();
-    }
-    return SizedBox(
-      height: 46,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-        itemCount: state.categories.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 8),
-        itemBuilder: (context, index) {
-          final cat = state.categories[index];
-          return Center(
-            child: ActressNeonPill(
-              key: ValueKey('native-cat-${state.category == cat.id}'),
-              label: cat.name,
-              selected: state.category == cat.id,
-              onTap: () => _pickOnlineCategory(_onlineSourceId, cat.id),
-            ),
-          );
-        },
-      ),
-    );
   }
 
   Widget _browseBody() {
     if (_sourceIndex == 0) return _localBody();
     final id = _onlineSourceId;
     final state = _online[id]!;
-    final isDart = id == '123av' || id == 'pornhub';
-    final count = isDart ? state.cards.length : state.items.length;
+    final count = state.cards.length;
     if (state.loading && count == 0) {
       return const Center(child: CircularProgressIndicator(color: Neon.pink));
     }
@@ -1180,9 +1154,6 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
         message: state.error!,
         retryLabel: '重试',
         onRetry: () => unawaited(_loadOnline(id)),
-        // who's 在线连不上时给本地兜底入口（不困在错误页）。
-        manageLabel: id == 'whos' ? '切到本地女优库' : null,
-        onManage: id == 'whos' ? () => _selectSource(0) : null,
       );
     }
     if (state.loaded && count == 0) {
@@ -1205,13 +1176,11 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
           crossAxisSpacing: 10,
           childAspectRatio: 0.56,
         ),
-        itemBuilder: (context, index) => isDart
-            ? _onlineCard(
-                actressOnlineSourceById(id)!,
-                state.cards[index],
-                badge: null,
-              )
-            : _dramaCard(state.items[index], badge: null),
+        itemBuilder: (context, index) => _onlineCard(
+          _sourceById(id)!,
+          state.cards[index],
+          badge: null,
+        ),
       ),
     );
   }
@@ -1265,7 +1234,10 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
       );
     }
     if (_localTab == 2) {
-      if (_localLoaded && _localActresses.isEmpty) {
+      // 演员页签：三列网格卡（2026-11-27 用户令），显示层先做
+      // 同名合并（见 _mergedActresses），只改显示不动库数据。
+      final merged = _mergedActresses(_localActresses);
+      if (_localLoaded && merged.isEmpty) {
         return _stateArea(
           message: '本地库里暂时没有演员数据',
           retryLabel: '重试',
@@ -1279,36 +1251,64 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
           }
           return false;
         },
-        child: ListView.builder(
+        child: GridView.builder(
+          key: const ValueKey('native-actress-grid'),
           padding: const EdgeInsets.fromLTRB(12, 6, 12, 24),
-          itemCount: _localActresses.length,
+          itemCount: merged.length,
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 3,
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 10,
+            childAspectRatio: 0.78,
+          ),
           itemBuilder: (context, index) {
-            final row = _localActresses[index];
+            final row = merged[index];
             final name = (row['name'] ?? '').toString();
             final avatar = (row['avatar'] ?? '').toString();
             final count = row['count'];
-            return ListTile(
+            return InkWell(
               key: ValueKey('native-actress-$name'),
-              leading: CircleAvatar(
-                backgroundColor: Neon.surfaceHigh,
-                backgroundImage: avatar.isEmpty ? null : NetworkImage(avatar),
-                child: avatar.isEmpty
-                    ? Text(
-                        name.isEmpty ? '?' : name.characters.first,
-                        style: const TextStyle(color: Neon.text),
-                      )
-                    : null,
-              ),
-              title: Text(name, style: const TextStyle(color: Neon.text)),
-              subtitle: Text(
-                '作品 $count 部',
-                style: const TextStyle(color: Neon.textDim, fontSize: 12),
-              ),
-              trailing: const Icon(
-                Icons.chevron_right_rounded,
-                color: Neon.textDim,
-              ),
               onTap: () => _openWorks(actress: name),
+              borderRadius: BorderRadius.circular(10),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+                decoration: actressNeonCardDecoration(radius: 10),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SizedBox(
+                      width: 52,
+                      height: 52,
+                      child: ClipOval(
+                        child: ActressAvatar(
+                          name: name,
+                          avatarUrl: avatar,
+                          avatarFetcher: _avatarFetcher,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Neon.text,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '作品 $count 部',
+                      style: const TextStyle(
+                        color: Neon.textDim,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             );
           },
         ),
@@ -1341,7 +1341,7 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
   }
 
   Widget _searchBody() {
-    // 分段一次性建出（不懒建）：段数固定四段、每段只出第一页结果，
+    // 分段一次性建出（不懒建）：段数固定三段、每段只出第一页结果，
     // 整列滚动即可，不用 ListView 的视口懒建（懒建时未滚到的段在
     // 树里不存在，状态核对与无障碍都够不着）。
     return SingleChildScrollView(
@@ -1393,13 +1393,11 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
               ),
               itemBuilder: (context, index) => section.sourceId == null
                   ? _localCard(section.localItems[index], badge: section.label)
-                  : section.isDart
-                  ? _onlineCard(
-                      actressOnlineSourceById(section.sourceId!)!,
+                  : _onlineCard(
+                      _sourceById(section.sourceId!)!,
                       section.cards[index],
                       badge: section.label,
-                    )
-                  : _dramaCard(section.dramas[index], badge: section.label),
+                    ),
             ),
           ],
         ],
@@ -1476,24 +1474,6 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
       badge: badge,
       placeholder: code.isEmpty ? 'NV' : code,
       onTap: () => _openLocalDetail(item),
-    );
-  }
-
-  /// 作品卡（在线 Drama）：副行取日期/分类，没有就取站名。
-  Widget _dramaCard(Drama drama, {required String? badge}) {
-    final subtitle = drama.onlineDate.isNotEmpty
-        ? drama.onlineDate
-        : (drama.tags.isNotEmpty
-              ? drama.tags.first
-              : (drama.category.isNotEmpty ? drama.category : drama.source));
-    return _posterCard(
-      key: ValueKey('native-work-${drama.source}-${drama.id}'),
-      title: drama.title,
-      pic: drama.cover,
-      subtitle: subtitle,
-      badge: badge,
-      placeholder: 'NV',
-      onTap: () => _openOnlineDetail(drama),
     );
   }
 
@@ -1606,75 +1586,68 @@ class _ActressLibraryNativePageState extends State<ActressLibraryNativePage> {
     );
   }
 
-  /// 底部源切换条：四段——女优库（本地，默认）/ who's / 123AV /
-  /// PH；123AV 与 PH 带「未验」小标（本机出口未验通，口径如实）。
-  Widget _sourceBar() {
-    const segments = <(String, String, bool)>[
+  /// 站名平铺条（嵌在最顶导航栏里、与页首同行，2026-11-27
+  /// 11:17 用户令）：女优库（本地，默认）/ 123AV / PH /
+  /// MissAV / 潮流 / 18AV。栏内宽度有限：每段按内容定宽、
+  /// 不挤变形，放不下的部分在栏内横向滑动可见。在线段一
+  /// 律带「未验」小标（照 123AV/PH 现行样子：本机出口未
+  /// 验通的部分如实标，手机终验为准）。
+  Widget _sourceStrip() {
+    final segments = <(String, String, bool)>[
       ('native-source-local', '女优库', false),
-      ('native-source-whos', "who's", false),
-      ('native-source-123av', '123AV', true),
-      ('native-source-pornhub', 'PH', true),
+      for (final (id, label) in _onlineTabs)
+        ('native-source-$id', label, true),
     ];
-    return Container(
-      decoration: BoxDecoration(
-        color: Neon.bg.withValues(alpha: .95),
-        border: Border(
-          top: BorderSide(color: Neon.violet.withValues(alpha: .5)),
-        ),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Row(
-          children: [
-            for (var i = 0; i < segments.length; i++)
-              Expanded(
-                child: InkWell(
-                  key: ValueKey(segments[i].$1),
-                  onTap: () => _selectSource(i),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 9),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          segments[i].$2,
-                          style: TextStyle(
-                            fontSize: 12.5,
-                            fontWeight: _sourceIndex == i
-                                ? FontWeight.w700
-                                : FontWeight.w500,
-                            color: _sourceIndex == i
-                                ? Neon.cyan
-                                : Neon.textDim,
-                          ),
-                        ),
-                        if (segments[i].$3) ...[
-                          const SizedBox(width: 4),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 4,
-                              vertical: 1,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Neon.pink.withValues(alpha: .25),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: const Text(
-                              '未验',
-                              style: TextStyle(
-                                color: Neon.pink,
-                                fontSize: 9,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
+    return SizedBox(
+      height: 40,
+      child: ListView.separated(
+        key: const ValueKey('native-source-bar-scroll'),
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 2),
+        itemCount: segments.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 2),
+        itemBuilder: (context, i) => InkWell(
+          key: ValueKey(segments[i].$1),
+          onTap: () => _selectSource(i),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  segments[i].$2,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: _sourceIndex == i
+                        ? FontWeight.w700
+                        : FontWeight.w500,
+                    color: _sourceIndex == i ? Neon.cyan : Neon.textDim,
                   ),
                 ),
-              ),
-          ],
+                if (segments[i].$3) ...[
+                  const SizedBox(width: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 1,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Neon.pink.withValues(alpha: .25),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const Text(
+                      '未验',
+                      style: TextStyle(
+                        color: Neon.pink,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
         ),
       ),
     );

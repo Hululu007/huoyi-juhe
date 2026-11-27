@@ -53,6 +53,8 @@ class _FakeDb {
     if (sql.contains('FROM actresses a')) {
       return [
         {'name': '演员甲', 'avatar': '', 'cnt': 42},
+        // 同名异写（尾随空格）：显示层应合并、作品数取大不相加。
+        {'name': '演员甲 ', 'avatar': '', 'cnt': 30},
         {'name': '演员乙', 'avatar': '', 'cnt': 7},
       ];
     }
@@ -216,20 +218,34 @@ void main() {
     );
   }
 
-  testWidgets('默认停在本地源且出卡片，底部四段齐全、123AV/PH 带未验标', (tester) async {
+  testWidgets('默认停在本地源且出卡片，顶部源条六段、在线五段带未验标', (tester) async {
     await tester.pumpWidget(app());
     await _settle(tester);
     expect(find.text('演员库'), findsOneWidget);
     expect(find.byKey(const ValueKey('native-work-ssis-001')), findsOneWidget);
     expect(find.byKey(const ValueKey('native-work-mida-002')), findsOneWidget);
     expect(find.byKey(const ValueKey('native-source-local')), findsOneWidget);
-    expect(find.byKey(const ValueKey('native-source-whos')), findsOneWidget);
+    // who's 已按令从演员库删除：源条无此段、全文无 who's 字样。
+    expect(find.byKey(const ValueKey('native-source-whos')), findsNothing);
+    expect(find.text("who's"), findsNothing);
     expect(find.byKey(const ValueKey('native-source-123av')), findsOneWidget);
     expect(
       find.byKey(const ValueKey('native-source-pornhub')),
       findsOneWidget,
     );
-    expect(find.text('未验'), findsNWidgets(2));
+    // 在线五段（123AV/PH/MissAV/潮流/18AV）都带未验标；
+    // MissAV/潮流/18AV 三段在横滑源条后半段，懒建未出画，
+    // 段集合与横滑另见 actress_four_sites_widget_test.dart。
+    expect(find.text('未验'), findsNWidgets(5));
+    // 源条在顶部：源条底边在搜索框上方（不在页面底部）。
+    final barRect = tester.getRect(
+      find.byKey(const ValueKey('native-source-bar')),
+    );
+    final searchRect = tester.getRect(
+      find.byKey(const ValueKey('native-search-field')),
+    );
+    expect(barRect.bottom <= searchRect.top, isTrue);
+    expect(barRect.top < 120, isTrue);
     // 本地一级页签四维齐全。
     expect(find.text('最新'), findsOneWidget);
     expect(find.text('排行榜'), findsOneWidget);
@@ -239,19 +255,7 @@ void main() {
     expect(find.text('FC2'), findsOneWidget);
   });
 
-  testWidgets('切到 who\'s 出在线卡', (tester) async {
-    await tester.pumpWidget(app());
-    await _settle(tester);
-    await tester.tap(find.byKey(const ValueKey('native-source-whos')));
-    await _settle(tester);
-    expect(
-      find.byKey(const ValueKey('native-work-whos-whos-1')),
-      findsOneWidget,
-    );
-    expect(find.text('whos 作品一'), findsOneWidget);
-  });
-
-  testWidgets('统一搜索出分段结果且带来源徽标', (tester) async {
+  testWidgets('统一搜索出分段结果且带来源徽标（无 who\'s 段）', (tester) async {
     await tester.pumpWidget(app());
     await _settle(tester);
     await tester.enterText(
@@ -261,11 +265,11 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('native-search-button')));
     await _settle(tester);
     expect(find.text('女优库 · 2条'), findsOneWidget);
-    expect(find.text("who's · 1条"), findsOneWidget);
-    // 来源徽标：本地段卡片上带「女优库」徽标（底部源条之外另有）。
+    expect(find.text("who's · 1条"), findsNothing);
+    expect(find.text('搜索结果-whos'), findsNothing);
+    // 来源徽标：本地段卡片上带「女优库」徽标（顶部源条之外另有）。
     expect(find.text('女优库'), findsNWidgets(3));
-    expect(find.text('搜索结果-whos'), findsOneWidget);
-    // 搜索分段一次性建出（页面用整列滚动），四段都在树里可直接断言。
+    // 搜索分段一次性建出（页面用整列滚动），三段都在树里可直接断言。
     expect(find.text('123AV · 1条'), findsOneWidget);
     expect(find.text('搜索结果-123av'), findsOneWidget);
     expect(find.text('PH · 1条'), findsOneWidget);
@@ -350,16 +354,44 @@ void main() {
     expect(find.text('去授权 / 打开管理'), findsOneWidget);
   });
 
-  testWidgets('演员页签出行、点行进该女优作品且有回退 chip', (tester) async {
+  testWidgets('演员页签三列网格卡、同名合并取大值，点卡进该女优作品', (tester) async {
     await tester.pumpWidget(app());
     await _settle(tester);
     await tester.tap(find.byKey(const ValueKey('native-local-tab-2')));
     await _settle(tester);
+    // 三列网格。
+    final grid = tester.widget<GridView>(
+      find.byKey(const ValueKey('native-actress-grid')),
+    );
+    final delegate =
+        grid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount;
+    expect(delegate.crossAxisCount, 3);
+    // 同名合并：「演员甲」与「演员甲 」合并成一张卡，作品数取
+    // 大值 42（不相加成 72、不出 30）。
     expect(find.byKey(const ValueKey('native-actress-演员甲')), findsOneWidget);
+    expect(find.byKey(const ValueKey('native-actress-演员甲 ')), findsNothing);
+    expect(find.text('作品 42 部'), findsOneWidget);
+    expect(find.text('作品 30 部'), findsNothing);
+    expect(find.text('作品 72 部'), findsNothing);
+    expect(find.byKey(const ValueKey('native-actress-演员乙')), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('native-actress-演员甲')));
     await _settle(tester);
     expect(find.byKey(const ValueKey('native-works-back')), findsOneWidget);
     expect(find.text('女优：演员甲 ✕'), findsOneWidget);
     expect(find.byKey(const ValueKey('native-work-ssis-001')), findsOneWidget);
+  });
+
+  testWidgets('库层抛英文异常时界面只出中文人话、不露原文', (tester) async {
+    final throwing = ActressLibraryDbFallback(
+      pathResolver: () async => '/fake/女优库.db',
+      opener: (path) async => (
+        String sql, [
+        List<Object?>? args,
+      ]) async => throw StateError('Bad state: 详情为空'),
+    );
+    await tester.pumpWidget(app(fallback: throwing));
+    await _settle(tester);
+    expect(find.textContaining('Bad state'), findsNothing);
+    expect(find.textContaining('本地女优库不可用'), findsOneWidget);
   });
 }

@@ -1,5 +1,6 @@
-// 演员库原生页预览截图：一测一张，输出三张 PNG 到
-// ~/workspace/xiuxian_actress_native_ui_20261126/。
+// 演员库原生页预览截图：一测一张，输出 PNG 到
+// ~/workspace/xiuxian_actress_ui2_20261127/previews/。
+// 2026-11-27 批次：顶部源条（三段、无 who's）+ 演员三列网格。
 // 数据是假库 + 假仓储（封面预埋一张合成图进图片缓存，不走真网）。
 // 跑法：单独跑本文件、--no-pub，不要与功能测试混链。
 import 'dart:io';
@@ -17,7 +18,7 @@ import 'package:fqapp/actress/actress_library_native_page.dart';
 import 'actress_fixtures.dart';
 import 'preview_test_support.dart';
 
-const _previewDir = '/home/hatch/workspace/xiuxian_actress_native_ui_20261126';
+const _previewDir = '/home/hatch/workspace/xiuxian_actress_ui2_20261127/previews';
 const _coverUrl = 'https://v.hersav.me/images/av/preview-sample.jpg';
 
 class _FakeDb {
@@ -60,6 +61,13 @@ class _FakeDb {
     if (sql.contains('FROM actresses a')) {
       return [
         {'name': '演员甲', 'avatar': '', 'cnt': 42},
+        // 同名异写一行：预览里应被合并、只出 42 部一张卡。
+        {'name': '演员甲 ', 'avatar': '', 'cnt': 30},
+        {'name': '演员乙', 'avatar': '', 'cnt': 7},
+        {'name': '演员丙', 'avatar': '', 'cnt': 128},
+        {'name': '演员丁', 'avatar': '', 'cnt': 56},
+        {'name': '演员戊', 'avatar': '', 'cnt': 23},
+        {'name': '演员己', 'avatar': '', 'cnt': 9},
       ];
     }
     if (sql.contains('FROM videos v')) {
@@ -244,14 +252,21 @@ void main() {
     await _savePng(tester, 'preview_search.png');
   });
 
-  testWidgets('preview native sources whos', (tester) async {
+  testWidgets('preview native actress grid', (tester) async {
     await pumpPage(tester);
-    await tester.tap(find.byKey(const ValueKey('native-source-whos')));
+    // 源条只剩三段且在顶部（标题下方），无 who's、无底部条。
+    expect(find.byKey(const ValueKey('native-source-whos')), findsNothing);
+    expect(find.byKey(const ValueKey('native-source-bar')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('native-local-tab-2')));
     await _settle(tester);
+    // 演员三列网格 + 同名合并（演员甲只出一张、作品 42 部）。
     expect(
-      find.byKey(const ValueKey('native-work-whos-whos-1')),
+      find.byKey(const ValueKey('native-actress-grid')),
       findsOneWidget,
     );
-    await _savePng(tester, 'preview_sources.png');
+    expect(find.byKey(const ValueKey('native-actress-演员甲')), findsOneWidget);
+    expect(find.text('作品 42 部'), findsOneWidget);
+    expect(find.text('作品 30 部'), findsNothing);
+    await _savePng(tester, 'preview_actress_grid.png');
   });
 }

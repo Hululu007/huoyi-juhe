@@ -1,11 +1,17 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:fqapp/pages/site_browse_page.dart';
+import 'package:fqapp/services/drama_playback.dart';
+import 'package:fqapp/services/drama_site_content.dart';
+import 'package:fqapp/services/drama_sites.dart';
 import 'package:fqapp/services/idj_plugin_store.dart';
 import 'package:fqapp/services/idj_runtime.dart';
+import 'package:fqapp/services/m3u_export_db.dart';
 
 /// 插件运行时测试：脚本组装（垫片/域名/改写/驱动）、契约转换
 /// （home/条目/详情/取流的口径与上限）、内容客户端经假评估器
@@ -410,4 +416,282 @@ void main() {
       );
     });
   });
+
+  group('probe 错误文案中文化（界面口径）', () {
+    IdjRuntime runtimeWithEval(IdjEvalFn evalFn) {
+      final store = IdjPluginStore(
+        preferences: prefs,
+        rootDir: rootDir,
+        supportDir: supportDir,
+        uriValidator: (_) async {},
+      );
+      return IdjRuntime(store: store, evalFn: evalFn);
+    }
+
+    Future<void> probeWith(IdjRuntime runtime) => runtime.probe(
+      pluginId: 'com.idj.ext.demo',
+      script: 'export default {};',
+      manifest: {
+        'schema': 1,
+        'id': 'com.idj.ext.demo',
+        'name': '演示插件',
+        'version': '1.0.0',
+        'entry': 'main.js',
+        'type': 'video',
+        'adult': false,
+        'capabilities': ['home', 'detail', 'play'],
+        'permissions': {
+          'http': ['example.com'],
+          'media': ['example.com'],
+          'cloudflare': false,
+          'storage': false,
+          'login': false,
+        },
+      },
+    );
+
+    test('插件自抛英文错误不外露：转中文人话', () async {
+      final runtime = runtimeWithEval(
+        (script, timeoutMs) async => jsonEncode({
+          'ok': false,
+          'code': 'E_PLUGIN',
+          'message': 'ReferenceError: foo is not defined',
+        }),
+      );
+      await expectLater(
+        probeWith(runtime),
+        throwsA(
+          isA<IdjPluginFailure>().having(
+            (e) => e.message,
+            'message',
+            allOf([
+              contains('试加载失败'),
+              contains('请稍后重试'),
+              isNot(contains('ReferenceError')),
+              isNot(contains('foo')),
+            ]),
+          ),
+        ),
+      );
+    });
+
+    test('桥层英文异常不外露：转中文人话、无 Bad state 前缀', () async {
+      final runtime = runtimeWithEval(
+        (script, timeoutMs) async =>
+            throw StateError('JS 执行失败：ReferenceError: foo is not defined'),
+      );
+      await expectLater(
+        probeWith(runtime),
+        throwsA(
+          isA<IdjPluginFailure>().having(
+            (e) => e.message,
+            'message',
+            allOf([
+              contains('试加载失败'),
+              isNot(contains('Bad state')),
+              isNot(contains('JS 执行失败')),
+              isNot(contains('ReferenceError')),
+            ]),
+          ),
+        ),
+      );
+    });
+
+    test('驱动自产的缺能力消息（E_PROBE）照常透传点名', () async {
+      final runtime = runtimeWithEval(
+        (script, timeoutMs) async => jsonEncode({
+          'ok': false,
+          'code': 'E_PROBE',
+          'message': '插件缺少 manifest 声明的能力函数：play',
+        }),
+      );
+      await expectLater(
+        probeWith(runtime),
+        throwsA(
+          isA<IdjPluginFailure>().having(
+            (e) => e.message,
+            'message',
+            '试加载失败：插件缺少 manifest 声明的能力函数：play',
+          ),
+        ),
+      );
+    });
+  });
+
+  group('内容页错误文案中文化（界面口径）', () {
+    Future<IdjSiteContentClient> clientWithEval(IdjEvalFn evalFn) async {
+      final store = IdjPluginStore(
+        preferences: prefs,
+        rootDir: rootDir,
+        supportDir: supportDir,
+        probe: ({required pluginId, required script, required manifest}) async {},
+        uriValidator: (_) async {},
+      );
+      await store.installBundleText(
+        jsonEncode({
+          'manifest': {
+            'schema': 1,
+            'id': 'com.idj.ext.demo',
+            'name': '演示插件',
+            'version': '1.0.0',
+            'entry': 'main.js',
+            'type': 'video',
+            'adult': false,
+            'capabilities': ['home', 'category', 'search', 'detail', 'play'],
+            'permissions': {
+              'http': ['example.com'],
+              'media': ['example.com'],
+              'cloudflare': false,
+              'storage': false,
+              'login': false,
+            },
+          },
+          'files': {'main.js': 'export default {};'},
+        }),
+      );
+      return IdjSiteContentClient(
+        pluginId: 'com.idj.ext.demo',
+        store: store,
+        runtime: IdjRuntime(store: store, evalFn: evalFn),
+      );
+    }
+
+    Matcher stateErrorText(String expected) => throwsA(
+      isA<StateError>().having((e) => e.message, 'message', expected),
+    );
+
+    test('引擎抛英文异常：详情转中文人话、无原文片段', () async {
+      final client = await clientWithEval(
+        (script, timeoutMs) async =>
+            throw StateError('JS 执行失败：ReferenceError: foo is not defined'),
+      );
+      await expectLater(
+        client.detail('v1'),
+        stateErrorText('详情加载失败，请稍后重试'),
+      );
+    });
+
+    test('引擎抛英文异常：首页与分类转各自中文人话', () async {
+      final client = await clientWithEval(
+        (script, timeoutMs) async =>
+            throw StateError('JS 执行失败：TypeError: x is not a function'),
+      );
+      await expectLater(
+        client.categories(),
+        stateErrorText('首页加载失败，请稍后重试'),
+      );
+      await expectLater(
+        client.catalog('movie', 1),
+        stateErrorText('分类加载失败，请稍后重试'),
+      );
+    });
+
+    test('插件自抛英文信封：取流与搜索转中文人话、无原文片段', () async {
+      final client = await clientWithEval(
+        (script, timeoutMs) async => jsonEncode({
+          'ok': false,
+          'code': 'E_PLUGIN',
+          'message': 'ReferenceError: bar is not defined',
+        }),
+      );
+      await expectLater(
+        client.playSource(
+          const DramaSiteEpisode(
+            videoId: '线路1\u0001ep1',
+            title: '第1集',
+            seriesId: 'v1',
+          ),
+        ),
+        stateErrorText('播放地址获取失败，换个线路或稍后再试'),
+      );
+      await expectLater(
+        client.search('测试'),
+        stateErrorText('搜索失败，请稍后重试'),
+      );
+    });
+
+    test('驱动自产码（E_NET）的中文消息照用', () async {
+      final client = await clientWithEval(
+        (script, timeoutMs) async => jsonEncode({
+          'ok': false,
+          'code': 'E_NET',
+          'message': '网络请求失败',
+        }),
+      );
+      await expectLater(client.detail('v1'), stateErrorText('网络请求失败'));
+    });
+
+    test('驱动自产码（E_NO_CAPABILITY）点名能力照用', () async {
+      final client = await clientWithEval(
+        (script, timeoutMs) async => jsonEncode({
+          'ok': false,
+          'code': 'E_NO_CAPABILITY',
+          'message': '插件没有实现 home 能力',
+        }),
+      );
+      await expectLater(
+        client.categories(),
+        stateErrorText('插件没有实现 home 能力'),
+      );
+    });
+
+    test('驱动自产的入口缺失消息（E_PLUGIN）照用', () async {
+      final client = await clientWithEval(
+        (script, timeoutMs) async => jsonEncode({
+          'ok': false,
+          'code': 'E_PLUGIN',
+          'message': '入口脚本没有 export default',
+        }),
+      );
+      await expectLater(
+        client.detail('v1'),
+        stateErrorText('入口脚本没有 export default'),
+      );
+    });
+
+    testWidgets('站点浏览页失败态：只见中文人话、无 Bad state 与英文原文', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SiteBrowsePage(
+            siteId: 'failing_site',
+            siteName: '失败演示站',
+            client: _FailingSiteClient(),
+            dbSink: MemoryM3uExportDb(),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('取分类失败：首页加载失败，请稍后重试'), findsOneWidget);
+      expect(find.textContaining('Bad state'), findsNothing);
+      expect(find.textContaining('ReferenceError'), findsNothing);
+      expect(find.textContaining('JS 执行失败'), findsNothing);
+    });
+  });
+}
+
+/// 内容页回归用的假客户端：各 op 都抛客户端层归一化后的中文失败
+/// （与 IdjSiteContentClient 现在的实际产物一致）。
+class _FailingSiteClient implements DramaSiteContentClient {
+  @override
+  Future<List<DramaSiteCategory>> categories() async =>
+      throw StateError('首页加载失败，请稍后重试');
+
+  @override
+  Future<DramaSiteCatalogPage> catalog(String categoryId, int page) async =>
+      throw StateError('首页加载失败，请稍后重试');
+
+  @override
+  Future<DramaSiteDetail> detail(String seriesId) async =>
+      throw StateError('详情加载失败，请稍后重试');
+
+  @override
+  Future<List<DramaSiteItem>> search(String query) async =>
+      throw StateError('搜索失败，请稍后重试');
+
+  @override
+  Future<DramaPlaySource> playSource(DramaSiteEpisode episode) async =>
+      throw StateError('播放地址获取失败，换个线路或稍后再试');
 }

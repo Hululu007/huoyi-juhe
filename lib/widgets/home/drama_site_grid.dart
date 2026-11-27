@@ -234,8 +234,9 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
   /// 加载失败文案：超时只留一句「加载超时，请重试」，不把
   /// `TimeoutException after 0:00:45…` 这类英文原文贴出来；
   /// 证书过期（站方证书到期）不把原始握手报错整段贴出来，只留
-  /// 一句人话，标出这是坏站问题、不是应用问题；其余错误仍如实
-  /// 显示原文。
+  /// 一句人话，标出这是坏站问题、不是应用问题；StateError 只贴
+  /// 自带 message（「Bad state:」是异常外壳、不是文案）；其余
+  /// 错误仍如实显示原文。
   static String _friendlyLoadError(Object error) {
     if (_isTimeoutError(error)) return '加载超时，请重试';
     final text = error.toString();
@@ -243,6 +244,7 @@ class _DramaSiteGridState extends State<DramaSiteGrid> {
         text.contains('certificate has expired')) {
       return '该站证书已过期（站方证书到期，需站方续期），换个站看看。';
     }
+    if (error is StateError) return error.message;
     return text;
   }
 

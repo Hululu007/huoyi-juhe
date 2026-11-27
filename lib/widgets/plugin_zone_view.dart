@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../services/cultivation.dart';
@@ -7,8 +9,17 @@ import 'series_detail/moyi_detail_theme.dart';
 import 'site_grid_dialog.dart';
 
 /// 插件区组件（选站弹窗第三区）：已装插件的站网格由弹窗本体渲染，
-/// 本文件提供市场区段（订阅列表 + 安装/更新）、右上角「+」的添加
+/// 本文件提供市场区段（订阅列表 + 安装）、右上角「+」的添加
 /// 面板（本地插件包 / 远程插件源）、卸载确认与已装条目构建。
+///
+/// 更新口径（用户 2026-11-27 令）：插件第一次由用户手动安装后，
+/// 之后的新版由仓库在市场加载时后台静默自动装上——市场与已装
+/// 列表不显示任何「更新 / 可更新 / 有新版本」字样或角标。
+/// 卸载有两处长按入口：选站弹窗插件区的已装站网格（弹窗本体），
+/// 与下方市场卡（已装条目长按弹同一确认框）。卸载清已装账
+/// （包、索引、站点注册）并留一条「已卸载」记录（仓库持久化）：
+/// 市场条目自此隐藏，远程版本高于卸载时版本才重新出现、可
+/// 安装；装回后记录清除（四态见仓库 marketEntryHiddenAfterUninstall）。
 ///
 /// 远程地址口径（用户 2026-11-26 令）：订阅地址绑定在程序里、
 /// 界面永不显示地址原文——内置源只显示「官方插件源」，用户源只
@@ -168,7 +179,9 @@ Future<void> _addLocalPlugin(
         : '';
     message = '已安装插件「${installed.entry.name}」$typeNote';
   } catch (error) {
-    message = error.toString();
+    // 异常原文不上界面：已定义的人话失败直接用，其余给中文兜底。
+    debugPrint('本地插件包安装失败：$error');
+    message = idjPluginUserErrorText(error, '安装失败，请稍后重试');
   }
   if (!context.mounted) return;
   if (succeeded) onChanged();
@@ -225,15 +238,19 @@ Future<void> _addRemoteSubscription(
     succeeded = true;
     message = '已添加插件源「${subscription.displayName}」';
   } catch (error) {
-    message = error.toString();
+    debugPrint('添加远程插件源失败：$error');
+    message = idjPluginUserErrorText(error, '添加插件源失败，请检查地址后重试');
   }
   if (!context.mounted) return;
   if (succeeded) onChanged();
   _showSnack(context, message);
 }
 
-/// 插件市场区段：订阅分组（内置源在前）+ 逐条安装/更新按钮 +
+/// 插件市场区段：订阅分组（内置源在前）+ 逐条安装按钮 +
 /// 已装状态。打开时重拉订阅（内容不持久化）；失败留旧列表记错误。
+/// 列表先按现状上屏，随后在后台静默自动更新已装插件（见
+/// [IdjPluginStore.autoUpdateFromSubscriptions]），装好后只刷新
+/// 卡片状态，不弹提示、不显示更新字样。
 class PluginMarketSection extends StatefulWidget {
   const PluginMarketSection({
     super.key,
@@ -253,8 +270,10 @@ class PluginMarketSection extends StatefulWidget {
 class _PluginMarketSectionState extends State<PluginMarketSection> {
   List<IdjSubscription>? _subscriptions;
   Map<String, IdjInstalledPlugin> _installedById = {};
+  Map<String, String> _uninstalledVersions = {};
   String? _busyPluginId;
   bool _loading = true;
+  bool _autoUpdating = false;
 
   @override
   void initState() {
@@ -267,25 +286,59 @@ class _PluginMarketSectionState extends State<PluginMarketSection> {
     try {
       final subscriptions = await widget.store.loadSubscriptions();
       final installed = await widget.store.listInstalled();
+      final uninstalled = await widget.store.readUninstalledVersions();
       if (!mounted) return;
       setState(() {
         _subscriptions = subscriptions;
         _installedById = {
           for (final plugin in installed) plugin.entry.pluginId: plugin,
         };
+        _uninstalledVersions = uninstalled;
         _loading = false;
       });
+      // 现状先上屏，自动更新在后台跑，不拖慢进页。
+      unawaited(_autoUpdate(subscriptions));
     } catch (error) {
       if (!mounted) return;
       setState(() => _loading = false);
-      _showSnack(context, '插件市场加载失败：$error');
+      debugPrint('插件市场加载失败：$error');
+      _showSnack(context, idjPluginUserErrorText(error, '插件市场加载失败，请稍后重试'));
+    }
+  }
+
+  /// 后台静默自动更新：把订阅里版本更高的已装插件装上。结束时
+  /// 无条件重读已装映射刷新卡片状态（本区段可能被重挂载、先行
+  /// 的另一轮已经装好的结果也要带回本实例），装到新版时再通知
+  /// 弹窗网格对账；全程不弹提示、不出现更新字样。失败由仓库
+  /// 逐个记日志保旧版，这里整体异常同样只记日志。
+  Future<void> _autoUpdate(List<IdjSubscription> subscriptions) async {
+    if (_autoUpdating) return;
+    _autoUpdating = true;
+    try {
+      final updated = await widget.store.autoUpdateFromSubscriptions(
+        subscriptions,
+      );
+      if (!mounted) return;
+      final installed = await widget.store.listInstalled();
+      final uninstalled = await widget.store.readUninstalledVersions();
+      if (!mounted) return;
+      setState(() {
+        _installedById = {
+          for (final plugin in installed) plugin.entry.pluginId: plugin,
+        };
+        _uninstalledVersions = uninstalled;
+      });
+      if (updated.isNotEmpty) widget.onChanged();
+    } catch (error) {
+      debugPrint('插件自动更新失败：$error');
+    } finally {
+      _autoUpdating = false;
     }
   }
 
   Future<void> _install(IdjSubscriptionPlugin plugin) async {
     setState(() => _busyPluginId = plugin.id);
     try {
-      final oldManifest = await widget.store.readInstalledManifest(plugin.id);
       final installed = await widget.store.installFromSubscriptionPlugin(
         plugin,
       );
@@ -297,18 +350,39 @@ class _PluginMarketSectionState extends State<PluginMarketSection> {
       if (manifest != null &&
           (manifest.type == 'comic' || manifest.type == 'live')) {
         message += '（该类型暂未接站点链）';
-      } else if (oldManifest != null && manifest != null) {
-        final diff = IdjPluginStore.permissionDiff(oldManifest, manifest);
-        if (!diff.isEmpty) {
-          message += '；${diff.describe().join('；')}';
-        }
       }
       _showSnack(context, message);
     } catch (error) {
-      if (mounted) _showSnack(context, error.toString());
+      debugPrint('插件安装失败（${plugin.id}）：$error');
+      if (mounted) {
+        _showSnack(context, idjPluginUserErrorText(error, '安装失败，请稍后重试'));
+      }
     } finally {
       if (mounted) setState(() => _busyPluginId = null);
     }
+  }
+
+  /// 市场卡长按卸载（用户 2026-11-27 令，与选站弹窗插件区站网格
+  /// 长按同一入口口径）：弹共用确认框，确认后走仓库卸载——包、
+  /// 索引、站点注册清干净，并留「已卸载」记录；本卡随列表重拉
+  /// 消失（远程升版后才重新出现，见仓库四态口径）。
+  Future<void> _uninstallFromCard(IdjSubscriptionPlugin plugin) async {
+    final confirmed = await confirmUninstallPlugin(context, plugin.name);
+    if (!confirmed || !mounted) return;
+    try {
+      await widget.store.uninstall(plugin.id);
+    } catch (error) {
+      debugPrint('卸载插件失败（${plugin.id}）：$error');
+      if (mounted) {
+        _showSnack(context, idjPluginUserErrorText(error, '卸载失败，请稍后重试'));
+      }
+      return;
+    }
+    if (!mounted) return;
+    widget.onChanged();
+    await _load();
+    if (!mounted) return;
+    _showSnack(context, '已卸载插件「${plugin.name}」');
   }
 
   Future<void> _confirmRemoveSubscription(IdjSubscription subscription) async {
@@ -343,8 +417,17 @@ class _PluginMarketSectionState extends State<PluginMarketSection> {
         ],
       ),
     );
-    if (confirmed != true) return;
-    await widget.store.removeSubscription(subscription.url);
+    if (confirmed != true || !mounted) return;
+    try {
+      await widget.store.removeSubscription(subscription.url);
+    } catch (error) {
+      // 原先这段没有兜底：删源失败是未捕获异步错误。原文进日志，
+      // 界面给中文提示，列表保持原样。
+      debugPrint('删除插件源失败：$error');
+      if (mounted) _showSnack(context, '删除插件源失败，请稍后重试');
+      return;
+    }
+    if (!mounted) return;
     widget.onChanged();
     await _load();
   }
@@ -393,7 +476,16 @@ class _PluginMarketSectionState extends State<PluginMarketSection> {
   Widget _subscriptionBlock(IdjSubscription subscription, bool gateOpen) {
     final visiblePlugins = [
       for (final plugin in subscription.plugins)
-        if (!plugin.adult || gateOpen) plugin,
+        if ((!plugin.adult || gateOpen) &&
+            // 四态「已卸载隐藏」：没装着、且有已卸载记录、且远程
+            // 版本不高于卸载时版本 → 整条不显示。已装条目不走
+            // 这条（装回时记录已在仓库清掉）。
+            (_installedById.containsKey(plugin.id) ||
+                !IdjPluginStore.marketEntryHiddenAfterUninstall(
+                  remoteVersion: plugin.version,
+                  uninstalledVersion: _uninstalledVersions[plugin.id],
+                )))
+          plugin,
     ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -489,8 +581,9 @@ class _PluginMarketSectionState extends State<PluginMarketSection> {
     final firstChar = plugin.name.isEmpty
         ? '?'
         : plugin.name.characters.first;
-    // 状态行 + 动作：判定与旧行布局一致（未装/损坏/可更新/已装/
-    // 安装中），只是搬进卡里。
+    // 状态行 + 动作：未装/损坏/已装/安装中四种。已装就是已装——
+    // 订阅里版本更高也不摆「更新」（新版由自动更新在后台静默
+    // 装上，用户 2026-11-27 令），状态只留已装版本号。
     final String status;
     final Widget action;
     if (busy) {
@@ -511,13 +604,6 @@ class _PluginMarketSectionState extends State<PluginMarketSection> {
     } else if (installed.damaged) {
       status = '已损坏 · v${installed.entry.version}';
       action = _cardActionButton(plugin, '重装');
-    } else if (IdjPluginManifest.compareVersions(
-          plugin.version,
-          installed.entry.version,
-        ) >
-        0) {
-      status = 'v${installed.entry.version} → v${plugin.version}';
-      action = _cardActionButton(plugin, '更新');
     } else {
       status = 'v${installed.entry.version}';
       action = const SizedBox(
@@ -530,7 +616,7 @@ class _PluginMarketSectionState extends State<PluginMarketSection> {
         ),
       );
     }
-    return Container(
+    final card = Container(
       key: ValueKey('plugin-market-row-${plugin.id}'),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
@@ -589,6 +675,13 @@ class _PluginMarketSectionState extends State<PluginMarketSection> {
           ),
         ],
       ),
+    );
+    // 已装条目长按卸载（与站网格长按同一确认框）；未装与安装中
+    // 的卡不挂长按。手势包在卡外层，不拦卡内的安装/重装按钮点按。
+    if (installed == null || busy) return card;
+    return GestureDetector(
+      onLongPress: () => _uninstallFromCard(plugin),
+      child: card,
     );
   }
 

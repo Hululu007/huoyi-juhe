@@ -123,6 +123,58 @@ class ContentHttp {
     );
   }
 
+  /// POST 原始字符串正文，返回解码后的响应文本（不按状态码
+  /// 抛错，信封由调用方判——JavDB 开会话换令牌用）。
+  Future<String> postRaw(
+    String url,
+    String body, {
+    Map<String, String> headers = const {},
+    Duration timeout = contentTimeout,
+  }) async {
+    final client = _currentClient;
+    final uri = Uri.tryParse(url.trim());
+    if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
+      throw AppFailure('内容源地址无效');
+    }
+    try {
+      final request = await client.postUrl(uri).timeout(timeout);
+      request.followRedirects = true;
+      request.headers.set(
+        HttpHeaders.userAgentHeader,
+        headers['User-Agent'] ?? contentUserAgent,
+      );
+      headers.forEach((key, value) {
+        if (key.toLowerCase() == 'user-agent' || value.isEmpty) return;
+        request.headers.set(key, value);
+      });
+      request.write(body);
+      final response = await request.close().timeout(timeout);
+      final builder = BytesBuilder(copy: false);
+      await for (final chunk in response.timeout(timeout)) {
+        builder.add(chunk);
+        if (builder.length > _maxContentBytes) {
+          throw AppFailure('内容源返回的数据过大');
+        }
+      }
+      final responseHeaders = <String, String>{};
+      response.headers.forEach((name, values) {
+        if (values.isNotEmpty) responseHeaders[name] = values.join(', ');
+      });
+      return decodeContentBytes(
+        builder.takeBytes(),
+        contentType: responseHeaders['content-type'],
+      );
+    } on AppFailure {
+      rethrow;
+    } on TimeoutException {
+      throw AppFailure('内容源连接超时');
+    } on HandshakeException {
+      throw AppFailure('内容源证书校验失败');
+    } on SocketException {
+      throw AppFailure('无法连接内容源');
+    }
+  }
+
   /// GET 并返回原始响应（状态码/响应头/字节），非 200 不抛错。
   Future<ContentResponse> getRaw(
     String url, {

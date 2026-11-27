@@ -34,7 +34,9 @@ import 'actress/actress_library_native_page.dart';
 import 'actress/actress_adapter_repository.dart';
 import 'actress/actress_adapter_store.dart';
 import 'actress/actress_mytv_bind.dart';
+import 'pages/bottom_nav_manage_page.dart';
 import 'services/app_log.dart';
+import 'services/bottom_nav_prefs.dart';
 import 'services/app_theme.dart';
 import 'services/audio_download_store.dart';
 import 'services/audio_floating_routes.dart';
@@ -69,6 +71,7 @@ import 'services/local_media_proxy.dart';
 import 'services/local_proxy_preferences.dart';
 import 'services/local_proxy_route.dart';
 import 'services/system_proxy.dart';
+import 'widgets/editable_bottom_nav_bar.dart';
 import 'widgets/lazy_indexed_stack.dart';
 import 'widgets/cultivation_level_up_dialog.dart';
 import 'widgets/home/home_design.dart';
@@ -578,6 +581,17 @@ class RootShell extends StatefulWidget {
 class _RootShellState extends State<RootShell>
     with SingleTickerProviderStateMixin {
   int _index = 0;
+
+  /// 页签 id ↔ 页索引映射：下标即 LazyIndexedStack 的页索引，
+  /// 顺序与 kBottomNavDefaultOrder 一致。页索引语义不变，底栏的
+  /// 排序/隐藏只在这层映射之上做。
+  static const List<String> _pageTabIds = kBottomNavDefaultOrder;
+
+  /// 底栏页签偏好（顺序 + 隐藏集），变化时重建底栏。
+  final BottomNavPrefs _bottomNavPrefs = BottomNavPrefs.instance;
+
+  /// 底栏编辑态（长按页签进入）：拖动排序、点角标隐藏。
+  bool _editingNav = false;
   bool _backendReady = false;
 
   /// 游戏 / 观影 3D 翻转切换的控制器（0..1：前半段旧页转走，
@@ -700,6 +714,8 @@ class _RootShellState extends State<RootShell>
     CultivationService.instance.snapshotNotifier.addListener(
       _onCultivationChanged,
     );
+    _bottomNavPrefs.addListener(_onBottomNavChanged);
+    unawaited(_bottomNavPrefs.load());
     _startBackend();
     // 挂机游戏服务早启动：进游戏页之前定时器就跑起来，
     // 切到影视区看视频时修为与元宝照涨。
@@ -712,6 +728,21 @@ class _RootShellState extends State<RootShell>
 
   void _onDramaChromeChanged() {
     if (mounted) setState(() {});
+  }
+
+  void _onBottomNavChanged() {
+    if (mounted) setState(() {});
+  }
+
+  /// 编辑态点角标隐藏页签：被守卫拦下（只剩最后一个可见页签）
+  /// 时给中文提示。
+  Future<void> _onHideNavTab(String id) async {
+    final ok = await _bottomNavPrefs.hide(id);
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('至少保留一个页签')),
+      );
+    }
   }
 
   void _onCultivationChanged() {
@@ -923,6 +954,7 @@ class _RootShellState extends State<RootShell>
     CultivationService.instance.snapshotNotifier.removeListener(
       _onCultivationChanged,
     );
+    _bottomNavPrefs.removeListener(_onBottomNavChanged);
     _homeScroll.dispose();
     _flipController.dispose();
     super.dispose();
@@ -1036,100 +1068,72 @@ class _RootShellState extends State<RootShell>
     final glassDark = !eink || isDark || dramaOnVideo;
     // OLED 纯黑只在深色外观下生效，浅色 / 墨水屏时该值为 false。
     final oled = oledActive();
-    final navBar = NavigationBarTheme(
-      data: NavigationBarThemeData(
-        height: 64,
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-        surfaceTintColor: Colors.transparent,
-        shadowColor: Colors.transparent,
-        indicatorColor: eink
-            ? Colors.black
-            : HomePalette.accent.withValues(alpha: glassDark ? 0.20 : 0.12),
-        indicatorShape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        iconTheme: WidgetStateProperty.resolveWith(
-          (states) => IconThemeData(
-            size: 22,
-            color: states.contains(WidgetState.selected)
-                ? (eink ? Colors.white : HomePalette.accent)
-                : (eink
-                      ? Colors.black
-                      : (glassDark
-                            ? Colors.white.withValues(alpha: 0.65)
-                            : palette.muted)),
-          ),
-        ),
-        labelTextStyle: WidgetStateProperty.resolveWith(
-          (states) => TextStyle(
-            fontSize: 11,
-            fontWeight: states.contains(WidgetState.selected)
-                ? FontWeight.w700
-                : FontWeight.w500,
-            color: states.contains(WidgetState.selected)
-                ? (eink
-                      ? Colors.black
-                      : (glassDark ? HomePalette.accent : palette.accentText))
-                : (eink
-                      ? Colors.black
-                      : (glassDark
-                            ? Colors.white.withValues(alpha: 0.65)
-                            : palette.muted)),
-          ),
+    // 底栏编辑态：游戏页签选中时整条底栏隐藏（见下方
+    // bottomNavigationBar），编辑态也随之不生效。
+    final editingNav = _editingNav && _index != 0;
+    final actressUnlocked =
+        CultivationService.instance.snapshot.unlockedVideo;
+    final navUnselectedColor = eink
+        ? Colors.black
+        : (glassDark ? Colors.white.withValues(alpha: 0.65) : palette.muted);
+    final navBar = EditableBottomNavBar(
+      tabs: bottomNavTabDefs(
+        _bottomNavPrefs.visibleIds,
+        actressUnlocked: actressUnlocked,
+      ),
+      // 当前页页签已被隐藏时 _pageTabIds[_index] 不在可见列表里，
+      // 控件内无页签命中即无选中态，不会崩。
+      selectedId: _pageTabIds[_index],
+      editing: editingNav,
+      selectedColor: eink ? Colors.black : HomePalette.accent,
+      selectedIconColor: eink ? Colors.white : HomePalette.accent,
+      selectedLabelColor: eink
+          ? Colors.black
+          : (glassDark ? HomePalette.accent : palette.accentText),
+      unselectedColor: navUnselectedColor,
+      indicatorColor: eink
+          ? Colors.black
+          : HomePalette.accent.withValues(alpha: glassDark ? 0.20 : 0.12),
+      onSelect: (id) => _selectTab(_pageTabIds.indexOf(id)),
+      onEnterEdit: () => setState(() => _editingNav = true),
+      onHide: (id) => unawaited(_onHideNavTab(id)),
+      onMove: (id, target) => unawaited(_bottomNavPrefs.move(id, target)),
+    );
+
+    // 编辑态工具条：坐在 dock 上方的一条深色圆角条。
+    final navEditBar = Container(
+      decoration: BoxDecoration(
+        color: moyiSheetFill,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.16),
+          width: 0.8,
         ),
       ),
-      child: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: _selectTab,
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        destinations: [
-          // 游戏在最前面：全屏 2.5D 战场，点它进游戏。
-          const NavigationDestination(
-            icon: Icon(LucideIcons.gamepad),
-            selectedIcon: Icon(LucideIcons.gamepad),
-            label: '游戏',
-          ),
-          const NavigationDestination(
-            icon: Icon(LucideIcons.house),
-            selectedIcon: Icon(LucideIcons.house),
-            label: '首页',
-          ),
-          const NavigationDestination(
-            icon: Icon(LucideIcons.clapperboard),
-            selectedIcon: Icon(LucideIcons.clapperboard),
-            label: '短剧',
-          ),
-          // 演员库是成人区：导航栏一直显示，修为不到元婴期时显示上锁
-          // 图标，点进去是上锁页（写明还差多少修为）；到元婴期后正常显示。
-          NavigationDestination(
-            icon: Icon(
-              CultivationService.instance.snapshot.unlockedVideo
-                  ? LucideIcons.users
-                  : LucideIcons.lock,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: Row(
+        children: [
+          const Expanded(
+            child: Text(
+              '拖动排序 · 点 － 隐藏',
+              style: TextStyle(fontSize: 12.5, color: Colors.white),
             ),
-            selectedIcon: Icon(
-              CultivationService.instance.snapshot.unlockedVideo
-                  ? LucideIcons.users
-                  : LucideIcons.lock,
+          ),
+          // 「管理」按钮是「我的」页签被隐藏后的后路：移动端设置页入口
+          // 只在「我的」页顶栏齿轮，「我的」隐藏后从那里够不着设置；
+          // 长按底栏进编辑态、点这里仍能打开底部导航管理页恢复页签。
+          TextButton(
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute<void>(
+                builder: (_) => const BottomNavManagePage(),
+              ),
             ),
-            label: '演员库',
+            child: const Text('管理'),
           ),
-          const NavigationDestination(
-            icon: Icon(LucideIcons.tv),
-            selectedIcon: Icon(LucideIcons.tv),
-            label: '直播',
-          ),
-          const NavigationDestination(
-            icon: Icon(LucideIcons.library_big),
-            selectedIcon: Icon(LucideIcons.library_big),
-            label: '书架',
-          ),
-          const NavigationDestination(
-            icon: Icon(LucideIcons.circle_user_round),
-            selectedIcon: Icon(LucideIcons.circle_user_round),
-            label: '我的',
+          TextButton(
+            onPressed: () => setState(() => _editingNav = false),
+            child: const Text('完成'),
           ),
         ],
       ),
@@ -1233,7 +1237,12 @@ class _RootShellState extends State<RootShell>
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
           child: RepaintBoundary(
-            child: Container(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (editingNav) navEditBar,
+                if (editingNav) const SizedBox(height: 8),
+                Container(
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(28),
                 // 墨水屏：阴影是灰阶 + 刷新残影来源，直接去掉，改用实线边框。
@@ -1278,6 +1287,8 @@ class _RootShellState extends State<RootShell>
                         child: staticNavBar,
                       ),
               ),
+            ),
+              ],
             ),
           ),
         ),

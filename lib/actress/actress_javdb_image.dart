@@ -5,7 +5,8 @@ import 'package:flutter/material.dart';
 import 'actress_adapter_http.dart' show ContentHttp;
 import 'actress_javdb_api.dart' show javdbDecryptImageBytes, javdbIsImageUrl;
 
-/// 演员库通用网络图：JavDB 图床（jdbstatic.com）的图字节带
+/// 演员库通用网络图：JavDB 图床（jdbstatic.com /
+/// spfcas.com）的图字节带
 /// XOR 加密，必须先取字节解密再显示（普通 Image.network 解
 /// 不出）；其余图走 Image.network。两种路径都带加载占位与
 /// 失败占位（失败显示深色块 + 可选点按重试），不许出现「看
@@ -125,7 +126,14 @@ class _JavdbDecodedImageState extends State<_JavdbDecodedImage> {
     final stamp = ++_stamp;
     try {
       final http = _http ??= ContentHttp();
-      final raw = await http.getRaw(url);
+      // 取图带 Referer（jar 版 picProxy 口径）：图床认来源，
+      // 不带可能直接回绝。超时 10 秒封顶：死地址不许让占位
+      // 转圈转到底（与头像补全链同口径）。
+      final raw = await http.getRaw(
+        url,
+        headers: const {'Referer': 'https://javdb.com/'},
+        timeout: const Duration(seconds: 10),
+      );
       if (!mounted || stamp != _stamp) return;
       if (raw.statusCode < 200 || raw.statusCode >= 300) {
         setState(() => _failed = true);

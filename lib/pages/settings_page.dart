@@ -27,6 +27,7 @@ import '../services/intro_outro_skip.dart';
 import '../widgets/settings/settings_widgets.dart';
 import '../widgets/series_detail/moyi_detail_theme.dart';
 import 'api_service_page.dart';
+import 'bottom_nav_manage_page.dart';
 import 'app_update_page.dart';
 import 'bytevc2_verify_page.dart';
 import 'cached_books_page.dart';
@@ -66,6 +67,18 @@ class SettingsPage extends StatelessWidget {
             _oledModeItem(),
           _backgroundItem(),
           if (!isWindowsDesktop) _playerLayoutItem(),
+          if (!isWindowsDesktop)
+            SettingsItem(
+              icon: LucideIcons.layout_grid,
+              title: '底部导航管理',
+              subtitle: '排序、隐藏与恢复底栏页签',
+              onTap: (context, _) => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const BottomNavManagePage(),
+                ),
+              ),
+            ),
         ],
       ),
       SettingsCategory(

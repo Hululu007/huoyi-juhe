@@ -282,6 +282,92 @@ void main() {
     expect(find.text('已安装'), findsOneWidget);
   });
 
+  testWidgets('市场安装失败：界面提示是中文人话、不带英文异常原文', (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(tester.view.reset);
+    // probe 假实现抛一串典型英文异常（模拟原生桥回的 JS 报错，
+    // StateError 自带「Bad state:」前缀）：走完下载 → 校验 → probe
+    // 失败后，界面只许看到中文提示，不许看到异常原文任何片段。
+    final failingStore = IdjPluginStore(
+      preferences: prefs,
+      rootDir: rootDir,
+      supportDir: supportDir,
+      probe: ({required pluginId, required script, required manifest}) async {
+        throw StateError('JS 执行失败：ReferenceError: foo is not defined');
+      },
+      uriValidator: (_) async {},
+      httpFactory: () => _MarketHttpClient(),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(brightness: Brightness.dark),
+        home: Scaffold(
+          body: Center(
+            child: Builder(
+              builder: (buttonContext) => TextButton(
+                onPressed: () => showSiteGridDialog(
+                  context: buttonContext,
+                  sites: const [
+                    (
+                      id: 'b-video',
+                      name: '内置影视',
+                      zone: SiteGridZone.builtin,
+                      group: SiteGridGroup.video,
+                    ),
+                  ],
+                  initialZone: SiteGridZone.plugin,
+                  enablePluginZone: true,
+                  pluginStore: failingStore,
+                  onDeleteSite: deleteSiteGridEntry,
+                ),
+                child: const Text('打开切换站点'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('打开切换站点'));
+    await tester.pumpAndSettle();
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey('plugin-market-row-com.idj.ext.alpha')),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('plugin-install-com.idj.ext.alpha')),
+    );
+    await pumpUntilFound(tester, find.byType(SnackBar));
+    final snackText = tester
+        .widget<Text>(
+          find.descendant(
+            of: find.byType(SnackBar),
+            matching: find.byType(Text),
+          ),
+        )
+        .data!;
+    expect(snackText, contains('试加载失败'));
+    expect(snackText, contains('请稍后重试'));
+    for (final fragment in [
+      'Bad state',
+      'JS 执行失败',
+      'ReferenceError',
+      'is not defined',
+      'foo',
+    ]) {
+      expect(
+        snackText,
+        isNot(contains(fragment)),
+        reason: '界面文案不许带异常原文片段：$fragment',
+      );
+    }
+    // 失败不留半成品：没装上。
+    final installed = await tester.runAsync(
+      () => failingStore.listInstalled(),
+    );
+    expect(installed, isEmpty);
+  });
+
   testWidgets('不启用插件区时仍是两区、无 + 号（旧行为不变）', (tester) async {
     await tester.pumpWidget(
       MaterialApp(

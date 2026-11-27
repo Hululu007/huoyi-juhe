@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
 import 'drama_playback.dart';
@@ -39,6 +40,25 @@ class IdjCallException implements Exception {
   @override
   String toString() => message;
 }
+
+/// _invoke 归一化后的通用失败文案：插件自抛的错误与引擎异常多为
+/// 英文原文，只进日志（debugPrint），异常里带给上层的只剩这句；
+/// 内容客户端再按 op 换成「哪一步失败＋怎么办」的具体文案。
+const String idjGenericCallFailureMessage = '插件执行失败';
+
+/// 驱动/垫片自产错误码：这些码的 message 是驱动模板与 host 垫片里
+/// 写死的中文（缺能力、域名白名单、网络、权限、未实现、加解密
+/// 参数等），可以原样给用户看。其余码（E_PLUGIN 与插件自造码）
+/// 的 message 来自插件脚本自抛，内容不可控，一律换通用文案。
+const Set<String> _idjDriverErrorCodes = {
+  'E_PROBE',
+  'E_NO_CAPABILITY',
+  'E_DOMAIN',
+  'E_NET',
+  'E_UNSUPPORTED',
+  'E_CRYPTO',
+  'E_PERMISSION',
+};
 
 /// 评估注入点：生产走 [JsBridge.evalRaw]，测试可换假实现。
 typedef IdjEvalFn = Future<dynamic> Function(String script, int timeoutMs);
@@ -1041,7 +1061,16 @@ class IdjRuntime {
         },
       );
     } on IdjCallException catch (error) {
-      throw IdjPluginFailure('试加载失败：${error.message}');
+      // 界面口径：只有驱动自产的中文消息（E_PROBE 缺能力函数，
+      // 点名缺哪个）透传给用户；插件自己抛的错与引擎异常多为
+      // 英文原文，只进日志，界面给中文人话。
+      if (error.code == 'E_PROBE') {
+        throw IdjPluginFailure('试加载失败：${error.message}');
+      }
+      debugPrint('idj probe 失败（$pluginId）：${error.code} ${error.message}');
+      throw IdjPluginFailure(
+        '试加载失败：插件初始化没能完成，请稍后重试；若反复失败，可能是这个插件与当前版本不兼容',
+      );
     }
   }
 
@@ -1099,17 +1128,29 @@ class IdjRuntime {
     try {
       raw = await _evalFn(fullScript, timeoutMs);
     } catch (error) {
-      throw IdjCallException('E_PLUGIN', '插件执行失败：$error');
+      // 引擎异常（如桥层「JS 执行失败：<原文>」）多为英文原文，只进
+      // 日志；带给上层的只剩通用文案，具体到哪一步失败由内容客户
+      // 端按 op 补。
+      debugPrint('idj 调用失败（$pluginId/$op）：$error');
+      throw IdjCallException('E_PLUGIN', idjGenericCallFailureMessage);
     }
     final envelope = _parseEnvelope(raw);
     if (envelope == null) {
       throw IdjCallException('E_PLUGIN', '插件没有返回结果');
     }
     if (envelope['ok'] != true) {
-      throw IdjCallException(
-        (envelope['code'] as Object?)?.toString() ?? 'E_PLUGIN',
-        (envelope['message'] as Object?)?.toString() ?? '插件调用失败',
-      );
+      final code = (envelope['code'] as Object?)?.toString() ?? 'E_PLUGIN';
+      final message =
+          (envelope['message'] as Object?)?.toString() ?? '插件调用失败';
+      // 驱动自产码的 message 是写死的中文，照用；插件自抛的
+      // message 不可控（多为 JS 引擎英文原文），换通用文案、
+      // 原文进日志。错误码原样保留，看门狗计数口径不变。
+      if (_idjDriverErrorCodes.contains(code) ||
+          message == '入口脚本没有 export default') {
+        throw IdjCallException(code, message);
+      }
+      debugPrint('idj 插件报错（$pluginId/$op）：$code $message');
+      throw IdjCallException(code, idjGenericCallFailureMessage);
     }
     if (manifest.storagePermission && envelope['storage'] is Map) {
       await _saveStorage(
@@ -1361,7 +1402,30 @@ class IdjSiteContentClient extends DramaSiteContentClient {
       return result;
     } on IdjCallException catch (error) {
       _watchdog(store.recordFailure(pluginId, code: error.code));
+      // 通用失败（插件自抛/引擎异常，原文已在运行时层进日志）按 op
+      // 换成「哪一步失败＋怎么办」；驱动自产的具体中文照用。
+      if (error.message == idjGenericCallFailureMessage) {
+        throw StateError(_opFailureText(op));
+      }
       throw StateError(error.message);
+    }
+  }
+
+  /// 通用调用失败按 op 的用户文案：说清哪一步失败、怎么办。
+  static String _opFailureText(String op) {
+    switch (op) {
+      case 'home':
+        return '首页加载失败，请稍后重试';
+      case 'category':
+        return '分类加载失败，请稍后重试';
+      case 'detail':
+        return '详情加载失败，请稍后重试';
+      case 'search':
+        return '搜索失败，请稍后重试';
+      case 'play':
+        return '播放地址获取失败，换个线路或稍后再试';
+      default:
+        return '加载失败，请稍后重试';
     }
   }
 

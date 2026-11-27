@@ -26,7 +26,8 @@ import 'mine_page.dart';
 ///
 /// 布局：上半内嵌播放器（16:9 定比，叠顶栏频道名/分辨率/ⓘ）/
 /// 下半面板：80 高瘦信息行（左预览槽 + 正在/即将两行 + 56 宽
-/// 切源钮）+ 刷新行 + 分组/频道/线路三列同滚胶囊网格；点视频
+/// 切源钮）+ 分组/频道/线路三列同滚胶囊网格；导入「+」悬浮在
+/// 线路列最后一条线路下方右侧（独立层，列表滚动不动它）；点视频
 /// 画面进全屏、双击重试。换源不走横向 chips，走信息行切源钮
 /// 弹出的分组选择框（平台源 / 导入源）。
 /// 内嵌播放与全屏播放各用一个 NativePlayer：进全屏前先暂停内嵌，
@@ -61,7 +62,7 @@ liveChannelsFetcherForTest;
 @visibleForTesting
 Future<LiveEpgGuide> Function(LiveSource source)? liveEpgLoaderForTest;
 
-/// 测试注入：非空时右侧居中悬浮「+」的本地文件导入用它代替真实的
+/// 测试注入：非空时线路下方悬浮「+」的本地文件导入用它代替真实的
 /// file_selector 选文件（返回值同 pickTextFile：文件名 + 全文，
 /// null 表示用户取消）。生产路径始终为 null。
 @visibleForTesting
@@ -294,7 +295,7 @@ class _LivePageState extends State<LivePage> {
     return text;
   }
 
-  /// 右侧居中悬浮「+」的导入菜单：两路——导入本地文件 / 添加远程
+  /// 线路下方悬浮「+」的导入菜单：两路——导入本地文件 / 添加远程
   /// 链接。两路都走订阅机件落盘，成功自动切到新源。
   Future<void> _showImportMenu() async {
     final choice = await showModalBottomSheet<String>(
@@ -452,7 +453,7 @@ class _LivePageState extends State<LivePage> {
       final result = await future.timeout(
         _loadWatchdogLimit,
         onTimeout: () => throw TimeoutException(
-          '直播加载超时：$step 超过 20 秒没有返回，请点刷新重试',
+          '直播加载超时：$step 超过 20 秒没有返回，请点「重试」',
         ),
       );
       debugPrint(
@@ -758,39 +759,6 @@ class _LivePageState extends State<LivePage> {
         );
       }
     }
-  }
-
-  /// 手动刷新：强制重新抓取直播分类与当前分类的频道列表。
-  /// 加载中也允许刷新（自救入口）：_loadPlatforms 会递增代次，
-  /// 在途的旧加载回来时按代次作废，不会覆盖刷新结果。以前刷新
-  /// 按钮在 _loading 时被禁用、这里也直接 return，链上一旦挂死
-  /// 用户连自救都点不了，只能退页重进（诊断第 1.4 条）。
-  Future<void> _refreshLive() async {
-    _sourceLoadStarted = true;
-    // 订阅源刷新（魔蚁口径）：远程源重拉地址、重解析、更新
-    // 快照后再载入；本地快照源不重读文件，直接从已存快照
-    // 重新载入。远程重拉失败按原因报错，旧频道保留不清空。
-    final sub = _subscriptionFor(_source.id);
-    if (sub != null) {
-      var current = sub;
-      if (sub.isUrl) {
-        try {
-          current = await LiveSubscriptionStore.instance.refreshRemote(sub);
-        } catch (error) {
-          if (mounted) {
-            setState(() => _importError = _importErrorText(error));
-          }
-          return;
-        }
-      }
-      await _loadSource(liveSourceForSubscription(current));
-      return;
-    }
-    if (_group == _favouritesId) {
-      setState(() => _channels = _store.favourites);
-      return;
-    }
-    await _loadPlatforms(keepGroup: _group);
   }
 
   /// 切换直播源：调公共站点切换弹窗（与魔蚁 live_screen._pickSource
@@ -1260,46 +1228,19 @@ class _LivePageState extends State<LivePage> {
     return Scaffold(
       backgroundColor: Colors.transparent,
       // 目标版式没有顶栏：播放器直接贴顶（16:9），切换源在信息行
-      // 右端的 56 钮；导入走右侧居中悬浮「+」（独立层，列表滚动
-      // 不动它）。原左下角位置被壳层悬浮底部导航胶囊整颗遮住，
-      // 用户 2026-11-27 令移到右边居中：居中范围是可视区域（整高
-      // 减去底部胶囊遮挡带：系统底部 inset + 约 88）。
+      // 右端的 56 钮；导入走悬浮「+」，钉在线路列最后一条线路下方右侧
+      // （见 _lists）。此前右边居中的落法压在投屏卡下半截上，
+      // 用户 2026-11-27 09:06 实拍指出位置不对、令移到线路下面。
       body: MoyiPageBackground(
         child: SafeArea(
           top: true,
           bottom: false,
           child: !unlocked
               ? _lockedBody(context)
-              : Stack(
+              : Column(
                   children: [
-                    Column(
-                      children: [
-                        AspectRatio(aspectRatio: 16 / 9, child: _videoArea()),
-                        Expanded(child: _panel()),
-                      ],
-                    ),
-                    Positioned(
-                      right: 12,
-                      top: 0,
-                      bottom: MediaQuery.paddingOf(context).bottom + 88,
-                      child: Center(
-                        child: Material(
-                          key: const ValueKey('live-import-add'),
-                          color: moyiPurple,
-                          shape: const CircleBorder(),
-                          elevation: 4,
-                          child: InkWell(
-                            customBorder: const CircleBorder(),
-                            onTap: () => unawaited(_showImportMenu()),
-                            child: const SizedBox(
-                              width: 48,
-                              height: 48,
-                              child: Icon(Icons.add, color: Colors.white),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
+                    AspectRatio(aspectRatio: 16 / 9, child: _videoArea()),
+                    Expanded(child: _panel()),
                   ],
                 ),
         ),
@@ -1760,37 +1701,47 @@ class _LivePageState extends State<LivePage> {
   }
 
   Widget _lists() {
-    // 刷新行与三列网格：刷新行在网格上方（原「搜索频道」输入栏
-    // 已按用户 2026-11-27 令删除，只保留独立的刷新钮）；源加载
-    // 失败时刷新行也要能刷新，报错只显示在网格区。
-    return Column(
+    // 三列网格 + 悬浮导入「+」：刷新行已按用户 2026-11-27 09:06
+    // 令整行删除（钮和那节空白一起收掉，手动刷新方法随之删除），
+    // 网格直接顶到信息行下方、上移补位。
+    // 「+」钉在当前频道最后一条线路格下沿之下的右侧（用户令
+    // 「放到线路下面」）：线路格底边自网格顶部量 = 顶 padding 4
+    // + 行高 54 × (线路数 − 1) + 行上 padding 3 + 格高 48，即
+    // 54 × 线路数 + 1，再留 5 间隔 → top = 54 × 线路数 + 6。
+    // 只有一条线路时正落在「线路1」那一行下方（top 60），与令
+    // 一致；多条线路时跟到最后一条线路下方，不压任何线路格；
+    // 它正下方的线路列格位必然是空的（线路只占前线路数行）。
+    // 独立层，列表滚动不动它；无线路（未选频道）时 top 6 贴网格
+    // 右上角，那里同样没有线路格。
+    final lineCount = _channel?.urls.length ?? 0;
+    return Stack(
       children: [
-        _refreshRow(),
-        Expanded(child: _channelPane()),
+        Positioned.fill(child: _channelPane()),
+        Positioned(
+          right: 12,
+          top: 54.0 * lineCount + 6,
+          child: _importButton(),
+        ),
       ],
     );
   }
 
-  /// 刷新行：原搜索栏整行已删（用户 2026-11-27 令），只留下
-  /// 独立的刷新钮，单独成行靠左端（切源在信息行右端的 56 钮，
-  /// 导入在右侧居中悬浮「+」）。不放右端的原因：可视区域垂直
-  /// 中点正落在这行右端的位置，悬浮「+」会盖住右端的刷新钮，
-  /// 左端整行空着、互不遮挡。
-  Widget _refreshRow() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(6, 2, 12, 2),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.start,
-        children: [
-          IconButton(
-            key: const ValueKey('live-refresh-button'),
-            tooltip: '刷新直播',
-            visualDensity: VisualDensity.compact,
-            // 加载中不禁用：看门狗之外再给一条用户自救路。
-            onPressed: _refreshLive,
-            icon: const Icon(Icons.refresh_rounded, color: Colors.white),
-          ),
-        ],
+  /// 悬浮导入钮：紫色圆钮 48×48，点开导入菜单（本地文件 / 远程
+  /// 链接）。key、颜色、尺寸、回调与旧落法一致，只换锚点。
+  Widget _importButton() {
+    return Material(
+      key: const ValueKey('live-import-add'),
+      color: moyiPurple,
+      shape: const CircleBorder(),
+      elevation: 4,
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: () => unawaited(_showImportMenu()),
+        child: const SizedBox(
+          width: 48,
+          height: 48,
+          child: Icon(Icons.add, color: Colors.white),
+        ),
       ),
     );
   }

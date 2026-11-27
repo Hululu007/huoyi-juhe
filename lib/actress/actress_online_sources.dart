@@ -1,5 +1,6 @@
 import 'actress_adapter_http.dart' show ContentHttp;
 import 'actress_adapter_models.dart' show AppFailure;
+import 'actress_av18_source.dart';
 import 'actress_online_parse.dart';
 
 /// 演员库在线源（123AV / PH）的取数服务：Dart 直连站点页面，
@@ -80,7 +81,7 @@ abstract class ActressOnlineSource {
   };
 
   OnlineTabOption _pick(List<OnlineTabOption> tabs, String id) =>
-      tabs.firstWhere((row) => row.id == id, orElse: () => tabs.first);
+      actressPickTab(tabs, id);
 
   /// 取一页卡片。[query] 非空时走搜索（页签不参与拼址，与站方
   /// 搜索口径一致）。取不到/解析为空回空列表，失败抛 AppFailure。
@@ -280,11 +281,13 @@ class Av123ActressSource extends ActressOnlineSource {
   }
 }
 
-/// 全部在线源（源条顺序：123AV 在前、PH 在后，与用户令
-/// 「把123和ph加进去」的提及顺序一致）。
+/// 全部 Dart 直连在线源（竞速同层顺序：123AV → PH →
+/// 18AV）。MissAV / 潮流 / MJV 走 py 桥，不在这张表里
+/// （见 actress_py_lines.dart）。
 const kActressOnlineSources = <ActressOnlineSource>[
   Av123ActressSource(),
   PhActressSource(),
+  Av18ActressSource(),
 ];
 
 /// 线路全集（详情页按番号搜线路用）：与可浏览源同一份。
@@ -297,6 +300,10 @@ ActressOnlineSource? actressOnlineSourceById(String id) {
   }
   return null;
 }
+
+/// 按 id 选页签，选不到回第一项（各源 fetchCards 共用）。
+OnlineTabOption actressPickTab(List<OnlineTabOption> tabs, String id) =>
+    tabs.firstWhere((row) => row.id == id, orElse: () => tabs.first);
 
 /// 番号归一化（去分隔符、大写）：123AV/PH 搜索命中判定用。
 /// 空番号不参与匹配（返回空串，调用方按未找到处理）。
@@ -316,6 +323,9 @@ bool actressOnlineCardMatches({
   if (target.isEmpty) return false;
   if (source.id == '123av') {
     return actressCodeKey(av123CodeOf(card.pageUrl)) == target;
+  }
+  if (source.id == 'av18') {
+    return av18CardMatches(card, code);
   }
   return actressCodeKey(card.title).contains(target);
 }

@@ -33,6 +33,14 @@ const String idjPluginsPrefsKey = 'xiuxian_idj_plugins';
 /// 订阅地址列表的 SharedPreferences 键：只存地址，订阅内容不持久化。
 const String idjSubscriptionsPrefsKey = 'xiuxian_idj_subscriptions';
 
+/// 「已卸载」记录的 SharedPreferences 键（用户 2026-11-27 更正令）：
+/// 值是 JSON 对象字符串 `{pluginId: 卸载时的版本号}`，持久化、
+/// 重启保留。市场渲染据此判四态：已卸载且远程版本 ≤ 记录版本
+/// 的条目整个不显示；远程出了更高版本才重新出现（可安装）；
+/// 重新装回即清掉该条记录。见 [IdjPluginStore.uninstall]、
+/// [IdjPluginStore.readUninstalledVersions]。
+const String idjUninstalledPrefsKey = 'xiuxian_idj_uninstalled';
+
 /// 内置远程插件索引（用户 2026-11-26 令：用魔蚁现行远程索引那套，
 /// 地址绑定在程序里、界面不显示）。打开插件区自动拉取，不用手动贴
 /// 地址；插件本身不预装，只展示、逐个点安装。拉取失败只记 error、
@@ -61,6 +69,13 @@ class IdjPluginFailure implements Exception {
   @override
   String toString() => message;
 }
+
+/// 界面错误文案口径（用户令）：插件区不许把异常原文（英文报错、
+/// 「Bad state:」前缀之类）摆上界面。[IdjPluginFailure] 的 message
+/// 本就是写给用户看的中文，可直接用；其它异常一律换成调用方给的
+/// 中文兜底文案（说清哪一步失败＋怎么办），原文由抛出侧进日志。
+String idjPluginUserErrorText(Object error, String fallback) =>
+    error is IdjPluginFailure ? error.message : fallback;
 
 /// probe 试加载的回调：把包里的脚本与 manifest 传给运行时，
 /// 运行时加载入口脚本、检查 `export default` 是否齐 manifest
@@ -583,6 +598,18 @@ class IdjPluginStore {
   final HttpClient Function()? _httpClientFactory;
   final Future<void> Function(Uri uri)? _downloadUriValidator;
 
+  /// 装 / 卸串行链：同一插件的包目录与索引不许并发改——市场
+  /// 区段可能因弹窗对账重挂载而跑两轮自动更新，用户手点安装
+  /// 也可能与自动更新撞上；并发写包会踩同一个 staging 目录
+  /// （实测 PathNotFound）。所有改包/改索引的操作排队逐个来。
+  Future<void> _mutationTail = Future<void>.value();
+
+  Future<T> _serialized<T>(Future<T> Function() action) {
+    final result = _mutationTail.then((_) => action());
+    _mutationTail = result.then((_) {}, onError: (_) {});
+    return result;
+  }
+
   /// 订阅内容只缓存在内存里：重拉失败留旧列表、只记 error。
   final Map<String, IdjSubscription> _subscriptionCache = {};
 
@@ -748,12 +775,14 @@ class IdjPluginStore {
         manifest: bundle.manifest.raw,
       ).timeout(
         const Duration(seconds: 20),
-        onTimeout: () => throw IdjPluginFailure('试加载失败：插件初始化超时（15 秒）'),
+        onTimeout: () => throw IdjPluginFailure('试加载失败：插件初始化超时（20 秒）'),
       );
     } on IdjPluginFailure {
       rethrow;
     } catch (error) {
-      throw IdjPluginFailure('试加载失败：插件报错 $error');
+      // 底层异常原文（多为英文）只进日志，界面给中文人话。
+      debugPrint('idj probe 失败（${bundle.manifest.id}）：$error');
+      throw IdjPluginFailure('试加载失败：插件初始化没能完成，请稍后重试');
     }
   }
 
@@ -765,6 +794,11 @@ class IdjPluginStore {
   /// 提示一句（见 [permissionDiff]），不作安装门槛。
   /// 安装失败不留半成品：staging 删除、索引不写、站点不登记。
   Future<IdjInstalledPlugin> installBundleText(
+    String text, {
+    IdjProbeFn? probe,
+  }) => _serialized(() => _installBundleText(text, probe: probe));
+
+  Future<IdjInstalledPlugin> _installBundleText(
     String text, {
     IdjProbeFn? probe,
   }) async {
@@ -793,6 +827,9 @@ class IdjPluginStore {
     );
     index[manifest.id] = entry;
     await _writeIndex(index);
+    // 装回（含首次安装）清掉该插件的「已卸载」记录：四态回到
+    // 「已装」，下次卸载按新版本重新记（见 uninstall）。
+    await _clearUninstalledRecord(manifest.id);
     onInstalledChanged?.call();
     return IdjInstalledPlugin(entry: entry, manifest: manifest, damaged: false);
   }
@@ -840,7 +877,9 @@ class IdjPluginStore {
         } catch (_) {}
       }
       if (error is IdjPluginFailure) rethrow;
-      throw IdjPluginFailure('安装失败：写入失败（存储空间不足？）：$error');
+      // 文件系统异常原文（多为英文）只进日志，界面给中文人话。
+      debugPrint('idj 写包失败（$pluginId）：$error');
+      throw IdjPluginFailure('安装失败：写入失败（存储空间不足？）');
     }
   }
 
@@ -923,10 +962,15 @@ class IdjPluginStore {
 
   // ---------- 卸载 / 启用 / 停用 / 清数据 ----------
 
-  /// 卸载：删包目录、清索引条目、通知登记侧摘站。
+  /// 卸载：删包目录、清索引条目、通知登记侧摘站，并留一条
+  /// 「已卸载」记录（pluginId + 卸载时的版本，持久化）：市场里
+  /// 该条目自此隐藏，直到远程版本高于记录版本才重新出现。
   /// 运行态数据（storage.json）默认保留（重装回来状态还在），
   /// [clearData] 为真才连运行态目录一起删。
-  Future<void> uninstall(String pluginId, {bool clearData = false}) async {
+  Future<void> uninstall(String pluginId, {bool clearData = false}) =>
+      _serialized(() => _uninstall(pluginId, clearData: clearData));
+
+  Future<void> _uninstall(String pluginId, {bool clearData = false}) async {
     final index = await readIndex();
     final entry = index[pluginId];
     if (entry == null) {
@@ -942,7 +986,60 @@ class IdjPluginStore {
     if (clearData) {
       await _deleteRuntimeDir(pluginId);
     }
+    await _recordUninstalled(pluginId, entry.version);
     onInstalledChanged?.call();
+  }
+
+  // ---------- 已卸载记录（市场四态） ----------
+
+  /// 读「已卸载」记录：pluginId → 卸载时的版本号。市场渲染判
+  /// 四态用（见 [marketEntryHiddenAfterUninstall]）。
+  Future<Map<String, String>> readUninstalledVersions() async {
+    final prefs = await _preferences();
+    final raw = prefs.getString(idjUninstalledPrefsKey);
+    if (raw == null || raw.isEmpty) return {};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return {};
+      return {
+        for (final item in decoded.entries)
+          item.key: (item.value as Object?)?.toString() ?? '',
+      };
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Future<void> _writeUninstalledVersions(Map<String, String> records) async {
+    final prefs = await _preferences();
+    await prefs.setString(idjUninstalledPrefsKey, jsonEncode(records));
+  }
+
+  Future<void> _recordUninstalled(String pluginId, String version) async {
+    final records = await readUninstalledVersions();
+    if (records[pluginId] == version) return;
+    records[pluginId] = version;
+    await _writeUninstalledVersions(records);
+  }
+
+  Future<void> _clearUninstalledRecord(String pluginId) async {
+    final records = await readUninstalledVersions();
+    if (!records.containsKey(pluginId)) return;
+    records.remove(pluginId);
+    await _writeUninstalledVersions(records);
+  }
+
+  /// 市场条目四态里的「已卸载隐藏」判定：有已卸载记录、且远程
+  /// 版本不高于卸载时版本 → 整条不显示；远程版本更高 → 回到
+  /// 可安装显示（「已卸载待更新」态）。已装条目不走本判定
+  /// （装回时记录已清，见 [installBundleText]）。
+  static bool marketEntryHiddenAfterUninstall({
+    required String remoteVersion,
+    required String? uninstalledVersion,
+  }) {
+    if (uninstalledVersion == null) return false;
+    return IdjPluginManifest.compareVersions(remoteVersion, uninstalledVersion) <=
+        0;
   }
 
   /// 启用 / 停用：只改索引 `enabled` + 通知登记侧，不动包文件与
@@ -1266,7 +1363,9 @@ class IdjPluginStore {
     } on IdjPluginFailure {
       rethrow;
     } catch (error) {
-      throw IdjPluginFailure('下载失败：$error');
+      // 底层网络异常原文（多为英文）只进日志，界面给中文人话。
+      debugPrint('idj 下载失败（$current）：$error');
+      throw IdjPluginFailure('下载失败：网络连接不通或对方无响应，请检查网络后重试');
     } finally {
       client.close(force: true);
     }
@@ -1518,11 +1617,108 @@ class IdjPluginStore {
     return installBundleText(interpreted.bundleText!, probe: probe);
   }
 
+  // ---------- 自动更新（订阅索引路线） ----------
+
+  /// 自动更新（用户 2026-11-27 令）：插件第一次由用户手动装上后，
+  /// 之后每次市场加载完由界面在后台调本方法——把各订阅索引里
+  /// version 高于已装 version 的条目静默装上，全程无确认、无提示、
+  /// 无角标。只更新**已经装过**的插件：订阅里没装过的条目绝不
+  /// 自动安装（首装永远是用户手动点）。
+  ///
+  /// 口径：
+  /// - 同一插件在多个订阅里出现时取版本最高的那条；
+  /// - 安装走 [installFromSubscriptionPlugin] 完整安装链（下载
+  ///   地址校验、manifest 校验、integrity、域名清单、probe 一样
+  ///   不少），自动更新不绕过任何既有校验；
+  /// - 单个插件失败（网络 / 校验 / probe 不过）只记日志、保留旧版
+  ///   照常可用，不抛、不打断其余插件；
+  /// - 包文件缺失 / 损坏的已装条目跳过（那是「重装」的事，手动
+  ///   入口在市场卡上），不拿自动更新冒充修复；
+  /// - 装完复核索引版本确实前进才记入返回值，防止索引版本号与
+  ///   包内 manifest 版本不一致时反复重装。
+  ///
+  /// 返回真正更新成功的 pluginId 列表（界面据此静默刷新列表，
+  /// 不向用户展示任何更新字样）。
+  Future<List<String>> autoUpdateFromSubscriptions(
+    List<IdjSubscription> subscriptions,
+  ) async {
+    final index = await readIndex();
+    if (index.isEmpty) return const [];
+    final bestById = <String, IdjSubscriptionPlugin>{};
+    for (final subscription in subscriptions) {
+      for (final plugin in subscription.plugins) {
+        if (!index.containsKey(plugin.id)) continue;
+        final current = bestById[plugin.id];
+        if (current == null ||
+            IdjPluginManifest.compareVersions(
+                  plugin.version,
+                  current.version,
+                ) >
+                0) {
+          bestById[plugin.id] = plugin;
+        }
+      }
+    }
+    final updated = <String>[];
+    for (final entry in index.values) {
+      final candidate = bestById[entry.pluginId];
+      if (candidate == null) continue;
+      if (IdjPluginManifest.compareVersions(
+            candidate.version,
+            entry.version,
+          ) <=
+          0) {
+        continue;
+      }
+      // 循环内复读索引：本方法可能被并发调用两轮（市场区段重
+      // 挂载），先到的一轮装完后，后到的一轮在这里看到新版本
+      // 直接跳过，不重复下载。装/卸本身有仓库串行链兜底。
+      final fresh = (await readIndex())[entry.pluginId];
+      if (fresh == null) continue;
+      if (IdjPluginManifest.compareVersions(
+            candidate.version,
+            fresh.version,
+          ) <=
+          0) {
+        continue;
+      }
+      // 包已损坏 / 缺失的跳过：自动更新不碰，留给手动重装。
+      if (await readInstalledManifest(entry.pluginId) == null) {
+        debugPrint('idj 自动更新：${entry.pluginId} 包文件不可用，跳过');
+        continue;
+      }
+      try {
+        final installed = await installFromSubscriptionPlugin(candidate);
+        if (IdjPluginManifest.compareVersions(
+              installed.entry.version,
+              entry.version,
+            ) >
+            0) {
+          updated.add(entry.pluginId);
+          debugPrint(
+            'idj 自动更新：${entry.pluginId} ${entry.version} → '
+            '${installed.entry.version}',
+          );
+        } else {
+          debugPrint(
+            'idj 自动更新：${entry.pluginId} 索引版本 ${candidate.version} '
+            '与包内版本 ${installed.entry.version} 不一致，未记更新',
+          );
+        }
+      } catch (error) {
+        // 失败保旧版：安装链失败不写索引、不动旧包，插件照常用。
+        debugPrint('idj 自动更新：${entry.pluginId} 失败，保留旧版：$error');
+      }
+    }
+    return updated;
+  }
+
   // ---------- 更新检查 ----------
 
   /// 更新检查：只对 manifest 写了 `update.url` 的插件拉新 manifest
-  /// 比 semver；手动触发，无定时自动刷新。订阅里的更新靠市场列表
-  /// 的版本比对（条目 version 高于已装 version 即显示「更新」）。
+  /// 比 semver；手动触发，无定时自动刷新。订阅里的更新走
+  /// [autoUpdateFromSubscriptions] 静默自动装，不再靠界面摆
+  /// 「更新」按钮（用户 2026-11-27 令）。
   Future<List<IdjUpdateCandidate>> checkUpdates() async {
     final index = await readIndex();
     final candidates = <IdjUpdateCandidate>[];

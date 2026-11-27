@@ -257,7 +257,7 @@ String _demoBundleText() => jsonEncode({
 });
 
 /// 预览专用假下载：任何地址都回同一份小订阅（3 条插件：演示插件
-/// 已装、一个可更新、一个未装），市场行状态齐全。
+/// 已装、其余未装），市场行状态齐全。
 class _PreviewHttpClient implements HttpClient {
   @override
   Duration? connectionTimeout;

@@ -173,7 +173,8 @@ class ActressLibraryDbFallback {
       }
     } catch (error) {
       _reset();
-      return {'ok': false, 'error': '本地女优库不可用：$error'};
+      // 异常原文不上屏（2026-11-27 错误文案中文化令）：只回中文。
+      return {'ok': false, 'error': '本地女优库不可用，请重新加载数据库'};
     }
   }
 

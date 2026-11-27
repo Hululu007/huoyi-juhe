@@ -121,7 +121,7 @@ void main() {
       await CultivationService.instance.resetForTest();
     });
 
-    testWidgets('挂死源：20 秒看门狗结束加载并落报错态，刷新按钮可点', (tester) async {
+    testWidgets('挂死源：20 秒看门狗结束加载并落报错态', (tester) async {
       // 分类拉取永远不返回（模拟链上某一步挂死）。
       livePlatformsFetcherForTest = (_) => Completer<List<LivePlatform>>().future;
       await tester.pumpWidget(const MaterialApp(home: LivePage()));
@@ -133,12 +133,13 @@ void main() {
             seconds: {CultivationCategory.novel: 6000.0},
           );
       await tester.pump();
-      // 加载中：转圈在，刷新按钮不禁用（用户能自救）。
+      // 加载中：转圈在；手动刷新钮已按用户 2026-11-27 令删除，
+      // 挂死只能等看门狗落报错态后用面板「重试」。
       expect(find.byType(CircularProgressIndicator), findsWidgets);
-      final refresh = tester.widget<IconButton>(
+      expect(
         find.byKey(const ValueKey('live-refresh-button')),
+        findsNothing,
       );
-      expect(refresh.onPressed, isNotNull);
 
       // 推进到看门狗上限之后：加载结束、落报错态并给出真实原因。
       await tester.pump(const Duration(seconds: 21));

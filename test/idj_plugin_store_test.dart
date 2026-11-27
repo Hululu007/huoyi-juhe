@@ -379,6 +379,72 @@ void main() {
       expect(diff.describe().join(), contains('新版本多申请了 1 个域名'));
     });
   });
+
+  group('错误文案中文化（界面口径）', () {
+    test('probe 底层英文异常不外露：转中文人话、原文不进 message', () async {
+      final store = IdjPluginStore(
+        preferences: prefs,
+        rootDir: rootDir,
+        supportDir: supportDir,
+        probe:
+            ({
+              required pluginId,
+              required script,
+              required manifest,
+            }) async {
+              // 模拟原生桥回的典型英文异常串（StateError 自带前缀）。
+              throw StateError(
+                'JS 执行失败：ReferenceError: foo is not defined',
+              );
+            },
+        uriValidator: (_) async {},
+      );
+      final bundle = IdjPluginStore.parseBundleText(_bundleText());
+      await expectLater(
+        store.probeBundle(bundle),
+        throwsA(
+          isA<IdjPluginFailure>().having(
+            (e) => e.message,
+            'message',
+            allOf([
+              contains('试加载失败'),
+              contains('请稍后重试'),
+              isNot(contains('Bad state')),
+              isNot(contains('JS 执行失败')),
+              isNot(contains('ReferenceError')),
+              isNot(contains('foo')),
+            ]),
+          ),
+        ),
+      );
+    });
+
+    test('下载底层英文异常不外露：转中文人话', () async {
+      final store = makeStore(
+        httpFactory: () => _FakeHttpClient((url) {
+          throw const SocketException('Failed host lookup: example.com');
+        }),
+      );
+      await expectLater(
+        store.downloadText(
+          Uri.parse('https://example.com/sub.json'),
+          maxBytes: 1024,
+        ),
+        throwsA(
+          isA<IdjPluginFailure>().having(
+            (e) => e.message,
+            'message',
+            allOf([
+              contains('下载失败'),
+              contains('请检查网络后重试'),
+              isNot(contains('SocketException')),
+              isNot(contains('Failed host lookup')),
+            ]),
+          ),
+        ),
+      );
+    });
+  });
 }
 
 // ---------- 测试夹具 ----------

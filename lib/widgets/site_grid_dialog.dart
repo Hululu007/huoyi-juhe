@@ -304,9 +304,12 @@ class _SiteGridDialogState extends State<SiteGridDialog> {
       await _pluginStore.uninstall(pluginId);
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error.toString())));
+      debugPrint('卸载插件失败（$pluginId）：$error');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(idjPluginUserErrorText(error, '卸载失败，请稍后重试')),
+        ),
+      );
       return;
     }
     await _reloadPluginEntries();
