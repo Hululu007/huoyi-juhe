@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart' show kTouchSlop;
 import 'package:flutter/material.dart';
 
 import '../services/native_player.dart' show NativePlayer;
@@ -81,6 +82,17 @@ class _ActressInlinePlayerState extends State<ActressInlinePlayer> {
   var _controlsVisible = true;
   var _boosting = false;
   Timer? _hideTimer;
+
+  /// 拖动预览比例（拖进度条或横滑画面时非空）：这段时间里进度条与
+  /// 时间文字都以它为准，原生每 200ms 回来的位置回声（seek 落地前
+  /// 还是旧位置）不许把拇指拽回去；松手才真正 seek 一次（与主播放
+  /// 页 chrome 的 `_finishSeek` 同口径）。此前内嵌面没有这一层：
+  /// onChanged 每动一下就 seek 一次、回声一到拇指就弹回旧位置，
+  /// 真机上就是「拖不动 / 不能滑动快进」。
+  double? _scrubFraction;
+
+  /// 横滑起点：先证明横向主导才接管，避免竖着划详情页时误触快进。
+  Offset? _swipeOrigin;
 
   @override
   void initState() {
@@ -281,6 +293,72 @@ class _ActressInlinePlayerState extends State<ActressInlinePlayer> {
     unawaited(_player?.setRate(_rate));
   }
 
+  /// 当前应显示的进度比例：拖动中以预览为准，否则按真实位置。
+  double get _displayFraction {
+    final scrub = _scrubFraction;
+    if (scrub != null) return scrub;
+    final total = _duration.inMilliseconds;
+    return total == 0
+        ? 0
+        : (_position.inMilliseconds / total).clamp(0.0, 1.0);
+  }
+
+  /// 当前应显示的时间：拖动中显示将要跳到的目标时间。
+  Duration get _displayPosition {
+    final scrub = _scrubFraction;
+    if (scrub == null) return _position;
+    return Duration(milliseconds: (scrub * _duration.inMilliseconds).round());
+  }
+
+  /// 拖动收尾：预览清掉、位置先乐观落到目标、真正 seek 只发一次。
+  void _commitScrub() {
+    final scrub = _scrubFraction;
+    _swipeOrigin = null;
+    if (scrub == null) return;
+    final target = Duration(
+      milliseconds: (scrub * _duration.inMilliseconds).round(),
+    );
+    setState(() {
+      _scrubFraction = null;
+      _position = target;
+    });
+    unawaited(_player?.seek(target));
+    _scheduleHide();
+  }
+
+  void _cancelScrub() {
+    _swipeOrigin = null;
+    if (_scrubFraction != null) setState(() => _scrubFraction = null);
+    _scheduleHide();
+  }
+
+  /// 横滑快进（与主播放页 chrome 同规则：横向位移映射整片时间轴）。
+  /// 总时长未知（直播式/未就绪）时不接管，与进度条的禁用门一致。
+  void _startSwipeSeek(DragStartDetails details) {
+    if (_duration <= Duration.zero || _error != null) return;
+    _swipeOrigin = details.localPosition;
+    _hideTimer?.cancel();
+    if (!_controlsVisible) setState(() => _controlsVisible = true);
+  }
+
+  void _updateSwipeSeek(DragUpdateDetails details) {
+    final origin = _swipeOrigin;
+    if (origin == null) return;
+    if (_scrubFraction == null) {
+      final dx = details.localPosition.dx - origin.dx;
+      final dy = details.localPosition.dy - origin.dy;
+      if (dx.abs() < kTouchSlop || dx.abs() < dy.abs()) return;
+    }
+    final width = context.size?.width ?? 0;
+    if (width <= 0) return;
+    setState(
+      () => _scrubFraction = (details.localPosition.dx / width).clamp(
+        0.0,
+        1.0,
+      ),
+    );
+  }
+
   /// 全屏（同 FilmInlinePlayer 的交接法）：先把自有播放器
   /// 销毁，再把当前进度交给外层推整页播放器——整页播放器
   /// 会另建一台原生实例，两台并存会抢解码器。交接后本控件
@@ -336,6 +414,12 @@ class _ActressInlinePlayerState extends State<ActressInlinePlayer> {
                 onLongPressStart: (_) => _startBoost(),
                 onLongPressEnd: (_) => _endBoost(),
                 onLongPressCancel: _endBoost,
+                onHorizontalDragStart: _startSwipeSeek,
+                onHorizontalDragUpdate: _updateSwipeSeek,
+                onHorizontalDragEnd: (_) => _commitScrub(),
+                onHorizontalDragCancel: _cancelScrub,
+                // 与片库内嵌面同结构给一层占满子控件（命中更稳）。
+                child: const SizedBox.expand(),
               ),
             ),
           if (_boosting)
@@ -429,7 +513,7 @@ class _ActressInlinePlayerState extends State<ActressInlinePlayer> {
                       ),
                     ),
                     Text(
-                      _clock(_position),
+                      _clock(_displayPosition),
                       style: const TextStyle(
                         color: Colors.white70,
                         fontSize: 13,
@@ -438,23 +522,24 @@ class _ActressInlinePlayerState extends State<ActressInlinePlayer> {
                     Expanded(
                       child: Slider(
                         key: const ValueKey('inline-player-seek'),
-                        value: _duration.inMilliseconds == 0
-                            ? 0
-                            : (_position.inMilliseconds /
-                                      _duration.inMilliseconds)
-                                  .clamp(0.0, 1.0),
+                        value: _displayFraction,
+                        onChangeStart: _duration.inMilliseconds == 0
+                            ? null
+                            : (value) {
+                                _hideTimer?.cancel();
+                                setState(() => _scrubFraction = value);
+                              },
                         onChanged: _duration.inMilliseconds == 0
                             ? null
                             : (value) {
-                                final target = Duration(
-                                  milliseconds:
-                                      (value * _duration.inMilliseconds)
-                                          .round(),
-                                );
-                                setState(() => _position = target);
-                                unawaited(_player?.seek(target));
-                                _scheduleHide();
+                                // 拖动中只更新预览，不发 seek：每动一下
+                                // 就 seek 一次会把原生侧塞满过期目标，
+                                // 位置回声还会把拇指拽回旧位置。
+                                setState(() => _scrubFraction = value);
                               },
+                        onChangeEnd: _duration.inMilliseconds == 0
+                            ? null
+                            : (_) => _commitScrub(),
                         activeColor: Colors.white,
                         inactiveColor: Colors.white24,
                       ),

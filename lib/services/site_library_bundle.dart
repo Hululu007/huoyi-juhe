@@ -60,8 +60,32 @@ String canonicalSegmentValue(Object? value) {
   return '$value';
 }
 
+/// sha256 增量喂入的接收端（startChunkedConversion 的 Sink）。
+class _Sha256DigestSink implements Sink<Digest> {
+  Digest? _digest;
+
+  Digest get digest => _digest!;
+
+  @override
+  void add(Digest data) => _digest = data;
+
+  @override
+  void close() {}
+}
+
+/// 规范表哈希的分页大小（行）：一页在内存里至多这么多行，
+/// 胖行（作品正文/播放地址）一页约几 MB，手机内存量级内。
+const _segmentHashPageSize = 1000;
+
 /// 一张表的规范哈希：列按建表顺序、行按 rowid 顺序、值以
 /// \x1f 分隔、行以 '\n' 分隔、UTF-8 取 sha256。
+///
+/// 流式口径（2026-11-28 导入闪退修复）：按 rowid 键集分页
+/// 边读边增量喂 sha256，绝不整表载入、绝不拼整表大字符串。
+/// 旧实现把整表查进内存再 join 成一整串：真表 videos
+/// （449,339 行）桌面实测峰值内存 1,889.9MB，手机上演员段
+/// 校验到这一张表必爆。增量喂入的字节流与旧实现 join 后的
+/// 字节逐字一致，哈希值不变（黄金值回归对账）。
 Future<String> computeSegmentTableSha256(
   SiteLibrarySqlExecutor executor,
   String table,
@@ -69,14 +93,34 @@ Future<String> computeSegmentTableSha256(
   final cols = await executor.query('PRAGMA table_info("$table")');
   final colNames = [for (final row in cols) '${row['name']}'];
   final select = colNames.map((c) => '"$c"').join(', ');
-  final rows = await executor.query(
-    'SELECT $select FROM "$table" ORDER BY rowid',
-  );
-  final lines = [
-    for (final row in rows)
-      colNames.map((c) => canonicalSegmentValue(row[c])).join('\x1f'),
-  ];
-  return sha256.convert(utf8.encode(lines.join('\n'))).toString();
+  final sink = _Sha256DigestSink();
+  final input = sha256.startChunkedConversion(sink);
+  var lastRowid = 0;
+  var firstLine = true;
+  var firstPage = true;
+  while (true) {
+    final rows = await executor.query(
+      'SELECT rowid AS __seg_rid, $select FROM "$table" '
+      '${firstPage ? '' : 'WHERE rowid > $lastRowid '}'
+      'ORDER BY rowid LIMIT $_segmentHashPageSize',
+    );
+    if (rows.isEmpty) break;
+    firstPage = false;
+    for (final row in rows) {
+      if (!firstLine) input.add(const <int>[0x0a]);
+      firstLine = false;
+      input.add(
+        utf8.encode(
+          colNames.map((c) => canonicalSegmentValue(row[c])).join('\x1f'),
+        ),
+      );
+      final rid = row['__seg_rid'];
+      if (rid is num) lastRowid = rid.toInt();
+    }
+    if (rows.length < _segmentHashPageSize) break;
+  }
+  input.close();
+  return sink.digest.toString();
 }
 
 /// actress/magnet 段 payload（SEGMENT_SPEC §4 的 T 行定义）：
@@ -365,6 +409,7 @@ class _SegmentPlan {
 class SiteLibraryBundleImporter {
   SiteLibraryBundleImporter({
     this.batchSize = 1000,
+    this.batchByteLimit = 512 * 1024,
     this.currentCoreVersion = siteLibraryDefaultCoreVersion,
     this.supportedFormatVersion = siteLibrarySupportedFormatVersion,
     Future<SiteLibrarySqlExecutor> Function(String tempPath)?
@@ -390,6 +435,12 @@ class SiteLibraryBundleImporter {
            segmentDbPostProcess ?? productionSegmentDbPostProcess;
 
   final int batchSize;
+
+  /// 攒批字节上限（UTF-8）：与女优库 SQL 导入同口径
+  /// （2026-11-27 闪退修复批定版 512KB）。胖 INSERT（作品
+  /// 正文/播放地址）按条数攒批会把单批载荷顶到几 MB，字节
+  /// 上限把单批载荷封顶。
+  final int batchByteLimit;
   final String currentCoreVersion;
   final String supportedFormatVersion;
   final Future<SiteLibrarySqlExecutor> Function(String tempPath)
@@ -733,17 +784,30 @@ class SiteLibraryBundleImporter {
     if (seg == 'site') {
       payload = await _siteSegmentPayload(executor, plan);
       // 代码逐行哈希（与单段路同尺）：code_text 与 code_sha256
-      // 对不上＝段被动过。
-      final codeRows = await executor.query(
-        'SELECT site_id, code_sha256, code_text FROM seg_site_station_code',
-      );
-      for (final row in codeRows) {
-        final codeText = row['code_text'];
-        if (codeText == null) continue;
-        final actual = sha256.convert(utf8.encode('$codeText')).toString();
-        if (actual != '${row['code_sha256']}') {
-          return '站点库段代码哈希对不上：${row['site_id']}，已拒收这一段';
+      // 对不上＝段被动过。按 rowid 分页逐行验（2026-11-28
+      // 流式口径：不把全段代码一次性查进内存）。
+      var codeLastRowid = 0;
+      var codeFirstPage = true;
+      while (true) {
+        final codeRows = await executor.query(
+          'SELECT rowid AS __seg_rid, site_id, code_sha256, code_text '
+          'FROM seg_site_station_code '
+          '${codeFirstPage ? '' : 'WHERE rowid > $codeLastRowid '}'
+          'ORDER BY rowid LIMIT 200',
+        );
+        if (codeRows.isEmpty) break;
+        codeFirstPage = false;
+        for (final row in codeRows) {
+          final rid = row['__seg_rid'];
+          if (rid is num) codeLastRowid = rid.toInt();
+          final codeText = row['code_text'];
+          if (codeText == null) continue;
+          final actual = sha256.convert(utf8.encode('$codeText')).toString();
+          if (actual != '${row['code_sha256']}') {
+            return '站点库段代码哈希对不上：${row['site_id']}，已拒收这一段';
+          }
         }
+        if (codeRows.length < 200) break;
       }
       final stationRows = await executor.query(
         'SELECT COUNT(*) AS c FROM seg_site_stations',
@@ -929,18 +993,33 @@ class SiteLibraryBundleImporter {
     bool Function()? isCancelled,
   }) async {
     await executor.execute('PRAGMA foreign_keys=OFF');
+    // 导入期关掉落盘同步（2026-11-28 继承女优库 SQL 导入
+    // 闪退修复批口径）：staging 是临时库，每批提交不再等一次
+    // 物理落盘同步，导入时长大幅缩短；这是连接级设置、不写
+    // 进库文件，落位后的成品库仍是标准设置。
+    await executor.execute('PRAGMA synchronous=OFF');
     final totalBytes = await sqlFile.length();
     var statements = 0;
     var bytesRead = 0;
     var lastReportedBytes = 0;
     final splitter = SiteLibrarySqlSplitter();
     final pendingInserts = <String>[];
+    var pendingBytes = 0;
 
     Future<void> flushInserts() async {
       if (pendingInserts.isEmpty) return;
       final batch = List<String>.of(pendingInserts);
       pendingInserts.clear();
-      await executor.executeBatch(batch);
+      pendingBytes = 0;
+      try {
+        await executor.executeBatch(batch);
+      } catch (_) {
+        // 批是单事务、失败整批回滚，重执行同一批是安全的：
+        // 等 300ms 用同一批重试一次（与女优库导入同口径），
+        // 瞬时 I/O 抖动不该让整单作废；再失败才按原路报错。
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        await executor.executeBatch(batch);
+      }
       statements += batch.length;
       onProgress(
         SiteLibraryProgress(
@@ -977,7 +1056,9 @@ class SiteLibraryBundleImporter {
         if (_isStatisticsStatement(statement, head)) continue;
         if (head == 'INSERT') {
           pendingInserts.add(statement);
-          if (pendingInserts.length >= batchSize) {
+          pendingBytes += utf8.encode(statement).length;
+          if (pendingInserts.length >= batchSize ||
+              pendingBytes >= batchByteLimit) {
             await flushInserts();
             checkCancelled();
           }

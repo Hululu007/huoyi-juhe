@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/gestures.dart' show kTouchSlop;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -82,6 +83,16 @@ class FilmInlinePlayerState extends State<FilmInlinePlayer> {
   bool _controlsVisible = true;
   Timer? _hideTimer;
   int _generation = 0;
+
+  /// 拖动预览位置（毫秒，拖进度条或横滑画面时非空）：这段时间里进度
+  /// 条与时间文字都以它为准，会话的位置回声（seek 落地前还是旧位置）
+  /// 不许把拇指拽回去；松手才真正 seek 一次。此前没有这一层：
+  /// onChanged 每动一下就 seek 一次、回声一到进度就弹回旧位置，
+  /// 真机上就是「拖不动 / 不能滑动快进」。
+  double? _scrubMs;
+
+  /// 横滑起点：先证明横向主导才接管，避免竖着划详情页时误触快进。
+  Offset? _swipeOrigin;
 
   InlineVideoPlayback get session => _session;
 
@@ -298,6 +309,48 @@ class FilmInlinePlayerState extends State<FilmInlinePlayer> {
     _armHideTimer();
   }
 
+  /// 拖动收尾：预览清掉、真正 seek 只发一次（经会话发，弹幕游标等
+  /// 收尾动作都挂在会话的 seek 上，一次到位）。
+  void _commitScrub() {
+    final scrub = _scrubMs;
+    _swipeOrigin = null;
+    if (scrub == null) return;
+    setState(() => _scrubMs = null);
+    unawaited(_session.seek(Duration(milliseconds: scrub.round())));
+    _showControlsTemporarily();
+  }
+
+  void _cancelScrub() {
+    _swipeOrigin = null;
+    if (_scrubMs != null) setState(() => _scrubMs = null);
+  }
+
+  /// 横滑快进（与主播放页 chrome 同规则：横向位移映射整片时间轴）。
+  /// 总时长未知（直播式/未就绪）时不接管，与进度条的禁用门一致。
+  void _startSwipeSeek(DragStartDetails details) {
+    if (_session.duration.value <= Duration.zero) return;
+    _swipeOrigin = details.localPosition;
+    _hideTimer?.cancel();
+    if (!_controlsVisible) setState(() => _controlsVisible = true);
+  }
+
+  void _updateSwipeSeek(DragUpdateDetails details) {
+    final origin = _swipeOrigin;
+    if (origin == null) return;
+    if (_scrubMs == null) {
+      final dx = details.localPosition.dx - origin.dx;
+      final dy = details.localPosition.dy - origin.dy;
+      if (dx.abs() < kTouchSlop || dx.abs() < dy.abs()) return;
+    }
+    final width = context.size?.width ?? 0;
+    if (width <= 0) return;
+    final total = _session.duration.value.inMilliseconds.toDouble();
+    setState(
+      () => _scrubMs = (details.localPosition.dx / width).clamp(0.0, 1.0) *
+          total,
+    );
+  }
+
   void _armHideTimer() {
     _hideTimer?.cancel();
     if (!_session.playing.value) return;
@@ -380,6 +433,10 @@ class FilmInlinePlayerState extends State<FilmInlinePlayer> {
                 }
               },
               onDoubleTap: _togglePlay,
+              onHorizontalDragStart: _startSwipeSeek,
+              onHorizontalDragUpdate: _updateSwipeSeek,
+              onHorizontalDragEnd: (_) => _commitScrub(),
+              onHorizontalDragCancel: _cancelScrub,
               child: const SizedBox.expand(),
             ),
           ),
@@ -634,6 +691,10 @@ class FilmInlinePlayerState extends State<FilmInlinePlayer> {
     final value = max > 0
         ? position.inMilliseconds.toDouble().clamp(0, max).toDouble()
         : 0.0;
+    // 拖动中以预览位置为准：进度条与左端时间都跟着手指走，不被会话
+    // 的位置回声拽回旧位置。
+    final shownMs = _scrubMs ?? value;
+    final shownPosition = Duration(milliseconds: shownMs.round());
     return Positioned(
       left: 0,
       right: 0,
@@ -716,7 +777,7 @@ class FilmInlinePlayerState extends State<FilmInlinePlayer> {
             Row(
               children: [
                 Text(
-                  _format(position),
+                  _format(shownPosition),
                   style: const TextStyle(color: Colors.white, fontSize: 12),
                 ),
                 Expanded(
@@ -734,15 +795,23 @@ class FilmInlinePlayerState extends State<FilmInlinePlayer> {
                       thumbColor: Colors.white,
                     ),
                     child: Slider(
-                      value: value,
+                      value: shownMs,
                       max: max > 0 ? max : 1.0,
-                      onChanged: (v) {
-                        unawaited(
-                          _session.seek(
-                            Duration(milliseconds: v.round()),
-                          ),
-                        );
-                      },
+                      onChangeStart: max > 0
+                          ? (v) {
+                              _hideTimer?.cancel();
+                              setState(() => _scrubMs = v);
+                            }
+                          : null,
+                      onChanged: max > 0
+                          ? (v) {
+                              // 拖动中只更新预览，不发 seek：每动一下就
+                              // seek 一次会把原生侧塞满过期目标，位置
+                              // 回声还会把进度拽回旧位置。
+                              setState(() => _scrubMs = v);
+                            }
+                          : null,
+                      onChangeEnd: max > 0 ? (_) => _commitScrub() : null,
                     ),
                   ),
                 ),

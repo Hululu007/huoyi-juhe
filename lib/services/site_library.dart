@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
 import 'live_sources.dart';
+import 'public_folder.dart';
 import 'site_library_bundle.dart';
 
 /// 站点库服务层（2026-11-27 站点库批）：独立第三库，物理文件落在
@@ -723,6 +724,7 @@ class SiteLibraryImporter {
 class SiteLibraryService {
   SiteLibraryService({
     Future<Directory> Function()? supportDirectoryProvider,
+    Future<String> Function()? publicRootProvider,
     SiteLibraryImporter? importer,
     this._bundleImporter,
     Future<SiteLibrarySqlExecutor> Function(String path)? readExecutorFactory,
@@ -731,6 +733,7 @@ class SiteLibraryService {
     this.supportedFormatVersion = siteLibrarySupportedFormatVersion,
   }) : _supportDirectoryProvider =
            supportDirectoryProvider ?? getApplicationSupportDirectory,
+       _publicRootProvider = publicRootProvider ?? PublicFolder.publicRoot,
        _importer =
            importer ??
            SiteLibraryImporter(
@@ -759,6 +762,9 @@ class SiteLibraryService {
   final String supportedFormatVersion;
 
   final Future<Directory> Function() _supportDirectoryProvider;
+
+  /// 手机根目录提供者（MYTV/db 直读入口用；测试可注入）。
+  final Future<String> Function() _publicRootProvider;
   final SiteLibraryImporter _importer;
 
   /// 合并文件分段导入器（可注入；缺省按需现建，版本口径随服务）。
@@ -804,6 +810,37 @@ class SiteLibraryService {
     await dir.create(recursive: true);
     final safe = pickedName.replaceAll(RegExp(r'[^\w.\-]'), '_');
     return File('${dir.path}/inbox_$safe');
+  }
+
+  /// MYTV/db 目录（手机根目录下，与女优库同一个 MYTV/db）。
+  ///
+  /// 大文件导入的正路（2026-11-28 闪退修复）：系统文件选择器
+  /// （file_selector 安卓插件）在选文件时就把整个文件读进内存
+  /// 字节数组再过通道——0.90GB 的合并文件在点选那一步就把
+  /// 进程撑爆、闪退回桌面，进度界面根本没机会出现（真机录屏
+  /// 实证）。MYTV/db 里的文件有真实稳定路径，按路径直接流式
+  /// 导入：不经选择器、不拷收件文件、一字节不先进内存。
+  Future<Directory> mytvDbDirectory() async {
+    final root = await _publicRootProvider();
+    return Directory('$root/MYTV/db');
+  }
+
+  /// MYTV/db 里可导入的站点库文件（.sql/.sql.gz，按名排序）：
+  /// 只列目录取名字与大小，不读内容。目录不存在回空表。
+  Future<List<({String name, String path, int sizeBytes})>>
+  listMytvDbImportFiles() async {
+    final dir = await mytvDbDirectory();
+    if (!await dir.exists()) return const [];
+    final out = <({String name, String path, int sizeBytes})>[];
+    await for (final entity in dir.list()) {
+      if (entity is! File) continue;
+      final name = entity.uri.pathSegments.last;
+      final lower = name.toLowerCase();
+      if (!lower.endsWith('.sql') && !lower.endsWith('.sql.gz')) continue;
+      out.add((name: name, path: entity.path, sizeBytes: await entity.length()));
+    }
+    out.sort((a, b) => a.name.compareTo(b.name));
+    return out;
   }
 
   /// 读盘加载：库文件在 `<appSupport>/site_library/site_library.db`。

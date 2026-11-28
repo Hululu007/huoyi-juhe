@@ -6,6 +6,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../services/site_library.dart';
 import '../services/source_registry.dart';
+import '../services/unified_import.dart';
 import 'actress_database.dart';
 import 'actress_db_import.dart';
 import 'actress_db_source.dart';
@@ -13,6 +14,7 @@ import 'actress_magnet_library.dart';
 import 'actress_mytv_bind.dart';
 import 'actress_neon.dart';
 import 'actress_sql_import.dart';
+import 'unified_import_page.dart';
 
 /// 统一数据库管理页（2026-11-27 双库批，全树唯一一份）：两个
 /// 入口共用——「我的」页的「数据库导入」行、演员库顶栏数据库
@@ -51,8 +53,7 @@ class ActressDbManagePage extends StatefulWidget {
   /// 磁力分类库列表加载（测试/预览注入假件；默认只读开导入
   /// 库走数据层 listLibraries——flutter test 里 sqflite 跑不
   /// 起来，列表类断言靠这个缝注入）。
-  final Future<List<MagnetLibraryRecord>> Function()?
-  magnetLibrariesLoader;
+  final Future<List<MagnetLibraryRecord>> Function()? magnetLibrariesLoader;
 
   /// 站点库服务（测试注入假件；默认单例）。与女优库完全独立：
   /// 本页只是共用一个入口，校验器、落点、删除动作都不相干。
@@ -91,6 +92,15 @@ class _ActressDbManagePageState extends State<ActressDbManagePage> {
   var _magnetImporting = false;
   var _magnetDeleting = false;
   ActressSqlImportProgress? _magnetProgress;
+
+  // 统一导入口状态（2026-11-28 统一导入口批）：认库中标记与
+  // 统一口自己的汇总结果行；各库的进度/结果状态仍各自保留。
+  var _unifiedSniffing = false;
+  String? _unifiedMessage;
+  String? _unifiedError;
+
+  bool get _anyImporting =>
+      _importing || _magnetImporting || _siteImporting || _unifiedSniffing;
 
   // 站点库区独立状态（与女优库导入互不干扰，可各自跑）。
   var _siteImporting = false;
@@ -250,25 +260,46 @@ class _ActressDbManagePageState extends State<ActressDbManagePage> {
     await _refresh();
   }
 
-  Future<void> _startImport() async {
-    if (_importing) return;
+  /// 统一导入口（2026-11-28 统一导入口批）：全页唯一的导入
+  /// 入口。点开选文件页（MYTV/db 全部可导文件＋页尾「选择其他
+  /// 文件」），选定后由 [UnifiedImportSniffer] 按内容认库，再
+  /// 分发到各自原有的导入尾段（站点/女优/磁力，校验、版本门、
+  /// 落位语义一字不改）。原先散在三个区的六个导入按钮已全撤。
+  Future<void> _startUnifiedImport() async {
+    if (_anyImporting) return;
+    final files = await _importService.listMytvDbImportFiles();
+    if (!mounted) return;
+    final result = await Navigator.of(context).push<Object?>(
+      MaterialPageRoute<Object?>(
+        builder: (_) => UnifiedImportListPage(files: files),
+      ),
+    );
+    if (!mounted || result == null) return;
+    if (result == UnifiedImportListPage.pickOtherFile) {
+      await _pickOtherFileForUnifiedImport();
+      return;
+    }
+    final file = result as ({String name, String path, int sizeBytes});
+    await _runUnifiedImport(
+      path: file.path,
+      sourceName: file.name,
+      deleteAfter: false,
+    );
+  }
+
+  /// 统一口里的次要方式：系统选择器选其他位置的文件（只适合
+  /// 小文件；大文件走 MYTV/db 直读）。选中先拷进收件文件再认
+  /// 库分发，导完删收件副本。
+  Future<void> _pickOtherFileForUnifiedImport() async {
+    if (_anyImporting) return;
     final picked = await openFile(
       acceptedTypeGroups: const [
-        XTypeGroup(label: '女优库数据', extensions: ['db', 'sql', 'gz']),
+        XTypeGroup(label: '数据库文件', extensions: ['db', 'sql', 'gz']),
       ],
     );
     if (picked == null || !mounted) return;
-    setState(() {
-      _importing = true;
-      _cancelled = false;
-      _message = null;
-      _error = null;
-      _progress = null;
-    });
-    File? inbox;
+    File inbox;
     try {
-      // 先拷进私有收件文件再导（与 iOS tile 同款：选择器给的
-      // 路径是临时作用域路径，导入是长任务，先落地）。
       inbox = await _importService.inboxFileFor(picked.name);
       final sink = inbox.openWrite();
       try {
@@ -276,8 +307,109 @@ class _ActressDbManagePageState extends State<ActressDbManagePage> {
       } finally {
         await sink.close();
       }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _unifiedError = '导入失败：${e.toString().split('\n').first}';
+        _unifiedMessage = null;
+      });
+      return;
+    }
+    await _runUnifiedImport(
+      path: inbox.path,
+      sourceName: picked.name,
+      deleteAfter: true,
+    );
+  }
+
+  /// 认库＋分发：认出哪种库就调哪种库原有的导入尾段；认不出
+  /// 给中文提示、不瞎导。分发结果汇总到统一口一行（带库名），
+  /// 各区自己的结果文案照旧显示。
+  Future<void> _runUnifiedImport({
+    required String path,
+    required String sourceName,
+    required bool deleteAfter,
+  }) async {
+    if (_importing || _magnetImporting || _siteImporting) return;
+    setState(() {
+      _unifiedSniffing = true;
+      _unifiedMessage = null;
+      _unifiedError = null;
+    });
+    final kind = await UnifiedImportSniffer.sniff(path);
+    if (!mounted) return;
+    setState(() => _unifiedSniffing = false);
+    switch (kind) {
+      case UnifiedImportKind.bundle:
+      case UnifiedImportKind.siteLibrary:
+        setState(() => _unifiedMessage = '已认出是${kind.labelZh}，正在导入…');
+        await _runSiteImport(File(path), deleteAfter: deleteAfter);
+        _mirrorUnifiedResult(kind);
+      case UnifiedImportKind.actressDb:
+      case UnifiedImportKind.actressSql:
+        setState(() => _unifiedMessage = '已认出是${kind.labelZh}，正在导入…');
+        await _runActressImport(path, deleteAfter: deleteAfter);
+        _mirrorUnifiedResult(kind);
+      case UnifiedImportKind.magnetSql:
+        setState(() => _unifiedMessage = '已认出是${kind.labelZh}，正在导入…');
+        await _runMagnetImport(
+          path,
+          sourceName: sourceName,
+          deleteAfter: deleteAfter,
+        );
+        _mirrorUnifiedResult(kind);
+      case UnifiedImportKind.unknown:
+        if (deleteAfter) {
+          try {
+            final file = File(path);
+            if (await file.exists()) await file.delete();
+          } catch (_) {}
+        }
+        setState(() {
+          _unifiedMessage = null;
+          _unifiedError =
+              '这份文件认不出是什么库（不是站点库、女优库、'
+              '磁力库，也不是三库合并文件），没有导入。'
+              '请确认文件没下错、没下坏。';
+        });
+    }
+  }
+
+  /// 把各库尾段的结果汇总到统一口一行（成功/失败都带库名）。
+  void _mirrorUnifiedResult(UnifiedImportKind kind) {
+    if (!mounted) return;
+    final isSite =
+        kind == UnifiedImportKind.bundle ||
+        kind == UnifiedImportKind.siteLibrary;
+    final message = isSite ? _siteMessage : _message;
+    final error = isSite ? _siteError : _error;
+    setState(() {
+      if (error != null) {
+        _unifiedMessage = null;
+        _unifiedError = '${kind.labelZh}：$error';
+      } else if (message != null) {
+        _unifiedMessage = '${kind.labelZh}：$message';
+        _unifiedError = null;
+      }
+    });
+  }
+
+  /// 女优库导入共用尾段：进度、结果回报、成功后重读。
+  /// [deleteAfter] 只对收件副本为真；MYTV/db 源文件一字不动。
+  Future<void> _runActressImport(
+    String localPath, {
+    required bool deleteAfter,
+  }) async {
+    setState(() {
+      _importing = true;
+      _cancelled = false;
+      _message = null;
+      _error = null;
+      _progress = null;
+    });
+    try {
       final outcome = await _importService.importLocalFile(
-        localPath: inbox.path,
+        localPath: localPath,
         closeDatabase: () => SqfliteActressDatabase.instance.close(),
         onProgress: (progress) {
           if (mounted) setState(() => _progress = progress);
@@ -308,9 +440,12 @@ class _ActressDbManagePageState extends State<ActressDbManagePage> {
         _error = '导入失败：${e.toString().split('\n').first}';
       });
     } finally {
-      try {
-        if (inbox != null && await inbox.exists()) await inbox.delete();
-      } catch (_) {}
+      if (deleteAfter) {
+        try {
+          final inbox = File(localPath);
+          if (await inbox.exists()) await inbox.delete();
+        } catch (_) {}
+      }
     }
   }
 
@@ -352,33 +487,27 @@ class _ActressDbManagePageState extends State<ActressDbManagePage> {
     return db;
   }
 
-  /// 磁力分类库导入：选文件 → 落归一化临时库 → 非磁力整单拒
-  /// → 合并进导入库（只新增不覆盖）。整本替换的导入在上面
-  /// 那张卡里，这条是独立路径。
-  Future<void> _startMagnetImport() async {
-    if (_importing || _magnetImporting) return;
-    final picked = await openFile(
-      acceptedTypeGroups: const [
-        XTypeGroup(label: '磁力分类库', extensions: ['db', 'sql', 'gz']),
-      ],
-    );
-    if (picked == null || !mounted) return;
+  /// 磁力分类库的导入入口已并入页面上方统一导入口（2026-11-28
+  /// 统一导入口批）：选文件后软件按内容认出磁力库、调下面这条
+  /// 共用尾段；本区只留已导入列表与删除。
+
+  /// 磁力分类库导入共用尾段：落归一化临时库 → 非磁力整单拒 →
+  /// 合并进导入库。[deleteAfter] 只对收件副本为真；MYTV/db 源
+  /// 文件一字不动。调用方负责先把 _magnetImporting 置真（MYTV/db
+  /// 路在弹窗选完后置真）。
+  Future<void> _runMagnetImport(
+    String localPath, {
+    required String sourceName,
+    required bool deleteAfter,
+  }) async {
     setState(() {
       _magnetImporting = true;
       _magnetProgress = null;
       _message = null;
       _error = null;
     });
-    File? inbox;
     String? stagingPath;
     try {
-      inbox = await _importService.inboxFileFor(picked.name);
-      final sink = inbox.openWrite();
-      try {
-        await sink.addStream(picked.openRead());
-      } finally {
-        await sink.close();
-      }
       // 临时库与目标库同目录（数据层缺省口径）；目录先建好，
       // 免得导入器往不存在的目录落临时文件。
       final importedPath = await _source.importedDbPath();
@@ -388,7 +517,7 @@ class _ActressDbManagePageState extends State<ActressDbManagePage> {
       await File(importedPath).parent.create(recursive: true);
       stagingPath = magnetStagingPathFor(importedPath);
       final staging = await buildMagnetStagingDb(
-        inbox.path,
+        localPath,
         stagingPath: stagingPath,
         onProgress: (progress) {
           if (mounted) setState(() => _magnetProgress = progress);
@@ -402,9 +531,7 @@ class _ActressDbManagePageState extends State<ActressDbManagePage> {
       if (!await ActressMagnetLibraryStore.stagingIsMagnetLibrary(
         stagingPath,
       )) {
-        throw StateError(
-          '这个文件里没有磁力链接，不是磁力分类库；整库数据库请用上面的「导入数据库」',
-        );
+        throw StateError('这个文件里没有磁力链接，不是磁力分类库；整库数据库请用上面的「导入数据库」');
       }
       final db = await _openMagnetTarget();
       MagnetImportOutcome outcome;
@@ -412,7 +539,7 @@ class _ActressDbManagePageState extends State<ActressDbManagePage> {
         outcome = await ActressMagnetLibraryStore().mergeStaging(
           db,
           stagingPath,
-          sourceName: picked.name,
+          sourceName: sourceName,
         );
       } finally {
         await db.close();
@@ -438,9 +565,12 @@ class _ActressDbManagePageState extends State<ActressDbManagePage> {
         _error = '磁力分类库导入失败：${e.toString().split('\n').first}';
       });
     } finally {
-      try {
-        if (inbox != null && await inbox.exists()) await inbox.delete();
-      } catch (_) {}
+      if (deleteAfter) {
+        try {
+          final inbox = File(localPath);
+          if (await inbox.exists()) await inbox.delete();
+        } catch (_) {}
+      }
       // 临时库四件残件一并清（与数据层导入器的清理口径一致）。
       if (stagingPath != null) {
         for (final suffix in ['', '.bak', '-wal', '-journal']) {
@@ -515,10 +645,7 @@ class _ActressDbManagePageState extends State<ActressDbManagePage> {
       final db = await openDatabase(importedPath, singleInstance: false);
       MagnetRemoveResult result;
       try {
-        result = await ActressMagnetLibraryStore().removeLibrary(
-          db,
-          record.id,
-        );
+        result = await ActressMagnetLibraryStore().removeLibrary(db, record.id);
       } finally {
         await db.close();
       }
@@ -561,14 +688,13 @@ class _ActressDbManagePageState extends State<ActressDbManagePage> {
     } catch (_) {}
   }
 
-  Future<void> _startSiteImport() async {
-    if (_siteImporting) return;
-    final picked = await openFile(
-      acceptedTypeGroups: const [
-        XTypeGroup(label: '站点库数据', extensions: ['sql', 'gz']),
-      ],
-    );
-    if (picked == null || !mounted) return;
+  /// 站点库的导入入口已并入页面上方统一导入口（2026-11-28
+  /// 统一导入口批）：选文件后软件按内容认出站点库/合并文件、
+  /// 调下面这条共用尾段；本区只留状态与删除。
+
+  /// 站点库导入共用尾段：进度、逐段回报、成功后注册链对账。
+  /// [deleteAfter] 只对收件副本为真；MYTV/db 源文件一字不动。
+  Future<void> _runSiteImport(File file, {required bool deleteAfter}) async {
     setState(() {
       _siteImporting = true;
       _siteCancelled = false;
@@ -576,17 +702,9 @@ class _ActressDbManagePageState extends State<ActressDbManagePage> {
       _siteError = null;
       _siteProgress = null;
     });
-    File? inbox;
     try {
-      inbox = await _siteLibrary.inboxFileFor(picked.name);
-      final sink = inbox.openWrite();
-      try {
-        await sink.addStream(picked.openRead());
-      } finally {
-        await sink.close();
-      }
       final outcome = await _siteLibrary.importLocalFile(
-        localPath: inbox.path,
+        localPath: file.path,
         onProgress: (progress) {
           if (mounted) setState(() => _siteProgress = progress);
         },
@@ -611,7 +729,8 @@ class _ActressDbManagePageState extends State<ActressDbManagePage> {
             _siteError = lines.join('\n');
           }
         } else if (outcome.ok) {
-          _siteMessage = '站点库导入成功：${outcome.stationCount} 个站'
+          _siteMessage =
+              '站点库导入成功：${outcome.stationCount} 个站'
               '${outcome.libraryVersion == null ? '' : '（版本 ${outcome.libraryVersion}）'}';
           _siteError = null;
         } else {
@@ -628,9 +747,11 @@ class _ActressDbManagePageState extends State<ActressDbManagePage> {
         _siteError = '导入失败：${e.toString().split('\n').first}';
       });
     } finally {
-      try {
-        if (inbox != null && await inbox.exists()) await inbox.delete();
-      } catch (_) {}
+      if (deleteAfter) {
+        try {
+          if (await file.exists()) await file.delete();
+        } catch (_) {}
+      }
     }
   }
 
@@ -721,9 +842,7 @@ class _ActressDbManagePageState extends State<ActressDbManagePage> {
                   decoration: BoxDecoration(
                     color: Neon.surface,
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: Neon.pink.withValues(alpha: .55),
-                    ),
+                    border: Border.all(color: Neon.pink.withValues(alpha: .55)),
                   ),
                   child: const Text(
                     '演员库还没激活：导入一个带版本字段的女优库（.db / .sql）'
@@ -783,38 +902,11 @@ class _ActressDbManagePageState extends State<ActressDbManagePage> {
           const Text(
             '磁力 .db / .sql 并存导入到导入库：只往里加、不覆盖，已有'
             '作品一条不动；分类按文件里的分类字段逐个登记。导入后演'
-            '员库分类栏会多出这些分类，磁力作品走 115 网盘离线播放。',
+            '员库分类栏会多出这些分类，磁力作品走 115 网盘离线播放。'
+            '导入用页面上方唯一的「导入数据库」入口，选文件后软件会'
+            '自动认出磁力库；导入进度也在上方入口里看。',
             style: TextStyle(color: Neon.textDim, fontSize: 12),
           ),
-          if (_magnetImporting) ...[
-            const SizedBox(height: 10),
-            LinearProgressIndicator(
-              value: _magnetProgress == null
-                  ? null
-                  : (_magnetProgress!.fraction).clamp(0, 1),
-              color: Neon.cyan,
-              backgroundColor: Neon.surfaceHigh,
-            ),
-            const SizedBox(height: 6),
-            Text(
-              _magnetProgress == null
-                  ? '正在导入磁力分类库…'
-                  : '正在导入磁力分类库…已处理 '
-                        '${_magnetProgress!.statements} 条'
-                        '（${(_magnetProgress!.fraction * 100).toStringAsFixed(0)}%）',
-              key: const ValueKey('magnet-import-progress'),
-              style: const TextStyle(color: Neon.textDim, fontSize: 12),
-            ),
-          ] else
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                key: const ValueKey('magnet-import-button'),
-                onPressed: _importing ? null : _startMagnetImport,
-                icon: const Icon(Icons.cloud_download_outlined, size: 18),
-                label: const Text('导入磁力分类库'),
-              ),
-            ),
           const SizedBox(height: 6),
           if (_magnetLibraries.isEmpty)
             const Text(
@@ -838,10 +930,7 @@ class _ActressDbManagePageState extends State<ActressDbManagePage> {
                 ),
                 subtitle: Text(
                   '${record.workCount} 部 · 来源 ${record.sourceName}',
-                  style: const TextStyle(
-                    color: Neon.textFaint,
-                    fontSize: 11.5,
-                  ),
+                  style: const TextStyle(color: Neon.textFaint, fontSize: 11.5),
                 ),
                 trailing: IconButton(
                   key: ValueKey('magnet-library-delete-${record.id}'),
@@ -858,8 +947,12 @@ class _ActressDbManagePageState extends State<ActressDbManagePage> {
     );
   }
 
+  /// 统一导入区（2026-11-28 统一导入口批）：全页唯一的导入
+  /// 入口区块。一个按钮点开选文件页，认库分发在软件里完成；
+  /// 三个库的导入进度与汇总结果都显示在这一个口里。
   Widget _importSection() {
     return Container(
+      key: const ValueKey('unified-import-section'),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Neon.surface,
@@ -879,11 +972,41 @@ class _ActressDbManagePageState extends State<ActressDbManagePage> {
           ),
           const SizedBox(height: 4),
           const Text(
-            '选 .db、.sql 或 .sql.gz 文件（库要带版本字段，版本对不上会被拒），'
-            '导入成功即激活、不改动外置库；导入失败时现有库原样不动。',
+            '所有库都从这一个口导入：把文件放进 MYTV/db，点下面按钮选文件，'
+            '软件会按文件内容自动认出是站点库、女优库、磁力库还是三库合并文件，'
+            '分别走各自的导入（校验和版本门照旧，导入失败时现有库原样不动）。'
+            '文件不在 MYTV/db 里的小文件，在选文件页里点「选择其他文件」。',
             style: TextStyle(color: Neon.textDim, fontSize: 12),
           ),
-          if (_importing) ...[
+          if (_unifiedMessage != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              _unifiedMessage!,
+              key: const ValueKey('unified-import-result'),
+              style: const TextStyle(color: Neon.cyan, fontSize: 13),
+            ),
+          ],
+          if (_unifiedError != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              _unifiedError!,
+              key: const ValueKey('unified-import-error'),
+              style: const TextStyle(color: Neon.pink, fontSize: 13),
+            ),
+          ],
+          if (_unifiedSniffing) ...[
+            const SizedBox(height: 10),
+            const LinearProgressIndicator(
+              color: Neon.cyan,
+              backgroundColor: Neon.surfaceHigh,
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              '正在认这份文件是什么库…',
+              key: ValueKey('unified-import-sniffing'),
+              style: TextStyle(color: Neon.textDim, fontSize: 12),
+            ),
+          ] else if (_importing) ...[
             const SizedBox(height: 10),
             LinearProgressIndicator(
               value: (_progress?.fraction ?? 0).clamp(0, 1),
@@ -896,12 +1019,9 @@ class _ActressDbManagePageState extends State<ActressDbManagePage> {
                 Expanded(
                   child: Text(
                     _progress == null
-                        ? '正在导入…'
+                        ? '正在导入女优库…'
                         : '${_progress!.phase}…已处理 ${_progress!.statements} 条',
-                    style: const TextStyle(
-                      color: Neon.textDim,
-                      fontSize: 12,
-                    ),
+                    style: const TextStyle(color: Neon.textDim, fontSize: 12),
                   ),
                 ),
                 TextButton(
@@ -911,14 +1031,58 @@ class _ActressDbManagePageState extends State<ActressDbManagePage> {
                 ),
               ],
             ),
+          ] else if (_siteImporting) ...[
+            const SizedBox(height: 10),
+            LinearProgressIndicator(
+              value: (_siteProgress?.fraction ?? 0).clamp(0, 1),
+              color: Neon.cyan,
+              backgroundColor: Neon.surfaceHigh,
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _siteProgress == null
+                        ? '正在导入站点库…'
+                        : '${_siteProgress!.phase}…已处理 ${_siteProgress!.statements} 条',
+                    style: const TextStyle(color: Neon.textDim, fontSize: 12),
+                  ),
+                ),
+                TextButton(
+                  key: const ValueKey('site-import-cancel'),
+                  onPressed: () => _siteCancelled = true,
+                  child: const Text('取消'),
+                ),
+              ],
+            ),
+          ] else if (_magnetImporting) ...[
+            const SizedBox(height: 10),
+            LinearProgressIndicator(
+              value: _magnetProgress == null
+                  ? null
+                  : (_magnetProgress!.fraction).clamp(0, 1),
+              color: Neon.cyan,
+              backgroundColor: Neon.surfaceHigh,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              _magnetProgress == null
+                  ? '正在导入磁力库…'
+                  : '正在导入磁力库…已处理 '
+                        '${_magnetProgress!.statements} 条'
+                        '（${(_magnetProgress!.fraction * 100).toStringAsFixed(0)}%）',
+              key: const ValueKey('magnet-import-progress'),
+              style: const TextStyle(color: Neon.textDim, fontSize: 12),
+            ),
           ] else
             Align(
               alignment: Alignment.centerRight,
               child: TextButton.icon(
                 key: const ValueKey('dual-import-button'),
-                onPressed: _startImport,
-                icon: const Icon(Icons.file_upload_rounded, size: 18),
-                label: const Text('选择文件导入'),
+                onPressed: _startUnifiedImport,
+                icon: const Icon(Icons.folder_open_rounded, size: 18),
+                label: const Text('从 MYTV/db 导入'),
               ),
             ),
         ],
@@ -961,7 +1125,9 @@ class _ActressDbManagePageState extends State<ActressDbManagePage> {
           const SizedBox(height: 4),
           const Text(
             '站点的代码装在独立的「站点库」里，导入后才能用；'
-            '没导入时站点列表只有名单。与女优库互不影响。',
+            '没导入时站点列表只有名单。与女优库互不影响。'
+            '导入用页面上方唯一的「导入数据库」入口，选文件后软件会'
+            '自动认出站点库；导入进度也在上方入口里看。',
             style: TextStyle(color: Neon.textDim, fontSize: 12),
           ),
           const SizedBox(height: 8),
@@ -989,56 +1155,13 @@ class _ActressDbManagePageState extends State<ActressDbManagePage> {
               style: const TextStyle(color: Neon.pink, fontSize: 13),
             ),
           ],
-          if (_siteImporting) ...[
-            const SizedBox(height: 10),
-            LinearProgressIndicator(
-              value: (_siteProgress?.fraction ?? 0).clamp(0, 1),
-              color: Neon.cyan,
-              backgroundColor: Neon.surfaceHigh,
-            ),
-            const SizedBox(height: 6),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    _siteProgress == null
-                        ? '正在导入…'
-                        : '${_siteProgress!.phase}…已处理 ${_siteProgress!.statements} 条',
-                    style: const TextStyle(
-                      color: Neon.textDim,
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-                TextButton(
-                  key: const ValueKey('site-import-cancel'),
-                  onPressed: () => _siteCancelled = true,
-                  child: const Text('取消'),
-                ),
-              ],
-            ),
-          ] else
+          if (imported && !_siteImporting)
             Padding(
               padding: const EdgeInsets.only(top: 8),
-              child: Wrap(
-                spacing: 8,
-                children: [
-                  TextButton.icon(
-                    key: const ValueKey('site-import-button'),
-                    onPressed: _startSiteImport,
-                    icon: const Icon(Icons.file_upload_rounded, size: 18),
-                    label: const Text('选择文件导入'),
-                  ),
-                  if (imported)
-                    OutlinedButton(
-                      key: const ValueKey('site-delete'),
-                      onPressed: _deleteSiteLibrary,
-                      child: const Text(
-                        '删除站点库',
-                        style: TextStyle(color: Neon.pink),
-                      ),
-                    ),
-                ],
+              child: OutlinedButton(
+                key: const ValueKey('site-delete'),
+                onPressed: _deleteSiteLibrary,
+                child: const Text('删除站点库', style: TextStyle(color: Neon.pink)),
               ),
             ),
         ],
@@ -1165,8 +1288,8 @@ class _ActressDbManagePageState extends State<ActressDbManagePage> {
                 OutlinedButton(
                   key: const ValueKey('dual-grant-folder'),
                   onPressed: () async {
-                    final granted =
-                        await ActressMytvBind.instance.grantFolderAccess();
+                    final granted = await ActressMytvBind.instance
+                        .grantFolderAccess();
                     if (!mounted) return;
                     setState(() {
                       _message = granted
@@ -1175,9 +1298,7 @@ class _ActressDbManagePageState extends State<ActressDbManagePage> {
                       _error = null;
                     });
                     if (granted) {
-                      await ActressMytvBind.instance.ensureBound(
-                        refresh: true,
-                      );
+                      await ActressMytvBind.instance.ensureBound(refresh: true);
                       await _notifyLibraryChanged();
                     }
                     await _refresh();
@@ -1187,8 +1308,8 @@ class _ActressDbManagePageState extends State<ActressDbManagePage> {
                 OutlinedButton(
                   key: const ValueKey('dual-grant-file'),
                   onPressed: () async {
-                    final granted =
-                        await ActressMytvBind.instance.grantFileAccess();
+                    final granted = await ActressMytvBind.instance
+                        .grantFileAccess();
                     if (!mounted) return;
                     setState(() {
                       _message = granted
@@ -1197,9 +1318,7 @@ class _ActressDbManagePageState extends State<ActressDbManagePage> {
                       _error = null;
                     });
                     if (granted) {
-                      await ActressMytvBind.instance.ensureBound(
-                        refresh: true,
-                      );
+                      await ActressMytvBind.instance.ensureBound(refresh: true);
                       await _notifyLibraryChanged();
                     }
                     await _refresh();

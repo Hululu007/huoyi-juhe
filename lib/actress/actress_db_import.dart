@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
 
+import '../services/public_folder.dart';
 import 'actress_database.dart' show applyActressDbReadPragmas;
 import 'actress_db_source.dart';
 import 'actress_generic_db.dart';
@@ -181,17 +182,60 @@ class ActressDbImportService {
     ActressDbValidator? dbValidator,
     ActressSqlImporter? sqlImporter,
     ActressDbVersionChecker? dbVersionChecker,
+    Future<String> Function()? publicRootProvider,
   }) : _source = source ?? ActressDbSource.instance,
        _dbValidator = dbValidator ?? validateActressDbFile,
        _sqlImporter = sqlImporter ?? ActressSqlImporter(),
        _dbVersionChecker =
            dbVersionChecker ??
-           ((path) => checkActressDbFileVersion(path));
+           ((path) => checkActressDbFileVersion(path)),
+       _publicRootProvider = publicRootProvider ?? PublicFolder.publicRoot;
 
   final ActressDbSource _source;
   final ActressDbValidator _dbValidator;
   final ActressSqlImporter _sqlImporter;
   final ActressDbVersionChecker _dbVersionChecker;
+
+  /// 手机根目录提供者（MYTV/db 直读入口用；测试可注入）。
+  final Future<String> Function() _publicRootProvider;
+
+  /// MYTV/db 目录（手机根目录下，与站点库同一个 MYTV/db）。
+  ///
+  /// 大文件导入的正路（2026-11-28 同病同源补修）：系统文件选择器
+  /// （file_selector 安卓插件）在选文件时就把整个文件读进内存
+  /// 字节数组再过通道——901MB 的女优库 .db 在点选那一步就会把
+  /// 进程撑爆、闪退回桌面（站点库合并文件已真机实证）。MYTV/db
+  /// 里的文件有真实稳定路径，按路径直接流式导入：不经选择器、
+  /// 不拷收件文件、一字节不先进内存。
+  Future<Directory> mytvDbDirectory() async {
+    final root = await _publicRootProvider();
+    return Directory('$root/MYTV/db');
+  }
+
+  /// MYTV/db 里可导入的女优库/磁力库文件（.db/.sql/.sql.gz，
+  /// 按名排序）：只列目录取名字与大小，不读内容。目录不存在
+  /// 回空表。
+  Future<List<({String name, String path, int sizeBytes})>>
+  listMytvDbImportFiles() async {
+    final dir = await mytvDbDirectory();
+    if (!await dir.exists()) return const [];
+    final out = <({String name, String path, int sizeBytes})>[];
+    await for (final entity in dir.list()) {
+      if (entity is! File) continue;
+      final name = entity.uri.pathSegments.last;
+      final lower = name.toLowerCase();
+      if (!lower.endsWith('.db') &&
+          !lower.endsWith('.sql') &&
+          !lower.endsWith('.sql.gz')) {
+        continue;
+      }
+      out.add(
+        (name: name, path: entity.path, sizeBytes: await entity.length()),
+      );
+    }
+    out.sort((a, b) => a.name.compareTo(b.name));
+    return out;
+  }
 
   /// 导入一个本地文件（按后缀分路）到 imported 槽。
   ///
